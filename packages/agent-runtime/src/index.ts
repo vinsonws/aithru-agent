@@ -6,6 +6,7 @@ import type {
   AgentEngineRunInput,
   AgentEvent,
   AgentModelEvent,
+  AgentModelInput,
   AgentPlan,
   AgentPlanStep,
   AgentReviewResult,
@@ -21,18 +22,22 @@ async function emit(input: AgentEngineRunInput, event: AgentEvent) {
   await input.host.emit(event);
 }
 
-async function collectModelEvents(input: AgentEngineRunInput, mode: "classify" | "plan" | "execute" | "review", step?: AgentPlanStep) {
+async function collectModelEvents(
+  input: AgentEngineRunInput,
+  mode: "classify" | "plan" | "execute" | "review",
+  step?: AgentPlanStep,
+) {
   const tools = input.host.listTools ? await input.host.listTools() : undefined;
+  const modelInput: AgentModelInput = {
+    task: input.task,
+    mode,
+    ...(step ? { step } : {}),
+    ...(input.task.outputSchema !== undefined ? { outputSchema: input.task.outputSchema } : {}),
+    ...(tools ? { tools } : {}),
+  };
   const events: AgentModelEvent[] = [];
 
-  for await (const event of input.model.generate({
-    task: input.task,
-    plan: undefined,
-    step,
-    mode,
-    outputSchema: input.task.outputSchema,
-    tools,
-  })) {
+  for await (const event of input.model.generate(modelInput)) {
     events.push(event);
   }
 
@@ -92,14 +97,23 @@ function normalizePlanStep(value: unknown, index: number): AgentPlanStep {
           ? value.expectedOutput
           : "Complete this step.",
     ...(Array.isArray(value.allowedTools)
-      ? { allowedTools: value.allowedTools.filter((tool): tool is string => typeof tool === "string") }
+      ? {
+          allowedTools: value.allowedTools.filter(
+            (tool): tool is string => typeof tool === "string",
+          ),
+        }
       : {}),
     ...(typeof value.expectedOutput === "string" ? { expectedOutput: value.expectedOutput } : {}),
   };
 }
 
 function isPlan(value: unknown): value is AgentPlan {
-  return isObject(value) && typeof value.id === "string" && typeof value.taskId === "string" && Array.isArray(value.steps);
+  return (
+    isObject(value) &&
+    typeof value.id === "string" &&
+    typeof value.taskId === "string" &&
+    Array.isArray(value.steps)
+  );
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -119,7 +133,10 @@ function normalizeClassification(value: unknown): AgentClassificationResult {
   return { route: String(value ?? "default"), confidence: 0 };
 }
 
-async function createArtifact(input: AgentEngineRunInput, draft: AgentArtifactDraft): Promise<AgentArtifact> {
+async function createArtifact(
+  input: AgentEngineRunInput,
+  draft: AgentArtifactDraft,
+): Promise<AgentArtifact> {
   if (input.host.createArtifact) {
     return input.host.createArtifact(draft);
   }
@@ -139,20 +156,30 @@ export class ClassifyEngine implements AgentEngine {
     const events = await collectModelEvents(input, "classify");
     for (const event of events) {
       if (event.type === "text.delta") {
-        const agentEvent: AgentEvent = { type: "agent.model.delta", taskId: input.task.id, text: event.text };
+        const agentEvent: AgentEvent = {
+          type: "agent.model.delta",
+          taskId: input.task.id,
+          text: event.text,
+        };
         await emit(input, agentEvent);
         yield agentEvent;
       }
     }
 
-    const classification = normalizeClassification(firstStructuredOutput(events) ?? firstFinalOutput(events));
+    const classification = normalizeClassification(
+      firstStructuredOutput(events) ?? firstFinalOutput(events),
+    );
     const artifact = await createArtifact(input, {
       type: "decision",
       name: "classification",
       content: classification,
     });
 
-    const artifactEvent: AgentEvent = { type: "agent.artifact.created", taskId: input.task.id, artifact };
+    const artifactEvent: AgentEvent = {
+      type: "agent.artifact.created",
+      taskId: input.task.id,
+      artifact,
+    };
     await emit(input, artifactEvent);
     yield artifactEvent;
 
@@ -163,7 +190,11 @@ export class ClassifyEngine implements AgentEngine {
       metadata: { classification },
     };
 
-    const completedEvent: AgentEvent = { type: "agent.task.completed", taskId: input.task.id, output };
+    const completedEvent: AgentEvent = {
+      type: "agent.task.completed",
+      taskId: input.task.id,
+      output,
+    };
     await emit(input, completedEvent);
     yield completedEvent;
   }
@@ -180,34 +211,61 @@ export class PlanRunReviewEngine implements AgentEngine {
     yield planStarted;
 
     const planEvents = await collectModelEvents(input, "plan");
-    const plan = normalizePlan(input.task.id, firstStructuredOutput(planEvents) ?? firstFinalOutput(planEvents));
+    const plan = normalizePlan(
+      input.task.id,
+      firstStructuredOutput(planEvents) ?? firstFinalOutput(planEvents),
+    );
 
-    const planCompleted: AgentEvent = { type: "agent.plan.completed", taskId: input.task.id, plan };
+    const planCompleted: AgentEvent = {
+      type: "agent.plan.completed",
+      taskId: input.task.id,
+      plan,
+    };
     await emit(input, planCompleted);
     yield planCompleted;
 
     const artifacts: AgentArtifact[] = [];
 
     for (const step of plan.steps.slice(0, input.options?.maxSteps ?? plan.steps.length)) {
-      const stepStarted: AgentEvent = { type: "agent.step.started", taskId: input.task.id, stepId: step.id, step };
+      const stepStarted: AgentEvent = {
+        type: "agent.step.started",
+        taskId: input.task.id,
+        stepId: step.id,
+        step,
+      };
       await emit(input, stepStarted);
       yield stepStarted;
 
       const stepEvents = await collectModelEvents(input, "execute", step);
       for (const event of stepEvents) {
         if (event.type === "text.delta") {
-          const deltaEvent: AgentEvent = { type: "agent.model.delta", taskId: input.task.id, stepId: step.id, text: event.text };
+          const deltaEvent: AgentEvent = {
+            type: "agent.model.delta",
+            taskId: input.task.id,
+            stepId: step.id,
+            text: event.text,
+          };
           await emit(input, deltaEvent);
           yield deltaEvent;
         }
 
         if (event.type === "tool_call.proposed") {
-          const proposed: AgentEvent = { type: "agent.tool.proposed", taskId: input.task.id, stepId: step.id, request: event.toolCall };
+          const proposed: AgentEvent = {
+            type: "agent.tool.proposed",
+            taskId: input.task.id,
+            stepId: step.id,
+            request: event.toolCall,
+          };
           await emit(input, proposed);
           yield proposed;
 
           const result: AgentToolResult = await input.host.callTool(event.toolCall);
-          const completed: AgentEvent = { type: "agent.tool.completed", taskId: input.task.id, stepId: step.id, result };
+          const completed: AgentEvent = {
+            type: "agent.tool.completed",
+            taskId: input.task.id,
+            stepId: step.id,
+            result,
+          };
           await emit(input, completed);
           yield completed;
         }
@@ -222,7 +280,11 @@ export class PlanRunReviewEngine implements AgentEngine {
           sourceStepId: step.id,
         });
         artifacts.push(artifact);
-        const artifactEvent: AgentEvent = { type: "agent.artifact.created", taskId: input.task.id, artifact };
+        const artifactEvent: AgentEvent = {
+          type: "agent.artifact.created",
+          taskId: input.task.id,
+          artifact,
+        };
         await emit(input, artifactEvent);
         yield artifactEvent;
       }
@@ -235,21 +297,36 @@ export class PlanRunReviewEngine implements AgentEngine {
       yield reviewStarted;
 
       const reviewEvents = await collectModelEvents(input, "review");
-      review = normalizeReview(firstStructuredOutput(reviewEvents) ?? firstFinalOutput(reviewEvents));
-      const reviewCompleted: AgentEvent = { type: "agent.review.completed", taskId: input.task.id, review };
+      review = normalizeReview(
+        firstStructuredOutput(reviewEvents) ?? firstFinalOutput(reviewEvents),
+      );
+      const reviewCompleted: AgentEvent = {
+        type: "agent.review.completed",
+        taskId: input.task.id,
+        review,
+      };
       await emit(input, reviewCompleted);
       yield reviewCompleted;
     }
 
     const output: AgentTaskOutput = {
-      status: review?.status === "needs_rerun" ? "needs_rerun" : review?.status === "failed" ? "failed" : "completed",
+      status:
+        review?.status === "needs_rerun"
+          ? "needs_rerun"
+          : review?.status === "failed"
+            ? "failed"
+            : "completed",
       summary: review?.summary ?? "Agent task completed.",
       plan,
       artifacts,
       ...(review ? { review } : {}),
     };
 
-    const completedEvent: AgentEvent = { type: "agent.task.completed", taskId: input.task.id, output };
+    const completedEvent: AgentEvent = {
+      type: "agent.task.completed",
+      taskId: input.task.id,
+      output,
+    };
     await emit(input, completedEvent);
     yield completedEvent;
   }
@@ -257,18 +334,26 @@ export class PlanRunReviewEngine implements AgentEngine {
 
 function normalizeReview(value: unknown): AgentReviewResult {
   if (isObject(value)) {
-    const status = value.status === "needs_rerun" || value.status === "failed" ? value.status : "passed";
+    const status =
+      value.status === "needs_rerun" || value.status === "failed" ? value.status : "passed";
     return {
       status,
       ...(typeof value.summary === "string" ? { summary: value.summary } : {}),
       ...(Array.isArray(value.issues)
-        ? { issues: value.issues.filter((issue): issue is string => typeof issue === "string") }
+        ? {
+            issues: value.issues.filter(
+              (issue): issue is string => typeof issue === "string",
+            ),
+          }
         : {}),
       ...(isObject(value.metadata) ? { metadata: value.metadata } : {}),
     };
   }
 
-  return { status: "passed", summary: typeof value === "string" ? value : undefined };
+  return {
+    status: "passed",
+    ...(typeof value === "string" ? { summary: value } : {}),
+  };
 }
 
 export type AgentRuntimeOptions = {
