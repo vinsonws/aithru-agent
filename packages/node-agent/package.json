@@ -1,0 +1,35 @@
+{
+  "name": "@aithru/node-agent",
+  "version": "0.1.0-alpha.0",
+  "description": "Workflow node integration surface for Aithru Agent.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aithru/agent-core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@aithru/node-sdk": ">=0.15.0-rc.0",
+    "@aithru/runtime-core": ">=0.15.0-rc.0"
+  },
+  "peerDependenciesMeta": {
+    "@aithru/node-sdk": {
+      "optional": true
+    },
+    "@aithru/runtime-core": {
+      "optional": true
+    }
+  }
+}
