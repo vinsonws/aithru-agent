@@ -10,6 +10,8 @@
     "build": "pnpm -r --workspace-concurrency=1 build",
     "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
     "test": "pnpm -r test",
+    "example:classify": "pnpm build && tsx examples/standalone-classify.ts",
+    "example:plan-run-review": "pnpm build && tsx examples/standalone-plan-run-review.ts",
     "format": "prettier --write ."
   },
   "devDependencies": {
