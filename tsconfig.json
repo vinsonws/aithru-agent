@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/agent-core" },
+    { "path": "./packages/model-test" },
+    { "path": "./packages/agent-runtime" },
+    { "path": "./packages/node-agent" }
+  ]
+}
