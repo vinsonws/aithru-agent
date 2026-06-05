@@ -1,4 +1,4 @@
-import type { AgentEvent } from "@aithru/agent-core";
+import type { AgentTraceEvent } from "@aithru/agent-core";
 import { createStaticStructuredModel } from "@aithru/agent-model-test";
 import { registerCoreNodes } from "@aithru/nodes-core";
 import { InMemoryNodeRegistry } from "@aithru/runtime-core";
@@ -91,11 +91,16 @@ describe("Aithru Core workflow integration", () => {
 
     const agentEvents = result.events
       .filter((event) => event.type === "log.info")
-      .map((event) => event.payload as AgentEvent);
-    expect(agentEvents.map((event) => event.type)).toEqual([
+      .map((event) => event.payload as AgentTraceEvent);
+    expect(agentEvents.map((event) => event.agentEventType)).toEqual([
       "agent.task.created",
       "agent.artifact.created",
       "agent.task.completed",
+    ]);
+    expect(agentEvents.map((event) => event.kind)).toEqual([
+      "agent.task",
+      "agent.artifact",
+      "agent.task",
     ]);
   });
 });

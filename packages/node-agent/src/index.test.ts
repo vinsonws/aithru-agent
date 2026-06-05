@@ -1,7 +1,7 @@
 import type {
-  AgentEvent,
   AgentModelEvent,
   AgentModelInput,
+  AgentTraceEvent,
   AgentToolRequest,
 } from "@aithru/agent-core";
 import { ScriptedModelAdapter, createStaticStructuredModel } from "@aithru/agent-model-test";
@@ -55,7 +55,11 @@ function createContext(options: { callTool?: NodeExecutionContext["callTool"] } 
 }
 
 function agentEventTypes(emitted: ExecutionEventInput[]) {
-  return emitted.map((event) => (event.payload as AgentEvent).type);
+  return agentTraceEvents(emitted).map((event) => event.agentEventType);
+}
+
+function agentTraceEvents(emitted: ExecutionEventInput[]) {
+  return emitted.map((event) => event.payload as AgentTraceEvent);
 }
 
 function createModeModel(eventsByMode: Partial<Record<AgentModelInput["mode"], AgentModelEvent[]>>) {
@@ -191,6 +195,22 @@ describe("agent.classify node", () => {
       "agent.artifact.created",
       "agent.task.completed",
     ]);
+    expect(
+      agentTraceEvents(emitted).map((event) => ({
+        kind: event.kind,
+        phase: event.phase,
+      })),
+    ).toEqual([
+      { kind: "agent.task", phase: "created" },
+      { kind: "agent.artifact", phase: "created" },
+      { kind: "agent.task", phase: "completed" },
+    ]);
+    expect(emitted[0]?.metadata).toMatchObject({
+      agentEventType: "agent.task.created",
+      agentTraceKind: "agent.task",
+      agentTracePhase: "created",
+    });
+    expect(agentTraceEvents(emitted)[0]?.payload.type).toBe("agent.task.created");
   });
 
   test("fails clearly when the classify runtime task fails", async () => {
@@ -303,7 +323,9 @@ describe("agent.task node", () => {
           review: reviewPassedEvents(),
         }),
     });
-    const { ctx } = createContext({ callTool: callTool as NodeExecutionContext["callTool"] });
+    const { ctx, emitted } = createContext({
+      callTool: callTool as NodeExecutionContext["callTool"],
+    });
 
     const result = await node.execute(ctx, {}, { goal: "Read the README." });
 
@@ -321,6 +343,39 @@ describe("agent.task node", () => {
     expect(result.output).toMatchObject({
       status: "completed",
       summary: "The task completed successfully.",
+    });
+
+    const toolTraces = agentTraceEvents(emitted).filter(
+      (event) => event.kind === "agent.tool",
+    );
+    expect(
+      toolTraces.map((event) => ({
+        agentEventType: event.agentEventType,
+        phase: event.phase,
+        stepId: event.stepId,
+        toolName: event.toolName,
+      })),
+    ).toEqual([
+      {
+        agentEventType: "agent.tool.proposed",
+        phase: "proposed",
+        stepId: "step_read",
+        toolName: "repo.read",
+      },
+      {
+        agentEventType: "agent.tool.completed",
+        phase: "completed",
+        stepId: "step_read",
+        toolName: "repo.read",
+      },
+    ]);
+    expect(
+      emitted.find((event) => event.metadata?.agentEventType === "agent.tool.proposed")
+        ?.metadata,
+    ).toMatchObject({
+      agentEventType: "agent.tool.proposed",
+      agentTraceKind: "agent.tool",
+      agentTracePhase: "proposed",
     });
   });
 

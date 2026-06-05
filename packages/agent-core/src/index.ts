@@ -180,6 +180,37 @@ export type AgentEvent =
   | { type: "agent.task.completed"; taskId: string; output: AgentTaskOutput }
   | { type: "agent.task.failed"; taskId: string; error: AgentError };
 
+export type AgentTraceEventKind =
+  | "agent.task"
+  | "agent.plan"
+  | "agent.step"
+  | "agent.model"
+  | "agent.tool"
+  | "agent.artifact"
+  | "agent.review"
+  | "agent.error";
+
+export type AgentTraceEventPhase =
+  | "created"
+  | "started"
+  | "proposed"
+  | "completed"
+  | "failed"
+  | "delta";
+
+export type AgentTraceEvent = {
+  kind: AgentTraceEventKind;
+  phase: AgentTraceEventPhase;
+  agentEventType: AgentEvent["type"];
+  taskId?: string;
+  stepId?: string;
+  toolName?: string;
+  artifactId?: string;
+  errorCode?: string;
+  summary?: string;
+  payload: AgentEvent;
+};
+
 export type AgentTaskOutput = {
   status: "completed" | "failed" | "needs_rerun";
   summary: string;
@@ -243,3 +274,134 @@ export type AgentEngineRunInput = {
   host: AgentHost;
   options?: AgentRunOptions;
 };
+
+export function agentTraceEventFromAgentEvent(event: AgentEvent): AgentTraceEvent {
+  switch (event.type) {
+    case "agent.task.created":
+      return {
+        kind: "agent.task",
+        phase: "created",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        summary: event.task.goal,
+        payload: event,
+      };
+
+    case "agent.task.completed":
+      return {
+        kind: "agent.task",
+        phase: "completed",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        summary: event.output.summary,
+        payload: event,
+      };
+
+    case "agent.task.failed":
+      return {
+        kind: "agent.error",
+        phase: "failed",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        errorCode: event.error.code,
+        summary: event.error.message,
+        payload: event,
+      };
+
+    case "agent.plan.started":
+      return {
+        kind: "agent.plan",
+        phase: "started",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        payload: event,
+      };
+
+    case "agent.plan.completed":
+      return {
+        kind: "agent.plan",
+        phase: "completed",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        summary: `${event.plan.steps.length} step(s) planned`,
+        payload: event,
+      };
+
+    case "agent.step.started":
+      return {
+        kind: "agent.step",
+        phase: "started",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        stepId: event.stepId,
+        ...(event.step?.objective ? { summary: event.step.objective } : {}),
+        payload: event,
+      };
+
+    case "agent.model.delta":
+      return {
+        kind: "agent.model",
+        phase: "delta",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        ...(event.stepId ? { stepId: event.stepId } : {}),
+        summary: event.text,
+        payload: event,
+      };
+
+    case "agent.tool.proposed":
+      return {
+        kind: "agent.tool",
+        phase: "proposed",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        ...(event.stepId ? { stepId: event.stepId } : {}),
+        toolName: event.request.toolName,
+        ...(event.request.reason ? { summary: event.request.reason } : {}),
+        payload: event,
+      };
+
+    case "agent.tool.completed":
+      return {
+        kind: "agent.tool",
+        phase: "completed",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        ...(event.stepId ? { stepId: event.stepId } : {}),
+        toolName: event.result.toolName,
+        ...(event.result.error ? { errorCode: event.result.error.code } : {}),
+        ...(event.result.error ? { summary: event.result.error.message } : {}),
+        payload: event,
+      };
+
+    case "agent.artifact.created":
+      return {
+        kind: "agent.artifact",
+        phase: "created",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        artifactId: event.artifact.id,
+        ...(event.artifact.name ? { summary: event.artifact.name } : {}),
+        payload: event,
+      };
+
+    case "agent.review.started":
+      return {
+        kind: "agent.review",
+        phase: "started",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        payload: event,
+      };
+
+    case "agent.review.completed":
+      return {
+        kind: "agent.review",
+        phase: "completed",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        ...(event.review.summary ? { summary: event.review.summary } : {}),
+        payload: event,
+      };
+  }
+}

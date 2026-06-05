@@ -10,6 +10,7 @@ This package defines Agent types and interfaces only. It does not call models, e
 - AgentPlan
 - AgentRun
 - AgentEvent
+- AgentTraceEvent
 - AgentHost
 - AgentEngine
 - AgentModelAdapter

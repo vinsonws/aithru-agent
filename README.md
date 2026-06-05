@@ -87,6 +87,21 @@ Runtime engines treat model, tool, and artifact failures as task failures:
 
 For all runtime events, including failures, `AgentHost.emit(event)` and yielded events remain identical and ordered.
 
+## Agent Trace Events
+
+`AgentEvent` is the runtime event shape emitted by Agent engines.
+`AgentTraceEvent` is an additive, provider-neutral trace-consumption view for Aithru Core integrations and future UI trace viewers.
+It groups events by stable `kind` and `phase` fields while preserving the full original `AgentEvent` in `payload`.
+
+`@aithru/node-agent` currently bridges Agent events into Aithru Core execution events as `log.info` events.
+Those core events use `AgentTraceEvent` as the payload and include filter-friendly metadata:
+
+- `agentEventType`
+- `agentTraceKind`
+- `agentTracePhase`
+
+This trace shape does not make `aithru-agent` a workflow engine. Formal workflow execution still belongs to `aithru-core`.
+
 ## Install
 
 ```bash
@@ -109,7 +124,7 @@ pnpm example:workflow-node-agent
 
 `pnpm typecheck` checks package sources, tests, and examples without emitting build output.
 `pnpm build` emits package `dist` output and excludes `*.test.ts` files.
-`pnpm test` now runs real Vitest coverage for `@aithru/agent-model-test`, `@aithru/agent-model-openai-compatible`, `@aithru/agent-runtime`, and `@aithru/node-agent`; `@aithru/agent-core` remains a contract/type package with no runtime tests yet.
+`pnpm test` now runs real Vitest coverage for `@aithru/agent-core`, `@aithru/agent-model-test`, `@aithru/agent-model-openai-compatible`, `@aithru/agent-runtime`, and `@aithru/node-agent`.
 
 ## Examples
 
@@ -194,9 +209,10 @@ Implemented in this initial scaffold:
 - `@aithru/agent-runtime` minimal classify and plan-run-review engines;
 - complete `AgentEngine.run()` event streams where `host.emit(event)` and `yield event` receive the same ordered events;
 - `AgentRuntime.runTask()` for directly collecting the final `AgentTaskOutput` or throwing `AgentTaskFailedError` on `agent.task.failed`;
+- `AgentTraceEvent` taxonomy and `agentTraceEventFromAgentEvent(...)` for stable trace consumption;
 - `@aithru/node-agent` `NodeDefinition` factories for `agent.classify` and `agent.task`, with host-injected model resolution and tool bridging through core `ctx.callTool`;
 - standalone examples;
-- minimal Vitest tests for scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, runtime failure semantics, `AgentRuntime.runTask()`, node-agent factories, node runtime binding, tool bridging, and LocalRuntime workflow integration.
+- minimal Vitest tests for trace event mapping, scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, runtime failure semantics, `AgentRuntime.runTask()`, node-agent factories, node runtime binding, trace bridging, tool bridging, and LocalRuntime workflow integration.
 
 Repository setup:
 

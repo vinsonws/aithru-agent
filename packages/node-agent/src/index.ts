@@ -13,6 +13,7 @@ import type {
   AgentToolRequest,
   AgentToolResult,
 } from "@aithru/agent-core";
+import { agentTraceEventFromAgentEvent } from "@aithru/agent-core";
 import { AgentRuntime } from "@aithru/agent-runtime";
 import { defineNode } from "@aithru/node-sdk";
 import type {
@@ -290,14 +291,18 @@ async function emitAgentEvent(
   ctx: NodeExecutionContext,
   event: AgentEvent,
 ): Promise<void> {
+  const trace = agentTraceEventFromAgentEvent(event);
+
   await ctx.emit({
     type: "log.info",
     runId: ctx.runId,
     workflowId: ctx.workflowId,
     nodeId: ctx.nodeId,
-    payload: event,
+    payload: trace,
     metadata: {
       agentEventType: event.type,
+      agentTraceKind: trace.kind,
+      agentTracePhase: trace.phase,
     },
   });
 }

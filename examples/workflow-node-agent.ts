@@ -1,4 +1,4 @@
-import type { AgentEvent } from "@aithru/agent-core";
+import type { AgentTraceEvent } from "@aithru/agent-core";
 import { createStaticStructuredModel } from "@aithru/agent-model-test";
 import {
   AGENT_CLASSIFY_NODE_TYPE,
@@ -67,7 +67,7 @@ const result = await runtime.run({
 
 const agentEvents = result.events
   .filter((event) => event.type === "log.info")
-  .map((event) => event.payload as AgentEvent);
+  .map((event) => event.payload as AgentTraceEvent);
 const artifactEvents = result.events.filter((event) => event.type === "artifact.created");
 
 console.log(JSON.stringify({
@@ -78,7 +78,7 @@ console.log(JSON.stringify({
 
 console.log("agent events:");
 for (const event of agentEvents) {
-  console.log(event.type);
+  console.log(event.agentEventType);
 }
 
 console.log("artifacts:");

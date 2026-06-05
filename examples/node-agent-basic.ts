@@ -1,3 +1,4 @@
+import type { AgentTraceEvent } from "@aithru/agent-core";
 import type {
   ExecutionEventInput,
   NodeDefinition,
@@ -119,8 +120,8 @@ const ctx: NodeExecutionContext = {
   nodeId: "agent_node",
   async emit(event) {
     emitted.push(event);
-    const agentEvent = event.payload as { type?: string };
-    console.log(agentEvent.type ?? event.type);
+    const trace = event.payload as Partial<AgentTraceEvent>;
+    console.log(trace.agentEventType ?? event.type);
   },
   async getSecret() {
     throw new Error("This example does not use secrets.");

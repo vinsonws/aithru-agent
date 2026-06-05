@@ -57,7 +57,9 @@ Agent runtime tool calls are bridged through `NodeExecutionContext.callTool`.
 Model adapters do not execute tools, and node definitions do not execute tools directly.
 If an agent task proposes a tool call and the context does not provide `callTool`, node execution fails with a clear error.
 
-Agent runtime events are emitted through `ctx.emit(...)` as core `log.info` events with the original `AgentEvent` preserved as the payload and `metadata.agentEventType` set for filtering.
+Agent runtime events are emitted through `ctx.emit(...)` as core `log.info` events.
+The payload is an `AgentTraceEvent` with the original `AgentEvent` preserved at `payload.payload`.
+Metadata includes `agentEventType`, `agentTraceKind`, and `agentTracePhase` for filtering.
 
 ## Boundary
 
