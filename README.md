@@ -128,6 +128,31 @@ The root package declares local workspace dependencies for these examples so imp
 `example:workflow-node-agent` demonstrates a formal Aithru Core `WorkflowSpec` running through `LocalRuntime` with `core.manualTrigger -> agent.classify`.
 The standalone runtime examples remain the default examples for runtime-only behavior.
 
+## Optional Real-Provider Example
+
+`example:openai-compatible-classify` demonstrates a manual, opt-in classify task using `@aithru/agent-model-openai-compatible`.
+It is not part of required verification because it can make a real network call.
+
+Required environment variables:
+
+- `AITHRU_OPENAI_COMPATIBLE_BASE_URL`
+- `AITHRU_OPENAI_COMPATIBLE_MODEL`
+
+Optional environment variable:
+
+- `AITHRU_OPENAI_COMPATIBLE_API_KEY`
+
+If the required variables are missing, the example prints a skip message and exits successfully without a network call.
+
+```bash
+AITHRU_OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com/v1 \
+AITHRU_OPENAI_COMPATIBLE_MODEL=deepseek-chat \
+AITHRU_OPENAI_COMPATIBLE_API_KEY=... \
+pnpm example:openai-compatible-classify
+```
+
+The example uses a host whose `callTool` throws if invoked. Model adapters may propose tool calls, but actual tool execution remains in `AgentRuntime` through `AgentHost.callTool`.
+
 ## Aithru Core Workflow Integration
 
 `@aithru/node-agent` can be registered into an Aithru Core `NodeRegistry` and run by Aithru Core runtime composition. The agent package does not own `WorkflowSpec`; formal workflow validation and execution remain in `aithru-core`.
