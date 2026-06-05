@@ -15,9 +15,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
     "@aithru/agent-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@aithru/model-test": "workspace:*"
   }
 }

@@ -65,7 +65,13 @@ pnpm install
 pnpm typecheck
 pnpm build
 pnpm test
+pnpm example:classify
+pnpm example:plan-run-review
 ```
+
+`pnpm typecheck` checks package sources, tests, and examples without emitting build output.
+`pnpm build` emits package `dist` output and excludes `*.test.ts` files.
+`pnpm test` now runs real Vitest coverage for `@aithru/model-test` and `@aithru/agent-runtime`; `@aithru/agent-core` and `@aithru/node-agent` remain contract/type packages with no runtime tests yet.
 
 ## Examples
 
@@ -75,6 +81,7 @@ pnpm example:plan-run-review
 ```
 
 The examples use `@aithru/model-test`, so they do not call a real model provider.
+The root package declares local workspace dependencies for these examples so imports stay at package roots.
 
 ## Current Scope
 
@@ -86,7 +93,12 @@ Implemented in this initial scaffold:
 - `@aithru/model-test` scripted model adapter;
 - `@aithru/agent-runtime` minimal classify and plan-run-review engines;
 - `@aithru/node-agent` node integration constants and config/output types;
-- standalone examples.
+- standalone examples;
+- minimal Vitest tests for scripted model events, static model helpers, classification completion, and plan-run-review tool execution through `AgentHost.callTool`.
+
+Repository setup:
+
+- `.npmrc` disables pnpm peer auto-install so optional future `@aithru/node-agent` peers are not fetched during this V0 workspace verification.
 
 Not implemented yet:
 

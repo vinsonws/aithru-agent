@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "paths": {
+      "@aithru/agent-core": ["./packages/agent-core/src/index.ts"],
+      "@aithru/agent-runtime": ["./packages/agent-runtime/src/index.ts"],
+      "@aithru/model-test": ["./packages/model-test/src/index.ts"],
+      "@aithru/node-agent": ["./packages/node-agent/src/index.ts"]
+    },
+    "rootDir": ".",
+    "sourceMap": false
+  },
+  "include": ["examples/**/*.ts", "packages/*/src/**/*.ts"]
+}
