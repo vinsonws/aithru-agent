@@ -32,6 +32,25 @@ import {
 - `createAgentTaskNode(binding)` creates the `agent.task@0.1.0` `NodeDefinition`.
 - `registerAgentNodes(registry, binding)` registers both nodes in an Aithru Core `NodeRegistry`.
 
+Typical runtime composition is app-owned:
+
+```ts
+import { registerCoreNodes } from "@aithru/nodes-core";
+import { InMemoryNodeRegistry } from "@aithru/runtime-core";
+import { LocalRuntime } from "@aithru/runtime-local";
+import { registerAgentNodes } from "@aithru/node-agent";
+
+const registry = new InMemoryNodeRegistry();
+registerCoreNodes(registry);
+registerAgentNodes(registry, {
+  resolveModel(input) {
+    return chooseModelAdapter(input);
+  },
+});
+
+const runtime = new LocalRuntime({ registry });
+```
+
 ## Tool Bridge
 
 Agent runtime tool calls are bridged through `NodeExecutionContext.callTool`.
@@ -45,3 +64,4 @@ Agent runtime events are emitted through `ctx.emit(...)` as core `log.info` even
 - Formal workflow graph belongs to `aithru-core`.
 - Intelligent execution belongs to `aithru-agent`.
 - This package bridges them.
+- `@aithru/node-agent` does not own workflow execution; Aithru Core runtimes such as `LocalRuntime` execute `WorkflowSpec`.

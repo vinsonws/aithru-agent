@@ -2,4 +2,6 @@ packages:
   - "packages/*"
   - "../aithru-core/packages/spec"
   - "../aithru-core/packages/runtime-core"
+  - "../aithru-core/packages/runtime-local"
   - "../aithru-core/packages/node-sdk"
+  - "../aithru-core/packages/nodes-core"

@@ -26,9 +26,18 @@ importers:
       '@aithru/node-sdk':
         specifier: workspace:*
         version: link:../aithru-core/packages/node-sdk
+      '@aithru/nodes-core':
+        specifier: workspace:*
+        version: link:../aithru-core/packages/nodes-core
       '@aithru/runtime-core':
         specifier: workspace:*
         version: link:../aithru-core/packages/runtime-core
+      '@aithru/runtime-local':
+        specifier: workspace:*
+        version: link:../aithru-core/packages/runtime-local
+      '@aithru/spec':
+        specifier: workspace:*
+        version: link:../aithru-core/packages/spec
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.1
@@ -58,12 +67,47 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@25.9.1)
 
+  ../aithru-core/packages/nodes-core:
+    dependencies:
+      '@aithru/node-sdk':
+        specifier: workspace:*
+        version: link:../node-sdk
+      '@aithru/runtime-core':
+        specifier: workspace:*
+        version: link:../runtime-core
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
+
   ../aithru-core/packages/runtime-core:
     dependencies:
       '@aithru/spec':
         specifier: workspace:*
         version: link:../spec
     devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
+
+  ../aithru-core/packages/runtime-local:
+    dependencies:
+      '@aithru/runtime-core':
+        specifier: workspace:*
+        version: link:../runtime-core
+      '@aithru/spec':
+        specifier: workspace:*
+        version: link:../spec
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -123,9 +167,18 @@ importers:
       '@aithru/node-sdk':
         specifier: workspace:*
         version: link:../../../aithru-core/packages/node-sdk
+      '@aithru/nodes-core':
+        specifier: workspace:*
+        version: link:../../../aithru-core/packages/nodes-core
       '@aithru/runtime-core':
         specifier: workspace:*
         version: link:../../../aithru-core/packages/runtime-core
+      '@aithru/runtime-local':
+        specifier: workspace:*
+        version: link:../../../aithru-core/packages/runtime-local
+      '@aithru/spec':
+        specifier: workspace:*
+        version: link:../../../aithru-core/packages/spec
 
 packages:
 

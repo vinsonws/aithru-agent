@@ -25,7 +25,10 @@
   "devDependencies": {
     "@aithru/agent-model-test": "workspace:*",
     "@aithru/node-sdk": "workspace:*",
-    "@aithru/runtime-core": "workspace:*"
+    "@aithru/nodes-core": "workspace:*",
+    "@aithru/runtime-core": "workspace:*",
+    "@aithru/runtime-local": "workspace:*",
+    "@aithru/spec": "workspace:*"
   },
   "peerDependencies": {
     "@aithru/node-sdk": ">=0.15.0-rc.0",

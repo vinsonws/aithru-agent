@@ -13,6 +13,7 @@
     "example:classify": "pnpm build && tsx examples/standalone-classify.ts",
     "example:plan-run-review": "pnpm build && tsx examples/standalone-plan-run-review.ts",
     "example:node-agent-basic": "pnpm build && NODE_OPTIONS=--conditions=development tsx examples/node-agent-basic.ts",
+    "example:workflow-node-agent": "pnpm build && NODE_OPTIONS=--conditions=development tsx examples/workflow-node-agent.ts",
     "format": "prettier --write ."
   },
   "devDependencies": {
@@ -22,7 +23,10 @@
     "@aithru/agent-model-test": "workspace:*",
     "@aithru/node-agent": "workspace:*",
     "@aithru/node-sdk": "workspace:*",
+    "@aithru/nodes-core": "workspace:*",
+    "@aithru/runtime-local": "workspace:*",
     "@aithru/runtime-core": "workspace:*",
+    "@aithru/spec": "workspace:*",
     "@types/node": "^25.9.1",
     "prettier": "^3.4.2",
     "tsx": "^4.22.4",

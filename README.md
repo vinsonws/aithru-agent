@@ -104,6 +104,7 @@ pnpm test
 pnpm example:classify
 pnpm example:plan-run-review
 pnpm example:node-agent-basic
+pnpm example:workflow-node-agent
 ```
 
 `pnpm typecheck` checks package sources, tests, and examples without emitting build output.
@@ -116,13 +117,45 @@ pnpm example:node-agent-basic
 pnpm example:classify
 pnpm example:plan-run-review
 pnpm example:node-agent-basic
+pnpm example:workflow-node-agent
 ```
 
 The examples use `@aithru/agent-model-test`, so they do not call a real model provider by default.
 `@aithru/agent-model-openai-compatible` is implemented for real OpenAI-compatible providers, but it is not used by the default examples.
 The root package declares local workspace dependencies for these examples so imports stay at package roots.
 `example:classify` demonstrates both the event stream API and `runTask`; `example:plan-run-review` demonstrates the full plan/run/review event stream with tool execution through `AgentHost.callTool`.
-`example:node-agent-basic` demonstrates registering `agent.classify` and `agent.task` NodeDefinitions and executing them directly with a deterministic test model; the standalone runtime examples remain the default examples for runtime-only behavior.
+`example:node-agent-basic` demonstrates registering `agent.classify` and `agent.task` NodeDefinitions and executing them directly with a deterministic test model.
+`example:workflow-node-agent` demonstrates a formal Aithru Core `WorkflowSpec` running through `LocalRuntime` with `core.manualTrigger -> agent.classify`.
+The standalone runtime examples remain the default examples for runtime-only behavior.
+
+## Aithru Core Workflow Integration
+
+`@aithru/node-agent` can be registered into an Aithru Core `NodeRegistry` and run by Aithru Core runtime composition. The agent package does not own `WorkflowSpec`; formal workflow validation and execution remain in `aithru-core`.
+
+For local development, the Aithru Core public packages must be available beside this repository. The expected parent workspace layout is:
+
+```txt
+vinsonws/
+  aithru-core/
+  aithru-agent/
+  pnpm-workspace.yaml
+```
+
+The parent `pnpm-workspace.yaml` should include both package sets:
+
+```yaml
+packages:
+  - "aithru-core/packages/*"
+  - "aithru-agent/packages/*"
+```
+
+With those packages available, run:
+
+```bash
+pnpm example:workflow-node-agent
+```
+
+The example uses `@aithru/runtime-local`, `@aithru/nodes-core`, and `@aithru/agent-model-test`. It does not call a real model provider or the network.
 
 ## Current Scope
 
@@ -138,7 +171,7 @@ Implemented in this initial scaffold:
 - `AgentRuntime.runTask()` for directly collecting the final `AgentTaskOutput` or throwing `AgentTaskFailedError` on `agent.task.failed`;
 - `@aithru/node-agent` `NodeDefinition` factories for `agent.classify` and `agent.task`, with host-injected model resolution and tool bridging through core `ctx.callTool`;
 - standalone examples;
-- minimal Vitest tests for scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, runtime failure semantics, `AgentRuntime.runTask()`, node-agent factories, node runtime binding, and tool bridging.
+- minimal Vitest tests for scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, runtime failure semantics, `AgentRuntime.runTask()`, node-agent factories, node runtime binding, tool bridging, and LocalRuntime workflow integration.
 
 Repository setup:
 
