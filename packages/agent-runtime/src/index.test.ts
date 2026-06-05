@@ -8,16 +8,21 @@ import type {
   AgentModelAdapter,
   AgentModelEvent,
   AgentModelInput,
+  AgentResearchReport,
   AgentTask,
   AgentToolRequest,
   AgentToolResult,
 } from "@aithru/agent-core";
-import { ScriptedModelAdapter, createStaticStructuredModel } from "@aithru/agent-model-test";
+import {
+  ScriptedModelAdapter,
+  createStaticStructuredModel,
+} from "@aithru/agent-model-test";
 import { describe, expect, test, vi } from "vitest";
 import {
   AgentRuntime,
   AgentTaskFailedError,
   ClassifyEngine,
+  DeepResearchEngine,
   PlanRunReviewEngine,
 } from "./index.js";
 
@@ -66,7 +71,10 @@ function createHost(
   return { emitted, host, callTool };
 }
 
-function expectEmittedToMatchYielded(emitted: AgentEvent[], yielded: AgentEvent[]) {
+function expectEmittedToMatchYielded(
+  emitted: AgentEvent[],
+  yielded: AgentEvent[],
+) {
   expect(emitted).toEqual(yielded);
 }
 
@@ -161,7 +169,9 @@ describe("ClassifyEngine", () => {
       "agent.artifact.created",
       "agent.task.completed",
     ]);
-    expect(emitted.map((event) => event.type)).toEqual(events.map((event) => event.type));
+    expect(emitted.map((event) => event.type)).toEqual(
+      events.map((event) => event.type),
+    );
     expect(events.at(-1)).toMatchObject({
       type: "agent.task.completed",
       taskId: "task_classify",
@@ -296,10 +306,12 @@ describe("PlanRunReviewEngine", () => {
         content: "# README",
       },
     };
-    const callTool = vi.fn(async (request: AgentToolRequest): Promise<AgentToolResult> => {
-      expect(request).toEqual(toolCall);
-      return toolResult;
-    });
+    const callTool = vi.fn(
+      async (request: AgentToolRequest): Promise<AgentToolResult> => {
+        expect(request).toEqual(toolCall);
+        return toolResult;
+      },
+    );
     const { emitted, host } = createHost({ callTool });
     const model = new ScriptedModelAdapter({
       events(input) {
@@ -378,16 +390,22 @@ describe("PlanRunReviewEngine", () => {
       "agent.review.completed",
       "agent.task.completed",
     ]);
-    expect(emitted.map((event) => event.type)).toEqual(events.map((event) => event.type));
+    expect(emitted.map((event) => event.type)).toEqual(
+      events.map((event) => event.type),
+    );
     expect(callTool).toHaveBeenCalledTimes(1);
     expect(callTool).toHaveBeenCalledWith(toolCall);
-    expect(events.find((event) => event.type === "agent.tool.completed")).toMatchObject({
+    expect(
+      events.find((event) => event.type === "agent.tool.completed"),
+    ).toMatchObject({
       type: "agent.tool.completed",
       result: toolResult,
     });
 
     const artifactEvent = events.find(
-      (event): event is Extract<AgentEvent, { type: "agent.artifact.created" }> =>
+      (
+        event,
+      ): event is Extract<AgentEvent, { type: "agent.artifact.created" }> =>
         event.type === "agent.artifact.created",
     );
     expect(artifactEvent?.artifact).toEqual<AgentArtifact>({
@@ -641,6 +659,407 @@ describe("PlanRunReviewEngine", () => {
   });
 });
 
+describe("DeepResearchEngine", () => {
+  test("yields the same ordered events sent to AgentHost.emit while tools go through AgentHost.callTool", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research",
+      goal: "Research the Aithru Agent runtime boundaries.",
+    };
+    const source = {
+      id: "source_readme",
+      title: "README",
+      uri: "memory://README.md",
+      content: "Aithru Agent owns intelligent execution inside bounded tasks.",
+    };
+    const finding = {
+      id: "finding_boundary",
+      claim:
+        "Aithru Agent stays inside bounded agent tasks and does not own WorkflowSpec.",
+      sourceIds: [source.id],
+      confidence: 0.94,
+    };
+    const report: AgentResearchReport = {
+      title: "Aithru Agent Runtime Boundaries",
+      summary:
+        "Aithru Agent owns bounded intelligent execution, while formal workflows stay in aithru-core.",
+      findings: [finding],
+      sources: [source],
+      limitations: ["No external network source was used."],
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_read_readme",
+      toolName: "local.readSource",
+      arguments: { id: "source_readme" },
+      reason: "Use a fake local source for deterministic research.",
+      stepId: "step_collect_boundary",
+      riskLevel: "read",
+    };
+    const toolResult: AgentToolResult = {
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: source,
+    };
+    const callTool = vi.fn(
+      async (request: AgentToolRequest): Promise<AgentToolResult> => {
+        expect(request).toEqual(toolCall);
+        return toolResult;
+      },
+    );
+    const { emitted, host } = createHost({ callTool });
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                id: "plan_deep_research",
+                taskId: task.id,
+                steps: [
+                  {
+                    id: "step_collect_boundary",
+                    title: "Collect boundary source",
+                    objective:
+                      "Collect a deterministic local source about runtime boundaries.",
+                    allowedTools: ["local.readSource"],
+                  },
+                ],
+              },
+            },
+          ];
+        }
+
+        if (input.mode === "execute" && input.step) {
+          return [
+            {
+              type: "tool_call.proposed",
+              toolCall,
+            },
+            {
+              type: "final",
+              output: {
+                summary: "Collected one local source.",
+                sources: [source],
+                findings: [finding],
+              },
+            },
+          ];
+        }
+
+        if (input.mode === "execute") {
+          return [
+            {
+              type: "structured.output",
+              value: report,
+            },
+          ];
+        }
+
+        if (input.mode === "review") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                status: "passed",
+                summary:
+                  "Research report is grounded in the collected local source.",
+              },
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    const events = await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+        options: {
+          maxSteps: 1,
+          maxSources: 1,
+          review: true,
+        },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.tool.completed",
+      "agent.artifact.created",
+      "agent.review.started",
+      "agent.review.completed",
+      "agent.task.completed",
+    ]);
+    expectEmittedToMatchYielded(emitted, events);
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(callTool).toHaveBeenCalledWith(toolCall);
+    expect(
+      events.find((event) => event.type === "agent.tool.completed"),
+    ).toMatchObject({
+      type: "agent.tool.completed",
+      result: toolResult,
+    });
+
+    const artifactEvent = events.find(
+      (
+        event,
+      ): event is Extract<AgentEvent, { type: "agent.artifact.created" }> =>
+        event.type === "agent.artifact.created",
+    );
+    expect(artifactEvent?.artifact).toEqual<AgentArtifact>({
+      id: "artifact_deep-research-report",
+      type: "report",
+      name: "deep-research-report",
+      content: report,
+      mediaType: "application/json",
+    });
+
+    expect(events.at(-1)).toMatchObject({
+      type: "agent.task.completed",
+      output: {
+        status: "completed",
+        summary: report.summary,
+        artifacts: [artifactEvent?.artifact],
+        review: {
+          status: "passed",
+        },
+        metadata: {
+          research: report,
+        },
+      },
+    });
+  });
+
+  test("AgentRuntime.runTask returns a completed Deep Research output by default", async () => {
+    const task: AgentTask = {
+      id: "task_runtime_deep_research",
+      goal: "Research bounded execution.",
+    };
+    const report: AgentResearchReport = {
+      title: "Bounded Execution",
+      summary: "Research completed with one bounded local source.",
+      findings: [
+        {
+          id: "finding_bounded",
+          claim: "Deep Research V0 remains bounded by runtime options.",
+          sourceIds: ["source_bounded"],
+          confidence: 0.9,
+        },
+      ],
+      sources: [
+        {
+          id: "source_bounded",
+          title: "Local source",
+          content: "maxSteps and maxSources constrain the run.",
+        },
+      ],
+    };
+    const { host } = createHost();
+    const model = createModeModel({
+      plan: planEvents("step_runtime_research"),
+      execute: [{ type: "structured.output", value: report }],
+      review: reviewPassedEvents(),
+    });
+
+    const output = await new AgentRuntime().runTask("deep-research", {
+      task,
+      model,
+      host,
+      options: {
+        maxSteps: 0,
+        maxSources: 1,
+      },
+    });
+
+    expect(output).toMatchObject({
+      status: "completed",
+      summary: report.summary,
+      plan: {
+        taskId: task.id,
+      },
+      artifacts: [
+        {
+          type: "report",
+          name: "deep-research-report",
+          content: report,
+        },
+      ],
+      review: {
+        status: "passed",
+      },
+      metadata: {
+        research: report,
+      },
+    });
+  });
+
+  test("fails when the plan phase yields an error event", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research_plan_error",
+      goal: "Plan a research task.",
+    };
+    const error: AgentError = {
+      code: "provider_error",
+      message: "The provider could not create a research plan.",
+    };
+    const { emitted, host } = createHost();
+    const model = createModeModel({
+      plan: [{ type: "error", error }],
+    });
+
+    const events = await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.task.failed",
+    ]);
+    expectEmittedToMatchYielded(emitted, events);
+    expect(failedEvent(events)?.error).toBe(error);
+  });
+
+  test("fails when AgentHost.callTool returns an error result during execution", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research_tool_error",
+      goal: "Use a local research tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_local_source",
+      toolName: "local.readSource",
+      arguments: { id: "source_missing" },
+      stepId: "step_tool_error",
+      riskLevel: "read",
+    };
+    const error: AgentError = {
+      code: "local_source_missing",
+      message: "The local source does not exist.",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => {
+      return {
+        id: toolCall.id,
+        toolName: toolCall.toolName,
+        error,
+      };
+    });
+    const { emitted, host } = createHost({
+      callTool,
+    });
+    const model = createModeModel({
+      plan: planEvents("step_tool_error"),
+      execute: [{ type: "tool_call.proposed", toolCall }],
+    });
+
+    const events = await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.tool.completed",
+      "agent.task.failed",
+    ]);
+    expectEmittedToMatchYielded(emitted, events);
+    expect(callTool).toHaveBeenCalledWith(toolCall);
+    expect(failedEvent(events)?.error).toBe(error);
+  });
+
+  test("AgentRuntime.runTask throws AgentTaskFailedError when Deep Research fails", async () => {
+    const error: AgentError = {
+      code: "provider_error",
+      message: "Research planning failed.",
+    };
+    const { host } = createHost();
+
+    await expect(
+      new AgentRuntime().runTask("deep-research", {
+        task: {
+          id: "task_runtime_deep_research_failure",
+          goal: "Fail during research planning.",
+        },
+        model: createModeModel({
+          plan: [{ type: "error", error }],
+        }),
+        host,
+      }),
+    ).rejects.toMatchObject({
+      name: "AgentTaskFailedError",
+      agentError: error,
+    });
+  });
+
+  test("fails when report artifact creation throws", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research_artifact_error",
+      goal: "Create a research report.",
+    };
+    const thrown = new Error("Report artifact store failed.");
+    const { emitted, host } = createHost({
+      async createArtifact() {
+        throw thrown;
+      },
+    });
+    const model = createModeModel({
+      plan: planEvents("step_artifact_error"),
+      execute: [
+        {
+          type: "structured.output",
+          value: {
+            title: "Research Report",
+            summary: "The synthesized report should become an artifact.",
+            findings: [],
+            sources: [],
+          },
+        },
+      ],
+    });
+
+    const events = await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+        options: {
+          maxSteps: 0,
+        },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.task.failed",
+    ]);
+    expectEmittedToMatchYielded(emitted, events);
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "artifact_exception",
+      message: "Report artifact store failed.",
+    });
+    expect(failedEvent(events)?.error.cause).toBe(thrown);
+  });
+});
+
 describe("AgentRuntime.runTask", () => {
   test("returns the final output from a classify run", async () => {
     const task: AgentTask = {
@@ -747,14 +1166,12 @@ describe("AgentRuntime.runTask", () => {
     });
   });
 
-  test.each<
-    {
-      name: string;
-      engineName: "classify" | "plan-run-review";
-      createInput: () => AgentEngineRunInput;
-      expectedError: Pick<AgentError, "code" | "message">;
-    }
-  >([
+  test.each<{
+    name: string;
+    engineName: "classify" | "plan-run-review";
+    createInput: () => AgentEngineRunInput;
+    expectedError: Pick<AgentError, "code" | "message">;
+  }>([
     {
       name: "classify model error event",
       engineName: "classify",
@@ -980,18 +1397,23 @@ describe("AgentRuntime.runTask", () => {
         message: "Artifact creation failed.",
       },
     },
-  ])("throws AgentTaskFailedError for $name", async ({ engineName, createInput, expectedError }) => {
-    let caught: unknown;
+  ])(
+    "throws AgentTaskFailedError for $name",
+    async ({ engineName, createInput, expectedError }) => {
+      let caught: unknown;
 
-    try {
-      await new AgentRuntime().runTask(engineName, createInput());
-    } catch (error) {
-      caught = error;
-    }
+      try {
+        await new AgentRuntime().runTask(engineName, createInput());
+      } catch (error) {
+        caught = error;
+      }
 
-    expect(caught).toBeInstanceOf(AgentTaskFailedError);
-    expect((caught as AgentTaskFailedError).agentError).toMatchObject(expectedError);
-  });
+      expect(caught).toBeInstanceOf(AgentTaskFailedError);
+      expect((caught as AgentTaskFailedError).agentError).toMatchObject(
+        expectedError,
+      );
+    },
+  );
 
   test("throws a clear error when the engine does not exist", async () => {
     const { host } = createHost();
@@ -1032,6 +1454,8 @@ describe("AgentRuntime.runTask", () => {
         model: createStaticStructuredModel({}),
         host,
       }),
-    ).rejects.toThrow("Agent run completed without agent.task.completed event.");
+    ).rejects.toThrow(
+      "Agent run completed without agent.task.completed event.",
+    );
   });
 });

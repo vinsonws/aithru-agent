@@ -87,6 +87,36 @@ export type AgentRunOptions = {
   metadata?: Record<string, unknown>;
 };
 
+export type AgentResearchSource = {
+  id: string;
+  title?: string;
+  uri?: string;
+  content?: unknown;
+  metadata?: Record<string, unknown>;
+};
+
+export type AgentResearchFinding = {
+  id: string;
+  claim: string;
+  sourceIds?: string[];
+  confidence?: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type AgentResearchReport = {
+  title: string;
+  summary: string;
+  findings: AgentResearchFinding[];
+  sources: AgentResearchSource[];
+  limitations?: string[];
+  metadata?: Record<string, unknown>;
+};
+
+export type AgentResearchOptions = AgentRunOptions & {
+  maxSources?: number;
+  maxSearchQueries?: number;
+};
+
 export type AgentToolRequest = {
   id: string;
   toolName: string;
@@ -170,13 +200,32 @@ export type AgentEvent =
   | { type: "agent.task.created"; taskId: string; task: AgentTask }
   | { type: "agent.plan.started"; taskId: string }
   | { type: "agent.plan.completed"; taskId: string; plan: AgentPlan }
-  | { type: "agent.step.started"; taskId: string; stepId: string; step?: AgentPlanStep }
+  | {
+      type: "agent.step.started";
+      taskId: string;
+      stepId: string;
+      step?: AgentPlanStep;
+    }
   | { type: "agent.model.delta"; taskId: string; stepId?: string; text: string }
-  | { type: "agent.tool.proposed"; taskId: string; stepId?: string; request: AgentToolRequest }
-  | { type: "agent.tool.completed"; taskId: string; stepId?: string; result: AgentToolResult }
+  | {
+      type: "agent.tool.proposed";
+      taskId: string;
+      stepId?: string;
+      request: AgentToolRequest;
+    }
+  | {
+      type: "agent.tool.completed";
+      taskId: string;
+      stepId?: string;
+      result: AgentToolResult;
+    }
   | { type: "agent.artifact.created"; taskId: string; artifact: AgentArtifact }
   | { type: "agent.review.started"; taskId: string }
-  | { type: "agent.review.completed"; taskId: string; review: AgentReviewResult }
+  | {
+      type: "agent.review.completed";
+      taskId: string;
+      review: AgentReviewResult;
+    }
   | { type: "agent.task.completed"; taskId: string; output: AgentTaskOutput }
   | { type: "agent.task.failed"; taskId: string; error: AgentError };
 
@@ -263,19 +312,25 @@ export interface AgentHost {
   createArtifact?(artifact: AgentArtifactDraft): Promise<AgentArtifact>;
 }
 
-export interface AgentEngine {
+export interface AgentEngine<
+  TOptions extends AgentRunOptions = AgentRunOptions,
+> {
   name: string;
-  run(input: AgentEngineRunInput): AsyncIterable<AgentEvent>;
+  run(input: AgentEngineRunInput<TOptions>): AsyncIterable<AgentEvent>;
 }
 
-export type AgentEngineRunInput = {
+export type AgentEngineRunInput<
+  TOptions extends AgentRunOptions = AgentRunOptions,
+> = {
   task: AgentTask;
   model: AgentModelAdapter;
   host: AgentHost;
-  options?: AgentRunOptions;
+  options?: TOptions;
 };
 
-export function agentTraceEventFromAgentEvent(event: AgentEvent): AgentTraceEvent {
+export function agentTraceEventFromAgentEvent(
+  event: AgentEvent,
+): AgentTraceEvent {
   switch (event.type) {
     case "agent.task.created":
       return {

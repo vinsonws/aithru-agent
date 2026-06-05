@@ -30,7 +30,7 @@ It provides:
 ```txt
 packages/
   agent-core/                         contracts and types
-  agent-runtime/                      ClassifyEngine, PlanRunReviewEngine, AgentRuntime
+  agent-runtime/                      ClassifyEngine, PlanRunReviewEngine, DeepResearchEngine, AgentRuntime
   agent-model-test/                   deterministic scripted model adapters
   agent-model-openai-compatible/      OpenAI-compatible HTTP model adapter
   node-agent/                         workflow NodeDefinition factories
@@ -73,6 +73,17 @@ If the stream contains `agent.task.failed`, it throws `AgentTaskFailedError` wit
 const output = await runtime.runTask("classify", input);
 console.log(output.summary);
 ```
+
+## Deep Research V0
+
+`DeepResearchEngine` is available as the default `deep-research` runtime engine.
+It is a bounded, deterministic-friendly research loop that plans task-local research steps, executes model-proposed tool calls only through `AgentHost.callTool`, synthesizes an `AgentResearchReport`, creates a `report` artifact, and optionally reviews the result.
+
+Deep Research V0 is not a workflow engine and does not own `WorkflowSpec`.
+It does not include real web search, MCP, browser automation, built-in browser/shell/GitHub/file tools, memory, or UI/server behavior.
+Hosts can provide fake local tools, real provider-backed tools, or workflow bridges, but the engine itself never executes tools directly.
+
+Research runs can be bounded with normal run options such as `maxSteps` and `timeoutMs`, plus research-specific `maxSources` and `maxSearchQueries` options.
 
 ## Runtime Failure Semantics
 
@@ -120,6 +131,8 @@ pnpm example:classify
 pnpm example:plan-run-review
 pnpm example:node-agent-basic
 pnpm example:workflow-node-agent
+pnpm example:openai-compatible-classify
+pnpm example:deep-research
 ```
 
 `pnpm typecheck` checks package sources, tests, and examples without emitting build output.
@@ -133,12 +146,14 @@ pnpm example:classify
 pnpm example:plan-run-review
 pnpm example:node-agent-basic
 pnpm example:workflow-node-agent
+pnpm example:deep-research
 ```
 
 The examples use `@aithru/agent-model-test`, so they do not call a real model provider by default.
 `@aithru/agent-model-openai-compatible` is implemented for real OpenAI-compatible providers, but it is not used by the default examples.
 The root package declares local workspace dependencies for these examples so imports stay at package roots.
 `example:classify` demonstrates both the event stream API and `runTask`; `example:plan-run-review` demonstrates the full plan/run/review event stream with tool execution through `AgentHost.callTool`.
+`example:deep-research` demonstrates bounded Deep Research V0 with a deterministic test model and fake local source tool through `AgentHost.callTool`.
 `example:node-agent-basic` demonstrates registering `agent.classify` and `agent.task` NodeDefinitions and executing them directly with a deterministic test model.
 `example:workflow-node-agent` demonstrates a formal Aithru Core `WorkflowSpec` running through `LocalRuntime` with `core.manualTrigger -> agent.classify`.
 The standalone runtime examples remain the default examples for runtime-only behavior.
@@ -206,13 +221,13 @@ Implemented in this initial scaffold:
 - `@aithru/agent-core` contracts;
 - `@aithru/agent-model-test` scripted model adapter;
 - `@aithru/agent-model-openai-compatible` OpenAI-compatible HTTP adapter without the OpenAI SDK;
-- `@aithru/agent-runtime` minimal classify and plan-run-review engines;
+- `@aithru/agent-runtime` minimal classify, plan-run-review, and bounded Deep Research V0 engines;
 - complete `AgentEngine.run()` event streams where `host.emit(event)` and `yield event` receive the same ordered events;
 - `AgentRuntime.runTask()` for directly collecting the final `AgentTaskOutput` or throwing `AgentTaskFailedError` on `agent.task.failed`;
 - `AgentTraceEvent` taxonomy and `agentTraceEventFromAgentEvent(...)` for stable trace consumption;
 - `@aithru/node-agent` `NodeDefinition` factories for `agent.classify` and `agent.task`, with host-injected model resolution and tool bridging through core `ctx.callTool`;
 - standalone examples;
-- minimal Vitest tests for trace event mapping, scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, runtime failure semantics, `AgentRuntime.runTask()`, node-agent factories, node runtime binding, trace bridging, tool bridging, and LocalRuntime workflow integration.
+- minimal Vitest tests for trace event mapping, scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review and Deep Research V0 tool execution through `AgentHost.callTool`, runtime failure semantics, `AgentRuntime.runTask()`, node-agent factories, node runtime binding, trace bridging, tool bridging, and LocalRuntime workflow integration.
 
 Repository setup:
 
@@ -221,7 +236,7 @@ Repository setup:
 Not implemented yet:
 
 - MCP integration;
-- Deep Research dedicated engine/node;
+- `agent.deepResearch` NodeDefinition;
 - browser, shell, GitHub, or file tools;
 - durable persistence;
 - UI/chat.
