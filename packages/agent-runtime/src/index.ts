@@ -4,6 +4,7 @@ import type {
   AgentClassificationResult,
   AgentEngine,
   AgentEngineRunInput,
+  AgentError,
   AgentEvent,
   AgentModelEvent,
   AgentModelInput,
@@ -18,8 +19,12 @@ function createId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-async function emit(input: AgentEngineRunInput, event: AgentEvent) {
+async function emitEvent(
+  input: AgentEngineRunInput,
+  event: AgentEvent,
+): Promise<AgentEvent> {
   await input.host.emit(event);
+  return event;
 }
 
 async function collectModelEvents(
@@ -151,7 +156,11 @@ export class ClassifyEngine implements AgentEngine {
   readonly name = "classify";
 
   async *run(input: AgentEngineRunInput): AsyncIterable<AgentEvent> {
-    await emit(input, { type: "agent.task.created", taskId: input.task.id, task: input.task });
+    yield await emitEvent(input, {
+      type: "agent.task.created",
+      taskId: input.task.id,
+      task: input.task,
+    });
 
     const events = await collectModelEvents(input, "classify");
     for (const event of events) {
@@ -161,8 +170,7 @@ export class ClassifyEngine implements AgentEngine {
           taskId: input.task.id,
           text: event.text,
         };
-        await emit(input, agentEvent);
-        yield agentEvent;
+        yield await emitEvent(input, agentEvent);
       }
     }
 
@@ -180,8 +188,7 @@ export class ClassifyEngine implements AgentEngine {
       taskId: input.task.id,
       artifact,
     };
-    await emit(input, artifactEvent);
-    yield artifactEvent;
+    yield await emitEvent(input, artifactEvent);
 
     const output: AgentTaskOutput = {
       status: "completed",
@@ -195,8 +202,7 @@ export class ClassifyEngine implements AgentEngine {
       taskId: input.task.id,
       output,
     };
-    await emit(input, completedEvent);
-    yield completedEvent;
+    yield await emitEvent(input, completedEvent);
   }
 }
 
@@ -204,11 +210,14 @@ export class PlanRunReviewEngine implements AgentEngine {
   readonly name = "plan-run-review";
 
   async *run(input: AgentEngineRunInput): AsyncIterable<AgentEvent> {
-    await emit(input, { type: "agent.task.created", taskId: input.task.id, task: input.task });
+    yield await emitEvent(input, {
+      type: "agent.task.created",
+      taskId: input.task.id,
+      task: input.task,
+    });
 
     const planStarted: AgentEvent = { type: "agent.plan.started", taskId: input.task.id };
-    await emit(input, planStarted);
-    yield planStarted;
+    yield await emitEvent(input, planStarted);
 
     const planEvents = await collectModelEvents(input, "plan");
     const plan = normalizePlan(
@@ -221,8 +230,7 @@ export class PlanRunReviewEngine implements AgentEngine {
       taskId: input.task.id,
       plan,
     };
-    await emit(input, planCompleted);
-    yield planCompleted;
+    yield await emitEvent(input, planCompleted);
 
     const artifacts: AgentArtifact[] = [];
 
@@ -233,8 +241,7 @@ export class PlanRunReviewEngine implements AgentEngine {
         stepId: step.id,
         step,
       };
-      await emit(input, stepStarted);
-      yield stepStarted;
+      yield await emitEvent(input, stepStarted);
 
       const stepEvents = await collectModelEvents(input, "execute", step);
       for (const event of stepEvents) {
@@ -245,8 +252,7 @@ export class PlanRunReviewEngine implements AgentEngine {
             stepId: step.id,
             text: event.text,
           };
-          await emit(input, deltaEvent);
-          yield deltaEvent;
+          yield await emitEvent(input, deltaEvent);
         }
 
         if (event.type === "tool_call.proposed") {
@@ -256,8 +262,7 @@ export class PlanRunReviewEngine implements AgentEngine {
             stepId: step.id,
             request: event.toolCall,
           };
-          await emit(input, proposed);
-          yield proposed;
+          yield await emitEvent(input, proposed);
 
           const result: AgentToolResult = await input.host.callTool(event.toolCall);
           const completed: AgentEvent = {
@@ -266,8 +271,7 @@ export class PlanRunReviewEngine implements AgentEngine {
             stepId: step.id,
             result,
           };
-          await emit(input, completed);
-          yield completed;
+          yield await emitEvent(input, completed);
         }
       }
 
@@ -285,16 +289,14 @@ export class PlanRunReviewEngine implements AgentEngine {
           taskId: input.task.id,
           artifact,
         };
-        await emit(input, artifactEvent);
-        yield artifactEvent;
+        yield await emitEvent(input, artifactEvent);
       }
     }
 
     let review: AgentReviewResult | undefined;
     if (input.options?.review ?? true) {
       const reviewStarted: AgentEvent = { type: "agent.review.started", taskId: input.task.id };
-      await emit(input, reviewStarted);
-      yield reviewStarted;
+      yield await emitEvent(input, reviewStarted);
 
       const reviewEvents = await collectModelEvents(input, "review");
       review = normalizeReview(
@@ -305,8 +307,7 @@ export class PlanRunReviewEngine implements AgentEngine {
         taskId: input.task.id,
         review,
       };
-      await emit(input, reviewCompleted);
-      yield reviewCompleted;
+      yield await emitEvent(input, reviewCompleted);
     }
 
     const output: AgentTaskOutput = {
@@ -327,8 +328,7 @@ export class PlanRunReviewEngine implements AgentEngine {
       taskId: input.task.id,
       output,
     };
-    await emit(input, completedEvent);
-    yield completedEvent;
+    yield await emitEvent(input, completedEvent);
   }
 }
 
@@ -360,6 +360,38 @@ export type AgentRuntimeOptions = {
   engines?: AgentEngine[];
 };
 
+export class AgentTaskFailedError extends Error {
+  readonly agentError: AgentError;
+
+  constructor(agentError: AgentError) {
+    super(`Agent task failed: ${agentError.message}`);
+    this.name = "AgentTaskFailedError";
+    this.agentError = agentError;
+  }
+}
+
+export async function collectAgentTaskOutput(
+  events: AsyncIterable<AgentEvent>,
+): Promise<AgentTaskOutput> {
+  let output: AgentTaskOutput | undefined;
+
+  for await (const event of events) {
+    if (event.type === "agent.task.failed") {
+      throw new AgentTaskFailedError(event.error);
+    }
+
+    if (event.type === "agent.task.completed") {
+      output = event.output;
+    }
+  }
+
+  if (!output) {
+    throw new Error("Agent run completed without agent.task.completed event.");
+  }
+
+  return output;
+}
+
 export class AgentRuntime {
   private readonly engines = new Map<string, AgentEngine>();
 
@@ -376,5 +408,9 @@ export class AgentRuntime {
     }
 
     return engine.run(input);
+  }
+
+  async runTask(engineName: string, input: AgentEngineRunInput): Promise<AgentTaskOutput> {
+    return collectAgentTaskOutput(this.run(engineName, input));
   }
 }

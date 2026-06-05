@@ -25,7 +25,7 @@ const model = createStaticStructuredModel({
 
 const runtime = new AgentRuntime();
 
-for await (const event of runtime.run("classify", {
+const input = {
   task: {
     id: "task_classify_demo",
     goal: "Classify the request into simple or research.",
@@ -33,8 +33,13 @@ for await (const event of runtime.run("classify", {
   },
   model,
   host,
-})) {
+};
+
+for await (const event of runtime.run("classify", input)) {
   console.log(event.type);
 }
 
 console.log(JSON.stringify(events.at(-1), null, 2));
+
+const output = await runtime.runTask("classify", input);
+console.log(output.summary);

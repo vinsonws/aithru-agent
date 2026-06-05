@@ -51,6 +51,27 @@ Task
   -> Output
 ```
 
+## Runtime API
+
+`AgentEngine.run()` returns a complete `AsyncIterable<AgentEvent>`.
+Every runtime event is first passed to `AgentHost.emit(event)` and then yielded to the caller, so host listeners and direct stream consumers see the same ordered event list.
+
+`AgentRuntime.run(engineName, input)` exposes the event stream directly:
+
+```ts
+for await (const event of runtime.run("classify", input)) {
+  console.log(event.type);
+}
+```
+
+`AgentRuntime.runTask(engineName, input)` is the convenience API for callers that only need the final `AgentTaskOutput`.
+It consumes the event stream and returns the last `agent.task.completed` output.
+
+```ts
+const output = await runtime.runTask("classify", input);
+console.log(output.summary);
+```
+
 ## Install
 
 ```bash
@@ -82,6 +103,7 @@ pnpm example:plan-run-review
 
 The examples use `@aithru/model-test`, so they do not call a real model provider.
 The root package declares local workspace dependencies for these examples so imports stay at package roots.
+`example:classify` demonstrates both the event stream API and `runTask`; `example:plan-run-review` demonstrates the full plan/run/review event stream with tool execution through `AgentHost.callTool`.
 
 ## Current Scope
 
@@ -92,9 +114,11 @@ Implemented in this initial scaffold:
 - `@aithru/agent-core` contracts;
 - `@aithru/model-test` scripted model adapter;
 - `@aithru/agent-runtime` minimal classify and plan-run-review engines;
+- complete `AgentEngine.run()` event streams where `host.emit(event)` and `yield event` receive the same ordered events;
+- `AgentRuntime.runTask()` for directly collecting the final `AgentTaskOutput`;
 - `@aithru/node-agent` node integration constants and config/output types;
 - standalone examples;
-- minimal Vitest tests for scripted model events, static model helpers, classification completion, and plan-run-review tool execution through `AgentHost.callTool`.
+- minimal Vitest tests for scripted model events, static model helpers, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, and `AgentRuntime.runTask()`.
 
 Repository setup:
 

@@ -1,5 +1,6 @@
 import type {
   AgentArtifact,
+  AgentEngine,
   AgentEvent,
   AgentHost,
   AgentTask,
@@ -8,7 +9,7 @@ import type {
 } from "@aithru/agent-core";
 import { ScriptedModelAdapter, createStaticStructuredModel } from "@aithru/model-test";
 import { describe, expect, test, vi } from "vitest";
-import { ClassifyEngine, PlanRunReviewEngine } from "./index.js";
+import { AgentRuntime, ClassifyEngine, PlanRunReviewEngine } from "./index.js";
 
 async function collectEvents(events: AsyncIterable<AgentEvent>) {
   const collected: AgentEvent[] = [];
@@ -49,7 +50,7 @@ function createHost(options: { callTool?: AgentHost["callTool"] } = {}) {
 }
 
 describe("ClassifyEngine", () => {
-  test("completes a classification task and emits task completion", async () => {
+  test("yields the same ordered events sent to AgentHost.emit", async () => {
     const task: AgentTask = {
       id: "task_classify",
       goal: "Classify this task.",
@@ -69,6 +70,12 @@ describe("ClassifyEngine", () => {
       }),
     );
 
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.artifact.created",
+      "agent.task.completed",
+    ]);
+    expect(emitted.map((event) => event.type)).toEqual(events.map((event) => event.type));
     expect(events.at(-1)).toMatchObject({
       type: "agent.task.completed",
       taskId: "task_classify",
@@ -84,16 +91,11 @@ describe("ClassifyEngine", () => {
         },
       },
     });
-    expect(emitted.map((event) => event.type)).toEqual([
-      "agent.task.created",
-      "agent.artifact.created",
-      "agent.task.completed",
-    ]);
   });
 });
 
 describe("PlanRunReviewEngine", () => {
-  test("plans, executes through AgentHost.callTool, creates an artifact, reviews, and completes", async () => {
+  test("yields the same ordered events sent to AgentHost.emit while tools go through AgentHost.callTool", async () => {
     const task: AgentTask = {
       id: "task_plan_run_review",
       goal: "Read the README and summarize it.",
@@ -184,6 +186,7 @@ describe("PlanRunReviewEngine", () => {
     );
 
     expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
       "agent.plan.started",
       "agent.plan.completed",
       "agent.step.started",
@@ -194,6 +197,7 @@ describe("PlanRunReviewEngine", () => {
       "agent.review.completed",
       "agent.task.completed",
     ]);
+    expect(emitted.map((event) => event.type)).toEqual(events.map((event) => event.type));
     expect(callTool).toHaveBeenCalledTimes(1);
     expect(callTool).toHaveBeenCalledWith(toolCall);
     expect(events.find((event) => event.type === "agent.tool.completed")).toMatchObject({
@@ -225,9 +229,154 @@ describe("PlanRunReviewEngine", () => {
         },
       },
     });
-    expect(emitted.map((event) => event.type)).toEqual([
-      "agent.task.created",
-      ...events.map((event) => event.type),
-    ]);
+  });
+});
+
+describe("AgentRuntime.runTask", () => {
+  test("returns the final output from a classify run", async () => {
+    const task: AgentTask = {
+      id: "task_runtime_classify",
+      goal: "Classify this task.",
+    };
+    const { host } = createHost();
+    const model = createStaticStructuredModel({
+      route: "simple",
+      confidence: 1,
+      reason: "Can be handled directly.",
+    });
+
+    const output = await new AgentRuntime().runTask("classify", {
+      task,
+      model,
+      host,
+    });
+
+    expect(output).toMatchObject({
+      status: "completed",
+      summary: "Can be handled directly.",
+      metadata: {
+        classification: {
+          route: "simple",
+          confidence: 1,
+        },
+      },
+    });
+  });
+
+  test("returns the final output from a plan-run-review run", async () => {
+    const task: AgentTask = {
+      id: "task_runtime_plan_run_review",
+      goal: "Read the README and summarize it.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_read_readme",
+      toolName: "repo.read",
+      arguments: { path: "README.md" },
+      riskLevel: "read",
+    };
+    const { host } = createHost();
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                steps: [
+                  {
+                    id: "step_read_readme",
+                    title: "Read README",
+                    objective: "Read README.md.",
+                  },
+                ],
+              },
+            },
+          ];
+        }
+
+        if (input.mode === "execute") {
+          return [
+            { type: "tool_call.proposed", toolCall },
+            { type: "final", output: { summary: "README was read." } },
+          ];
+        }
+
+        if (input.mode === "review") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                status: "passed",
+                summary: "The task completed successfully.",
+              },
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    const output = await new AgentRuntime().runTask("plan-run-review", {
+      task,
+      model,
+      host,
+      options: {
+        review: true,
+      },
+    });
+
+    expect(output).toMatchObject({
+      status: "completed",
+      summary: "The task completed successfully.",
+      plan: {
+        taskId: task.id,
+      },
+      review: {
+        status: "passed",
+      },
+    });
+  });
+
+  test("throws a clear error when the engine does not exist", async () => {
+    const { host } = createHost();
+
+    await expect(
+      new AgentRuntime().runTask("missing-engine", {
+        task: {
+          id: "task_missing_engine",
+          goal: "Use a missing engine.",
+        },
+        model: createStaticStructuredModel({}),
+        host,
+      }),
+    ).rejects.toThrow("Unknown agent engine: missing-engine");
+  });
+
+  test("throws a clear error when an engine stream ends without task completion", async () => {
+    const incompleteEngine: AgentEngine = {
+      name: "incomplete",
+      async *run(input) {
+        const created: AgentEvent = {
+          type: "agent.task.created",
+          taskId: input.task.id,
+          task: input.task,
+        };
+        await input.host.emit(created);
+        yield created;
+      },
+    };
+    const { host } = createHost();
+
+    await expect(
+      new AgentRuntime({ engines: [incompleteEngine] }).runTask("incomplete", {
+        task: {
+          id: "task_incomplete",
+          goal: "End without completion.",
+        },
+        model: createStaticStructuredModel({}),
+        host,
+      }),
+    ).rejects.toThrow("Agent run completed without agent.task.completed event.");
   });
 });
