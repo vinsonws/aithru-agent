@@ -1,2 +1,5 @@
 packages:
   - "packages/*"
+  - "../aithru-core/packages/spec"
+  - "../aithru-core/packages/runtime-core"
+  - "../aithru-core/packages/node-sdk"

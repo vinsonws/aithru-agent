@@ -33,7 +33,7 @@ packages/
   agent-runtime/                      ClassifyEngine, PlanRunReviewEngine, AgentRuntime
   agent-model-test/                   deterministic scripted model adapters
   agent-model-openai-compatible/      OpenAI-compatible HTTP model adapter
-  node-agent/                         workflow node integration types
+  node-agent/                         workflow NodeDefinition factories
 ```
 
 `@aithru/node-agent` uses the `node-*` naming style because it is a workflow node package that calls the Agent runtime. It is not the Agent runtime itself.
@@ -103,23 +103,26 @@ pnpm build
 pnpm test
 pnpm example:classify
 pnpm example:plan-run-review
+pnpm example:node-agent-basic
 ```
 
 `pnpm typecheck` checks package sources, tests, and examples without emitting build output.
 `pnpm build` emits package `dist` output and excludes `*.test.ts` files.
-`pnpm test` now runs real Vitest coverage for `@aithru/agent-model-test`, `@aithru/agent-model-openai-compatible`, and `@aithru/agent-runtime`; `@aithru/agent-core` and `@aithru/node-agent` remain contract/type packages with no runtime tests yet.
+`pnpm test` now runs real Vitest coverage for `@aithru/agent-model-test`, `@aithru/agent-model-openai-compatible`, `@aithru/agent-runtime`, and `@aithru/node-agent`; `@aithru/agent-core` remains a contract/type package with no runtime tests yet.
 
 ## Examples
 
 ```bash
 pnpm example:classify
 pnpm example:plan-run-review
+pnpm example:node-agent-basic
 ```
 
 The examples use `@aithru/agent-model-test`, so they do not call a real model provider by default.
 `@aithru/agent-model-openai-compatible` is implemented for real OpenAI-compatible providers, but it is not used by the default examples.
 The root package declares local workspace dependencies for these examples so imports stay at package roots.
 `example:classify` demonstrates both the event stream API and `runTask`; `example:plan-run-review` demonstrates the full plan/run/review event stream with tool execution through `AgentHost.callTool`.
+`example:node-agent-basic` demonstrates registering `agent.classify` and `agent.task` NodeDefinitions and executing them directly with a deterministic test model; the standalone runtime examples remain the default examples for runtime-only behavior.
 
 ## Current Scope
 
@@ -133,9 +136,9 @@ Implemented in this initial scaffold:
 - `@aithru/agent-runtime` minimal classify and plan-run-review engines;
 - complete `AgentEngine.run()` event streams where `host.emit(event)` and `yield event` receive the same ordered events;
 - `AgentRuntime.runTask()` for directly collecting the final `AgentTaskOutput` or throwing `AgentTaskFailedError` on `agent.task.failed`;
-- `@aithru/node-agent` node integration constants and config/output types;
+- `@aithru/node-agent` `NodeDefinition` factories for `agent.classify` and `agent.task`, with host-injected model resolution and tool bridging through core `ctx.callTool`;
 - standalone examples;
-- minimal Vitest tests for scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, runtime failure semantics, and `AgentRuntime.runTask()`.
+- minimal Vitest tests for scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, runtime failure semantics, `AgentRuntime.runTask()`, node-agent factories, node runtime binding, and tool bridging.
 
 Repository setup:
 
@@ -143,7 +146,6 @@ Repository setup:
 
 Not implemented yet:
 
-- real `NodeDefinition` factories for `agent.classify` and `agent.task`;
 - MCP integration;
 - Deep Research dedicated engine/node;
 - browser, shell, GitHub, or file tools;
