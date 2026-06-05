@@ -1,7 +1,7 @@
 {
-  "name": "@aithru/model-test",
+  "name": "@aithru/agent-model-openai-compatible",
   "version": "0.1.0-alpha.0",
-  "description": "Deterministic test model adapters for Aithru Agent.",
+  "description": "OpenAI-compatible HTTP model adapter for Aithru Agent.",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,

@@ -2,7 +2,8 @@
   "files": [],
   "references": [
     { "path": "./packages/agent-core" },
-    { "path": "./packages/model-test" },
+    { "path": "./packages/agent-model-test" },
+    { "path": "./packages/agent-model-openai-compatible" },
     { "path": "./packages/agent-runtime" },
     { "path": "./packages/node-agent" }
   ]

@@ -7,7 +7,7 @@ import type {
   AgentToolRequest,
   AgentToolResult,
 } from "@aithru/agent-core";
-import { ScriptedModelAdapter, createStaticStructuredModel } from "@aithru/model-test";
+import { ScriptedModelAdapter, createStaticStructuredModel } from "@aithru/agent-model-test";
 import { describe, expect, test, vi } from "vitest";
 import { AgentRuntime, ClassifyEngine, PlanRunReviewEngine } from "./index.js";
 

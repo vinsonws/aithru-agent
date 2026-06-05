@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentHost } from "@aithru/agent-core";
 import { AgentRuntime } from "@aithru/agent-runtime";
-import { ScriptedModelAdapter } from "@aithru/model-test";
+import { ScriptedModelAdapter } from "@aithru/agent-model-test";
 
 const events: AgentEvent[] = [];
 

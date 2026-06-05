@@ -58,8 +58,11 @@ packages/
     engines
     runners
 
-  model-test/
+  agent-model-test/
     scripted adapters
+
+  agent-model-openai-compatible/
+    OpenAI-compatible HTTP adapter
 
   node-agent/
     agent.task

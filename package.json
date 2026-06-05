@@ -16,8 +16,9 @@
   },
   "devDependencies": {
     "@aithru/agent-core": "workspace:*",
+    "@aithru/agent-model-openai-compatible": "workspace:*",
     "@aithru/agent-runtime": "workspace:*",
-    "@aithru/model-test": "workspace:*",
+    "@aithru/agent-model-test": "workspace:*",
     "@types/node": "^25.9.1",
     "prettier": "^3.4.2",
     "tsx": "^4.22.4",

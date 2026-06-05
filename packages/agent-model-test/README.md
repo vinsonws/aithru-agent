@@ -1,4 +1,4 @@
-# @aithru/model-test
+# @aithru/agent-model-test
 
 Deterministic test model adapters for Aithru Agent.
 

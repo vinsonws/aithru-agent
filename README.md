@@ -29,10 +29,11 @@ It provides:
 
 ```txt
 packages/
-  agent-core/      contracts and types
-  agent-runtime/   ClassifyEngine, PlanRunReviewEngine, AgentRuntime
-  model-test/      deterministic scripted model adapters
-  node-agent/      workflow node integration types
+  agent-core/                         contracts and types
+  agent-runtime/                      ClassifyEngine, PlanRunReviewEngine, AgentRuntime
+  agent-model-test/                   deterministic scripted model adapters
+  agent-model-openai-compatible/      OpenAI-compatible HTTP model adapter
+  node-agent/                         workflow node integration types
 ```
 
 `@aithru/node-agent` uses the `node-*` naming style because it is a workflow node package that calls the Agent runtime. It is not the Agent runtime itself.
@@ -92,7 +93,7 @@ pnpm example:plan-run-review
 
 `pnpm typecheck` checks package sources, tests, and examples without emitting build output.
 `pnpm build` emits package `dist` output and excludes `*.test.ts` files.
-`pnpm test` now runs real Vitest coverage for `@aithru/model-test` and `@aithru/agent-runtime`; `@aithru/agent-core` and `@aithru/node-agent` remain contract/type packages with no runtime tests yet.
+`pnpm test` now runs real Vitest coverage for `@aithru/agent-model-test`, `@aithru/agent-model-openai-compatible`, and `@aithru/agent-runtime`; `@aithru/agent-core` and `@aithru/node-agent` remain contract/type packages with no runtime tests yet.
 
 ## Examples
 
@@ -101,7 +102,8 @@ pnpm example:classify
 pnpm example:plan-run-review
 ```
 
-The examples use `@aithru/model-test`, so they do not call a real model provider.
+The examples use `@aithru/agent-model-test`, so they do not call a real model provider by default.
+`@aithru/agent-model-openai-compatible` is implemented for real OpenAI-compatible providers, but it is not used by the default examples.
 The root package declares local workspace dependencies for these examples so imports stay at package roots.
 `example:classify` demonstrates both the event stream API and `runTask`; `example:plan-run-review` demonstrates the full plan/run/review event stream with tool execution through `AgentHost.callTool`.
 
@@ -112,13 +114,14 @@ Implemented in this initial scaffold:
 - root pnpm workspace;
 - strict TypeScript base config;
 - `@aithru/agent-core` contracts;
-- `@aithru/model-test` scripted model adapter;
+- `@aithru/agent-model-test` scripted model adapter;
+- `@aithru/agent-model-openai-compatible` OpenAI-compatible HTTP adapter without the OpenAI SDK;
 - `@aithru/agent-runtime` minimal classify and plan-run-review engines;
 - complete `AgentEngine.run()` event streams where `host.emit(event)` and `yield event` receive the same ordered events;
 - `AgentRuntime.runTask()` for directly collecting the final `AgentTaskOutput`;
 - `@aithru/node-agent` node integration constants and config/output types;
 - standalone examples;
-- minimal Vitest tests for scripted model events, static model helpers, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, and `AgentRuntime.runTask()`.
+- minimal Vitest tests for scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, and `AgentRuntime.runTask()`.
 
 Repository setup:
 
@@ -127,7 +130,6 @@ Repository setup:
 Not implemented yet:
 
 - real `NodeDefinition` factories for `agent.classify` and `agent.task`;
-- OpenAI-compatible model adapter;
 - MCP integration;
 - Deep Research dedicated engine/node;
 - browser, shell, GitHub, or file tools;

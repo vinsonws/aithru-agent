@@ -1,7 +1,7 @@
 {
-  "name": "@aithru/agent-runtime",
+  "name": "@aithru/agent-model-test",
   "version": "0.1.0-alpha.0",
-  "description": "Agent execution runtime for Aithru Agent.",
+  "description": "Deterministic test model adapters for Aithru Agent.",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
@@ -19,8 +19,5 @@
   },
   "dependencies": {
     "@aithru/agent-core": "workspace:*"
-  },
-  "devDependencies": {
-    "@aithru/agent-model-test": "workspace:*"
   }
 }

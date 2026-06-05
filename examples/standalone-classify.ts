@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentHost } from "@aithru/agent-core";
 import { AgentRuntime } from "@aithru/agent-runtime";
-import { createStaticStructuredModel } from "@aithru/model-test";
+import { createStaticStructuredModel } from "@aithru/agent-model-test";
 
 const events: AgentEvent[] = [];
 
