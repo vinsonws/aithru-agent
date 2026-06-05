@@ -16,10 +16,13 @@ import { InMemoryNodeRegistry } from "@aithru/runtime-core";
 import { describe, expect, test, vi } from "vitest";
 import {
   AGENT_CLASSIFY_NODE_TYPE,
+  AGENT_DEEP_RESEARCH_NODE_TYPE,
   AGENT_NODE_VERSION,
   AGENT_TASK_NODE_TYPE,
   createAgentClassifyNode,
+  createAgentDeepResearchNode,
   createAgentTaskNode,
+  isAgentNodeType,
   registerAgentNodes,
 } from "@aithru/node-agent";
 
@@ -102,6 +105,84 @@ function reviewPassedEvents(): AgentModelEvent[] {
   ];
 }
 
+function deepResearchModel(
+  overrides: Partial<Record<AgentModelInput["mode"], (input: AgentModelInput) => AgentModelEvent[]>> = {},
+) {
+  return new ScriptedModelAdapter({
+    events(input) {
+      const override = overrides[input.mode];
+      if (override) {
+        return override(input);
+      }
+
+      if (input.mode === "plan") {
+        return planEvents("step_source");
+      }
+
+      if (input.mode === "execute" && input.step) {
+        return [
+          {
+            type: "final",
+            output: {
+              sources: [
+                {
+                  id: "source_local",
+                  title: "Local source",
+                  uri: "memory://source",
+                  content: "Local evidence.",
+                },
+              ],
+              findings: [
+                {
+                  id: "finding_local",
+                  claim: "Local evidence supports the answer.",
+                  sourceIds: ["source_local"],
+                  confidence: 0.9,
+                },
+              ],
+            },
+          },
+        ];
+      }
+
+      if (input.mode === "execute") {
+        return [
+          {
+            type: "structured.output",
+            value: {
+              title: "Research report",
+              summary: "Research completed from deterministic local evidence.",
+              findings: [
+                {
+                  id: "finding_local",
+                  claim: "Local evidence supports the answer.",
+                  sourceIds: ["source_local"],
+                  confidence: 0.9,
+                },
+              ],
+              sources: [
+                {
+                  id: "source_local",
+                  title: "Local source",
+                  uri: "memory://source",
+                  content: "Local evidence.",
+                },
+              ],
+              limitations: ["No external search was used."],
+            },
+          },
+        ];
+      }
+
+      if (input.mode === "review") {
+        return reviewPassedEvents();
+      }
+
+      return [];
+    },
+  });
+}
+
 describe("agent node factories", () => {
   test("createAgentClassifyNode returns the public node definition metadata", () => {
     const node = createAgentClassifyNode({
@@ -127,7 +208,19 @@ describe("agent node factories", () => {
     });
   });
 
-  test("registerAgentNodes registers classify and task nodes", () => {
+  test("createAgentDeepResearchNode returns the public node definition metadata", () => {
+    const node = createAgentDeepResearchNode({
+      resolveModel: vi.fn(),
+    });
+
+    expect(node).toMatchObject({
+      type: AGENT_DEEP_RESEARCH_NODE_TYPE,
+      version: AGENT_NODE_VERSION,
+      category: "agent",
+    });
+  });
+
+  test("registerAgentNodes registers classify, task, and deep research nodes", () => {
     const registry = new InMemoryNodeRegistry();
 
     registerAgentNodes(registry, {
@@ -136,6 +229,14 @@ describe("agent node factories", () => {
 
     expect(registry.resolve(AGENT_CLASSIFY_NODE_TYPE, AGENT_NODE_VERSION)).toBeDefined();
     expect(registry.resolve(AGENT_TASK_NODE_TYPE, AGENT_NODE_VERSION)).toBeDefined();
+    expect(registry.resolve(AGENT_DEEP_RESEARCH_NODE_TYPE, AGENT_NODE_VERSION)).toBeDefined();
+  });
+
+  test("isAgentNodeType includes deep research", () => {
+    expect(isAgentNodeType(AGENT_CLASSIFY_NODE_TYPE)).toBe(true);
+    expect(isAgentNodeType(AGENT_TASK_NODE_TYPE)).toBe(true);
+    expect(isAgentNodeType(AGENT_DEEP_RESEARCH_NODE_TYPE)).toBe(true);
+    expect(isAgentNodeType("core.manualTrigger")).toBe(false);
   });
 });
 
@@ -232,6 +333,251 @@ describe("agent.classify node", () => {
 
     await expect(
       node.execute(ctx, {}, { goal: "Classify this task.", routes: ["research"] }),
+    ).rejects.toThrow(AgentTaskFailedError);
+  });
+});
+
+describe("agent.deepResearch node", () => {
+  test("resolves a model, runs deep-research, passes research options, returns research output, and emits agent events", async () => {
+    const runtime = new AgentRuntime();
+    const runTask = vi.spyOn(runtime, "runTask");
+    const model = deepResearchModel();
+    const resolveModel = vi.fn(async () => model);
+    const node = createAgentDeepResearchNode({ runtime, resolveModel });
+    const { ctx, emitted } = createContext();
+    const input = { topic: "Agent runtime boundaries" };
+    const outputSchema = { type: "object" };
+
+    const result = await node.execute(ctx, input, {
+      goal: "Research the Agent runtime boundary.",
+      model: "test-research-model",
+      maxSteps: 2,
+      timeoutMs: 1_000,
+      allowedTools: ["local.readSource"],
+      review: true,
+      maxSources: 3,
+      maxSearchQueries: 4,
+      outputSchema,
+    });
+
+    expect(resolveModel).toHaveBeenCalledWith({
+      model: "test-research-model",
+      nodeType: AGENT_DEEP_RESEARCH_NODE_TYPE,
+      nodeId: "node_test",
+      workflowId: "workflow_test",
+      runId: "run_test",
+    });
+    expect(runTask).toHaveBeenCalledWith(
+      "deep-research",
+      expect.objectContaining({
+        model,
+        task: expect.objectContaining({
+          id: "run_test:node_test",
+          goal: "Research the Agent runtime boundary.",
+          input,
+          outputSchema,
+        }),
+        options: {
+          maxSteps: 2,
+          timeoutMs: 1_000,
+          allowedTools: ["local.readSource"],
+          review: true,
+          maxSources: 3,
+          maxSearchQueries: 4,
+        },
+      }),
+    );
+    expect(result.output).toMatchObject({
+      status: "completed",
+      summary: "Research completed from deterministic local evidence.",
+      metadata: {
+        research: {
+          title: "Research report",
+          summary: "Research completed from deterministic local evidence.",
+          sources: [
+            expect.objectContaining({
+              id: "source_local",
+            }),
+          ],
+        },
+      },
+      review: {
+        status: "passed",
+      },
+    });
+    expect(result.metadata).toMatchObject({
+      agentTaskId: "run_test:node_test",
+      summary: "Research completed from deterministic local evidence.",
+      research: {
+        title: "Research report",
+      },
+    });
+    expect(agentEventTypes(emitted)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.artifact.created",
+      "agent.review.started",
+      "agent.review.completed",
+      "agent.task.completed",
+    ]);
+  });
+
+  test("bridges deep research tool calls through NodeExecutionContext.callTool", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_local_source",
+      toolName: "local.readSource",
+      arguments: { sourceId: "runtime-boundary" },
+      reason: "Need local source evidence.",
+      stepId: "step_source",
+      riskLevel: "dangerous",
+    };
+    const callTool = vi.fn(
+      async (
+        _request: ToolExecutionRequest,
+      ): Promise<ToolExecutionResult<unknown>> => ({
+        output: {
+          source: {
+            id: "source_runtime",
+            title: "Runtime boundary note",
+            uri: "memory://runtime-boundary",
+            content: "Agent runtime owns bounded intelligent execution.",
+          },
+          finding: {
+            id: "finding_runtime",
+            claim: "Tool execution remains host-owned.",
+            sourceIds: ["source_runtime"],
+            confidence: 0.91,
+          },
+        },
+        metadata: { source: "mock" },
+      }),
+    );
+    const node = createAgentDeepResearchNode({
+      resolveModel: async () =>
+        deepResearchModel({
+          execute(input) {
+            if (input.step) {
+              return [
+                { type: "tool_call.proposed", toolCall },
+                { type: "final", output: { summary: "Local source read." } },
+              ];
+            }
+
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  title: "Tool bridge report",
+                  summary: "Research used the core tool bridge.",
+                  findings: [
+                    {
+                      id: "finding_runtime",
+                      claim: "Tool execution remains host-owned.",
+                      sourceIds: ["source_runtime"],
+                      confidence: 0.91,
+                    },
+                  ],
+                  sources: [
+                    {
+                      id: "source_runtime",
+                      title: "Runtime boundary note",
+                      uri: "memory://runtime-boundary",
+                    },
+                  ],
+                },
+              },
+            ];
+          },
+        }),
+    });
+    const { ctx, emitted } = createContext({
+      callTool: callTool as NodeExecutionContext["callTool"],
+    });
+
+    const result = await node.execute(ctx, {}, {
+      goal: "Research local sources.",
+      review: false,
+    });
+
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(callTool).toHaveBeenCalledWith({
+      toolName: "local.readSource",
+      input: { sourceId: "runtime-boundary" },
+      riskLevel: "high",
+      metadata: {
+        agentToolCallId: "tool_local_source",
+        reason: "Need local source evidence.",
+        stepId: "step_source",
+      },
+    });
+    expect(result.output).toMatchObject({
+      status: "completed",
+      summary: "Research used the core tool bridge.",
+      metadata: {
+        research: {
+          title: "Tool bridge report",
+        },
+      },
+    });
+    expect(agentEventTypes(emitted)).toContain("agent.tool.proposed");
+    expect(agentEventTypes(emitted)).toContain("agent.tool.completed");
+  });
+
+  test("fails clearly when deep research proposes a tool call and ctx.callTool is missing", async () => {
+    const node = createAgentDeepResearchNode({
+      resolveModel: async () =>
+        deepResearchModel({
+          execute(input) {
+            if (!input.step) {
+              return [];
+            }
+
+            return [
+              {
+                type: "tool_call.proposed",
+                toolCall: {
+                  id: "tool_local_source",
+                  toolName: "local.readSource",
+                  arguments: { sourceId: "runtime-boundary" },
+                  riskLevel: "read",
+                },
+              },
+            ];
+          },
+        }),
+    });
+    const { ctx } = createContext();
+
+    await expect(
+      node.execute(ctx, {}, { goal: "Research local sources." }),
+    ).rejects.toThrow(
+      "Agent node requires NodeExecutionContext.callTool to execute tools.",
+    );
+  });
+
+  test("rejects with AgentTaskFailedError when deep research model yields an error", async () => {
+    const node = createAgentDeepResearchNode({
+      resolveModel: async () =>
+        deepResearchModel({
+          plan() {
+            return [
+              {
+                type: "error",
+                error: {
+                  code: "provider_error",
+                  message: "Provider failed.",
+                },
+              },
+            ];
+          },
+        }),
+    });
+    const { ctx } = createContext();
+
+    await expect(
+      node.execute(ctx, {}, { goal: "Research local sources." }),
     ).rejects.toThrow(AgentTaskFailedError);
   });
 });

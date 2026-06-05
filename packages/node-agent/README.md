@@ -8,6 +8,7 @@ The package name is `node-agent` because these are workflow nodes that call the 
 
 - `agent.classify`
 - `agent.task`
+- `agent.deepResearch`
 
 ## Runtime Binding
 
@@ -23,6 +24,7 @@ The package does not instantiate `@aithru/agent-model-openai-compatible` or any 
 ```ts
 import {
   createAgentClassifyNode,
+  createAgentDeepResearchNode,
   createAgentTaskNode,
   registerAgentNodes,
 } from "@aithru/node-agent";
@@ -30,7 +32,8 @@ import {
 
 - `createAgentClassifyNode(binding)` creates the `agent.classify@0.1.0` `NodeDefinition`.
 - `createAgentTaskNode(binding)` creates the `agent.task@0.1.0` `NodeDefinition`.
-- `registerAgentNodes(registry, binding)` registers both nodes in an Aithru Core `NodeRegistry`.
+- `createAgentDeepResearchNode(binding)` creates the `agent.deepResearch@0.1.0` `NodeDefinition`.
+- `registerAgentNodes(registry, binding)` registers all agent nodes in an Aithru Core `NodeRegistry`.
 
 Typical runtime composition is app-owned:
 
@@ -50,6 +53,38 @@ registerAgentNodes(registry, {
 
 const runtime = new LocalRuntime({ registry });
 ```
+
+## agent.deepResearch
+
+`agent.deepResearch` wraps the default Agent runtime `DeepResearchEngine`.
+Node execution resolves the model through the host-provided `resolveModel(...)`, builds an `AgentTask` from the node config and incoming workflow input, and calls:
+
+```ts
+runtime.runTask("deep-research", {
+  task,
+  model,
+  host,
+  options,
+});
+```
+
+Supported config fields:
+
+- `goal`
+- `model`
+- `maxSteps`
+- `timeoutMs`
+- `allowedTools`
+- `review`
+- `maxSources`
+- `maxSearchQueries`
+- `outputSchema`
+
+The output shape is compatible with `agent.task`: `status`, `summary`, `artifacts`, optional `plan`, optional `review`, and optional `metadata`.
+When Deep Research produces a report, it is returned under `metadata.research` and as a report artifact.
+
+This node does not include real web search, MCP, browser automation, shell access, GitHub access, file tools, memory, UI, or server behavior.
+Host applications decide which model adapter to use and which core tool executors are available.
 
 ## Tool Bridge
 

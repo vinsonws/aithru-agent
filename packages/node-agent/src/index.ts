@@ -6,6 +6,7 @@ import type {
   AgentHost,
   AgentModelAdapter,
   AgentPlan,
+  AgentResearchOptions,
   AgentReviewResult,
   AgentRunOptions,
   AgentTask,
@@ -26,6 +27,7 @@ import type {
 
 export const AGENT_CLASSIFY_NODE_TYPE = "agent.classify";
 export const AGENT_TASK_NODE_TYPE = "agent.task";
+export const AGENT_DEEP_RESEARCH_NODE_TYPE = "agent.deepResearch";
 export const AGENT_NODE_VERSION = "0.1.0";
 
 export type AgentClassifyNodeConfig = {
@@ -58,6 +60,20 @@ export type AgentTaskNodeOutput = {
   metadata?: Record<string, unknown>;
 };
 
+export type AgentDeepResearchNodeConfig = {
+  goal: string;
+  model?: string;
+  maxSteps?: number;
+  timeoutMs?: number;
+  allowedTools?: string[];
+  review?: boolean;
+  maxSources?: number;
+  maxSearchQueries?: number;
+  outputSchema?: unknown;
+};
+
+export type AgentDeepResearchNodeOutput = AgentTaskNodeOutput;
+
 export type AgentNodeModelResolveInput = {
   model?: string;
   nodeType: string;
@@ -72,7 +88,11 @@ export type AgentNodeRuntimeBinding = {
 };
 
 export function isAgentNodeType(type: string) {
-  return type === AGENT_CLASSIFY_NODE_TYPE || type === AGENT_TASK_NODE_TYPE;
+  return (
+    type === AGENT_CLASSIFY_NODE_TYPE ||
+    type === AGENT_TASK_NODE_TYPE ||
+    type === AGENT_DEEP_RESEARCH_NODE_TYPE
+  );
 }
 
 export function createAgentClassifyNode(
@@ -178,12 +198,72 @@ export function createAgentTaskNode(
   });
 }
 
+export function createAgentDeepResearchNode(
+  binding: AgentNodeRuntimeBinding,
+): NodeDefinition<unknown, AgentDeepResearchNodeOutput, AgentDeepResearchNodeConfig> {
+  return defineNode<unknown, AgentDeepResearchNodeOutput, AgentDeepResearchNodeConfig>({
+    type: AGENT_DEEP_RESEARCH_NODE_TYPE,
+    version: AGENT_NODE_VERSION,
+    category: "agent",
+    displayName: "Agent Deep Research",
+    description:
+      "Runs bounded Deep Research V0 by calling the Aithru Agent runtime.",
+    configSchema: {
+      kind: "inline",
+      schema: {
+        type: "object",
+        required: ["goal"],
+        additionalProperties: true,
+        properties: {
+          goal: { type: "string" },
+          model: { type: "string" },
+          maxSteps: { type: "number" },
+          timeoutMs: { type: "number" },
+          allowedTools: { type: "array", items: { type: "string" } },
+          review: { type: "boolean" },
+          maxSources: { type: "number" },
+          maxSearchQueries: { type: "number" },
+          outputSchema: {},
+        },
+      },
+    },
+    execute: async (ctx, input, config) => {
+      const runtime = runtimeFor(binding);
+      const model = await resolveModelForNode(
+        binding,
+        ctx,
+        AGENT_DEEP_RESEARCH_NODE_TYPE,
+        config.model,
+      );
+      const task = createAgentTask(ctx, config.goal, input, config.outputSchema);
+      const options = researchOptionsFromConfig(config);
+      const output = await runtime.runTask("deep-research", {
+        task,
+        model,
+        host: createAgentHostFromNodeContext(ctx),
+        ...(options ? { options } : {}),
+      });
+      const research = output.metadata?.research;
+
+      return {
+        output: agentTaskNodeOutputFromTaskOutput(output),
+        metadata: {
+          agentTaskId: task.id,
+          summary: output.summary,
+          ...(research !== undefined ? { research } : {}),
+        },
+      };
+    },
+  });
+}
+
 export function registerAgentNodes(
   registry: NodeRegistry,
   binding: AgentNodeRuntimeBinding,
 ): void {
   registry.register(createAgentClassifyNode(binding));
   registry.register(createAgentTaskNode(binding));
+  registry.register(createAgentDeepResearchNode(binding));
 }
 
 export function createAgentHostFromNodeContext(ctx: NodeExecutionContext): AgentHost {
@@ -251,6 +331,23 @@ function taskOptionsFromConfig(config: AgentTaskNodeConfig): AgentRunOptions | u
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
     ...(config.allowedTools !== undefined ? { allowedTools: config.allowedTools } : {}),
     ...(config.review !== undefined ? { review: config.review } : {}),
+  };
+
+  return Object.keys(options).length > 0 ? options : undefined;
+}
+
+function researchOptionsFromConfig(
+  config: AgentDeepResearchNodeConfig,
+): AgentResearchOptions | undefined {
+  const options: AgentResearchOptions = {
+    ...(config.maxSteps !== undefined ? { maxSteps: config.maxSteps } : {}),
+    ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.allowedTools !== undefined ? { allowedTools: config.allowedTools } : {}),
+    ...(config.review !== undefined ? { review: config.review } : {}),
+    ...(config.maxSources !== undefined ? { maxSources: config.maxSources } : {}),
+    ...(config.maxSearchQueries !== undefined
+      ? { maxSearchQueries: config.maxSearchQueries }
+      : {}),
   };
 
   return Object.keys(options).length > 0 ? options : undefined;

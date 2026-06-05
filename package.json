@@ -14,6 +14,7 @@
     "example:plan-run-review": "pnpm build && tsx examples/standalone-plan-run-review.ts",
     "example:node-agent-basic": "pnpm build && NODE_OPTIONS=--conditions=development tsx examples/node-agent-basic.ts",
     "example:workflow-node-agent": "pnpm build && NODE_OPTIONS=--conditions=development tsx examples/workflow-node-agent.ts",
+    "example:workflow-node-agent-deep-research": "pnpm build && NODE_OPTIONS=--conditions=development tsx examples/workflow-node-agent-deep-research.ts",
     "example:openai-compatible-classify": "pnpm build && tsx examples/openai-compatible-classify.ts",
     "example:deep-research": "pnpm build && tsx examples/standalone-deep-research.ts",
     "format": "prettier --write ."
