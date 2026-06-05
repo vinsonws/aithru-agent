@@ -19,6 +19,29 @@ function createId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function toAgentError(error: unknown, code = "runtime_error"): AgentError {
+  if (isAgentError(error)) {
+    return error;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "Agent runtime error.";
+
+  return {
+    code,
+    message,
+    ...(error !== undefined ? { cause: error } : {}),
+  };
+}
+
+function isAgentError(value: unknown): value is AgentError {
+  return isObject(value) && typeof value.code === "string" && typeof value.message === "string";
+}
+
 async function emitEvent(
   input: AgentEngineRunInput,
   event: AgentEvent,
@@ -27,12 +50,37 @@ async function emitEvent(
   return event;
 }
 
+async function emitTaskFailed(
+  input: AgentEngineRunInput,
+  error: AgentError,
+): Promise<AgentEvent> {
+  return emitEvent(input, {
+    type: "agent.task.failed",
+    taskId: input.task.id,
+    error,
+  });
+}
+
+type CollectedModelEvents = {
+  events: AgentModelEvent[];
+  error?: AgentError;
+};
+
 async function collectModelEvents(
   input: AgentEngineRunInput,
   mode: "classify" | "plan" | "execute" | "review",
   step?: AgentPlanStep,
-) {
-  const tools = input.host.listTools ? await input.host.listTools() : undefined;
+): Promise<CollectedModelEvents> {
+  let tools;
+  try {
+    tools = input.host.listTools ? await input.host.listTools() : undefined;
+  } catch (error) {
+    return {
+      events: [],
+      error: toAgentError(error),
+    };
+  }
+
   const modelInput: AgentModelInput = {
     task: input.task,
     mode,
@@ -42,11 +90,25 @@ async function collectModelEvents(
   };
   const events: AgentModelEvent[] = [];
 
-  for await (const event of input.model.generate(modelInput)) {
-    events.push(event);
+  try {
+    for await (const event of input.model.generate(modelInput)) {
+      events.push(event);
+
+      if (event.type === "error") {
+        return {
+          events,
+          error: toAgentError(event.error, "model_error"),
+        };
+      }
+    }
+  } catch (error) {
+    return {
+      events,
+      error: toAgentError(error, "model_exception"),
+    };
   }
 
-  return events;
+  return { events };
 }
 
 function firstStructuredOutput(events: AgentModelEvent[]) {
@@ -162,7 +224,13 @@ export class ClassifyEngine implements AgentEngine {
       task: input.task,
     });
 
-    const events = await collectModelEvents(input, "classify");
+    const modelResult = await collectModelEvents(input, "classify");
+    if (modelResult.error) {
+      yield await emitTaskFailed(input, modelResult.error);
+      return;
+    }
+
+    const events = modelResult.events;
     for (const event of events) {
       if (event.type === "text.delta") {
         const agentEvent: AgentEvent = {
@@ -177,11 +245,17 @@ export class ClassifyEngine implements AgentEngine {
     const classification = normalizeClassification(
       firstStructuredOutput(events) ?? firstFinalOutput(events),
     );
-    const artifact = await createArtifact(input, {
-      type: "decision",
-      name: "classification",
-      content: classification,
-    });
+    let artifact: AgentArtifact;
+    try {
+      artifact = await createArtifact(input, {
+        type: "decision",
+        name: "classification",
+        content: classification,
+      });
+    } catch (error) {
+      yield await emitTaskFailed(input, toAgentError(error, "artifact_exception"));
+      return;
+    }
 
     const artifactEvent: AgentEvent = {
       type: "agent.artifact.created",
@@ -219,7 +293,13 @@ export class PlanRunReviewEngine implements AgentEngine {
     const planStarted: AgentEvent = { type: "agent.plan.started", taskId: input.task.id };
     yield await emitEvent(input, planStarted);
 
-    const planEvents = await collectModelEvents(input, "plan");
+    const planResult = await collectModelEvents(input, "plan");
+    if (planResult.error) {
+      yield await emitTaskFailed(input, planResult.error);
+      return;
+    }
+
+    const planEvents = planResult.events;
     const plan = normalizePlan(
       input.task.id,
       firstStructuredOutput(planEvents) ?? firstFinalOutput(planEvents),
@@ -243,7 +323,13 @@ export class PlanRunReviewEngine implements AgentEngine {
       };
       yield await emitEvent(input, stepStarted);
 
-      const stepEvents = await collectModelEvents(input, "execute", step);
+      const stepResult = await collectModelEvents(input, "execute", step);
+      if (stepResult.error) {
+        yield await emitTaskFailed(input, stepResult.error);
+        return;
+      }
+
+      const stepEvents = stepResult.events;
       for (const event of stepEvents) {
         if (event.type === "text.delta") {
           const deltaEvent: AgentEvent = {
@@ -264,7 +350,14 @@ export class PlanRunReviewEngine implements AgentEngine {
           };
           yield await emitEvent(input, proposed);
 
-          const result: AgentToolResult = await input.host.callTool(event.toolCall);
+          let result: AgentToolResult;
+          try {
+            result = await input.host.callTool(event.toolCall);
+          } catch (error) {
+            yield await emitTaskFailed(input, toAgentError(error, "tool_exception"));
+            return;
+          }
+
           const completed: AgentEvent = {
             type: "agent.tool.completed",
             taskId: input.task.id,
@@ -272,17 +365,29 @@ export class PlanRunReviewEngine implements AgentEngine {
             result,
           };
           yield await emitEvent(input, completed);
+
+          if (result.error) {
+            yield await emitTaskFailed(input, toAgentError(result.error, "tool_error"));
+            return;
+          }
         }
       }
 
       const stepOutput = firstFinalOutput(stepEvents) ?? firstStructuredOutput(stepEvents);
       if (stepOutput !== undefined) {
-        const artifact = await createArtifact(input, {
-          type: "json",
-          name: `${step.id}-output`,
-          content: stepOutput,
-          sourceStepId: step.id,
-        });
+        let artifact: AgentArtifact;
+        try {
+          artifact = await createArtifact(input, {
+            type: "json",
+            name: `${step.id}-output`,
+            content: stepOutput,
+            sourceStepId: step.id,
+          });
+        } catch (error) {
+          yield await emitTaskFailed(input, toAgentError(error, "artifact_exception"));
+          return;
+        }
+
         artifacts.push(artifact);
         const artifactEvent: AgentEvent = {
           type: "agent.artifact.created",
@@ -298,7 +403,13 @@ export class PlanRunReviewEngine implements AgentEngine {
       const reviewStarted: AgentEvent = { type: "agent.review.started", taskId: input.task.id };
       yield await emitEvent(input, reviewStarted);
 
-      const reviewEvents = await collectModelEvents(input, "review");
+      const reviewResult = await collectModelEvents(input, "review");
+      if (reviewResult.error) {
+        yield await emitTaskFailed(input, reviewResult.error);
+        return;
+      }
+
+      const reviewEvents = reviewResult.events;
       review = normalizeReview(
         firstStructuredOutput(reviewEvents) ?? firstFinalOutput(reviewEvents),
       );

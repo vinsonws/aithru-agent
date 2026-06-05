@@ -67,11 +67,25 @@ for await (const event of runtime.run("classify", input)) {
 
 `AgentRuntime.runTask(engineName, input)` is the convenience API for callers that only need the final `AgentTaskOutput`.
 It consumes the event stream and returns the last `agent.task.completed` output.
+If the stream contains `agent.task.failed`, it throws `AgentTaskFailedError` with the failure `AgentError`.
 
 ```ts
 const output = await runtime.runTask("classify", input);
 console.log(output.summary);
 ```
+
+## Runtime Failure Semantics
+
+Runtime engines treat model, tool, and artifact failures as task failures:
+
+- `AgentModelEvent.error` is converted into `agent.task.failed`; the runtime does not fall back to default classification, plan, execution, or review output after a model error.
+- Model adapter exceptions during `generate(...)` are normalized into `AgentError` and emitted as `agent.task.failed`.
+- Tool execution still must go through `AgentHost.callTool`; model adapters must not execute tools.
+- `AgentHost.callTool(...)` exceptions become `agent.task.failed`.
+- `AgentHost.callTool(...)` results with `error` become `agent.task.failed`.
+- Artifact creation exceptions from `host.createArtifact(...)` become `agent.task.failed`.
+
+For all runtime events, including failures, `AgentHost.emit(event)` and yielded events remain identical and ordered.
 
 ## Install
 
@@ -118,10 +132,10 @@ Implemented in this initial scaffold:
 - `@aithru/agent-model-openai-compatible` OpenAI-compatible HTTP adapter without the OpenAI SDK;
 - `@aithru/agent-runtime` minimal classify and plan-run-review engines;
 - complete `AgentEngine.run()` event streams where `host.emit(event)` and `yield event` receive the same ordered events;
-- `AgentRuntime.runTask()` for directly collecting the final `AgentTaskOutput`;
+- `AgentRuntime.runTask()` for directly collecting the final `AgentTaskOutput` or throwing `AgentTaskFailedError` on `agent.task.failed`;
 - `@aithru/node-agent` node integration constants and config/output types;
 - standalone examples;
-- minimal Vitest tests for scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, and `AgentRuntime.runTask()`.
+- minimal Vitest tests for scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review tool execution through `AgentHost.callTool`, runtime failure semantics, and `AgentRuntime.runTask()`.
 
 Repository setup:
 
