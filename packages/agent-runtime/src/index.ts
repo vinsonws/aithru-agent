@@ -92,6 +92,23 @@ function validateToolAllowed(
   return undefined;
 }
 
+function filterAllowedTools(
+  tools: AgentModelInput["tools"],
+  globalAllowed: string[] | undefined,
+  stepAllowed: string[] | undefined,
+): AgentModelInput["tools"] {
+  if (!tools) return undefined;
+  if (globalAllowed === undefined && stepAllowed === undefined) return tools;
+
+  return tools.filter((tool) => {
+    if (globalAllowed !== undefined && !globalAllowed.includes(tool.name))
+      return false;
+    if (stepAllowed !== undefined && !stepAllowed.includes(tool.name))
+      return false;
+    return true;
+  });
+}
+
 async function emitEvent(
   input: AgentEngineRunInput,
   event: AgentEvent,
@@ -131,6 +148,12 @@ async function collectModelEvents(
       error: toAgentError(error),
     };
   }
+
+  tools = filterAllowedTools(
+    tools,
+    input.options?.allowedTools,
+    step?.allowedTools,
+  );
 
   const modelInput: AgentModelInput = {
     task: input.task,
@@ -427,7 +450,10 @@ export class PlanRunReviewEngine implements AgentEngine {
 
           let result: AgentToolResult;
           try {
-            result = await input.host.callTool(event.toolCall);
+            result = await input.host.callTool({
+              ...event.toolCall,
+              stepId: step.id,
+            });
           } catch (error) {
             yield await emitTaskFailed(
               input,
@@ -889,7 +915,10 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
 
           let result: AgentToolResult;
           try {
-            result = await input.host.callTool(event.toolCall);
+            result = await input.host.callTool({
+              ...event.toolCall,
+              stepId: step.id,
+            });
           } catch (error) {
             yield await emitTaskFailed(
               input,
@@ -970,7 +999,8 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
 
         let result: AgentToolResult;
         try {
-          result = await input.host.callTool(event.toolCall);
+          const { stepId: _stepId, ...request } = event.toolCall;
+          result = await input.host.callTool(request);
         } catch (error) {
           yield await emitTaskFailed(
             input,

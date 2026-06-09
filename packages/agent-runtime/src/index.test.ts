@@ -10,6 +10,7 @@ import type {
   AgentModelInput,
   AgentResearchReport,
   AgentTask,
+  AgentToolDescriptor,
   AgentToolRequest,
   AgentToolResult,
 } from "@aithru/agent-core";
@@ -913,6 +914,118 @@ describe("PlanRunReviewEngine", () => {
     expect(failedEvent(events)?.error).toMatchObject({
       code: "tool_not_allowed",
     });
+  });
+
+  test("filters tools passed to model.generate by options.allowedTools", async () => {
+    const task: AgentTask = {
+      id: "task_tool_filter",
+      goal: "Use only allowed tools.",
+    };
+    const allTools: AgentToolDescriptor[] = [
+      { name: "repo.read", description: "Read files." },
+      { name: "repo.write", description: "Write files." },
+    ];
+    const capturedTools: AgentToolDescriptor[][] = [];
+    const model: AgentModelAdapter = {
+      name: "capture-model",
+      async *generate(input) {
+        capturedTools.push(input.tools ?? []);
+        yield { type: "final", output: { summary: "Done." } };
+      },
+    };
+    const { host } = createHost();
+    const listTools = vi.fn(async () => allTools);
+
+    await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host: { ...host, listTools },
+        options: { allowedTools: ["repo.read"] },
+      }),
+    );
+
+    const planPhaseTools = capturedTools[0] ?? [];
+    const executePhaseTools = capturedTools[1] ?? [];
+    expect(planPhaseTools.map((t) => t.name)).toEqual(["repo.read"]);
+    expect(executePhaseTools.map((t) => t.name)).toEqual(["repo.read"]);
+  });
+
+  test("normalizes model-injected stepId to runtime step.id before host.callTool", async () => {
+    const task: AgentTask = {
+      id: "task_stepid_normalize",
+      goal: "Normalize stepId.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_read",
+      toolName: "repo.read",
+      arguments: { path: "README.md" },
+      stepId: "malicious_injected_step",
+      riskLevel: "read",
+    };
+    const capturedRequest = vi.fn(
+      async (request: AgentToolRequest): Promise<AgentToolResult> => ({
+        id: request.id,
+        toolName: request.toolName,
+        output: { ok: true },
+      }),
+    );
+    const { emitted, host } = createHost({ callTool: capturedRequest });
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                steps: [
+                  {
+                    id: "step_real",
+                    title: "Real step",
+                    objective: "Execute with real step id.",
+                    allowedTools: ["repo.read"],
+                  },
+                ],
+              },
+            },
+          ];
+        }
+
+        if (input.mode === "execute") {
+          return [
+            { type: "tool_call.proposed", toolCall },
+            { type: "final", output: { summary: "Done." } },
+          ];
+        }
+
+        if (input.mode === "review") {
+          return [
+            {
+              type: "structured.output",
+              value: { status: "passed", summary: "OK." },
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+      }),
+    );
+
+    expect(capturedRequest).toHaveBeenCalledTimes(1);
+    expect(capturedRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "repo.read",
+        stepId: "step_real",
+      }),
+    );
   });
 });
 
