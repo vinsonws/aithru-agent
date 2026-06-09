@@ -17,6 +17,7 @@ import type {
   AgentReviewResult,
   AgentRunOptions,
   AgentTaskOutput,
+  AgentToolRequest,
   AgentToolResult,
 } from "@aithru/agent-core";
 
@@ -430,18 +431,22 @@ export class PlanRunReviewEngine implements AgentEngine {
         }
 
         if (event.type === "tool_call.proposed") {
+          const request: AgentToolRequest = {
+            ...event.toolCall,
+            stepId: step.id,
+          };
           const proposed: AgentEvent = {
             type: "agent.tool.proposed",
             taskId: input.task.id,
             stepId: step.id,
-            request: event.toolCall,
+            request,
           };
           yield await emitEvent(input, proposed);
 
           const notAllowedError = validateToolAllowed(
             input,
             step,
-            event.toolCall.toolName,
+            request.toolName,
           );
           if (notAllowedError) {
             yield await emitTaskFailed(input, notAllowedError);
@@ -450,10 +455,7 @@ export class PlanRunReviewEngine implements AgentEngine {
 
           let result: AgentToolResult;
           try {
-            result = await input.host.callTool({
-              ...event.toolCall,
-              stepId: step.id,
-            });
+            result = await input.host.callTool(request);
           } catch (error) {
             yield await emitTaskFailed(
               input,
@@ -895,18 +897,22 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
         }
 
         if (event.type === "tool_call.proposed") {
+          const request: AgentToolRequest = {
+            ...event.toolCall,
+            stepId: step.id,
+          };
           const proposed: AgentEvent = {
             type: "agent.tool.proposed",
             taskId: input.task.id,
             stepId: step.id,
-            request: event.toolCall,
+            request,
           };
           yield await emitEvent(input, proposed);
 
           const notAllowedError = validateToolAllowed(
             input,
             step,
-            event.toolCall.toolName,
+            request.toolName,
           );
           if (notAllowedError) {
             yield await emitTaskFailed(input, notAllowedError);
@@ -915,10 +921,7 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
 
           let result: AgentToolResult;
           try {
-            result = await input.host.callTool({
-              ...event.toolCall,
-              stepId: step.id,
-            });
+            result = await input.host.callTool(request);
           } catch (error) {
             yield await emitTaskFailed(
               input,
@@ -980,17 +983,18 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
       }
 
       if (event.type === "tool_call.proposed") {
+        const { stepId: _stepId, ...request } = event.toolCall;
         const proposed: AgentEvent = {
           type: "agent.tool.proposed",
           taskId: input.task.id,
-          request: event.toolCall,
+          request,
         };
         yield await emitEvent(input, proposed);
 
         const notAllowedError = validateToolAllowed(
           input,
           undefined,
-          event.toolCall.toolName,
+          request.toolName,
         );
         if (notAllowedError) {
           yield await emitTaskFailed(input, notAllowedError);
@@ -999,7 +1003,6 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
 
         let result: AgentToolResult;
         try {
-          const { stepId: _stepId, ...request } = event.toolCall;
           result = await input.host.callTool(request);
         } catch (error) {
           yield await emitTaskFailed(

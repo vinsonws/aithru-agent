@@ -86,6 +86,13 @@ function failedEvent(events: AgentEvent[]) {
   );
 }
 
+function proposedToolEvents(events: AgentEvent[]) {
+  return events.filter(
+    (event): event is Extract<AgentEvent, { type: "agent.tool.proposed" }> =>
+      event.type === "agent.tool.proposed",
+  );
+}
+
 function createModeModel(
   eventsByMode: Partial<Record<AgentModelInput["mode"], AgentModelEvent[]>>,
 ) {
@@ -1026,6 +1033,15 @@ describe("PlanRunReviewEngine", () => {
         stepId: "step_real",
       }),
     );
+    expect(proposedToolEvents(emitted)).toEqual([
+      expect.objectContaining({
+        stepId: "step_real",
+        request: expect.objectContaining({
+          toolName: "repo.read",
+          stepId: "step_real",
+        }),
+      }),
+    ]);
   });
 });
 
@@ -1375,6 +1391,169 @@ describe("DeepResearchEngine", () => {
     expectEmittedToMatchYielded(emitted, events);
     expect(callTool).toHaveBeenCalledWith(toolCall);
     expect(failedEvent(events)?.error).toBe(error);
+  });
+
+  test("normalizes model-injected stepId in step proposed events before calling host.callTool", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research_step_event_stepid",
+      goal: "Normalize research step tool proposal.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_read",
+      toolName: "repo.read",
+      arguments: { path: "README.md" },
+      stepId: "model_forged_step",
+      riskLevel: "read",
+    };
+    const callTool = vi.fn(
+      async (request: AgentToolRequest): Promise<AgentToolResult> => ({
+        id: request.id,
+        toolName: request.toolName,
+        output: { ok: true },
+      }),
+    );
+    const { emitted, host } = createHost({ callTool });
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                steps: [
+                  {
+                    id: "step_real",
+                    title: "Real step",
+                    objective: "Read from the repo.",
+                    allowedTools: ["repo.read"],
+                  },
+                ],
+              },
+            },
+          ];
+        }
+
+        if (input.mode === "execute" && input.step) {
+          return [
+            { type: "tool_call.proposed", toolCall },
+            { type: "final", output: { summary: "Step done." } },
+          ];
+        }
+
+        if (input.mode === "execute") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                title: "Report",
+                summary: "Research done.",
+                findings: [],
+                sources: [],
+              },
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+      }),
+    );
+
+    expect(callTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "repo.read",
+        stepId: "step_real",
+      }),
+    );
+    expect(proposedToolEvents(emitted)).toEqual([
+      expect.objectContaining({
+        stepId: "step_real",
+        request: expect.objectContaining({
+          toolName: "repo.read",
+          stepId: "step_real",
+        }),
+      }),
+    ]);
+  });
+
+  test("removes model-injected stepId from synthesis proposed events before calling host.callTool", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research_synthesis_event_stepid",
+      goal: "Normalize research synthesis tool proposal.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_synthesize",
+      toolName: "repo.read",
+      arguments: { path: "README.md" },
+      stepId: "model_forged_synthesis_step",
+      riskLevel: "read",
+    };
+    const callTool = vi.fn(
+      async (request: AgentToolRequest): Promise<AgentToolResult> => ({
+        id: request.id,
+        toolName: request.toolName,
+        output: { ok: true },
+      }),
+    );
+    const { emitted, host } = createHost({ callTool });
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return planEvents("step_collect");
+        }
+
+        if (input.mode === "execute" && input.step) {
+          return [
+            {
+              type: "final",
+              output: { summary: "Step collected sources.", sources: [] },
+            },
+          ];
+        }
+
+        if (input.mode === "execute") {
+          return [
+            { type: "tool_call.proposed", toolCall },
+            {
+              type: "structured.output",
+              value: {
+                title: "Report",
+                summary: "Research done.",
+                findings: [],
+                sources: [],
+              },
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+      }),
+    );
+
+    expect(callTool).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        stepId: "model_forged_synthesis_step",
+      }),
+    );
+    const [proposed] = proposedToolEvents(emitted);
+    expect(proposedToolEvents(emitted)).toHaveLength(1);
+    expect(proposed).not.toHaveProperty("stepId");
+    expect(proposed?.request).not.toHaveProperty("stepId");
   });
 
   test("AgentRuntime.runTask throws AgentTaskFailedError when Deep Research fails", async () => {
