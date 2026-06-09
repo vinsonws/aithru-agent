@@ -3260,6 +3260,136 @@ describe("AgentRuntime.resume and resumeTask", () => {
     });
   });
 
+  test("plan-run-review validate missing currentStep before tool execution", async () => {
+    const callTool = vi.fn();
+    const { host } = createHost({ callTool });
+    const resumeState = {
+      id: "rs",
+      engineName: "plan-run-review",
+      taskId: "task_no_step",
+      phase: "plan-run-review.step" as const,
+      approval: {
+        id: "a",
+        taskId: "task_no_step",
+        toolRequest: { id: "t", toolName: "repo.read", arguments: {} },
+        riskLevel: "safe" as const,
+      },
+      artifacts: [],
+      pendingModelEvents: [],
+      plan: { id: "p", taskId: "task_no_step", steps: [] },
+    };
+
+    const events = await collectEvents(
+      new AgentRuntime().resume("plan-run-review", {
+        task: { id: "task_no_step", goal: "No step." },
+        model: createStaticStructuredModel({}),
+        host,
+        resumeState,
+        approvalResponse: { approvalId: "a", decision: "approved" },
+      }),
+    );
+
+    expect(events.map((e) => e.type)).toEqual(["agent.task.failed"]);
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "invalid_resume_state",
+    });
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  test("plan-run-review resume pendingModelEvents second tool call goes through security pipeline", async () => {
+    const firstTool: AgentToolRequest = {
+      id: "tool_read",
+      toolName: "repo.read",
+      arguments: { path: "x" },
+      stepId: "step_1",
+      riskLevel: "read",
+    };
+    const secondTool: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "y" },
+      stepId: "step_1",
+      riskLevel: "dangerous",
+    };
+    const callTool = vi.fn(async (r: AgentToolRequest): Promise<AgentToolResult> => ({
+      id: r.id,
+      toolName: r.toolName,
+      output: { ok: true },
+    }));
+    const { host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Do things.",
+                allowedTools: ["repo.read", "repo.delete"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall: firstTool },
+        { type: "tool_call.proposed", toolCall: secondTool },
+        { type: "final", output: { summary: "done" } },
+      ],
+      review: reviewPassedEvents(),
+    });
+    const runtime = new AgentRuntime();
+
+    const paused = await runtime.runTask("plan-run-review", {
+      task: { id: "task_chain", goal: "Chain test." },
+      model,
+      host,
+      options: {
+        allowedTools: ["repo.read", "repo.delete"],
+        toolRiskPolicy: {
+          byRiskLevel: { read: "require_approval", dangerous: "require_approval" },
+        },
+      },
+    });
+
+    expect(paused.status).toBe("paused");
+
+    const events = await collectEvents(
+      runtime.resume("plan-run-review", {
+        task: { id: "task_chain", goal: "Chain test." },
+        model,
+        host,
+        resumeState: paused.resumeState!,
+        approvalResponse: {
+          approvalId: paused.approval!.id,
+          decision: "approved",
+        },
+        options: {
+          allowedTools: ["repo.read", "repo.delete"],
+          toolRiskPolicy: {
+            byRiskLevel: { read: "require_approval", dangerous: "require_approval" },
+          },
+        },
+      }),
+    );
+
+    // First tool completed → second tool in pendingModelEvents goes through pipeline → pauses again
+    expect(events.map((e) => e.type)).toEqual([
+      "agent.tool.approval_resolved",
+      "agent.task.resumed",
+      "agent.tool.completed",
+      "agent.tool.proposed",
+      "agent.tool.approval_requested",
+      "agent.task.paused",
+    ]);
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(callTool).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "repo.read" }),
+    );
+  });
+
   describe("DeepResearchEngine resume", () => {
     function deepResearchModel(
       toolCall: AgentToolRequest,
@@ -3770,6 +3900,241 @@ describe("AgentRuntime.resume and resumeTask", () => {
       expect(failedEvent(events)?.error).toMatchObject({
         code: "tool_risk_denied",
       });
+    });
+
+    test("deep-research.step missing currentStep fails before tool execution", async () => {
+      const callTool = vi.fn();
+      const { host } = createHost({ callTool });
+      const resumeState = {
+        id: "rs",
+        engineName: "deep-research",
+        taskId: "task_dr_no_step",
+        phase: "deep-research.step" as const,
+        approval: {
+          id: "a",
+          taskId: "task_dr_no_step",
+          toolRequest: { id: "t", toolName: "repo.read", arguments: {} },
+          riskLevel: "safe" as const,
+        },
+        artifacts: [],
+        pendingModelEvents: [],
+        plan: { id: "p", taskId: "task_dr_no_step", steps: [] },
+      };
+
+      const events = await collectEvents(
+        new AgentRuntime().resume("deep-research", {
+          task: { id: "task_dr_no_step", goal: "No step." },
+          model: createStaticStructuredModel({}),
+          host,
+          resumeState,
+          approvalResponse: { approvalId: "a", decision: "approved" },
+        }),
+      );
+
+      expect(events.map((e) => e.type)).toEqual(["agent.task.failed"]);
+      expect(failedEvent(events)?.error).toMatchObject({
+        code: "invalid_resume_state",
+      });
+      expect(callTool).not.toHaveBeenCalled();
+    });
+
+    test("deep-research.synthesis with currentStep fails before tool execution", async () => {
+      const callTool = vi.fn();
+      const { host } = createHost({ callTool });
+      const resumeState = {
+        id: "rs",
+        engineName: "deep-research",
+        taskId: "task_dr_synth_with_step",
+        phase: "deep-research.synthesis" as const,
+        approval: {
+          id: "a",
+          taskId: "task_dr_synth_with_step",
+          toolRequest: { id: "t", toolName: "repo.read", arguments: {} },
+          riskLevel: "safe" as const,
+        },
+        artifacts: [],
+        pendingModelEvents: [],
+        plan: { id: "p", taskId: "task_dr_synth_with_step", steps: [] },
+        currentStep: {
+          id: "step_1",
+          title: "Step",
+          objective: "Should not be in synthesis.",
+        },
+      };
+
+      const events = await collectEvents(
+        new AgentRuntime().resume("deep-research", {
+          task: { id: "task_dr_synth_with_step", goal: "Synth with step." },
+          model: createStaticStructuredModel({}),
+          host,
+          resumeState,
+          approvalResponse: { approvalId: "a", decision: "approved" },
+        }),
+      );
+
+      expect(events.map((e) => e.type)).toEqual(["agent.task.failed"]);
+      expect(failedEvent(events)?.error).toMatchObject({
+        code: "invalid_resume_state",
+      });
+      expect(callTool).not.toHaveBeenCalled();
+    });
+
+    test("deep-research with wrong phase fails before tool execution", async () => {
+      const callTool = vi.fn();
+      const { host } = createHost({ callTool });
+      const resumeState = {
+        id: "rs",
+        engineName: "deep-research",
+        taskId: "task_dr_wrong_phase",
+        phase: "plan-run-review.step" as const,
+        approval: {
+          id: "a",
+          taskId: "task_dr_wrong_phase",
+          toolRequest: { id: "t", toolName: "repo.read", arguments: {} },
+          riskLevel: "safe" as const,
+        },
+        artifacts: [],
+        pendingModelEvents: [],
+        plan: { id: "p", taskId: "task_dr_wrong_phase", steps: [] },
+        currentStep: {
+          id: "step_1",
+          title: "Step",
+          objective: "Wrong engine.",
+        },
+        currentStepIndex: 0,
+      };
+
+      const events = await collectEvents(
+        new AgentRuntime().resume("deep-research", {
+          task: { id: "task_dr_wrong_phase", goal: "Wrong phase." },
+          model: createStaticStructuredModel({}),
+          host,
+          resumeState,
+          approvalResponse: { approvalId: "a", decision: "approved" },
+        }),
+      );
+
+      expect(events.map((e) => e.type)).toEqual(["agent.task.failed"]);
+      expect(failedEvent(events)?.error).toMatchObject({
+        code: "invalid_resume_state",
+      });
+      expect(callTool).not.toHaveBeenCalled();
+    });
+
+    test("deep-research resume remaining step tool call goes through security pipeline", async () => {
+      const stepTool: AgentToolRequest = {
+        id: "tool_dangerous_2",
+        toolName: "repo.delete",
+        arguments: { path: "z" },
+        stepId: "step_2",
+        riskLevel: "dangerous",
+      };
+      const callTool = vi.fn(async (r: AgentToolRequest): Promise<AgentToolResult> => ({
+        id: r.id,
+        toolName: r.toolName,
+        output: { ok: true },
+      }));
+      const { host } = createHost({ callTool });
+      const model = new ScriptedModelAdapter({
+        events(input) {
+          if (input.mode === "plan") {
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  steps: [
+                    {
+                      id: "step_1",
+                      title: "Step 1",
+                      objective: "Step 1.",
+                      allowedTools: ["repo.read"],
+                    },
+                    {
+                      id: "step_2",
+                      title: "Step 2",
+                      objective: "Step 2.",
+                      allowedTools: ["repo.delete"],
+                    },
+                  ],
+                },
+              },
+            ];
+          }
+          if (input.mode === "execute" && input.step) {
+            if (input.step.id === "step_1") {
+              return [
+                {
+                  type: "tool_call.proposed",
+                  toolCall: { id: "tool_read", toolName: "repo.read", arguments: {}, riskLevel: "read", stepId: "step_1" },
+                },
+                { type: "final", output: { summary: "Step 1 done." } },
+              ];
+            }
+            return [
+              { type: "tool_call.proposed", toolCall: stepTool },
+              { type: "final", output: { summary: "Step 2 done." } },
+            ];
+          }
+          if (input.mode === "execute") {
+            return [
+              {
+                type: "structured.output",
+                value: { title: "R", summary: "Done.", findings: [], sources: [] },
+              },
+            ];
+          }
+          return [];
+        },
+      });
+      const runtime = new AgentRuntime();
+
+      const paused = await runtime.runTask("deep-research", {
+        task: { id: "task_dr_step_chain", goal: "Step chain test." },
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.read", "repo.delete"],
+          toolRiskPolicy: {
+            byRiskLevel: { read: "require_approval", dangerous: "require_approval" },
+          },
+        },
+      });
+
+      expect(paused.status).toBe("paused");
+
+      const events = await collectEvents(
+        runtime.resume("deep-research", {
+          task: { id: "task_dr_step_chain", goal: "Step chain test." },
+          model,
+          host,
+          resumeState: paused.resumeState!,
+          approvalResponse: {
+            approvalId: paused.approval!.id,
+            decision: "approved",
+          },
+          options: {
+            allowedTools: ["repo.read", "repo.delete"],
+            toolRiskPolicy: {
+              byRiskLevel: { read: "require_approval", dangerous: "require_approval" },
+            },
+          },
+        }),
+      );
+
+      // First tool completed → step 2 starts → step 2 proposes tool → goes through pipeline → pauses again
+      expect(events.map((e) => e.type)).toEqual([
+        "agent.tool.approval_resolved",
+        "agent.task.resumed",
+        "agent.tool.completed",
+        "agent.step.started",
+        "agent.tool.proposed",
+        "agent.tool.approval_requested",
+        "agent.task.paused",
+      ]);
+      expect(callTool).toHaveBeenCalledTimes(1);
+      expect(callTool).toHaveBeenCalledWith(
+        expect.objectContaining({ toolName: "repo.read" }),
+      );
     });
   });
 });
