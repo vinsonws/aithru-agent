@@ -513,6 +513,7 @@ type ResumePreambleContext = {
 async function* resumeEnginePreamble(
   input: AgentResumeInput,
   expectedEngineName: string,
+  phaseConfig?: { requiresStep?: boolean },
 ): AsyncGenerator<AgentEvent, ResumePreambleContext | undefined> {
   const { resumeState, approvalResponse } = input;
 
@@ -532,6 +533,15 @@ async function* resumeEnginePreamble(
       message: "Resume state is missing plan.",
     });
     return undefined;
+  }
+
+  // Validate phase-specific requirements before executing the tool
+  if (phaseConfig?.requiresStep) {
+    const stepError = validateResumeStep(resumeState);
+    if (stepError) {
+      yield await emitTaskFailed(input, stepError);
+      return undefined;
+    }
   }
 
   yield emitEvent(input, {
@@ -627,6 +637,101 @@ function extractResearchCollection(
     return raw as ResearchCollection;
   }
   return createResearchCollection();
+}
+
+type ProcessToolCallContext = {
+  input: AgentEngineRunInput;
+  step: AgentPlanStep | undefined;
+  request: AgentToolRequest;
+  plan: AgentPlan | undefined;
+  artifacts: AgentArtifact[];
+  stepIndex: number | undefined;
+  stepEvents: AgentModelEvent[];
+  eventIndex: number;
+  engineName: string;
+  phase: AgentResumePhase;
+  extraResumeMetadata?: Record<string, unknown>;
+};
+
+type ProcessToolCallResult =
+  | { kind: "completed"; result: AgentToolResult }
+  | { kind: "paused" }
+  | { kind: "failed" };
+
+async function* processToolCallEvent(
+  ctx: ProcessToolCallContext,
+): AsyncGenerator<AgentEvent, ProcessToolCallResult> {
+  const { input, step, request, plan } = ctx;
+
+  yield await emitEvent(input, {
+    type: "agent.tool.proposed",
+    taskId: input.task.id,
+    ...(step ? { stepId: step.id } : {}),
+    request,
+  });
+
+  const notAllowedError = validateToolAllowed(input, step, request.toolName);
+  if (notAllowedError) {
+    yield await emitTaskFailed(input, notAllowedError);
+    return { kind: "failed" };
+  }
+
+  const riskEval = evaluateToolRiskPolicy(input, request);
+  if (riskEval.decision === "deny") {
+    yield await emitTaskFailed(input, riskEval.error);
+    return { kind: "failed" };
+  }
+
+  if (riskEval.decision === "require_approval") {
+    const resumeState: AgentResumeState = {
+      id: createId("resume"),
+      engineName: ctx.engineName,
+      taskId: input.task.id,
+      phase: ctx.phase,
+      approval: riskEval.approval,
+      ...(plan ? { plan } : {}),
+      artifacts: [...ctx.artifacts],
+      ...(step ? { currentStep: step } : {}),
+      ...(ctx.stepIndex !== undefined
+        ? { currentStepIndex: ctx.stepIndex }
+        : {}),
+      pendingModelEvents: ctx.stepEvents.slice(ctx.eventIndex + 1),
+      ...(ctx.extraResumeMetadata
+        ? { metadata: ctx.extraResumeMetadata }
+        : {}),
+    };
+
+    yield* emitApprovalEvents(
+      input,
+      riskEval.approval,
+      resumeState,
+      plan,
+      ctx.artifacts,
+    );
+    return { kind: "paused" };
+  }
+
+  let result: AgentToolResult;
+  try {
+    result = await input.host.callTool(request);
+  } catch (error) {
+    yield await emitTaskFailed(input, toAgentError(error, "tool_exception"));
+    return { kind: "failed" };
+  }
+
+  yield emitEvent(input, {
+    type: "agent.tool.completed",
+    taskId: input.task.id,
+    ...(step ? { stepId: step.id } : {}),
+    result,
+  });
+
+  if (result.error) {
+    yield await emitTaskFailed(input, toAgentError(result.error, "tool_error"));
+    return { kind: "failed" };
+  }
+
+  return { kind: "completed", result };
 }
 
 export class ClassifyEngine implements AgentEngine {
@@ -777,78 +882,20 @@ export class PlanRunReviewEngine implements AgentEngine {
             ...event.toolCall,
             stepId: step.id,
           };
-          const proposed: AgentEvent = {
-            type: "agent.tool.proposed",
-            taskId: input.task.id,
-            stepId: step.id,
-            request,
-          };
-          yield await emitEvent(input, proposed);
-
-          const notAllowedError = validateToolAllowed(
+          const result = yield* processToolCallEvent({
             input,
             step,
-            request.toolName,
-          );
-          if (notAllowedError) {
-            yield await emitTaskFailed(input, notAllowedError);
-            return;
-          }
-
-          const riskEval = evaluateToolRiskPolicy(input, request);
-          if (riskEval.decision === "deny") {
-            yield await emitTaskFailed(input, riskEval.error);
-            return;
-          }
-          if (riskEval.decision === "require_approval") {
-            const resumeState: AgentResumeState = {
-              id: createId("resume"),
-              engineName: ENGINE_NAMES.planRunReview,
-              taskId: input.task.id,
-              phase: "plan-run-review.step",
-              approval: riskEval.approval,
-              plan,
-              artifacts,
-              currentStep: step,
-              currentStepIndex: stepIndex,
-              pendingModelEvents: stepEvents.slice(eventIndex + 1),
-            };
-            yield* emitApprovalEvents(
-              input,
-              riskEval.approval,
-              resumeState,
-              plan,
-              artifacts,
-            );
-            return;
-          }
-
-          let result: AgentToolResult;
-          try {
-            result = await input.host.callTool(request);
-          } catch (error) {
-            yield await emitTaskFailed(
-              input,
-              toAgentError(error, "tool_exception"),
-            );
-            return;
-          }
-
-          const completed: AgentEvent = {
-            type: "agent.tool.completed",
-            taskId: input.task.id,
-            stepId: step.id,
-            result,
-          };
-          yield await emitEvent(input, completed);
-
-          if (result.error) {
-            yield await emitTaskFailed(
-              input,
-              toAgentError(result.error, "tool_error"),
-            );
-            return;
-          }
+            request,
+            plan,
+            artifacts,
+            stepIndex,
+            stepEvents,
+            eventIndex,
+            engineName: ENGINE_NAMES.planRunReview,
+            phase: "plan-run-review.step",
+          });
+          if (result.kind === "failed") return;
+          if (result.kind === "paused") return;
         }
       }
 
@@ -934,16 +981,11 @@ export class PlanRunReviewEngine implements AgentEngine {
     const preamble = yield* resumeEnginePreamble(
       input,
       ENGINE_NAMES.planRunReview,
+      { requiresStep: true },
     );
     if (!preamble) return;
 
     const { resumeState, step, plan, toolResult } = preamble;
-
-    const stepError = validateResumeStep(resumeState);
-    if (stepError) {
-      yield await emitTaskFailed(input, stepError);
-      return;
-    }
 
     const stepDefined = step!;
     const stepIndex = resumeState.currentStepIndex!;
@@ -967,6 +1009,27 @@ export class PlanRunReviewEngine implements AgentEngine {
           stepId: stepDefined.id,
           text: event.text,
         });
+      }
+
+      if (event.type === "tool_call.proposed") {
+        const request: AgentToolRequest = {
+          ...event.toolCall,
+          stepId: stepDefined.id,
+        };
+        const result = yield* processToolCallEvent({
+          input,
+          step: stepDefined,
+          request,
+          plan,
+          artifacts,
+          stepIndex,
+          stepEvents: resumeState.pendingModelEvents,
+          eventIndex,
+          engineName: ENGINE_NAMES.planRunReview,
+          phase: "plan-run-review.step",
+        });
+        if (result.kind === "failed") return;
+        if (result.kind === "paused") return;
       }
     }
 
@@ -1019,7 +1082,12 @@ export class PlanRunReviewEngine implements AgentEngine {
         return;
       }
 
-      for (const event of stepResult.events) {
+      for (
+        let eventIndex = 0;
+        eventIndex < stepResult.events.length;
+        eventIndex += 1
+      ) {
+        const event = stepResult.events[eventIndex]!;
         if (event.type === "text.delta") {
           yield emitEvent(input, {
             type: "agent.model.delta",
@@ -1027,6 +1095,27 @@ export class PlanRunReviewEngine implements AgentEngine {
             stepId: currentStep.id,
             text: event.text,
           });
+        }
+
+        if (event.type === "tool_call.proposed") {
+          const request: AgentToolRequest = {
+            ...event.toolCall,
+            stepId: currentStep.id,
+          };
+          const result = yield* processToolCallEvent({
+            input,
+            step: currentStep,
+            request,
+            plan,
+            artifacts,
+            stepIndex: remainingIndex,
+            stepEvents: stepResult.events,
+            eventIndex,
+            engineName: ENGINE_NAMES.planRunReview,
+            phase: "plan-run-review.step",
+          });
+          if (result.kind === "failed") return;
+          if (result.kind === "paused") return;
         }
       }
 
@@ -1457,80 +1546,22 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
             ...event.toolCall,
             stepId: step.id,
           };
-          const proposed: AgentEvent = {
-            type: "agent.tool.proposed",
-            taskId: input.task.id,
-            stepId: step.id,
-            request,
-          };
-          yield await emitEvent(input, proposed);
-
-          const notAllowedError = validateToolAllowed(
+          const result = yield* processToolCallEvent({
             input,
             step,
-            request.toolName,
-          );
-          if (notAllowedError) {
-            yield await emitTaskFailed(input, notAllowedError);
-            return;
-          }
-
-          const riskEval = evaluateToolRiskPolicy(input, request);
-          if (riskEval.decision === "deny") {
-            yield await emitTaskFailed(input, riskEval.error);
-            return;
-          }
-          if (riskEval.decision === "require_approval") {
-            const resumeState: AgentResumeState = {
-              id: createId("resume"),
-              engineName: ENGINE_NAMES.deepResearch,
-              taskId: input.task.id,
-              phase: "deep-research.step",
-              approval: riskEval.approval,
-              plan,
-              artifacts: [],
-              currentStep: step,
-              currentStepIndex: stepIndex,
-              pendingModelEvents: stepEvents.slice(eventIndex + 1),
-              metadata: { researchCollection: collection },
-            };
-            yield* emitApprovalEvents(
-              input,
-              riskEval.approval,
-              resumeState,
-              plan,
-              [],
-            );
-            return;
-          }
-
-          let result: AgentToolResult;
-          try {
-            result = await input.host.callTool(request);
-          } catch (error) {
-            yield await emitTaskFailed(
-              input,
-              toAgentError(error, "tool_exception"),
-            );
-            return;
-          }
-
-          const completed: AgentEvent = {
-            type: "agent.tool.completed",
-            taskId: input.task.id,
-            stepId: step.id,
-            result,
-          };
-          yield await emitEvent(input, completed);
-          collectResearchOutput(collection, result.output);
-
-          if (result.error) {
-            yield await emitTaskFailed(
-              input,
-              toAgentError(result.error, "tool_error"),
-            );
-            return;
-          }
+            request,
+            plan,
+            artifacts: [],
+            stepIndex,
+            stepEvents,
+            eventIndex,
+            engineName: ENGINE_NAMES.deepResearch,
+            phase: "deep-research.step",
+            extraResumeMetadata: { researchCollection: collection },
+          });
+          if (result.kind === "failed") return;
+          if (result.kind === "paused") return;
+          collectResearchOutput(collection, result.result.output);
         }
       }
 
@@ -1575,76 +1606,22 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
 
       if (event.type === "tool_call.proposed") {
         const { stepId: _stepId, ...request } = event.toolCall;
-        const proposed: AgentEvent = {
-          type: "agent.tool.proposed",
-          taskId: input.task.id,
-          request,
-        };
-        yield await emitEvent(input, proposed);
-
-        const notAllowedError = validateToolAllowed(
+        const result = yield* processToolCallEvent({
           input,
-          undefined,
-          request.toolName,
-        );
-        if (notAllowedError) {
-          yield await emitTaskFailed(input, notAllowedError);
-          return;
-        }
-
-        const riskEval = evaluateToolRiskPolicy(input, request);
-        if (riskEval.decision === "deny") {
-          yield await emitTaskFailed(input, riskEval.error);
-          return;
-        }
-        if (riskEval.decision === "require_approval") {
-          const resumeState: AgentResumeState = {
-            id: createId("resume"),
-            engineName: ENGINE_NAMES.deepResearch,
-            taskId: input.task.id,
-            phase: "deep-research.synthesis",
-            approval: riskEval.approval,
-            plan,
-            artifacts: [],
-            pendingModelEvents: synthesisEvents.slice(eventIndex + 1),
-            metadata: { researchCollection: collection },
-          };
-          yield* emitApprovalEvents(
-            input,
-            riskEval.approval,
-            resumeState,
-            plan,
-            [],
-          );
-          return;
-        }
-
-        let result: AgentToolResult;
-        try {
-          result = await input.host.callTool(request);
-        } catch (error) {
-          yield await emitTaskFailed(
-            input,
-            toAgentError(error, "tool_exception"),
-          );
-          return;
-        }
-
-        const completed: AgentEvent = {
-          type: "agent.tool.completed",
-          taskId: input.task.id,
-          result,
-        };
-        yield await emitEvent(input, completed);
-        collectResearchOutput(collection, result.output);
-
-        if (result.error) {
-          yield await emitTaskFailed(
-            input,
-            toAgentError(result.error, "tool_error"),
-          );
-          return;
-        }
+          step: undefined,
+          request,
+          plan,
+          artifacts: [],
+          stepIndex: undefined,
+          stepEvents: synthesisEvents,
+          eventIndex,
+          engineName: ENGINE_NAMES.deepResearch,
+          phase: "deep-research.synthesis",
+          extraResumeMetadata: { researchCollection: collection },
+        });
+        if (result.kind === "failed") return;
+        if (result.kind === "paused") return;
+        collectResearchOutput(collection, result.result.output);
       }
     }
 
@@ -1759,7 +1736,12 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
     const phase = resumeState.phase;
 
     if (phase === "deep-research.step") {
-      for (const event of resumeState.pendingModelEvents) {
+      for (
+        let eventIndex = 0;
+        eventIndex < resumeState.pendingModelEvents.length;
+        eventIndex += 1
+      ) {
+        const event = resumeState.pendingModelEvents[eventIndex]!;
         if (event.type === "text.delta") {
           yield emitEvent(input, {
             type: "agent.model.delta",
@@ -1767,6 +1749,29 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
             stepId: currentStep!.id,
             text: event.text,
           });
+        }
+
+        if (event.type === "tool_call.proposed") {
+          const request: AgentToolRequest = {
+            ...event.toolCall,
+            stepId: currentStep!.id,
+          };
+          const result = yield* processToolCallEvent({
+            input,
+            step: currentStep!,
+            request,
+            plan,
+            artifacts: [],
+            stepIndex: resumeState.currentStepIndex,
+            stepEvents: resumeState.pendingModelEvents,
+            eventIndex,
+            engineName: ENGINE_NAMES.deepResearch,
+            phase: "deep-research.step",
+            extraResumeMetadata: { researchCollection: collection },
+          });
+          if (result.kind === "failed") return;
+          if (result.kind === "paused") return;
+          collectResearchOutput(collection, result.result.output);
         }
       }
 
@@ -1804,7 +1809,12 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
           return;
         }
 
-        for (const event of stepResult.events) {
+        for (
+          let eventIndex = 0;
+          eventIndex < stepResult.events.length;
+          eventIndex += 1
+        ) {
+          const event = stepResult.events[eventIndex]!;
           if (event.type === "text.delta") {
             yield emitEvent(input, {
               type: "agent.model.delta",
@@ -1812,6 +1822,29 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
               stepId: step.id,
               text: event.text,
             });
+          }
+
+          if (event.type === "tool_call.proposed") {
+            const request: AgentToolRequest = {
+              ...event.toolCall,
+              stepId: step.id,
+            };
+            const result = yield* processToolCallEvent({
+              input,
+              step,
+              request,
+              plan,
+              artifacts: [],
+              stepIndex: remainingIndex,
+              stepEvents: stepResult.events,
+              eventIndex,
+              engineName: ENGINE_NAMES.deepResearch,
+              phase: "deep-research.step",
+              extraResumeMetadata: { researchCollection: collection },
+            });
+            if (result.kind === "failed") return;
+            if (result.kind === "paused") return;
+            collectResearchOutput(collection, result.result.output);
           }
         }
 
@@ -1833,13 +1866,38 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
         return;
       }
 
-      for (const event of synthesisResult.events) {
+      for (
+        let eventIndex = 0;
+        eventIndex < synthesisResult.events.length;
+        eventIndex += 1
+      ) {
+        const event = synthesisResult.events[eventIndex]!;
         if (event.type === "text.delta") {
           yield emitEvent(input, {
             type: "agent.model.delta",
             taskId: input.task.id,
             text: event.text,
           });
+        }
+
+        if (event.type === "tool_call.proposed") {
+          const { stepId: _stepId, ...request } = event.toolCall;
+          const result = yield* processToolCallEvent({
+            input,
+            step: undefined,
+            request,
+            plan,
+            artifacts: [],
+            stepIndex: undefined,
+            stepEvents: synthesisResult.events,
+            eventIndex,
+            engineName: ENGINE_NAMES.deepResearch,
+            phase: "deep-research.synthesis",
+            extraResumeMetadata: { researchCollection: collection },
+          });
+          if (result.kind === "failed") return;
+          if (result.kind === "paused") return;
+          collectResearchOutput(collection, result.result.output);
         }
       }
 
@@ -1929,13 +1987,38 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
         },
       });
     } else {
-      for (const event of resumeState.pendingModelEvents) {
+      for (
+        let eventIndex = 0;
+        eventIndex < resumeState.pendingModelEvents.length;
+        eventIndex += 1
+      ) {
+        const event = resumeState.pendingModelEvents[eventIndex]!;
         if (event.type === "text.delta") {
           yield emitEvent(input, {
             type: "agent.model.delta",
             taskId: input.task.id,
             text: event.text,
           });
+        }
+
+        if (event.type === "tool_call.proposed") {
+          const { stepId: _stepId, ...request } = event.toolCall;
+          const result = yield* processToolCallEvent({
+            input,
+            step: undefined,
+            request,
+            plan,
+            artifacts: [],
+            stepIndex: undefined,
+            stepEvents: resumeState.pendingModelEvents,
+            eventIndex,
+            engineName: ENGINE_NAMES.deepResearch,
+            phase: "deep-research.synthesis",
+            extraResumeMetadata: { researchCollection: collection },
+          });
+          if (result.kind === "failed") return;
+          if (result.kind === "paused") return;
+          collectResearchOutput(collection, result.result.output);
         }
       }
 
