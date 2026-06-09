@@ -158,6 +158,41 @@ export type AgentApprovalRequest = {
   metadata?: Record<string, unknown>;
 };
 
+export type AgentApprovalDecision = "approved" | "rejected";
+
+export type AgentApprovalResponse = {
+  approvalId: string;
+  decision: AgentApprovalDecision;
+  reason?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type AgentResumePhase =
+  | "plan-run-review.step"
+  | "deep-research.step"
+  | "deep-research.synthesis";
+
+export type AgentResumeState = {
+  id: string;
+  engineName: string;
+  taskId: string;
+  phase: AgentResumePhase;
+  approval: AgentApprovalRequest;
+  plan?: AgentPlan;
+  artifacts: AgentArtifact[];
+  currentStep?: AgentPlanStep;
+  currentStepIndex?: number;
+  pendingModelEvents: AgentModelEvent[];
+  metadata?: Record<string, unknown>;
+};
+
+export type AgentResumeInput<
+  TOptions extends AgentRunOptions = AgentRunOptions,
+> = AgentEngineRunInput<TOptions> & {
+  resumeState: AgentResumeState;
+  approvalResponse: AgentApprovalResponse;
+};
+
 export type AgentToolDescriptor = {
   name: string;
   description?: string;
@@ -258,6 +293,20 @@ export type AgentEvent =
       taskId: string;
       approval: AgentApprovalRequest;
       output: AgentTaskOutput;
+    }
+  | {
+      type: "agent.tool.approval_resolved";
+      taskId: string;
+      stepId?: string;
+      approval: AgentApprovalRequest;
+      response: AgentApprovalResponse;
+    }
+  | {
+      type: "agent.task.resumed";
+      taskId: string;
+      approval: AgentApprovalRequest;
+      response: AgentApprovalResponse;
+      resumeState: AgentResumeState;
     };
 
 export type AgentTraceEventKind =
@@ -279,6 +328,8 @@ export type AgentTraceEventPhase =
   | "failed"
   | "requested"
   | "paused"
+  | "resolved"
+  | "resumed"
   | "delta";
 
 export type AgentTraceEvent = {
@@ -301,6 +352,8 @@ export type AgentTaskOutput = {
   artifacts: AgentArtifact[];
   review?: AgentReviewResult;
   usage?: AgentUsage;
+  approval?: AgentApprovalRequest;
+  resumeState?: AgentResumeState;
   metadata?: Record<string, unknown>;
 };
 
@@ -351,6 +404,7 @@ export interface AgentEngine<
 > {
   name: string;
   run(input: AgentEngineRunInput<TOptions>): AsyncIterable<AgentEvent>;
+  resume?(input: AgentResumeInput<TOptions>): AsyncIterable<AgentEvent>;
 }
 
 export type AgentEngineRunInput<
@@ -514,6 +568,30 @@ export function agentTraceEventFromAgentEvent(
         agentEventType: event.type,
         taskId: event.taskId,
         summary: event.output.summary,
+        payload: event,
+      };
+
+    case "agent.tool.approval_resolved":
+      return {
+        kind: "agent.approval",
+        phase: "resolved",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        ...(event.stepId ? { stepId: event.stepId } : {}),
+        toolName: event.approval.toolRequest.toolName,
+        summary:
+          event.response.reason ??
+          `Approval ${event.response.decision} for ${event.approval.toolRequest.toolName}.`,
+        payload: event,
+      };
+
+    case "agent.task.resumed":
+      return {
+        kind: "agent.task",
+        phase: "resumed",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        summary: `Task resumed for approval ${event.approval.id}.`,
         payload: event,
       };
   }

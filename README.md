@@ -109,6 +109,74 @@ Runtime engines treat model, tool, and artifact failures as task failures:
 
 For all runtime events, including failures, `AgentHost.emit(event)` and yielded events remain identical and ordered.
 
+## Approval & Resume Protocol V0
+
+Agent Runtime supports an Agent-level pause/resume protocol for tools requiring approval.
+
+### Pause
+
+When `toolRiskPolicy.require_approval` triggers:
+
+```txt
+agent.tool.proposed
+agent.tool.approval_requested
+agent.task.paused
+```
+
+The paused `AgentTaskOutput` includes:
+
+- `output.status = "paused"`
+- `output.approval` — the `AgentApprovalRequest` with the normalized tool request, risk level, and reason
+- `output.resumeState` — an `AgentResumeState` carrying the engine name, phase, plan, artifacts, current step, and `pendingModelEvents` (remaining model events after the paused tool call)
+
+`AgentRuntime.runTask(...)` returns the paused output instead of throwing.
+
+### Resume
+
+```ts
+// Approved resume
+await runtime.resumeTask("plan-run-review", {
+  task, model, host, options,
+  resumeState: paused.output.resumeState,
+  approvalResponse: {
+    approvalId: paused.output.approval.id,
+    decision: "approved",
+  },
+});
+```
+
+**Approved resume event order:**
+
+```txt
+agent.tool.approval_resolved
+agent.task.resumed
+agent.tool.completed          ← host.callTool invoked with original normalized request
+agent.artifact.created        ← (if applicable)
+agent.review.started
+agent.review.completed
+agent.task.completed
+```
+
+**Rejected resume event order:**
+
+```txt
+agent.tool.approval_resolved
+agent.task.failed             ← code: tool_approval_rejected
+```
+
+### Resume Safety
+
+- **Resume validates `resumeState.engineName`, `taskId`, and `approvalId` match** — mismatches produce `invalid_resume_state`.
+- **Resume re-validates `allowedTools`** — if the allowlist changed, the tool fails with `tool_not_allowed`.
+- **Resume re-checks risk policy via `evaluateToolRiskPolicyForResume`** — if the policy changed to `deny`, the tool fails with `tool_risk_denied`. If the policy is still `require_approval`, the approved decision is honored.
+- **Resume uses the original normalized tool request from `resumeState.approval.toolRequest`** — external callers cannot inject new tool arguments.
+- **`AgentRuntime.resume(engineName, input)`** returns `AsyncIterable<AgentEvent>`. **`AgentRuntime.resumeTask(engineName, input)`** returns `Promise<AgentTaskOutput>`.
+- **Engines without resume support (e.g., `classify`) throw `"Agent engine does not support resume: ..."`.**
+
+### Resume V0 Scope
+
+This is an Agent-level, single-process-friendly resume protocol. Durable persistence, cross-process resume, formal workflow pause/resume, and approval UI belong to core/workbench integration. `@aithru/node-agent` transparently passes `approval` and `resumeState` through the output.
+
 ## Agent Trace Events
 
 `AgentEvent` is the runtime event shape emitted by Agent engines.

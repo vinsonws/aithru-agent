@@ -77,4 +77,148 @@ describe("agentTraceEventFromAgentEvent", () => {
 
     expect(agentTraceEventFromAgentEvent(event).payload).toBe(event);
   });
+
+  test("maps agent.tool.approval_requested with toolName and stepId", () => {
+    const event: AgentEvent = {
+      type: "agent.tool.approval_requested",
+      taskId: "task_trace",
+      stepId: "step_del",
+      approval: {
+        id: "approval_1",
+        taskId: "task_trace",
+        stepId: "step_del",
+        toolRequest: {
+          id: "tool_del",
+          toolName: "repo.delete",
+          arguments: { path: "x" },
+        },
+        riskLevel: "dangerous",
+      },
+    };
+
+    expect(agentTraceEventFromAgentEvent(event)).toEqual({
+      kind: "agent.approval",
+      phase: "requested",
+      agentEventType: "agent.tool.approval_requested",
+      taskId: "task_trace",
+      stepId: "step_del",
+      toolName: "repo.delete",
+      summary: "Approval requested for repo.delete.",
+      payload: event,
+    });
+  });
+
+  test("maps agent.task.paused with summary", () => {
+    const event: AgentEvent = {
+      type: "agent.task.paused",
+      taskId: "task_trace",
+      approval: {
+        id: "approval_1",
+        taskId: "task_trace",
+        toolRequest: {
+          id: "tool_del",
+          toolName: "repo.delete",
+          arguments: { path: "x" },
+        },
+        riskLevel: "dangerous",
+      },
+      output: {
+        status: "paused",
+        summary: "Approval required for tool \"repo.delete\".",
+        artifacts: [],
+      },
+    };
+
+    expect(agentTraceEventFromAgentEvent(event)).toEqual({
+      kind: "agent.task",
+      phase: "paused",
+      agentEventType: "agent.task.paused",
+      taskId: "task_trace",
+      summary: "Approval required for tool \"repo.delete\".",
+      payload: event,
+    });
+  });
+
+  test("maps agent.tool.approval_resolved with toolName", () => {
+    const event: AgentEvent = {
+      type: "agent.tool.approval_resolved",
+      taskId: "task_trace",
+      stepId: "step_del",
+      approval: {
+        id: "approval_1",
+        taskId: "task_trace",
+        stepId: "step_del",
+        toolRequest: {
+          id: "tool_del",
+          toolName: "repo.delete",
+          arguments: { path: "x" },
+        },
+        riskLevel: "dangerous",
+      },
+      response: {
+        approvalId: "approval_1",
+        decision: "approved",
+        reason: "Looks safe.",
+      },
+    };
+
+    expect(agentTraceEventFromAgentEvent(event)).toEqual({
+      kind: "agent.approval",
+      phase: "resolved",
+      agentEventType: "agent.tool.approval_resolved",
+      taskId: "task_trace",
+      stepId: "step_del",
+      toolName: "repo.delete",
+      summary: "Looks safe.",
+      payload: event,
+    });
+  });
+
+  test("maps agent.task.resumed with taskId", () => {
+    const event: AgentEvent = {
+      type: "agent.task.resumed",
+      taskId: "task_trace",
+      approval: {
+        id: "approval_1",
+        taskId: "task_trace",
+        toolRequest: {
+          id: "tool_del",
+          toolName: "repo.delete",
+          arguments: { path: "x" },
+        },
+        riskLevel: "dangerous",
+      },
+      response: {
+        approvalId: "approval_1",
+        decision: "approved",
+      },
+      resumeState: {
+        id: "resume_1",
+        engineName: "plan-run-review",
+        taskId: "task_trace",
+        phase: "plan-run-review.step",
+        approval: {
+          id: "approval_1",
+          taskId: "task_trace",
+          toolRequest: {
+            id: "tool_del",
+            toolName: "repo.delete",
+            arguments: { path: "x" },
+          },
+          riskLevel: "dangerous",
+        },
+        artifacts: [],
+        pendingModelEvents: [],
+      },
+    };
+
+    expect(agentTraceEventFromAgentEvent(event)).toEqual({
+      kind: "agent.task",
+      phase: "resumed",
+      agentEventType: "agent.task.resumed",
+      taskId: "task_trace",
+      summary: "Task resumed for approval approval_1.",
+      payload: event,
+    });
+  });
 });

@@ -709,6 +709,7 @@ describe("agent.deepResearch node", () => {
 
     expect(result.output?.status).toBe("paused");
     expect(result.output?.metadata?.approval).toBeDefined();
+    expect(result.output?.resumeState).toBeDefined();
     expect(callTool).not.toHaveBeenCalled();
     expect(agentEventTypes(emitted)).toContain("agent.tool.approval_requested");
     expect(agentEventTypes(emitted)).toContain("agent.task.paused");
@@ -1070,6 +1071,8 @@ describe("agent.task node", () => {
 
     expect(result.output?.status).toBe("paused");
     expect(result.output?.metadata?.approval).toBeDefined();
+    expect(result.output?.resumeState).toBeDefined();
+    expect(result.output?.resumeState?.phase).toBe("plan-run-review.step");
     expect(callTool).not.toHaveBeenCalled();
     expect(agentEventTypes(emitted)).toContain("agent.tool.approval_requested");
     expect(agentEventTypes(emitted)).toContain("agent.task.paused");

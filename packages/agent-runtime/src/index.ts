@@ -1,5 +1,7 @@
 import type {
+  AgentApprovalDecision,
   AgentApprovalRequest,
+  AgentApprovalResponse,
   AgentArtifact,
   AgentArtifactDraft,
   AgentClassificationResult,
@@ -15,6 +17,9 @@ import type {
   AgentResearchOptions,
   AgentResearchReport,
   AgentResearchSource,
+  AgentResumeInput,
+  AgentResumePhase,
+  AgentResumeState,
   AgentReviewResult,
   AgentRiskLevel,
   AgentRunOptions,
@@ -185,6 +190,7 @@ function evaluateToolRiskPolicy(
 async function* emitApprovalEvents(
   input: AgentEngineRunInput,
   approval: AgentApprovalRequest,
+  resumeState: AgentResumeState,
   plan: AgentPlan | undefined,
   artifacts: AgentArtifact[],
 ): AsyncGenerator<AgentEvent> {
@@ -200,8 +206,11 @@ async function* emitApprovalEvents(
     summary: `Approval required for tool "${approval.toolRequest.toolName}".`,
     ...(plan ? { plan } : {}),
     artifacts,
+    approval,
+    resumeState,
     metadata: {
       approval,
+      resumeState,
     },
   };
 
@@ -397,6 +406,229 @@ async function createArtifact(
   };
 }
 
+const ENGINE_NAMES = {
+  classify: "classify",
+  planRunReview: "plan-run-review",
+  deepResearch: "deep-research",
+} as const;
+
+function validateResumeInput(
+  input: AgentResumeInput,
+  expectedEngineName: string,
+): AgentError | undefined {
+  const { resumeState, approvalResponse } = input;
+
+  if (resumeState.engineName !== expectedEngineName) {
+    return {
+      code: "invalid_resume_state",
+      message: `Resume state engine "${resumeState.engineName}" does not match "${expectedEngineName}".`,
+      metadata: { expectedEngineName, actualEngineName: resumeState.engineName },
+    };
+  }
+
+  if (resumeState.taskId !== input.task.id) {
+    return {
+      code: "invalid_resume_state",
+      message: "Resume state taskId does not match current task.",
+      metadata: { expectedTaskId: input.task.id, actualTaskId: resumeState.taskId },
+    };
+  }
+
+  if (resumeState.approval.id !== approvalResponse.approvalId) {
+    return {
+      code: "invalid_resume_state",
+      message: "Approval response ID does not match resume state.",
+      metadata: {
+        expectedApprovalId: resumeState.approval.id,
+        actualApprovalId: approvalResponse.approvalId,
+      },
+    };
+  }
+
+  if (
+    approvalResponse.decision !== "approved" &&
+    approvalResponse.decision !== "rejected"
+  ) {
+    return {
+      code: "invalid_resume_state",
+      message: `Unknown approval decision: "${approvalResponse.decision}".`,
+      metadata: { decision: approvalResponse.decision },
+    };
+  }
+
+  return undefined;
+}
+
+function validateResumeStep(
+  resumeState: AgentResumeState,
+): AgentError | undefined {
+  if (resumeState.currentStep === undefined) {
+    return {
+      code: "invalid_resume_state",
+      message: "Resume state is missing currentStep.",
+      metadata: { phase: resumeState.phase },
+    };
+  }
+
+  if (resumeState.currentStepIndex === undefined) {
+    return {
+      code: "invalid_resume_state",
+      message: "Resume state is missing currentStepIndex.",
+      metadata: { phase: resumeState.phase },
+    };
+  }
+
+  return undefined;
+}
+
+function evaluateToolRiskPolicyForResume(
+  input: AgentResumeInput,
+  request: AgentToolRequest,
+): AgentError | undefined {
+  const policy = input.options?.toolRiskPolicy;
+  if (!policy) return undefined;
+
+  const riskLevel = effectiveRiskLevel(request);
+  const decision = resolveRiskDecision(policy, request.toolName, riskLevel);
+
+  if (decision === "deny") {
+    return {
+      code: "tool_risk_denied",
+      message: `Tool "${request.toolName}" with risk level "${riskLevel}" was denied by runtime policy.`,
+      metadata: { toolName: request.toolName, riskLevel, decision: "deny" },
+    };
+  }
+
+  return undefined;
+}
+
+type ResumePreambleContext = {
+  approval: AgentApprovalRequest;
+  step: AgentPlanStep | undefined;
+  resumeState: AgentResumeState;
+  plan: AgentPlan;
+  toolResult: AgentToolResult;
+};
+
+async function* resumeEnginePreamble(
+  input: AgentResumeInput,
+  expectedEngineName: string,
+): AsyncGenerator<AgentEvent, ResumePreambleContext | undefined> {
+  const { resumeState, approvalResponse } = input;
+
+  const validationError = validateResumeInput(input, expectedEngineName);
+  if (validationError) {
+    yield await emitTaskFailed(input, validationError);
+    return undefined;
+  }
+
+  const approval = resumeState.approval;
+  const plan = resumeState.plan;
+  const step = resumeState.currentStep;
+
+  if (!plan) {
+    yield await emitTaskFailed(input, {
+      code: "invalid_resume_state",
+      message: "Resume state is missing plan.",
+    });
+    return undefined;
+  }
+
+  yield emitEvent(input, {
+    type: "agent.tool.approval_resolved",
+    taskId: input.task.id,
+    ...(approval.stepId !== undefined ? { stepId: approval.stepId } : {}),
+    approval,
+    response: approvalResponse,
+  });
+
+  if (approvalResponse.decision === "rejected") {
+    yield await emitTaskFailed(input, {
+      code: "tool_approval_rejected",
+      message: `Approval was rejected for tool "${approval.toolRequest.toolName}".`,
+      metadata: {
+        approvalId: approval.id,
+        toolName: approval.toolRequest.toolName,
+        ...(approvalResponse.reason !== undefined
+          ? { reason: approvalResponse.reason }
+          : {}),
+      },
+    });
+    return undefined;
+  }
+
+  yield emitEvent(input, {
+    type: "agent.task.resumed",
+    taskId: input.task.id,
+    approval,
+    response: approvalResponse,
+    resumeState,
+  });
+
+  const notAllowedError = validateToolAllowed(
+    input,
+    step,
+    approval.toolRequest.toolName,
+  );
+  if (notAllowedError) {
+    yield await emitTaskFailed(input, notAllowedError);
+    return undefined;
+  }
+
+  const riskError = evaluateToolRiskPolicyForResume(
+    input,
+    approval.toolRequest,
+  );
+  if (riskError) {
+    yield await emitTaskFailed(input, riskError);
+    return undefined;
+  }
+
+  let toolResult: AgentToolResult;
+  try {
+    toolResult = await input.host.callTool(approval.toolRequest);
+  } catch (error) {
+    yield await emitTaskFailed(
+      input,
+      toAgentError(error, "tool_exception"),
+    );
+    return undefined;
+  }
+
+  yield emitEvent(input, {
+    type: "agent.tool.completed",
+    taskId: input.task.id,
+    ...(step ? { stepId: step.id } : {}),
+    result: toolResult,
+  });
+
+  if (toolResult.error) {
+    yield await emitTaskFailed(
+      input,
+      toAgentError(toolResult.error, "tool_error"),
+    );
+    return undefined;
+  }
+
+  return { approval, step, resumeState, plan, toolResult };
+}
+
+function extractResearchCollection(
+  resumeState: AgentResumeState,
+): ResearchCollection {
+  const raw = resumeState.metadata?.researchCollection;
+  if (
+    raw &&
+    typeof raw === "object" &&
+    Array.isArray((raw as Record<string, unknown>).sources) &&
+    Array.isArray((raw as Record<string, unknown>).findings) &&
+    Array.isArray((raw as Record<string, unknown>).notes)
+  ) {
+    return raw as ResearchCollection;
+  }
+  return createResearchCollection();
+}
+
 export class ClassifyEngine implements AgentEngine {
   readonly name = "classify";
 
@@ -502,11 +734,13 @@ export class PlanRunReviewEngine implements AgentEngine {
     yield await emitEvent(input, planCompleted);
 
     const artifacts: AgentArtifact[] = [];
-
-    for (const step of plan.steps.slice(
+    const boundedSteps = plan.steps.slice(
       0,
       input.options?.maxSteps ?? plan.steps.length,
-    )) {
+    );
+
+    for (let stepIndex = 0; stepIndex < boundedSteps.length; stepIndex += 1) {
+      const step = boundedSteps[stepIndex]!;
       const stepStarted: AgentEvent = {
         type: "agent.step.started",
         taskId: input.task.id,
@@ -522,7 +756,12 @@ export class PlanRunReviewEngine implements AgentEngine {
       }
 
       const stepEvents = stepResult.events;
-      for (const event of stepEvents) {
+      for (
+        let eventIndex = 0;
+        eventIndex < stepEvents.length;
+        eventIndex += 1
+      ) {
+        const event = stepEvents[eventIndex]!;
         if (event.type === "text.delta") {
           const deltaEvent: AgentEvent = {
             type: "agent.model.delta",
@@ -562,9 +801,22 @@ export class PlanRunReviewEngine implements AgentEngine {
             return;
           }
           if (riskEval.decision === "require_approval") {
+            const resumeState: AgentResumeState = {
+              id: createId("resume"),
+              engineName: ENGINE_NAMES.planRunReview,
+              taskId: input.task.id,
+              phase: "plan-run-review.step",
+              approval: riskEval.approval,
+              plan,
+              artifacts,
+              currentStep: step,
+              currentStepIndex: stepIndex,
+              pendingModelEvents: stepEvents.slice(eventIndex + 1),
+            };
             yield* emitApprovalEvents(
               input,
               riskEval.approval,
+              resumeState,
               plan,
               artifacts,
             );
@@ -674,6 +926,180 @@ export class PlanRunReviewEngine implements AgentEngine {
       output,
     };
     yield await emitEvent(input, completedEvent);
+  }
+
+  async *resume(
+    input: AgentResumeInput,
+  ): AsyncIterable<AgentEvent> {
+    const preamble = yield* resumeEnginePreamble(
+      input,
+      ENGINE_NAMES.planRunReview,
+    );
+    if (!preamble) return;
+
+    const { resumeState, step, plan, toolResult } = preamble;
+
+    const stepError = validateResumeStep(resumeState);
+    if (stepError) {
+      yield await emitTaskFailed(input, stepError);
+      return;
+    }
+
+    const stepDefined = step!;
+    const stepIndex = resumeState.currentStepIndex!;
+
+    const artifacts: AgentArtifact[] = [...resumeState.artifacts];
+    const boundedSteps = plan.steps.slice(
+      0,
+      input.options?.maxSteps ?? plan.steps.length,
+    );
+
+    for (
+      let eventIndex = 0;
+      eventIndex < resumeState.pendingModelEvents.length;
+      eventIndex += 1
+    ) {
+      const event = resumeState.pendingModelEvents[eventIndex]!;
+      if (event.type === "text.delta") {
+        yield emitEvent(input, {
+          type: "agent.model.delta",
+          taskId: input.task.id,
+          stepId: stepDefined.id,
+          text: event.text,
+        });
+      }
+    }
+
+    const pendingOutput =
+      firstFinalOutput(resumeState.pendingModelEvents) ??
+      firstStructuredOutput(resumeState.pendingModelEvents);
+    if (pendingOutput !== undefined) {
+      try {
+        const artifact = await createArtifact(input, {
+          type: "json",
+          name: `${stepDefined.id}-output`,
+          content: pendingOutput,
+          sourceStepId: stepDefined.id,
+        });
+        artifacts.push(artifact);
+        yield emitEvent(input, {
+          type: "agent.artifact.created",
+          taskId: input.task.id,
+          artifact,
+        });
+      } catch (error) {
+        yield await emitTaskFailed(
+          input,
+          toAgentError(error, "artifact_exception"),
+        );
+        return;
+      }
+    }
+
+    for (
+      let remainingIndex = stepIndex + 1;
+      remainingIndex < boundedSteps.length;
+      remainingIndex += 1
+    ) {
+      const currentStep = boundedSteps[remainingIndex]!;
+      yield emitEvent(input, {
+        type: "agent.step.started",
+        taskId: input.task.id,
+        stepId: currentStep.id,
+        step: currentStep,
+      });
+
+      const stepResult = await collectModelEvents(
+        input,
+        "execute",
+        currentStep,
+      );
+      if (stepResult.error) {
+        yield await emitTaskFailed(input, stepResult.error);
+        return;
+      }
+
+      for (const event of stepResult.events) {
+        if (event.type === "text.delta") {
+          yield emitEvent(input, {
+            type: "agent.model.delta",
+            taskId: input.task.id,
+            stepId: currentStep.id,
+            text: event.text,
+          });
+        }
+      }
+
+      const stepOutput =
+        firstFinalOutput(stepResult.events) ??
+        firstStructuredOutput(stepResult.events);
+      if (stepOutput !== undefined) {
+        try {
+          const artifact = await createArtifact(input, {
+            type: "json",
+            name: `${currentStep.id}-output`,
+            content: stepOutput,
+            sourceStepId: currentStep.id,
+          });
+          artifacts.push(artifact);
+          yield emitEvent(input, {
+            type: "agent.artifact.created",
+            taskId: input.task.id,
+            artifact,
+          });
+        } catch (error) {
+          yield await emitTaskFailed(
+            input,
+            toAgentError(error, "artifact_exception"),
+          );
+          return;
+        }
+      }
+    }
+
+    let review: AgentReviewResult | undefined;
+    if (input.options?.review ?? true) {
+      yield emitEvent(input, {
+        type: "agent.review.started",
+        taskId: input.task.id,
+      });
+
+      const reviewResult = await collectModelEvents(input, "review");
+      if (reviewResult.error) {
+        yield await emitTaskFailed(input, reviewResult.error);
+        return;
+      }
+
+      const reviewEvents = reviewResult.events;
+      review = normalizeReview(
+        firstStructuredOutput(reviewEvents) ??
+          firstFinalOutput(reviewEvents),
+      );
+      yield emitEvent(input, {
+        type: "agent.review.completed",
+        taskId: input.task.id,
+        review,
+      });
+    }
+
+    const output: AgentTaskOutput = {
+      status:
+        review?.status === "needs_rerun"
+          ? "needs_rerun"
+          : review?.status === "failed"
+            ? "failed"
+            : "completed",
+      summary: review?.summary ?? "Agent task completed.",
+      plan,
+      artifacts,
+      ...(review ? { review } : {}),
+    };
+
+    yield emitEvent(input, {
+      type: "agent.task.completed",
+      taskId: input.task.id,
+      output,
+    });
   }
 }
 
@@ -982,8 +1408,14 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
 
     const collection = createResearchCollection();
     const maxSteps = boundedCount(options?.maxSteps, plan.steps.length);
+    const boundedSteps = plan.steps.slice(0, maxSteps);
 
-    for (const step of plan.steps.slice(0, maxSteps)) {
+    for (
+      let stepIndex = 0;
+      stepIndex < boundedSteps.length;
+      stepIndex += 1
+    ) {
+      const step = boundedSteps[stepIndex]!;
       if (timeoutMs !== undefined && timedOut()) {
         yield await emitTaskFailed(input, researchTimeoutError(timeoutMs));
         return;
@@ -1003,7 +1435,13 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
         return;
       }
 
-      for (const event of stepResult.events) {
+      const stepEvents = stepResult.events;
+      for (
+        let eventIndex = 0;
+        eventIndex < stepEvents.length;
+        eventIndex += 1
+      ) {
+        const event = stepEvents[eventIndex]!;
         if (event.type === "text.delta") {
           const deltaEvent: AgentEvent = {
             type: "agent.model.delta",
@@ -1043,7 +1481,26 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
             return;
           }
           if (riskEval.decision === "require_approval") {
-            yield* emitApprovalEvents(input, riskEval.approval, plan, []);
+            const resumeState: AgentResumeState = {
+              id: createId("resume"),
+              engineName: ENGINE_NAMES.deepResearch,
+              taskId: input.task.id,
+              phase: "deep-research.step",
+              approval: riskEval.approval,
+              plan,
+              artifacts: [],
+              currentStep: step,
+              currentStepIndex: stepIndex,
+              pendingModelEvents: stepEvents.slice(eventIndex + 1),
+              metadata: { researchCollection: collection },
+            };
+            yield* emitApprovalEvents(
+              input,
+              riskEval.approval,
+              resumeState,
+              plan,
+              [],
+            );
             return;
           }
 
@@ -1079,8 +1536,8 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
 
       collectResearchOutput(
         collection,
-        firstFinalOutput(stepResult.events) ??
-          firstStructuredOutput(stepResult.events),
+        firstFinalOutput(stepEvents) ??
+          firstStructuredOutput(stepEvents),
       );
     }
 
@@ -1100,7 +1557,13 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
       return;
     }
 
-    for (const event of synthesisResult.events) {
+    const synthesisEvents = synthesisResult.events;
+    for (
+      let eventIndex = 0;
+      eventIndex < synthesisEvents.length;
+      eventIndex += 1
+    ) {
+      const event = synthesisEvents[eventIndex]!;
       if (event.type === "text.delta") {
         const deltaEvent: AgentEvent = {
           type: "agent.model.delta",
@@ -1135,7 +1598,24 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
           return;
         }
         if (riskEval.decision === "require_approval") {
-          yield* emitApprovalEvents(input, riskEval.approval, plan, []);
+          const resumeState: AgentResumeState = {
+            id: createId("resume"),
+            engineName: ENGINE_NAMES.deepResearch,
+            taskId: input.task.id,
+            phase: "deep-research.synthesis",
+            approval: riskEval.approval,
+            plan,
+            artifacts: [],
+            pendingModelEvents: synthesisEvents.slice(eventIndex + 1),
+            metadata: { researchCollection: collection },
+          };
+          yield* emitApprovalEvents(
+            input,
+            riskEval.approval,
+            resumeState,
+            plan,
+            [],
+          );
           return;
         }
 
@@ -1259,6 +1739,293 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
     };
     yield await emitEvent(input, completedEvent);
   }
+
+  async *resume(
+    input: AgentResumeInput<AgentResearchOptions>,
+  ): AsyncIterable<AgentEvent> {
+    const preamble = yield* resumeEnginePreamble(
+      input,
+      ENGINE_NAMES.deepResearch,
+    );
+    if (!preamble) return;
+
+    const { resumeState, plan, toolResult } = preamble;
+    const options = input.options as AgentResearchOptions | undefined;
+    const collection = extractResearchCollection(resumeState);
+    const currentStep = resumeState.currentStep;
+
+    collectResearchOutput(collection, toolResult.output);
+
+    const phase = resumeState.phase;
+
+    if (phase === "deep-research.step") {
+      for (const event of resumeState.pendingModelEvents) {
+        if (event.type === "text.delta") {
+          yield emitEvent(input, {
+            type: "agent.model.delta",
+            taskId: input.task.id,
+            stepId: currentStep!.id,
+            text: event.text,
+          });
+        }
+      }
+
+      collectResearchOutput(
+        collection,
+        firstFinalOutput(resumeState.pendingModelEvents) ??
+          firstStructuredOutput(resumeState.pendingModelEvents),
+      );
+
+      const boundedSteps = plan.steps.slice(
+        0,
+        boundedCount(options?.maxSteps, plan.steps.length),
+      );
+      for (
+        let remainingIndex = (resumeState.currentStepIndex ?? 0) + 1;
+        remainingIndex < boundedSteps.length;
+        remainingIndex += 1
+      ) {
+        const step = boundedSteps[remainingIndex]!;
+        yield emitEvent(input, {
+          type: "agent.step.started",
+          taskId: input.task.id,
+          stepId: step.id,
+          step,
+        });
+
+        const stepResult = await collectModelEvents(
+          input,
+          "execute",
+          step,
+          plan,
+        );
+        if (stepResult.error) {
+          yield await emitTaskFailed(input, stepResult.error);
+          return;
+        }
+
+        for (const event of stepResult.events) {
+          if (event.type === "text.delta") {
+            yield emitEvent(input, {
+              type: "agent.model.delta",
+              taskId: input.task.id,
+              stepId: step.id,
+              text: event.text,
+            });
+          }
+        }
+
+        collectResearchOutput(
+          collection,
+          firstFinalOutput(stepResult.events) ??
+            firstStructuredOutput(stepResult.events),
+        );
+      }
+
+      const synthesisResult = await collectModelEvents(
+        input,
+        "execute",
+        undefined,
+        plan,
+      );
+      if (synthesisResult.error) {
+        yield await emitTaskFailed(input, synthesisResult.error);
+        return;
+      }
+
+      for (const event of synthesisResult.events) {
+        if (event.type === "text.delta") {
+          yield emitEvent(input, {
+            type: "agent.model.delta",
+            taskId: input.task.id,
+            text: event.text,
+          });
+        }
+      }
+
+      collectResearchOutput(
+        collection,
+        firstStructuredOutput(synthesisResult.events) ??
+          firstFinalOutput(synthesisResult.events),
+      );
+
+      const report = normalizeResearchReport(
+        input.task.goal,
+        firstStructuredOutput(synthesisResult.events) ??
+          firstFinalOutput(synthesisResult.events),
+        collection,
+        options,
+      );
+
+      let artifact: AgentArtifact;
+      try {
+        artifact = await createArtifact(input, {
+          type: "report",
+          name: "deep-research-report",
+          content: report,
+          mediaType: "application/json",
+        });
+      } catch (error) {
+        yield await emitTaskFailed(
+          input,
+          toAgentError(error, "artifact_exception"),
+        );
+        return;
+      }
+
+      yield emitEvent(input, {
+        type: "agent.artifact.created",
+        taskId: input.task.id,
+        artifact,
+      });
+
+      let review: AgentReviewResult | undefined;
+      if (options?.review ?? true) {
+        yield emitEvent(input, {
+          type: "agent.review.started",
+          taskId: input.task.id,
+        });
+
+        const reviewResult = await collectModelEvents(
+          input,
+          "review",
+          undefined,
+          plan,
+        );
+        if (reviewResult.error) {
+          yield await emitTaskFailed(input, reviewResult.error);
+          return;
+        }
+
+        review = normalizeReview(
+          firstStructuredOutput(reviewResult.events) ??
+            firstFinalOutput(reviewResult.events),
+        );
+        yield emitEvent(input, {
+          type: "agent.review.completed",
+          taskId: input.task.id,
+          review,
+        });
+      }
+
+      const artifacts: AgentArtifact[] = [artifact];
+      yield emitEvent(input, {
+        type: "agent.task.completed",
+        taskId: input.task.id,
+        output: {
+          status:
+            review?.status === "needs_rerun"
+              ? "needs_rerun"
+              : review?.status === "failed"
+                ? "failed"
+                : "completed",
+          summary: report.summary,
+          plan,
+          artifacts,
+          ...(review ? { review } : {}),
+          metadata: {
+            research: report,
+          },
+        },
+      });
+    } else {
+      for (const event of resumeState.pendingModelEvents) {
+        if (event.type === "text.delta") {
+          yield emitEvent(input, {
+            type: "agent.model.delta",
+            taskId: input.task.id,
+            text: event.text,
+          });
+        }
+      }
+
+      collectResearchOutput(
+        collection,
+        firstStructuredOutput(resumeState.pendingModelEvents) ??
+          firstFinalOutput(resumeState.pendingModelEvents),
+      );
+
+      const report = normalizeResearchReport(
+        input.task.goal,
+        firstStructuredOutput(resumeState.pendingModelEvents) ??
+          firstFinalOutput(resumeState.pendingModelEvents),
+        collection,
+        options,
+      );
+
+      let artifact: AgentArtifact;
+      try {
+        artifact = await createArtifact(input, {
+          type: "report",
+          name: "deep-research-report",
+          content: report,
+          mediaType: "application/json",
+        });
+      } catch (error) {
+        yield await emitTaskFailed(
+          input,
+          toAgentError(error, "artifact_exception"),
+        );
+        return;
+      }
+
+      yield emitEvent(input, {
+        type: "agent.artifact.created",
+        taskId: input.task.id,
+        artifact,
+      });
+
+      let review: AgentReviewResult | undefined;
+      if (options?.review ?? true) {
+        yield emitEvent(input, {
+          type: "agent.review.started",
+          taskId: input.task.id,
+        });
+
+        const reviewResult = await collectModelEvents(
+          input,
+          "review",
+          undefined,
+          plan,
+        );
+        if (reviewResult.error) {
+          yield await emitTaskFailed(input, reviewResult.error);
+          return;
+        }
+
+        review = normalizeReview(
+          firstStructuredOutput(reviewResult.events) ??
+            firstFinalOutput(reviewResult.events),
+        );
+        yield emitEvent(input, {
+          type: "agent.review.completed",
+          taskId: input.task.id,
+          review,
+        });
+      }
+
+      const artifacts: AgentArtifact[] = [artifact];
+      yield emitEvent(input, {
+        type: "agent.task.completed",
+        taskId: input.task.id,
+        output: {
+          status:
+            review?.status === "needs_rerun"
+              ? "needs_rerun"
+              : review?.status === "failed"
+                ? "failed"
+                : "completed",
+          summary: report.summary,
+          plan,
+          artifacts,
+          ...(review ? { review } : {}),
+          metadata: {
+            research: report,
+          },
+        },
+      });
+    }
+  }
 }
 
 function normalizeReview(value: unknown): AgentReviewResult {
@@ -1357,5 +2124,30 @@ export class AgentRuntime {
     input: AgentEngineRunInput<TOptions>,
   ): Promise<AgentTaskOutput> {
     return collectAgentTaskOutput(this.run(engineName, input));
+  }
+
+  resume<TOptions extends AgentRunOptions = AgentRunOptions>(
+    engineName: string,
+    input: AgentResumeInput<TOptions>,
+  ): AsyncIterable<AgentEvent> {
+    const engine = this.engines.get(engineName);
+    if (!engine) {
+      throw new Error(`Unknown agent engine: ${engineName}`);
+    }
+
+    if (!engine.resume) {
+      throw new Error(
+        `Agent engine does not support resume: ${engineName}`,
+      );
+    }
+
+    return engine.resume(input);
+  }
+
+  async resumeTask<TOptions extends AgentRunOptions = AgentRunOptions>(
+    engineName: string,
+    input: AgentResumeInput<TOptions>,
+  ): Promise<AgentTaskOutput> {
+    return collectAgentTaskOutput(this.resume(engineName, input));
   }
 }

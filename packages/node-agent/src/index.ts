@@ -1,4 +1,5 @@
 import type {
+  AgentApprovalRequest,
   AgentArtifact,
   AgentArtifactDraft,
   AgentClassificationResult,
@@ -7,6 +8,7 @@ import type {
   AgentModelAdapter,
   AgentPlan,
   AgentResearchOptions,
+  AgentResumeState,
   AgentReviewResult,
   AgentRunOptions,
   AgentTask,
@@ -59,6 +61,8 @@ export type AgentTaskNodeOutput = {
   plan?: AgentPlan;
   artifacts: unknown[];
   review?: AgentReviewResult;
+  approval?: AgentApprovalRequest;
+  resumeState?: AgentResumeState;
   metadata?: Record<string, unknown>;
 };
 
@@ -391,6 +395,8 @@ function agentTaskNodeOutputFromTaskOutput(output: AgentTaskOutput): AgentTaskNo
     artifacts: output.artifacts,
     ...(output.plan ? { plan: output.plan } : {}),
     ...(output.review ? { review: output.review } : {}),
+    ...(output.approval ? { approval: output.approval } : {}),
+    ...(output.resumeState ? { resumeState: output.resumeState } : {}),
     ...(output.metadata ? { metadata: output.metadata } : {}),
   };
 }

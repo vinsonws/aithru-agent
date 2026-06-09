@@ -2840,3 +2840,936 @@ describe("AgentRuntime.runTask", () => {
     );
   });
 });
+
+describe("AgentRuntime.resume and resumeTask", () => {
+  test("paused output includes resumeState with pendingModelEvents", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "x" },
+      riskLevel: "dangerous",
+    };
+    const { host } = createHost();
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Delete something.",
+                allowedTools: ["repo.delete"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "After tool." } },
+      ],
+    });
+
+    const output = await new AgentRuntime().runTask("plan-run-review", {
+      task: { id: "task_resume_pause", goal: "Pause test." },
+      model,
+      host,
+      options: {
+        allowedTools: ["repo.delete"],
+        toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+      },
+    });
+
+    expect(output.status).toBe("paused");
+    expect(output.resumeState).toBeDefined();
+    expect(output.resumeState!.phase).toBe("plan-run-review.step");
+    expect(output.resumeState!.pendingModelEvents).toHaveLength(1);
+    expect(output.resumeState!.pendingModelEvents[0]!.type).toBe("final");
+    expect(output.approval).toBeDefined();
+  });
+
+  test("resume approved completes the task", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "x" },
+      riskLevel: "dangerous",
+    };
+    const callTool = vi.fn(async (r: AgentToolRequest): Promise<AgentToolResult> => ({
+      id: r.id,
+      toolName: r.toolName,
+      output: { ok: true },
+    }));
+    const { host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Delete something.",
+                allowedTools: ["repo.delete"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "After approved tool." } },
+      ],
+      review: reviewPassedEvents(),
+    });
+    const runtime = new AgentRuntime();
+
+    const paused = await runtime.runTask("plan-run-review", {
+      task: { id: "task_resume_approved", goal: "Resume approved test." },
+      model,
+      host,
+      options: {
+        allowedTools: ["repo.delete"],
+        toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+      },
+    });
+
+    expect(paused.status).toBe("paused");
+
+    const events = await collectEvents(
+      runtime.resume("plan-run-review", {
+        task: { id: "task_resume_approved", goal: "Resume approved test." },
+        model,
+        host,
+        resumeState: paused.resumeState!,
+        approvalResponse: {
+          approvalId: paused.approval!.id,
+          decision: "approved",
+        },
+        options: {
+          allowedTools: ["repo.delete"],
+          toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+        },
+      }),
+    );
+
+    expect(events.map((e) => e.type)).toEqual([
+      "agent.tool.approval_resolved",
+      "agent.task.resumed",
+      "agent.tool.completed",
+      "agent.artifact.created",
+      "agent.review.started",
+      "agent.review.completed",
+      "agent.task.completed",
+    ]);
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(callTool).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "repo.delete" }),
+    );
+  });
+
+  test("resume rejected fails with tool_approval_rejected", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "x" },
+      riskLevel: "dangerous",
+    };
+    const callTool = vi.fn();
+    const { host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Delete.",
+                allowedTools: ["repo.delete"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+    const runtime = new AgentRuntime();
+
+    const paused = await runtime.runTask("plan-run-review", {
+      task: { id: "task_resume_rejected", goal: "Resume rejected test." },
+      model,
+      host,
+      options: {
+        allowedTools: ["repo.delete"],
+        toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+      },
+    });
+
+    const events = await collectEvents(
+      runtime.resume("plan-run-review", {
+        task: { id: "task_resume_rejected", goal: "Resume rejected test." },
+        model,
+        host,
+        resumeState: paused.resumeState!,
+        approvalResponse: {
+          approvalId: paused.approval!.id,
+          decision: "rejected",
+        },
+        options: {
+          allowedTools: ["repo.delete"],
+        },
+      }),
+    );
+
+    expect(events.map((e) => e.type)).toEqual([
+      "agent.tool.approval_resolved",
+      "agent.task.failed",
+    ]);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_approval_rejected",
+    });
+  });
+
+  test("resume with mismatched approvalId fails", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "x" },
+      riskLevel: "dangerous",
+    };
+    const { host } = createHost();
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Delete.",
+                allowedTools: ["repo.delete"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+    const runtime = new AgentRuntime();
+
+    const paused = await runtime.runTask("plan-run-review", {
+      task: { id: "task_resume_mismatch", goal: "Mismatch test." },
+      model,
+      host,
+      options: {
+        allowedTools: ["repo.delete"],
+        toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+      },
+    });
+
+    const events = await collectEvents(
+      runtime.resume("plan-run-review", {
+        task: { id: "task_resume_mismatch", goal: "Mismatch test." },
+        model,
+        host,
+        resumeState: paused.resumeState!,
+        approvalResponse: {
+          approvalId: "wrong_id",
+          decision: "approved",
+        },
+        options: { allowedTools: ["repo.delete"] },
+      }),
+    );
+
+    expect(events.map((e) => e.type)).toEqual([
+      "agent.task.failed",
+    ]);
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "invalid_resume_state",
+    });
+  });
+
+  test("resume throws when engine does not support resume", async () => {
+    await expect(
+      new AgentRuntime().resumeTask("classify", {
+        task: { id: "task_no_resume", goal: "No resume." },
+        model: createStaticStructuredModel({}),
+        host: createHost().host,
+        resumeState: {
+          id: "rs",
+          engineName: "classify",
+          taskId: "task_no_resume",
+          phase: "plan-run-review.step",
+          approval: {
+            id: "a",
+            taskId: "task_no_resume",
+            toolRequest: { id: "t", toolName: "x", arguments: {} },
+            riskLevel: "safe",
+          },
+          artifacts: [],
+          pendingModelEvents: [],
+        },
+        approvalResponse: { approvalId: "a", decision: "approved" },
+      }),
+    ).rejects.toThrow("Agent engine does not support resume: classify");
+  });
+
+  test("resume re-validates allowedTools", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_delete",
+      toolName: "repo.delete",
+      arguments: { path: "x" },
+      riskLevel: "dangerous",
+    };
+    const { host } = createHost();
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Delete.",
+                allowedTools: ["repo.delete"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+    const runtime = new AgentRuntime();
+
+    const paused = await runtime.runTask("plan-run-review", {
+      task: { id: "task_resume_allowlist", goal: "Allowlist test." },
+      model,
+      host,
+      options: {
+        allowedTools: ["repo.delete"],
+        toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+      },
+    });
+
+    const events = await collectEvents(
+      runtime.resume("plan-run-review", {
+        task: { id: "task_resume_allowlist", goal: "Allowlist test." },
+        model,
+        host,
+        resumeState: paused.resumeState!,
+        approvalResponse: {
+          approvalId: paused.approval!.id,
+          decision: "approved",
+        },
+        options: { allowedTools: [] },
+      }),
+    );
+
+    expect(events.map((e) => e.type)).toEqual([
+      "agent.tool.approval_resolved",
+      "agent.task.resumed",
+      "agent.task.failed",
+    ]);
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_not_allowed",
+    });
+  });
+
+  test("resume policy changed to deny fails with tool_risk_denied", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "x" },
+      riskLevel: "dangerous",
+    };
+    const { host } = createHost();
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Delete.",
+                allowedTools: ["repo.delete"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+    const runtime = new AgentRuntime();
+
+    const paused = await runtime.runTask("plan-run-review", {
+      task: { id: "task_resume_policy_change", goal: "Policy change test." },
+      model,
+      host,
+      options: {
+        allowedTools: ["repo.delete"],
+        toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+      },
+    });
+
+    const events = await collectEvents(
+      runtime.resume("plan-run-review", {
+        task: { id: "task_resume_policy_change", goal: "Policy change test." },
+        model,
+        host,
+        resumeState: paused.resumeState!,
+        approvalResponse: {
+          approvalId: paused.approval!.id,
+          decision: "approved",
+        },
+        options: {
+          allowedTools: ["repo.delete"],
+          toolRiskPolicy: { byRiskLevel: { dangerous: "deny" } },
+        },
+      }),
+    );
+
+    expect(events.map((e) => e.type)).toEqual([
+      "agent.tool.approval_resolved",
+      "agent.task.resumed",
+      "agent.task.failed",
+    ]);
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_risk_denied",
+    });
+  });
+
+  describe("DeepResearchEngine resume", () => {
+    function deepResearchModel(
+      toolCall: AgentToolRequest,
+    ) {
+      return new ScriptedModelAdapter({
+        events(input) {
+          if (input.mode === "plan") {
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  steps: [
+                    {
+                      id: "step_1",
+                      title: "Step",
+                      objective: "Research step.",
+                      allowedTools: ["repo.delete"],
+                    },
+                    {
+                      id: "step_2",
+                      title: "Step 2",
+                      objective: "Another step.",
+                      allowedTools: ["repo.read"],
+                    },
+                  ],
+                },
+              },
+            ];
+          }
+          if (input.mode === "execute" && input.step) {
+            if (input.step.id === "step_1") {
+              return [
+                { type: "tool_call.proposed", toolCall },
+                { type: "final", output: { summary: "Step 1 done." } },
+              ];
+            }
+            return [{ type: "final", output: { summary: "Step 2 done." } }];
+          }
+          if (input.mode === "execute") {
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  title: "Research Report",
+                  summary: "Complete report.",
+                  findings: [],
+                  sources: [],
+                },
+              },
+            ];
+          }
+          return [];
+        },
+      });
+    }
+
+    test("step phase paused output includes resumeState", async () => {
+      const toolCall: AgentToolRequest = {
+        id: "tool_dangerous",
+        toolName: "repo.delete",
+        arguments: { path: "x" },
+        stepId: "step_1",
+        riskLevel: "dangerous",
+      };
+      const { host } = createHost();
+      const model = deepResearchModel(toolCall);
+
+      const output = await new AgentRuntime().runTask("deep-research", {
+        task: { id: "task_dr_resume_step", goal: "Step pause test." },
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.delete"],
+          toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+        },
+      });
+
+      expect(output.status).toBe("paused");
+      expect(output.resumeState).toBeDefined();
+      expect(output.resumeState!.phase).toBe("deep-research.step");
+      expect(output.resumeState!.currentStepIndex).toBe(0);
+      expect(output.resumeState!.pendingModelEvents).toHaveLength(1);
+      expect(output.resumeState!.pendingModelEvents[0]!.type).toBe("final");
+      expect(output.resumeState!.plan).toBeDefined();
+    });
+
+    test("synthesis phase paused output includes resumeState", async () => {
+      const toolCall: AgentToolRequest = {
+        id: "tool_write",
+        toolName: "repo.write",
+        arguments: { path: "x", content: "y" },
+        riskLevel: "write",
+      };
+      const { host } = createHost();
+      const model = new ScriptedModelAdapter({
+        events(input) {
+          if (input.mode === "plan") {
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  steps: [
+                    {
+                      id: "step_1",
+                      title: "Step",
+                      objective: "Collect sources.",
+                      allowedTools: ["repo.read"],
+                    },
+                  ],
+                },
+              },
+            ];
+          }
+          if (input.mode === "execute" && input.step) {
+            return [{ type: "final", output: { summary: "Done.", sources: [] } }];
+          }
+          if (input.mode === "execute") {
+            return [
+              { type: "tool_call.proposed", toolCall },
+              {
+                type: "structured.output",
+                value: { title: "R", summary: "Done.", findings: [], sources: [] },
+              },
+            ];
+          }
+          return [];
+        },
+      });
+
+      const output = await new AgentRuntime().runTask("deep-research", {
+        task: { id: "task_dr_resume_synth", goal: "Synthesis pause test." },
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.write"],
+          toolRiskPolicy: { byRiskLevel: { write: "require_approval" } },
+        },
+      });
+
+      expect(output.status).toBe("paused");
+      expect(output.resumeState).toBeDefined();
+      expect(output.resumeState!.phase).toBe("deep-research.synthesis");
+      expect(output.resumeState!.currentStep).toBeUndefined();
+      expect(output.resumeState!.pendingModelEvents).toHaveLength(1);
+      expect(output.resumeState!.pendingModelEvents[0]!.type).toBe("structured.output");
+    });
+
+    test("step phase resume approved completes task with remaining steps and synthesis", async () => {
+      const toolCall: AgentToolRequest = {
+        id: "tool_dangerous",
+        toolName: "repo.delete",
+        arguments: { path: "x" },
+        stepId: "step_1",
+        riskLevel: "dangerous",
+      };
+      const callTool = vi.fn(async (r: AgentToolRequest): Promise<AgentToolResult> => ({
+        id: r.id,
+        toolName: r.toolName,
+        output: { ok: true },
+      }));
+      const { host } = createHost({ callTool });
+      const model = deepResearchModel(toolCall);
+      const runtime = new AgentRuntime();
+
+      const paused = await runtime.runTask("deep-research", {
+        task: { id: "task_dr_step_resume", goal: "DR step resume test." },
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.delete", "repo.read"],
+          toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+        },
+      });
+
+      expect(paused.status).toBe("paused");
+      expect(paused.resumeState!.phase).toBe("deep-research.step");
+
+      const events = await collectEvents(
+        runtime.resume("deep-research", {
+          task: { id: "task_dr_step_resume", goal: "DR step resume test." },
+          model,
+          host,
+          resumeState: paused.resumeState!,
+          approvalResponse: {
+            approvalId: paused.approval!.id,
+            decision: "approved",
+          },
+          options: {
+            allowedTools: ["repo.delete", "repo.read"],
+            toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+          },
+        }),
+      );
+
+      expect(events.map((e) => e.type)).toEqual([
+        "agent.tool.approval_resolved",
+        "agent.task.resumed",
+        "agent.tool.completed",
+        "agent.step.started",
+        "agent.artifact.created",
+        "agent.review.started",
+        "agent.review.completed",
+        "agent.task.completed",
+      ]);
+      expect(callTool).toHaveBeenCalledTimes(1);
+      expect(events.filter((e) => e.type === "agent.step.started")).toHaveLength(
+        1,
+      );
+    });
+
+    test("synthesis phase resume approved completes task", async () => {
+      const toolCall: AgentToolRequest = {
+        id: "tool_write",
+        toolName: "repo.write",
+        arguments: { path: "x", content: "y" },
+        riskLevel: "write",
+      };
+      const callTool = vi.fn(async (r: AgentToolRequest): Promise<AgentToolResult> => ({
+        id: r.id,
+        toolName: r.toolName,
+        output: { ok: true },
+      }));
+      const { host } = createHost({ callTool });
+      const model = new ScriptedModelAdapter({
+        events(input) {
+          if (input.mode === "plan") {
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  steps: [
+                    { id: "step_1", title: "Step", objective: "Collect sources.", allowedTools: ["repo.read"] },
+                  ],
+                },
+              },
+            ];
+          }
+          if (input.mode === "execute" && input.step) {
+            return [{ type: "final", output: { summary: "Done.", sources: [] } }];
+          }
+          if (input.mode === "execute") {
+            return [
+              { type: "tool_call.proposed", toolCall },
+              {
+                type: "structured.output",
+                value: { title: "R", summary: "Synth done.", findings: [], sources: [] },
+              },
+            ];
+          }
+          return [];
+        },
+      });
+      const runtime = new AgentRuntime();
+
+      const paused = await runtime.runTask("deep-research", {
+        task: { id: "task_dr_synth_resume", goal: "DR synth resume test." },
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.write", "repo.read"],
+          toolRiskPolicy: { byRiskLevel: { write: "require_approval" } },
+        },
+      });
+
+      expect(paused.status).toBe("paused");
+      expect(paused.resumeState!.phase).toBe("deep-research.synthesis");
+
+      const events = await collectEvents(
+        runtime.resume("deep-research", {
+          task: { id: "task_dr_synth_resume", goal: "DR synth resume test." },
+          model,
+          host,
+          resumeState: paused.resumeState!,
+          approvalResponse: {
+            approvalId: paused.approval!.id,
+            decision: "approved",
+          },
+          options: {
+            allowedTools: ["repo.write", "repo.read"],
+            toolRiskPolicy: { byRiskLevel: { write: "require_approval" } },
+          },
+        }),
+      );
+
+      expect(events.map((e) => e.type)).toEqual([
+        "agent.tool.approval_resolved",
+        "agent.task.resumed",
+        "agent.tool.completed",
+        "agent.artifact.created",
+        "agent.review.started",
+        "agent.review.completed",
+        "agent.task.completed",
+      ]);
+      expect(callTool).toHaveBeenCalledTimes(1);
+    });
+
+    test("step phase resume rejected fails with tool_approval_rejected", async () => {
+      const toolCall: AgentToolRequest = {
+        id: "tool_dangerous",
+        toolName: "repo.delete",
+        arguments: { path: "x" },
+        stepId: "step_1",
+        riskLevel: "dangerous",
+      };
+      const callTool = vi.fn();
+      const { host } = createHost({ callTool });
+      const model = deepResearchModel(toolCall);
+      const runtime = new AgentRuntime();
+
+      const paused = await runtime.runTask("deep-research", {
+        task: { id: "task_dr_step_reject", goal: "DR step reject test." },
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.delete"],
+          toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+        },
+      });
+
+      const events = await collectEvents(
+        runtime.resume("deep-research", {
+          task: { id: "task_dr_step_reject", goal: "DR step reject test." },
+          model,
+          host,
+          resumeState: paused.resumeState!,
+          approvalResponse: {
+            approvalId: paused.approval!.id,
+            decision: "rejected",
+          },
+          options: { allowedTools: ["repo.delete"] },
+        }),
+      );
+
+      expect(events.map((e) => e.type)).toEqual([
+        "agent.tool.approval_resolved",
+        "agent.task.failed",
+      ]);
+      expect(callTool).not.toHaveBeenCalled();
+      expect(failedEvent(events)?.error).toMatchObject({
+        code: "tool_approval_rejected",
+      });
+    });
+
+    test("synthesis phase resume rejected fails with tool_approval_rejected", async () => {
+      const toolCall: AgentToolRequest = {
+        id: "tool_write",
+        toolName: "repo.write",
+        arguments: { path: "x", content: "y" },
+        riskLevel: "write",
+      };
+      const callTool = vi.fn();
+      const { host } = createHost({ callTool });
+      const model = new ScriptedModelAdapter({
+        events(input) {
+          if (input.mode === "plan") {
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  steps: [
+                    { id: "step_1", title: "Step", objective: "Collect.", allowedTools: ["repo.read"] },
+                  ],
+                },
+              },
+            ];
+          }
+          if (input.mode === "execute" && input.step) {
+            return [{ type: "final", output: { summary: "Done.", sources: [] } }];
+          }
+          if (input.mode === "execute") {
+            return [
+              { type: "tool_call.proposed", toolCall },
+              {
+                type: "structured.output",
+                value: { title: "R", summary: "Synth.", findings: [], sources: [] },
+              },
+            ];
+          }
+          return [];
+        },
+      });
+      const runtime = new AgentRuntime();
+
+      const paused = await runtime.runTask("deep-research", {
+        task: { id: "task_dr_synth_reject", goal: "DR synth reject test." },
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.write", "repo.read"],
+          toolRiskPolicy: { byRiskLevel: { write: "require_approval" } },
+        },
+      });
+
+      const events = await collectEvents(
+        runtime.resume("deep-research", {
+          task: { id: "task_dr_synth_reject", goal: "DR synth reject test." },
+          model,
+          host,
+          resumeState: paused.resumeState!,
+          approvalResponse: {
+            approvalId: paused.approval!.id,
+            decision: "rejected",
+          },
+          options: { allowedTools: ["repo.write", "repo.read"] },
+        }),
+      );
+
+      expect(events.map((e) => e.type)).toEqual([
+        "agent.tool.approval_resolved",
+        "agent.task.failed",
+      ]);
+      expect(callTool).not.toHaveBeenCalled();
+      expect(failedEvent(events)?.error).toMatchObject({
+        code: "tool_approval_rejected",
+      });
+    });
+
+    test("resume re-validates allowedTools for deep research", async () => {
+      const toolCall: AgentToolRequest = {
+        id: "tool_dangerous",
+        toolName: "repo.delete",
+        arguments: { path: "x" },
+        stepId: "step_1",
+        riskLevel: "dangerous",
+      };
+      const { host } = createHost();
+      const model = deepResearchModel(toolCall);
+      const runtime = new AgentRuntime();
+
+      const paused = await runtime.runTask("deep-research", {
+        task: { id: "task_dr_allowlist", goal: "Allowlist test." },
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.delete"],
+          toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+        },
+      });
+
+      const events = await collectEvents(
+        runtime.resume("deep-research", {
+          task: { id: "task_dr_allowlist", goal: "Allowlist test." },
+          model,
+          host,
+          resumeState: paused.resumeState!,
+          approvalResponse: {
+            approvalId: paused.approval!.id,
+            decision: "approved",
+          },
+          options: { allowedTools: [] },
+        }),
+      );
+
+      expect(events.map((e) => e.type)).toEqual([
+        "agent.tool.approval_resolved",
+        "agent.task.resumed",
+        "agent.task.failed",
+      ]);
+      expect(failedEvent(events)?.error).toMatchObject({
+        code: "tool_not_allowed",
+      });
+    });
+
+    test("resume policy changed to deny fails with tool_risk_denied for deep research", async () => {
+      const toolCall: AgentToolRequest = {
+        id: "tool_dangerous",
+        toolName: "repo.delete",
+        arguments: { path: "x" },
+        stepId: "step_1",
+        riskLevel: "dangerous",
+      };
+      const { host } = createHost();
+      const model = deepResearchModel(toolCall);
+      const runtime = new AgentRuntime();
+
+      const paused = await runtime.runTask("deep-research", {
+        task: { id: "task_dr_policy_change", goal: "Policy change test." },
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.delete"],
+          toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+        },
+      });
+
+      const events = await collectEvents(
+        runtime.resume("deep-research", {
+          task: { id: "task_dr_policy_change", goal: "Policy change test." },
+          model,
+          host,
+          resumeState: paused.resumeState!,
+          approvalResponse: {
+            approvalId: paused.approval!.id,
+            decision: "approved",
+          },
+          options: {
+            allowedTools: ["repo.delete"],
+            toolRiskPolicy: { byRiskLevel: { dangerous: "deny" } },
+          },
+        }),
+      );
+
+      expect(events.map((e) => e.type)).toEqual([
+        "agent.tool.approval_resolved",
+        "agent.task.resumed",
+        "agent.task.failed",
+      ]);
+      expect(failedEvent(events)?.error).toMatchObject({
+        code: "tool_risk_denied",
+      });
+    });
+  });
+});
