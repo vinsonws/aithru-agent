@@ -1,196 +1,235 @@
 # Aithru Agent
 
-Aithru Agent is the intelligent execution layer of the Aithru ecosystem.
+Aithru Agent is the Aithru-native AI harness layer.
+
+It is being redesigned from a small collection of agent runtime engines into a platform-hosted, DeepAgents-like AI harness for long-running, tool-using, skill-driven, permission-aware intelligent work.
+
+## One-line definition
+
+```txt
+Aithru Agent = Aithru-native AI harness for skills, tools, workspace files, subagents, sandboxed execution, approvals, artifacts, and traceable intelligent work
+```
 
 ## Position
 
 ```txt
-aithru-core
-  owns formal workflows
+Aithru Platform
+  owns identity, org context, authorization, app shell, grants, hosted tokens, service clients, connection policy, and audit
 
-aithru-agent
-  owns intelligent execution inside bounded tasks or nodes
+Aithru Workbench
+  owns formal WorkflowSpec product UI, workflow run APIs, workflow run/event storage, workflow approvals, and runtime composition with Aithru Core
+
+Aithru Core
+  owns WorkflowSpec, graph validation, deterministic workflow contracts, node SDK, runtime contracts, tool contracts, trace, redaction, pause/resume, and primitive nodes
+
+Aithru Agent
+  owns AI harness behavior: chat, skills, agent runs, runtime todos, workspace, tool calls, subagents, sandbox/interpreter calls, memory, artifacts, approvals, and Agent trace events
 ```
 
-Aithru Agent is not a workflow engine and does not own `WorkflowSpec`.
+Aithru Agent is not a formal workflow system and does not own `WorkflowSpec`.
 
-It provides:
+Formal workflow graph editing, branch semantics, scheduling, versioning, and workflow persistence belong to Aithru Core and Aithru Workbench.
 
-- AgentTask
-- AgentPlan
-- AgentRun
-- AgentHost
-- AgentEngine
-- AgentModelAdapter
-- Agent Runtime
-- Workflow node integration through `@aithru/node-agent`
+## Design reset
 
-## Initial Packages
+The previous implementation centered on:
+
+```txt
+AgentTask
+AgentPlan
+AgentRuntime
+ClassifyEngine
+PlanRunReviewEngine
+DeepResearchEngine
+AgentModelAdapter
+@aithru/node-agent
+```
+
+Those pieces remain useful primitives, but they are no longer the product center.
+
+The new product center is the harness:
+
+```txt
+Agent Thread
+  -> messages
+  -> selected Skill
+  -> Agent Run
+  -> runtime todos / plan timeline
+  -> tool calls
+  -> workspace files
+  -> subagents
+  -> sandbox/interpreter calls
+  -> artifacts
+  -> review
+  -> approvals
+  -> trace/event stream
+```
+
+See [Agent Harness Design](./docs/00-agent-harness-design.md) for the target architecture.
+
+## Mental model
+
+Use this analogy carefully:
+
+```txt
+LangGraph / low-level agent runtime  -> DeepAgents / high-level agent harness
+Aithru Core + Workbench capabilities -> Aithru Agent / high-level AI harness
+```
+
+Aithru Core is a deterministic workflow kernel, not LangGraph. Aithru Workbench is a formal workflow product surface. Aithru Agent borrows the high-level harness shape: skills, todos, workspace, tools, subagents, memory, sandbox, approvals, and artifacts.
+
+## Core boundary
+
+Aithru Agent may have workflow-like runtime state, but that state is not a product workflow definition.
+
+```txt
+Agent Todo / runtime plan != WorkflowSpec
+Subagent task              != Workbench node
+Agent workspace operation  != workflow graph step
+Agent tool call            != direct external execution
+```
+
+Formal workflows are still:
+
+```txt
+WorkflowSpec
+  -> nodes
+  -> edges
+  -> validation
+  -> branch semantics
+  -> scheduler/runtime
+  -> workflow run
+```
+
+owned by Aithru Core and surfaced through Aithru Workbench.
+
+## Target product concepts
+
+| Concept | Meaning | Rule |
+| --- | --- | --- |
+| Agent Thread | Conversation and task context under an org/user. | Main chat entry, not a workflow. |
+| Agent Skill | Real reusable agent capability with instructions, allowed tools, subagents, workspace policy, memory policy, sandbox policy, approval policy, and output expectations. | Not a DAG. May be referenced by Workbench `agent.*` nodes. |
+| Agent Run | One execution of a chat request, skill, API task, delegated task, or Workbench agent node. | Auditable intelligent run. |
+| Agent Todo / runtime plan | Harness-maintained task breakdown. | Runtime observability state, not editable workflow graph. |
+| Agent Workspace | Thread/run-scoped virtual file and artifact workspace. | Stores files, patches, reports, structured outputs, and workflow draft artifacts. |
+| Agent Tool | Capability the harness may request. | Must route through Aithru permission, policy, approval, trace, and redaction. |
+| Subagent | Harness-spawned specialized worker such as researcher, coder, reviewer, analyst, or workflow designer. | Internal agent delegation, not Workbench node graph. |
+| Sandbox / Interpreter | Controlled execution environment for scripts, code, shell-like work, or analysis. | Never direct model access; always policy-gated. |
+| Memory | Optional thread/workspace/project/org memory. | Product host controls scope, retention, and authorization. |
+| Artifact | Output such as report, markdown, JSON, patch, file, decision, or workflow draft. | May be opened in Workbench only when it is a WorkflowSpec draft. |
+| Approval | Human or policy decision for risky agent action. | Distinct from workflow human approval, but audit-friendly. |
+
+## Aithru Capability Router
+
+Aithru Agent should not execute real capabilities directly from the model loop.
+
+All real actions should pass through an Aithru capability router:
+
+```txt
+model proposes tool call
+  -> Agent Harness validates skill/tool policy
+  -> Aithru Capability Router
+  -> Platform/Core/Workbench permission checks
+  -> approval if required
+  -> concrete capability backend
+  -> trace + artifact + redaction
+```
+
+Capability backends may include:
+
+- Core tool executors;
+- selected Core node adapters;
+- Workbench workflow APIs;
+- Platform subsystem APIs;
+- sandbox executors;
+- workspace providers;
+- memory providers;
+- future MCP adapters.
+
+## Current implemented packages
+
+The current repository still contains the initial primitive implementation:
 
 ```txt
 packages/
-  agent-core/                         contracts and types
+  agent-core/                         primitive Agent contracts and types
   agent-runtime/                      ClassifyEngine, PlanRunReviewEngine, DeepResearchEngine, AgentRuntime
   agent-model-test/                   deterministic scripted model adapters
   agent-model-openai-compatible/      OpenAI-compatible HTTP model adapter
   node-agent/                         workflow NodeDefinition factories
 ```
 
-`@aithru/node-agent` uses the `node-*` naming style because it is a workflow node package that calls the Agent runtime. It is not the Agent runtime itself.
-It currently exposes `agent.classify`, `agent.task`, and `agent.deepResearch` as workflow `NodeDefinition` factories.
+Current package roles:
 
-## V0 Goal
+| Package | Current role | Future positioning |
+| --- | --- | --- |
+| `@aithru/agent-core` | `AgentTask`, `AgentPlan`, events, model adapter, host, artifacts, approval, trace types. | Extend toward harness contracts: Thread, Skill, Run, Todo, Workspace, Tool, Subagent, Memory. |
+| `@aithru/agent-runtime` | `ClassifyEngine`, `PlanRunReviewEngine`, `DeepResearchEngine`, `AgentRuntime`. | Keep as compatibility/runtime primitive layer below the harness. |
+| `@aithru/agent-model-test` | Deterministic scripted adapter. | Keep for tests and examples. |
+| `@aithru/agent-model-openai-compatible` | OpenAI-compatible model adapter. | Keep as provider-neutral model adapter. |
+| `@aithru/node-agent` | Workflow nodes for current engines. | Evolve toward skill/harness invocation nodes. |
 
-Build a minimal agent execution loop:
+## Target package direction
 
-```txt
-Task
-  -> Plan
-  -> Execute
-  -> Tool Call through AgentHost
-  -> Artifact
-  -> Review
-  -> Output
-```
-
-## Runtime API
-
-`AgentEngine.run()` returns a complete `AsyncIterable<AgentEvent>`.
-Every runtime event is first passed to `AgentHost.emit(event)` and then yielded to the caller, so host listeners and direct stream consumers see the same ordered event list.
-
-`AgentRuntime.run(engineName, input)` exposes the event stream directly:
-
-```ts
-for await (const event of runtime.run("classify", input)) {
-  console.log(event.type);
-}
-```
-
-`AgentRuntime.runTask(engineName, input)` is the convenience API for callers that only need the final `AgentTaskOutput`.
-It consumes the event stream and returns the last `agent.task.completed` output.
-If the stream contains `agent.task.failed`, it throws `AgentTaskFailedError` with the failure `AgentError`.
-
-```ts
-const output = await runtime.runTask("classify", input);
-console.log(output.summary);
-```
-
-## Deep Research V0
-
-`DeepResearchEngine` is available as the default `deep-research` runtime engine.
-It is a bounded, deterministic-friendly research loop that plans task-local research steps, executes model-proposed tool calls only through `AgentHost.callTool`, synthesizes an `AgentResearchReport`, creates a `report` artifact, and optionally reviews the result.
-
-Deep Research V0 is not a workflow engine and does not own `WorkflowSpec`.
-It does not include real web search, MCP, browser automation, built-in browser/shell/GitHub/file tools, memory, or UI/server behavior.
-Hosts can provide fake local tools, real provider-backed tools, or workflow bridges, but the engine itself never executes tools directly.
-
-Research runs can be bounded with normal run options such as `maxSteps` and `timeoutMs`, plus research-specific `maxSources` and `maxSearchQueries` options.
-`@aithru/node-agent` exposes this engine as `agent.deepResearch`, a formal workflow node that calls `AgentRuntime.runTask("deep-research", ...)` and bridges model-proposed tool calls to core `ctx.callTool`.
-
-## Runtime Failure Semantics
-
-Runtime engines treat model, tool, and artifact failures as task failures:
-
-- `AgentModelEvent.error` is converted into `agent.task.failed`; the runtime does not fall back to default classification, plan, execution, or review output after a model error.
-- Model adapter exceptions during `generate(...)` are normalized into `AgentError` and emitted as `agent.task.failed`.
-- Tool execution still must go through `AgentHost.callTool`; model adapters must not execute tools.
-- Before `AgentHost.callTool` is invoked, the runtime validates the tool name against `options.allowedTools` and `step.allowedTools`. A model may propose any tool call, but the runtime enforces the allowlist before execution. If the tool is not allowed, the runtime emits `agent.tool.proposed` (the model did propose it) followed by `agent.task.failed` with code `tool_not_allowed`. `host.callTool` is never invoked and `agent.tool.completed` is never emitted for disallowed tools.
-- `allowedTools` semantics: `undefined` means no restriction (V0 compat). An empty array `[]` means no tools are allowed — every proposed tool call is rejected. When both `options.allowedTools` and `step.allowedTools` are defined, the tool name must be present in both lists.
-- After `allowedTools` passes, the runtime evaluates `options.toolRiskPolicy` before invoking `host.callTool`. This is a V0 risk policy entry point — not a complete security sandbox. Real tool risk should be enforced by the host or a future tool registry.
-- `toolRiskPolicy` is optional. When absent, all tools are allowed after the allowlist check (V0 compat). When present, the decision priority is: `byToolName[toolName]` > `byRiskLevel[riskLevel]` > `defaultDecision` > `allow`.
-- `request.riskLevel` defaults to `"safe"` when not provided by the model. The runtime does not trust model-assigned risk levels as a final security boundary.
-- `deny` results in `agent.task.failed` with code `tool_risk_denied` (terminal failure). `require_approval` produces `agent.tool.approval_requested` followed by `agent.task.paused` — this is the Agent-level approval pause protocol, not a terminal failure. `host.callTool` is never invoked and `agent.tool.completed` is never emitted.
-- When a tool is denied by risk policy, the event order is `agent.tool.proposed` then `agent.task.failed`. When a tool requires approval, the event order is `agent.tool.proposed` → `agent.tool.approval_requested` → `agent.task.paused`.
-- `AgentTaskOutput.status` includes `"paused"` for suspended runs. `AgentRuntime.runTask(...)` returns the paused output instead of throwing. `collectAgentTaskOutput(...)` returns on `agent.task.paused` without waiting for `agent.task.completed`.
-- This is an Agent-level pause protocol, not a complete workflow pause/resume. Formal resume, approval storage, and approval UI belong to core/workbench integration. Node-agent V0 transparently passes paused output to the workflow layer.
-- `AgentHost.callTool(...)` exceptions become `agent.task.failed`.
-- `AgentHost.callTool(...)` results with `error` become `agent.task.failed`.
-- Artifact creation exceptions from `host.createArtifact(...)` become `agent.task.failed`.
-
-For all runtime events, including failures, `AgentHost.emit(event)` and yielded events remain identical and ordered.
-
-## Approval & Resume Protocol V0
-
-Agent Runtime supports an Agent-level pause/resume protocol for tools requiring approval.
-
-### Pause
-
-When `toolRiskPolicy.require_approval` triggers:
+Future package shape should move toward:
 
 ```txt
-agent.tool.proposed
-agent.tool.approval_requested
-agent.task.paused
+packages/
+  agent-core/            shared harness contracts
+  agent-harness/         main DeepAgents-like harness
+  agent-skills/          skill loading, validation, prompt composition
+  agent-workspace/       workspace and artifact APIs
+  agent-tools/           capability router and adapters
+  agent-subagents/       subagent delegation contracts
+  agent-sandbox/         sandbox/interpreter interfaces
+  agent-memory/          memory provider contracts
+  agent-model-*/         model adapters
+  node-agent/            Workbench/Core workflow node integration
+
+apps/
+  agent-server/          Platform subsystem backend
+  agent-web/             Platform hosted app frontend
 ```
 
-The paused `AgentTaskOutput` includes:
+This is a target architecture, not an immediate implementation requirement.
 
-- `output.status = "paused"`
-- `output.approval` — the `AgentApprovalRequest` with the normalized tool request, risk level, and reason
-- `output.resumeState` — an `AgentResumeState` carrying the engine name, phase, plan, artifacts, current step, and `pendingModelEvents` (remaining model events after the paused tool call)
+## Workbench integration
 
-`AgentRuntime.runTask(...)` returns the paused output instead of throwing.
+### Workbench calls Agent
 
-### Resume
-
-```ts
-// Approved resume
-await runtime.resumeTask("plan-run-review", {
-  task, model, host, options,
-  resumeState: paused.output.resumeState,
-  approvalResponse: {
-    approvalId: paused.output.approval.id,
-    decision: "approved",
-  },
-});
-```
-
-**Approved resume event order:**
+Workbench can call Agent through formal workflow nodes such as future:
 
 ```txt
-agent.tool.approval_resolved
-agent.task.resumed
-agent.tool.completed          ← host.callTool invoked with original normalized request
-agent.artifact.created        ← (if applicable)
-agent.review.started
-agent.review.completed
-agent.task.completed
+agent.skill
+agent.task
 ```
 
-**Rejected resume event order:**
+The outer graph is still a formal `WorkflowSpec`. Agent owns only the intelligent harness behavior inside the node.
+
+### Agent calls Workbench
+
+Agent can call Workbench workflows as tools:
 
 ```txt
-agent.tool.approval_resolved
-agent.task.failed             ← code: tool_approval_rejected
+Agent Harness
+  -> workbench.runWorkflow tool
+  -> Workbench runs WorkflowSpec
+  -> Agent receives result/artifact/trace summary
 ```
 
-### Resume Safety
+Agent must not parse, schedule, or execute workflow graphs itself.
 
-- **Resume validates `resumeState.engineName`, `taskId`, and `approvalId` match** — mismatches produce `invalid_resume_state`.
-- **Resume re-validates `allowedTools`** — if the allowlist changed, the tool fails with `tool_not_allowed`.
-- **Resume re-checks risk policy via `evaluateToolRiskPolicyForResume`** — if the policy changed to `deny`, the tool fails with `tool_risk_denied`. If the policy is still `require_approval`, the approved decision is honored.
-- **Resume uses the original normalized tool request from `resumeState.approval.toolRequest`** — external callers cannot inject new tool arguments.
-- **`AgentRuntime.resume(engineName, input)`** returns `AsyncIterable<AgentEvent>`. **`AgentRuntime.resumeTask(engineName, input)`** returns `Promise<AgentTaskOutput>`.
-- **Engines without resume support (e.g., `classify`) throw `"Agent engine does not support resume: ..."`.**
+### Agent creates workflow drafts
 
-### Resume V0 Scope
+Agent can generate a `WorkflowSpec` draft artifact and offer:
 
-This is an Agent-level, single-process-friendly resume protocol. Durable persistence, cross-process resume, formal workflow pause/resume, and approval UI belong to core/workbench integration. `@aithru/node-agent` transparently passes `approval` and `resumeState` through the output.
+```txt
+Open in Workbench
+Validate in Workbench
+Download WorkflowSpec JSON
+```
 
-## Agent Trace Events
-
-`AgentEvent` is the runtime event shape emitted by Agent engines.
-`AgentTraceEvent` is an additive, provider-neutral trace-consumption view for Aithru Core integrations and future UI trace viewers.
-It groups events by stable `kind` and `phase` fields while preserving the full original `AgentEvent` in `payload`.
-
-`@aithru/node-agent` currently bridges Agent events into Aithru Core execution events as `log.info` events.
-Those core events use `AgentTraceEvent` as the payload and include filter-friendly metadata:
-
-- `agentEventType`
-- `agentTraceKind`
-- `agentTracePhase`
-
-This trace shape does not make `aithru-agent` a workflow engine. Formal workflow execution still belongs to `aithru-core`.
+Only Workbench validates, saves, versions, and runs formal workflows.
 
 ## Install
 
@@ -217,59 +256,13 @@ pnpm example:deep-research
 
 `pnpm typecheck` checks package sources, tests, and examples without emitting build output.
 `pnpm build` emits package `dist` output and excludes `*.test.ts` files.
-`pnpm test` now runs real Vitest coverage for `@aithru/agent-core`, `@aithru/agent-model-test`, `@aithru/agent-model-openai-compatible`, `@aithru/agent-runtime`, and `@aithru/node-agent`.
+`pnpm test` runs Vitest coverage for the existing primitive packages.
 
-## Examples
+## Core workflow integration setup
 
-```bash
-pnpm example:classify
-pnpm example:plan-run-review
-pnpm example:node-agent-basic
-pnpm example:workflow-node-agent
-pnpm example:workflow-node-agent-deep-research
-pnpm example:deep-research
-```
+For local development, the Aithru Core public packages must be available beside this repository.
 
-The examples use `@aithru/agent-model-test`, so they do not call a real model provider by default.
-`@aithru/agent-model-openai-compatible` is implemented for real OpenAI-compatible providers, but it is not used by the default examples.
-The root package declares local workspace dependencies for these examples so imports stay at package roots.
-`example:classify` demonstrates both the event stream API and `runTask`; `example:plan-run-review` demonstrates the full plan/run/review event stream with tool execution through `AgentHost.callTool`.
-`example:deep-research` demonstrates bounded Deep Research V0 with a deterministic test model and fake local source tool through `AgentHost.callTool`.
-`example:node-agent-basic` demonstrates registering `agent.classify` and `agent.task` NodeDefinitions and executing them directly with a deterministic test model.
-`example:workflow-node-agent` demonstrates a formal Aithru Core `WorkflowSpec` running through `LocalRuntime` with `core.manualTrigger -> agent.classify`.
-`example:workflow-node-agent-deep-research` demonstrates a formal Aithru Core `WorkflowSpec` running through `LocalRuntime` with `core.manualTrigger -> agent.deepResearch`, scripted model events, and a fake local tool executor.
-The standalone runtime examples remain the default examples for runtime-only behavior.
-
-## Optional Real-Provider Example
-
-`example:openai-compatible-classify` demonstrates a manual, opt-in classify task using `@aithru/agent-model-openai-compatible`.
-It is included in verification for the no-env skip path. With the required environment variables set, it can make a real network call.
-
-Required environment variables:
-
-- `AITHRU_OPENAI_COMPATIBLE_BASE_URL`
-- `AITHRU_OPENAI_COMPATIBLE_MODEL`
-
-Optional environment variable:
-
-- `AITHRU_OPENAI_COMPATIBLE_API_KEY`
-
-If the required variables are missing, the example prints a skip message and exits successfully without a network call.
-
-```bash
-AITHRU_OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com/v1 \
-AITHRU_OPENAI_COMPATIBLE_MODEL=deepseek-chat \
-AITHRU_OPENAI_COMPATIBLE_API_KEY=... \
-pnpm example:openai-compatible-classify
-```
-
-The example uses a host whose `callTool` throws if invoked. Model adapters may propose tool calls, but actual tool execution remains in `AgentRuntime` through `AgentHost.callTool`.
-
-## Aithru Core Workflow Integration
-
-`@aithru/node-agent` can be registered into an Aithru Core `NodeRegistry` and run by Aithru Core runtime composition. The agent package does not own `WorkflowSpec`; formal workflow validation and execution remain in `aithru-core`.
-
-For local development, the Aithru Core public packages must be available beside this repository. The expected parent workspace layout is:
+Expected parent workspace layout:
 
 ```txt
 vinsonws/
@@ -278,7 +271,7 @@ vinsonws/
   pnpm-workspace.yaml
 ```
 
-The parent `pnpm-workspace.yaml` should include both package sets:
+Parent `pnpm-workspace.yaml`:
 
 ```yaml
 packages:
@@ -286,56 +279,56 @@ packages:
   - "aithru-agent/packages/*"
 ```
 
-With those packages available, run:
+Then run:
 
 ```bash
 pnpm example:workflow-node-agent
 pnpm example:workflow-node-agent-deep-research
 ```
 
-The examples use `@aithru/runtime-local`, `@aithru/nodes-core`, and `@aithru/agent-model-test`. They do not call a real model provider or the network.
+The workflow examples use `@aithru/runtime-local`, `@aithru/nodes-core`, and `@aithru/agent-model-test`. They do not call a real model provider or the network.
 
-## Current Scope
+## Optional real-provider example
 
-Implemented in this initial scaffold:
+`example:openai-compatible-classify` demonstrates a manual, opt-in classify task using `@aithru/agent-model-openai-compatible`.
 
-- root pnpm workspace;
-- strict TypeScript base config;
-- `@aithru/agent-core` contracts;
-- `@aithru/agent-model-test` scripted model adapter;
-- `@aithru/agent-model-openai-compatible` OpenAI-compatible HTTP adapter without the OpenAI SDK;
-- `@aithru/agent-runtime` minimal classify, plan-run-review, and bounded Deep Research V0 engines;
-- complete `AgentEngine.run()` event streams where `host.emit(event)` and `yield event` receive the same ordered events;
-- `AgentRuntime.runTask()` for directly collecting the final `AgentTaskOutput` or throwing `AgentTaskFailedError` on `agent.task.failed`;
-- `AgentTraceEvent` taxonomy and `agentTraceEventFromAgentEvent(...)` for stable trace consumption;
-- `@aithru/node-agent` `NodeDefinition` factories for `agent.classify`, `agent.task`, and `agent.deepResearch`, with host-injected model resolution and tool bridging through core `ctx.callTool`;
-- standalone examples;
-- minimal Vitest tests for trace event mapping, scripted model events, static model helpers, OpenAI-compatible request/response parsing, event stream consistency, classification completion, plan-run-review and Deep Research V0 tool execution through `AgentHost.callTool`, runtime failure semantics, `AgentRuntime.runTask()`, node-agent factories, node runtime binding, trace bridging, tool bridging, and LocalRuntime workflow integration.
+Required environment variables:
 
-Repository setup:
+```txt
+AITHRU_OPENAI_COMPATIBLE_BASE_URL
+AITHRU_OPENAI_COMPATIBLE_MODEL
+```
 
-- `.npmrc` disables pnpm peer auto-install so optional future `@aithru/node-agent` peers are not fetched during this V0 workspace verification.
+Optional:
 
-Not implemented yet:
+```txt
+AITHRU_OPENAI_COMPATIBLE_API_KEY
+```
 
-- MCP integration;
-- browser, shell, GitHub, or file tools;
-- durable persistence;
-- UI/chat.
+Example:
 
-## Boundary Rules
+```bash
+AITHRU_OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com/v1 \
+AITHRU_OPENAI_COMPATIBLE_MODEL=deepseek-chat \
+AITHRU_OPENAI_COMPATIBLE_API_KEY=... \
+pnpm example:openai-compatible-classify
+```
 
-- Agent plans are task-local and are not `WorkflowSpec`.
-- Formal workflows belong to `aithru-core`.
-- Tool execution must go through `AgentHost.callTool`.
-- In workflow-node mode, `AgentHost.callTool` should bridge to core `ctx.callTool`.
-- `options.allowedTools` and `step.allowedTools` are hard runtime constraints enforced before every tool call. The runtime does not delegate allowlist enforcement to the model adapter or the host.
-- `allowedTools: []` means no tools are allowed. `undefined` means no restriction (V0 compat). When both global and step allowlists are present, both must permit the tool.
-- `options.toolRiskPolicy` is a runtime risk policy entry point evaluated after the allowlist check and before `host.callTool`. Execution order: `agent.tool.proposed` → allowedTools check → risk policy check → `host.callTool` → `agent.tool.completed`.
-- `toolRiskPolicy` decision priority: `byToolName[toolName]` > `byRiskLevel[riskLevel]` > `defaultDecision` > `allow`. Missing `request.riskLevel` defaults to `"safe"`.
-- `deny` emits `tool_risk_denied` (terminal failure). `require_approval` emits `agent.tool.approval_requested` + `agent.task.paused` (Agent-level pause protocol). No `toolRiskPolicy` means V0 compat (allow all after allowlist).
-- `AgentApprovalRequest` carries the normalized tool request, task/step context, risk level, and reason. The runtime creates an approval ID and includes it in the paused output metadata.
-- Agent runtime defines the approval request protocol. Formal workflow pause/resume, approval storage, and approval UI belong to core/workbench.
-- This is not a complete security sandbox. Real tool risk should be enforced by the host or a future tool registry.
-- Agent runtime does not include built-in real tools (no browser, shell, file, GitHub, or MCP tools).
-- Future framework integrations should implement `AgentEngine`; they should not redefine Aithru workflow semantics.
+The example uses a host whose `callTool` throws if invoked. Model adapters may propose tool calls, but actual tool execution must stay behind the Aithru host/capability layer.
+
+## Boundary rules
+
+- Aithru Agent is an AI harness, not a workflow graph product.
+- Core and Workbench own formal workflow definitions and execution semantics.
+- Skills are reusable agent capabilities, not DAG workflows.
+- Todos and runtime plans are observable run state, not stored workflow definitions.
+- Models may propose tool calls, but must not execute tools.
+- Sandbox/code/file/network operations must be policy-gated, traceable, and redacted where needed.
+- Agent may use Core tools/nodes only through explicit capability adapters.
+- Agent may run Workbench workflows only through Workbench APIs/tools.
+- Workbench may call Agent only through explicit `agent.*` node integration.
+- Core must not depend on Agent packages.
+
+## For coding agents
+
+Read [AGENTS.md](./AGENTS.md) before making repository changes.
