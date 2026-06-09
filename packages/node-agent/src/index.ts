@@ -54,7 +54,7 @@ export type AgentTaskNodeConfig = {
 };
 
 export type AgentTaskNodeOutput = {
-  status: "completed" | "failed" | "needs_rerun";
+  status: "completed" | "failed" | "needs_rerun" | "paused";
   summary: string;
   plan?: AgentPlan;
   artifacts: unknown[];

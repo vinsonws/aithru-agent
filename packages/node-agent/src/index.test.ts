@@ -643,6 +643,76 @@ describe("agent.deepResearch node", () => {
       }),
     );
   });
+
+  test("returns paused output when deep research tool requires approval", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "x" },
+      stepId: "step_source",
+      riskLevel: "dangerous",
+    };
+    const callTool = vi.fn(
+      async (): Promise<{ output: unknown; metadata?: Record<string, unknown> }> => ({
+        output: { ok: true },
+      }),
+    );
+    const node = createAgentDeepResearchNode({
+      resolveModel: async () =>
+        deepResearchModel({
+          plan() {
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  id: "plan_test",
+                  taskId: "task_test",
+                  steps: [
+                    {
+                      id: "step_source",
+                      title: "Source step",
+                      objective: "Read source.",
+                      allowedTools: ["repo.delete"],
+                    },
+                  ],
+                },
+              },
+            ];
+          },
+          execute(input) {
+            if (input.step) {
+              return [
+                { type: "tool_call.proposed", toolCall },
+                { type: "final", output: { summary: "Step done." } },
+              ];
+            }
+
+            return [
+              {
+                type: "structured.output",
+                value: { title: "R", summary: "Done.", findings: [], sources: [] },
+              },
+            ];
+          },
+        }),
+    });
+    const { ctx, emitted } = createContext({
+      callTool: callTool as NodeExecutionContext["callTool"],
+    });
+
+    const result = await node.execute(ctx, {}, {
+      goal: "Research with approval.",
+      allowedTools: ["repo.delete"],
+      toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+      review: false,
+    });
+
+    expect(result.output?.status).toBe("paused");
+    expect(result.output?.metadata?.approval).toBeDefined();
+    expect(callTool).not.toHaveBeenCalled();
+    expect(agentEventTypes(emitted)).toContain("agent.tool.approval_requested");
+    expect(agentEventTypes(emitted)).toContain("agent.task.paused");
+  });
 });
 
 describe("agent.task node", () => {
@@ -947,5 +1017,61 @@ describe("agent.task node", () => {
       message: expect.stringContaining("repo.write"),
     });
     expect(callTool).not.toHaveBeenCalled();
+  });
+
+  test("returns paused output when tool requires approval, ctx.callTool not invoked", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "important.md" },
+      stepId: "step_del",
+      riskLevel: "dangerous",
+    };
+    const callTool = vi.fn(
+      async (): Promise<{ output: unknown; metadata?: Record<string, unknown> }> => ({
+        output: { ok: true },
+      }),
+    );
+    const node = createAgentTaskNode({
+      resolveModel: async () =>
+        createModeModel({
+          plan: [
+            {
+              type: "structured.output",
+              value: {
+                id: "plan_test",
+                taskId: "task_test",
+                steps: [
+                  {
+                    id: "step_del",
+                    title: "Delete step",
+                    objective: "Delete something.",
+                    allowedTools: ["repo.delete"],
+                  },
+                ],
+              },
+            },
+          ],
+          execute: [
+            { type: "tool_call.proposed", toolCall },
+            { type: "final", output: { summary: "Done." } },
+          ],
+        }),
+    });
+    const { ctx, emitted } = createContext({
+      callTool: callTool as NodeExecutionContext["callTool"],
+    });
+
+    const result = await node.execute(ctx, {}, {
+      goal: "Delete a file.",
+      allowedTools: ["repo.delete"],
+      toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+    });
+
+    expect(result.output?.status).toBe("paused");
+    expect(result.output?.metadata?.approval).toBeDefined();
+    expect(callTool).not.toHaveBeenCalled();
+    expect(agentEventTypes(emitted)).toContain("agent.tool.approval_requested");
+    expect(agentEventTypes(emitted)).toContain("agent.task.paused");
   });
 });

@@ -148,6 +148,16 @@ export type AgentToolCallRecord = {
   result?: AgentToolResult;
 };
 
+export type AgentApprovalRequest = {
+  id: string;
+  taskId: string;
+  stepId?: string;
+  toolRequest: AgentToolRequest;
+  reason?: string;
+  riskLevel: AgentRiskLevel;
+  metadata?: Record<string, unknown>;
+};
+
 export type AgentToolDescriptor = {
   name: string;
   description?: string;
@@ -236,7 +246,19 @@ export type AgentEvent =
       review: AgentReviewResult;
     }
   | { type: "agent.task.completed"; taskId: string; output: AgentTaskOutput }
-  | { type: "agent.task.failed"; taskId: string; error: AgentError };
+  | { type: "agent.task.failed"; taskId: string; error: AgentError }
+  | {
+      type: "agent.tool.approval_requested";
+      taskId: string;
+      stepId?: string;
+      approval: AgentApprovalRequest;
+    }
+  | {
+      type: "agent.task.paused";
+      taskId: string;
+      approval: AgentApprovalRequest;
+      output: AgentTaskOutput;
+    };
 
 export type AgentTraceEventKind =
   | "agent.task"
@@ -246,6 +268,7 @@ export type AgentTraceEventKind =
   | "agent.tool"
   | "agent.artifact"
   | "agent.review"
+  | "agent.approval"
   | "agent.error";
 
 export type AgentTraceEventPhase =
@@ -254,6 +277,8 @@ export type AgentTraceEventPhase =
   | "proposed"
   | "completed"
   | "failed"
+  | "requested"
+  | "paused"
   | "delta";
 
 export type AgentTraceEvent = {
@@ -270,7 +295,7 @@ export type AgentTraceEvent = {
 };
 
 export type AgentTaskOutput = {
-  status: "completed" | "failed" | "needs_rerun";
+  status: "completed" | "failed" | "needs_rerun" | "paused";
   summary: string;
   plan?: AgentPlan;
   artifacts: AgentArtifact[];
@@ -465,6 +490,30 @@ export function agentTraceEventFromAgentEvent(
         agentEventType: event.type,
         taskId: event.taskId,
         ...(event.review.summary ? { summary: event.review.summary } : {}),
+        payload: event,
+      };
+
+    case "agent.tool.approval_requested":
+      return {
+        kind: "agent.approval",
+        phase: "requested",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        ...(event.stepId ? { stepId: event.stepId } : {}),
+        toolName: event.approval.toolRequest.toolName,
+        summary:
+          event.approval.reason ??
+          `Approval requested for ${event.approval.toolRequest.toolName}.`,
+        payload: event,
+      };
+
+    case "agent.task.paused":
+      return {
+        kind: "agent.task",
+        phase: "paused",
+        agentEventType: event.type,
+        taskId: event.taskId,
+        summary: event.output.summary,
         payload: event,
       };
   }

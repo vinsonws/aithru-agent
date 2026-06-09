@@ -1,4 +1,5 @@
 import type {
+  AgentApprovalRequest,
   AgentArtifact,
   AgentArtifactDraft,
   AgentClassificationResult,
@@ -133,39 +134,83 @@ function resolveRiskDecision(
   return "allow";
 }
 
+type ToolRiskEvaluation =
+  | { decision: "allow" }
+  | { decision: "deny"; error: AgentError }
+  | { decision: "require_approval"; approval: AgentApprovalRequest };
+
 function evaluateToolRiskPolicy(
   input: AgentEngineRunInput,
   request: AgentToolRequest,
-): AgentError | undefined {
+): ToolRiskEvaluation {
   const policy = input.options?.toolRiskPolicy;
-  if (!policy) return undefined;
+  if (!policy) return { decision: "allow" };
 
   const riskLevel = effectiveRiskLevel(request);
   const decision = resolveRiskDecision(policy, request.toolName, riskLevel);
 
-  if (decision === "allow") return undefined;
+  if (decision === "allow") return { decision: "allow" };
 
   if (decision === "deny") {
     return {
-      code: "tool_risk_denied",
-      message: `Tool "${request.toolName}" with risk level "${riskLevel}" was denied by runtime policy.`,
-      metadata: {
-        toolName: request.toolName,
-        riskLevel,
-        decision: "deny" satisfies AgentToolPolicyDecision,
+      decision: "deny",
+      error: {
+        code: "tool_risk_denied",
+        message: `Tool "${request.toolName}" with risk level "${riskLevel}" was denied by runtime policy.`,
+        metadata: {
+          toolName: request.toolName,
+          riskLevel,
+          decision: "deny" satisfies AgentToolPolicyDecision,
+        },
       },
     };
   }
 
   return {
-    code: "tool_approval_required",
-    message: `Tool "${request.toolName}" with risk level "${riskLevel}" requires approval before execution.`,
-    metadata: {
-      toolName: request.toolName,
+    decision: "require_approval",
+    approval: {
+      id: createId("approval"),
+      taskId: input.task.id,
+      ...(request.stepId !== undefined ? { stepId: request.stepId } : {}),
+      toolRequest: request,
+      ...(request.reason !== undefined ? { reason: request.reason } : {}),
       riskLevel,
-      decision: "require_approval" satisfies AgentToolPolicyDecision,
+      metadata: {
+        decision: "require_approval" satisfies AgentToolPolicyDecision,
+      },
     },
   };
+}
+
+async function* emitApprovalEvents(
+  input: AgentEngineRunInput,
+  approval: AgentApprovalRequest,
+  plan: AgentPlan | undefined,
+  artifacts: AgentArtifact[],
+): AsyncGenerator<AgentEvent> {
+  yield emitEvent(input, {
+    type: "agent.tool.approval_requested",
+    taskId: input.task.id,
+    ...(approval.stepId !== undefined ? { stepId: approval.stepId } : {}),
+    approval,
+  });
+
+  const output: AgentTaskOutput = {
+    status: "paused",
+    summary: `Approval required for tool "${approval.toolRequest.toolName}".`,
+    ...(plan ? { plan } : {}),
+    artifacts,
+    metadata: {
+      approval,
+    },
+  };
+
+  yield emitEvent(input, {
+    type: "agent.task.paused",
+    taskId: input.task.id,
+    approval,
+    output,
+  });
 }
 
 async function emitEvent(
@@ -511,9 +556,18 @@ export class PlanRunReviewEngine implements AgentEngine {
             return;
           }
 
-          const riskError = evaluateToolRiskPolicy(input, request);
-          if (riskError) {
-            yield await emitTaskFailed(input, riskError);
+          const riskEval = evaluateToolRiskPolicy(input, request);
+          if (riskEval.decision === "deny") {
+            yield await emitTaskFailed(input, riskEval.error);
+            return;
+          }
+          if (riskEval.decision === "require_approval") {
+            yield* emitApprovalEvents(
+              input,
+              riskEval.approval,
+              plan,
+              artifacts,
+            );
             return;
           }
 
@@ -983,9 +1037,13 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
             return;
           }
 
-          const riskError = evaluateToolRiskPolicy(input, request);
-          if (riskError) {
-            yield await emitTaskFailed(input, riskError);
+          const riskEval = evaluateToolRiskPolicy(input, request);
+          if (riskEval.decision === "deny") {
+            yield await emitTaskFailed(input, riskEval.error);
+            return;
+          }
+          if (riskEval.decision === "require_approval") {
+            yield* emitApprovalEvents(input, riskEval.approval, plan, []);
             return;
           }
 
@@ -1071,9 +1129,13 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
           return;
         }
 
-        const riskError = evaluateToolRiskPolicy(input, request);
-        if (riskError) {
-          yield await emitTaskFailed(input, riskError);
+        const riskEval = evaluateToolRiskPolicy(input, request);
+        if (riskEval.decision === "deny") {
+          yield await emitTaskFailed(input, riskEval.error);
+          return;
+        }
+        if (riskEval.decision === "require_approval") {
+          yield* emitApprovalEvents(input, riskEval.approval, plan, []);
           return;
         }
 
@@ -1247,6 +1309,10 @@ export async function collectAgentTaskOutput(
   for await (const event of events) {
     if (event.type === "agent.task.failed") {
       throw new AgentTaskFailedError(event.error);
+    }
+
+    if (event.type === "agent.task.paused") {
+      return event.output;
     }
 
     if (event.type === "agent.task.completed") {
