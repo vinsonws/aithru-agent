@@ -79,11 +79,20 @@ export type AgentRun = {
   error?: AgentError;
 };
 
+export type AgentToolPolicyDecision = "allow" | "deny" | "require_approval";
+
+export type AgentToolRiskPolicy = {
+  defaultDecision?: AgentToolPolicyDecision;
+  byRiskLevel?: Partial<Record<AgentRiskLevel, AgentToolPolicyDecision>>;
+  byToolName?: Record<string, AgentToolPolicyDecision>;
+};
+
 export type AgentRunOptions = {
   maxSteps?: number;
   timeoutMs?: number;
   allowedTools?: string[];
   review?: boolean;
+  toolRiskPolicy?: AgentToolRiskPolicy;
   metadata?: Record<string, unknown>;
 };
 

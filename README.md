@@ -96,6 +96,11 @@ Runtime engines treat model, tool, and artifact failures as task failures:
 - Tool execution still must go through `AgentHost.callTool`; model adapters must not execute tools.
 - Before `AgentHost.callTool` is invoked, the runtime validates the tool name against `options.allowedTools` and `step.allowedTools`. A model may propose any tool call, but the runtime enforces the allowlist before execution. If the tool is not allowed, the runtime emits `agent.tool.proposed` (the model did propose it) followed by `agent.task.failed` with code `tool_not_allowed`. `host.callTool` is never invoked and `agent.tool.completed` is never emitted for disallowed tools.
 - `allowedTools` semantics: `undefined` means no restriction (V0 compat). An empty array `[]` means no tools are allowed — every proposed tool call is rejected. When both `options.allowedTools` and `step.allowedTools` are defined, the tool name must be present in both lists.
+- After `allowedTools` passes, the runtime evaluates `options.toolRiskPolicy` before invoking `host.callTool`. This is a V0 risk policy entry point — not a complete security sandbox. Real tool risk should be enforced by the host or a future tool registry.
+- `toolRiskPolicy` is optional. When absent, all tools are allowed after the allowlist check (V0 compat). When present, the decision priority is: `byToolName[toolName]` > `byRiskLevel[riskLevel]` > `defaultDecision` > `allow`.
+- `request.riskLevel` defaults to `"safe"` when not provided by the model. The runtime does not trust model-assigned risk levels as a final security boundary.
+- `deny` results in `agent.task.failed` with code `tool_risk_denied`. `require_approval` results in `agent.task.failed` with code `tool_approval_required`. In this V0, `require_approval` is a terminal failure; future versions may integrate formal pause/resume via core/workbench.
+- When a tool is rejected by risk policy, the event order is `agent.tool.proposed` then `agent.task.failed`. `host.callTool` is never invoked and `agent.tool.completed` is never emitted.
 - `AgentHost.callTool(...)` exceptions become `agent.task.failed`.
 - `AgentHost.callTool(...)` results with `error` become `agent.task.failed`.
 - Artifact creation exceptions from `host.createArtifact(...)` become `agent.task.failed`.
@@ -256,5 +261,9 @@ Not implemented yet:
 - In workflow-node mode, `AgentHost.callTool` should bridge to core `ctx.callTool`.
 - `options.allowedTools` and `step.allowedTools` are hard runtime constraints enforced before every tool call. The runtime does not delegate allowlist enforcement to the model adapter or the host.
 - `allowedTools: []` means no tools are allowed. `undefined` means no restriction (V0 compat). When both global and step allowlists are present, both must permit the tool.
+- `options.toolRiskPolicy` is a runtime risk policy entry point evaluated after the allowlist check and before `host.callTool`. Execution order: `agent.tool.proposed` → allowedTools check → risk policy check → `host.callTool` → `agent.tool.completed`.
+- `toolRiskPolicy` decision priority: `byToolName[toolName]` > `byRiskLevel[riskLevel]` > `defaultDecision` > `allow`. Missing `request.riskLevel` defaults to `"safe"`.
+- `deny` emits `tool_risk_denied`. `require_approval` emits `tool_approval_required` (terminal failure in V0; future pause/resume integration planned). No `toolRiskPolicy` means V0 compat (allow all after allowlist).
+- This is not a complete security sandbox. Real tool risk should be enforced by the host or a future tool registry.
 - Agent runtime does not include built-in real tools (no browser, shell, file, GitHub, or MCP tools).
 - Future framework integrations should implement `AgentEngine`; they should not redefine Aithru workflow semantics.

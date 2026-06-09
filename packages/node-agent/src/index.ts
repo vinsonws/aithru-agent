@@ -13,6 +13,7 @@ import type {
   AgentTaskOutput,
   AgentToolRequest,
   AgentToolResult,
+  AgentToolRiskPolicy,
 } from "@aithru/agent-core";
 import { agentTraceEventFromAgentEvent } from "@aithru/agent-core";
 import { AgentRuntime } from "@aithru/agent-runtime";
@@ -48,6 +49,7 @@ export type AgentTaskNodeConfig = {
   timeoutMs?: number;
   allowedTools?: string[];
   review?: boolean;
+  toolRiskPolicy?: AgentToolRiskPolicy;
   outputSchema?: unknown;
 };
 
@@ -67,6 +69,7 @@ export type AgentDeepResearchNodeConfig = {
   timeoutMs?: number;
   allowedTools?: string[];
   review?: boolean;
+  toolRiskPolicy?: AgentToolRiskPolicy;
   maxSources?: number;
   maxSearchQueries?: number;
   outputSchema?: unknown;
@@ -171,6 +174,7 @@ export function createAgentTaskNode(
           timeoutMs: { type: "number" },
           allowedTools: { type: "array", items: { type: "string" } },
           review: { type: "boolean" },
+          toolRiskPolicy: { type: "object" },
           outputSchema: {},
         },
       },
@@ -221,6 +225,7 @@ export function createAgentDeepResearchNode(
           timeoutMs: { type: "number" },
           allowedTools: { type: "array", items: { type: "string" } },
           review: { type: "boolean" },
+          toolRiskPolicy: { type: "object" },
           maxSources: { type: "number" },
           maxSearchQueries: { type: "number" },
           outputSchema: {},
@@ -331,6 +336,9 @@ function taskOptionsFromConfig(config: AgentTaskNodeConfig): AgentRunOptions | u
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
     ...(config.allowedTools !== undefined ? { allowedTools: config.allowedTools } : {}),
     ...(config.review !== undefined ? { review: config.review } : {}),
+    ...(config.toolRiskPolicy !== undefined
+      ? { toolRiskPolicy: config.toolRiskPolicy }
+      : {}),
   };
 
   return Object.keys(options).length > 0 ? options : undefined;
@@ -344,6 +352,9 @@ function researchOptionsFromConfig(
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
     ...(config.allowedTools !== undefined ? { allowedTools: config.allowedTools } : {}),
     ...(config.review !== undefined ? { review: config.review } : {}),
+    ...(config.toolRiskPolicy !== undefined
+      ? { toolRiskPolicy: config.toolRiskPolicy }
+      : {}),
     ...(config.maxSources !== undefined ? { maxSources: config.maxSources } : {}),
     ...(config.maxSearchQueries !== undefined
       ? { maxSearchQueries: config.maxSearchQueries }

@@ -15,8 +15,10 @@ import type {
   AgentResearchReport,
   AgentResearchSource,
   AgentReviewResult,
+  AgentRiskLevel,
   AgentRunOptions,
   AgentTaskOutput,
+  AgentToolPolicyDecision,
   AgentToolRequest,
   AgentToolResult,
 } from "@aithru/agent-core";
@@ -108,6 +110,62 @@ function filterAllowedTools(
       return false;
     return true;
   });
+}
+
+function effectiveRiskLevel(request: AgentToolRequest): AgentRiskLevel {
+  return request.riskLevel ?? "safe";
+}
+
+function resolveRiskDecision(
+  policy: NonNullable<AgentRunOptions["toolRiskPolicy"]>,
+  toolName: string,
+  riskLevel: AgentRiskLevel,
+): AgentToolPolicyDecision {
+  if (policy.byToolName?.[toolName] !== undefined) {
+    return policy.byToolName[toolName];
+  }
+  if (policy.byRiskLevel?.[riskLevel] !== undefined) {
+    return policy.byRiskLevel[riskLevel]!;
+  }
+  if (policy.defaultDecision !== undefined) {
+    return policy.defaultDecision;
+  }
+  return "allow";
+}
+
+function evaluateToolRiskPolicy(
+  input: AgentEngineRunInput,
+  request: AgentToolRequest,
+): AgentError | undefined {
+  const policy = input.options?.toolRiskPolicy;
+  if (!policy) return undefined;
+
+  const riskLevel = effectiveRiskLevel(request);
+  const decision = resolveRiskDecision(policy, request.toolName, riskLevel);
+
+  if (decision === "allow") return undefined;
+
+  if (decision === "deny") {
+    return {
+      code: "tool_risk_denied",
+      message: `Tool "${request.toolName}" with risk level "${riskLevel}" was denied by runtime policy.`,
+      metadata: {
+        toolName: request.toolName,
+        riskLevel,
+        decision: "deny" satisfies AgentToolPolicyDecision,
+      },
+    };
+  }
+
+  return {
+    code: "tool_approval_required",
+    message: `Tool "${request.toolName}" with risk level "${riskLevel}" requires approval before execution.`,
+    metadata: {
+      toolName: request.toolName,
+      riskLevel,
+      decision: "require_approval" satisfies AgentToolPolicyDecision,
+    },
+  };
 }
 
 async function emitEvent(
@@ -450,6 +508,12 @@ export class PlanRunReviewEngine implements AgentEngine {
           );
           if (notAllowedError) {
             yield await emitTaskFailed(input, notAllowedError);
+            return;
+          }
+
+          const riskError = evaluateToolRiskPolicy(input, request);
+          if (riskError) {
+            yield await emitTaskFailed(input, riskError);
             return;
           }
 
@@ -919,6 +983,12 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
             return;
           }
 
+          const riskError = evaluateToolRiskPolicy(input, request);
+          if (riskError) {
+            yield await emitTaskFailed(input, riskError);
+            return;
+          }
+
           let result: AgentToolResult;
           try {
             result = await input.host.callTool(request);
@@ -998,6 +1068,12 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
         );
         if (notAllowedError) {
           yield await emitTaskFailed(input, notAllowedError);
+          return;
+        }
+
+        const riskError = evaluateToolRiskPolicy(input, request);
+        if (riskError) {
+          yield await emitTaskFailed(input, riskError);
           return;
         }
 

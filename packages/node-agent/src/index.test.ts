@@ -618,6 +618,31 @@ describe("agent.deepResearch node", () => {
       node.execute(ctx, {}, { goal: "Research local sources." }),
     ).rejects.toThrow(AgentTaskFailedError);
   });
+
+  test("passes toolRiskPolicy from config to runtime options", async () => {
+    const runtime = new AgentRuntime();
+    const runTask = vi.spyOn(runtime, "runTask");
+    const policy = { byRiskLevel: { write: "deny" as const } };
+    const node = createAgentDeepResearchNode({
+      runtime,
+      resolveModel: async () => deepResearchModel(),
+    });
+    const { ctx } = createContext();
+
+    await node.execute(ctx, {}, {
+      goal: "Research with risk policy.",
+      toolRiskPolicy: policy,
+    });
+
+    expect(runTask).toHaveBeenCalledWith(
+      "deep-research",
+      expect.objectContaining({
+        options: expect.objectContaining({
+          toolRiskPolicy: policy,
+        }),
+      }),
+    );
+  });
 });
 
 describe("agent.task node", () => {
@@ -828,6 +853,97 @@ describe("agent.task node", () => {
     expect(caught).toBeInstanceOf(AgentTaskFailedError);
     expect((caught as AgentTaskFailedError).agentError).toMatchObject({
       code: "tool_not_allowed",
+      message: expect.stringContaining("repo.write"),
+    });
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  test("passes toolRiskPolicy from config to runtime options", async () => {
+    const runtime = new AgentRuntime();
+    const runTask = vi.spyOn(runtime, "runTask");
+    const policy = { byRiskLevel: { write: "deny" as const } };
+    const node = createAgentTaskNode({
+      runtime,
+      resolveModel: async () =>
+        createModeModel({
+          plan: planEvents("step_1"),
+          execute: [{ type: "final", output: { summary: "Done." } }],
+        }),
+    });
+    const { ctx } = createContext();
+
+    await node.execute(ctx, {}, {
+      goal: "Task with risk policy.",
+      toolRiskPolicy: policy,
+    });
+
+    expect(runTask).toHaveBeenCalledWith(
+      "plan-run-review",
+      expect.objectContaining({
+        options: expect.objectContaining({
+          toolRiskPolicy: policy,
+        }),
+      }),
+    );
+  });
+
+  test("rejects with tool_risk_denied when toolRiskPolicy.byRiskLevel denies the tool and ctx.callTool is not invoked", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "README.md", content: "x" },
+      stepId: "step_write",
+      riskLevel: "write",
+    };
+    const callTool = vi.fn(
+      async (): Promise<{ output: unknown; metadata?: Record<string, unknown> }> => ({
+        output: { ok: true },
+      }),
+    );
+    const node = createAgentTaskNode({
+      resolveModel: async () =>
+        createModeModel({
+          plan: [
+            {
+              type: "structured.output",
+              value: {
+                id: "plan_test",
+                taskId: "task_test",
+                steps: [
+                  {
+                    id: "step_write",
+                    title: "Write step",
+                    objective: "Write something.",
+                    allowedTools: ["repo.write"],
+                  },
+                ],
+              },
+            },
+          ],
+          execute: [
+            { type: "tool_call.proposed", toolCall },
+            { type: "final", output: { summary: "Done." } },
+          ],
+        }),
+    });
+    const { ctx } = createContext({
+      callTool: callTool as NodeExecutionContext["callTool"],
+    });
+
+    let caught: unknown;
+    try {
+      await node.execute(ctx, {}, {
+        goal: "Write the README.",
+        allowedTools: ["repo.write"],
+        toolRiskPolicy: { byRiskLevel: { write: "deny" } },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AgentTaskFailedError);
+    expect((caught as AgentTaskFailedError).agentError).toMatchObject({
+      code: "tool_risk_denied",
       message: expect.stringContaining("repo.write"),
     });
     expect(callTool).not.toHaveBeenCalled();

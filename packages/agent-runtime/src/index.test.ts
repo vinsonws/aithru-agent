@@ -1043,6 +1043,326 @@ describe("PlanRunReviewEngine", () => {
       }),
     ]);
   });
+
+  test("fails with tool_risk_denied when toolRiskPolicy.byRiskLevel denies the risk level", async () => {
+    const task: AgentTask = {
+      id: "task_risk_deny_write",
+      goal: "Use a write tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "README.md", content: "x" },
+      stepId: "step_1",
+      riskLevel: "write",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Write something.",
+                allowedTools: ["repo.write"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+
+    const events = await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.write"],
+          toolRiskPolicy: { byRiskLevel: { write: "deny" } },
+        },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.task.failed",
+    ]);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_risk_denied",
+      message: expect.stringContaining("repo.write"),
+    });
+  });
+
+  test("fails with tool_approval_required when toolRiskPolicy requires approval", async () => {
+    const task: AgentTask = {
+      id: "task_risk_approval",
+      goal: "Use a dangerous tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "important.md" },
+      stepId: "step_1",
+      riskLevel: "dangerous",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Delete something.",
+                allowedTools: ["repo.delete"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+
+    const events = await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.delete"],
+          toolRiskPolicy: { byRiskLevel: { dangerous: "require_approval" } },
+        },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.task.failed",
+    ]);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_approval_required",
+      message: expect.stringContaining("repo.delete"),
+    });
+  });
+
+  test("byToolName takes priority over byRiskLevel in risk policy", async () => {
+    const task: AgentTask = {
+      id: "task_risk_by_tool_name",
+      goal: "Use a write tool that is explicitly allowed.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "README.md", content: "x" },
+      stepId: "step_1",
+      riskLevel: "write",
+    };
+    const toolResult: AgentToolResult = {
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => toolResult);
+    const { host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Write something.",
+                allowedTools: ["repo.write"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+      review: reviewPassedEvents(),
+    });
+
+    const events = await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.write"],
+          toolRiskPolicy: {
+            byRiskLevel: { write: "deny" },
+            byToolName: { "repo.write": "allow" },
+          },
+        },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toContain(
+      "agent.tool.completed",
+    );
+    expect(callTool).toHaveBeenCalledTimes(1);
+  });
+
+  test("defaultDecision deny blocks tools not explicitly configured", async () => {
+    const task: AgentTask = {
+      id: "task_risk_default_deny",
+      goal: "Use a safe tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_read",
+      toolName: "repo.read",
+      arguments: { path: "README.md" },
+      stepId: "step_1",
+      riskLevel: "safe",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Read something.",
+                allowedTools: ["repo.read"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+
+    const events = await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.read"],
+          toolRiskPolicy: { defaultDecision: "deny" },
+        },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.task.failed",
+    ]);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_risk_denied",
+    });
+  });
+
+  test("V0 compat: no toolRiskPolicy allows tools through after allowedTools check", async () => {
+    const task: AgentTask = {
+      id: "task_risk_v0_compat",
+      goal: "Use a write tool without risk policy.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "README.md", content: "x" },
+      stepId: "step_1",
+      riskLevel: "write",
+    };
+    const toolResult: AgentToolResult = {
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => toolResult);
+    const { host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Write something.",
+                allowedTools: ["repo.write"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+      review: reviewPassedEvents(),
+    });
+
+    const events = await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+        options: { allowedTools: ["repo.write"] },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toContain(
+      "agent.tool.completed",
+    );
+    expect(callTool).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("DeepResearchEngine", () => {
@@ -1753,6 +2073,137 @@ describe("DeepResearchEngine", () => {
     expect(failedEvent(events)?.error).toMatchObject({
       code: "tool_not_allowed",
       message: expect.stringContaining("repo.write"),
+    });
+  });
+
+  test("fails with tool_risk_denied during step execution when risk policy denies", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research_step_risk_deny",
+      goal: "Research with risky step tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_dangerous",
+      toolName: "repo.delete",
+      arguments: { path: "x" },
+      stepId: "step_1",
+      riskLevel: "dangerous",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: [
+        {
+          type: "structured.output",
+          value: {
+            steps: [
+              {
+                id: "step_1",
+                title: "Step",
+                objective: "Delete something.",
+                allowedTools: ["repo.delete"],
+              },
+            ],
+          },
+        },
+      ],
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+
+    const events = await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.delete"],
+          toolRiskPolicy: { byRiskLevel: { dangerous: "deny" } },
+        },
+      }),
+    );
+
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_risk_denied",
+    });
+  });
+
+  test("fails with tool_approval_required during synthesis when risk policy requires approval", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research_synthesis_risk_approval",
+      goal: "Research with risky synthesis tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "x", content: "y" },
+      riskLevel: "write",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { host } = createHost({ callTool });
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                steps: [
+                  {
+                    id: "step_1",
+                    title: "Step",
+                    objective: "Collect sources.",
+                    allowedTools: ["repo.write"],
+                  },
+                ],
+              },
+            },
+          ];
+        }
+
+        if (input.mode === "execute" && input.step) {
+          return [{ type: "final", output: { summary: "Step data.", sources: [] } }];
+        }
+
+        if (input.mode === "execute") {
+          return [
+            { type: "tool_call.proposed", toolCall },
+            {
+              type: "structured.output",
+              value: { title: "R", summary: "Done.", findings: [], sources: [] },
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    const events = await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+        options: {
+          allowedTools: ["repo.write"],
+          toolRiskPolicy: { byRiskLevel: { write: "require_approval" } },
+        },
+      }),
+    );
+
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_approval_required",
     });
   });
 });
