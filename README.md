@@ -94,6 +94,8 @@ Runtime engines treat model, tool, and artifact failures as task failures:
 - `AgentModelEvent.error` is converted into `agent.task.failed`; the runtime does not fall back to default classification, plan, execution, or review output after a model error.
 - Model adapter exceptions during `generate(...)` are normalized into `AgentError` and emitted as `agent.task.failed`.
 - Tool execution still must go through `AgentHost.callTool`; model adapters must not execute tools.
+- Before `AgentHost.callTool` is invoked, the runtime validates the tool name against `options.allowedTools` and `step.allowedTools`. A model may propose any tool call, but the runtime enforces the allowlist before execution. If the tool is not allowed, the runtime emits `agent.tool.proposed` (the model did propose it) followed by `agent.task.failed` with code `tool_not_allowed`. `host.callTool` is never invoked and `agent.tool.completed` is never emitted for disallowed tools.
+- `allowedTools` semantics: `undefined` means no restriction (V0 compat). An empty array `[]` means no tools are allowed — every proposed tool call is rejected. When both `options.allowedTools` and `step.allowedTools` are defined, the tool name must be present in both lists.
 - `AgentHost.callTool(...)` exceptions become `agent.task.failed`.
 - `AgentHost.callTool(...)` results with `error` become `agent.task.failed`.
 - Artifact creation exceptions from `host.createArtifact(...)` become `agent.task.failed`.
@@ -252,4 +254,7 @@ Not implemented yet:
 - Formal workflows belong to `aithru-core`.
 - Tool execution must go through `AgentHost.callTool`.
 - In workflow-node mode, `AgentHost.callTool` should bridge to core `ctx.callTool`.
+- `options.allowedTools` and `step.allowedTools` are hard runtime constraints enforced before every tool call. The runtime does not delegate allowlist enforcement to the model adapter or the host.
+- `allowedTools: []` means no tools are allowed. `undefined` means no restriction (V0 compat). When both global and step allowlists are present, both must permit the tool.
+- Agent runtime does not include built-in real tools (no browser, shell, file, GitHub, or MCP tools).
 - Future framework integrations should implement `AgentEngine`; they should not redefine Aithru workflow semantics.

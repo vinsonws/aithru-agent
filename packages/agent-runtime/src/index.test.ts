@@ -657,6 +657,263 @@ describe("PlanRunReviewEngine", () => {
     expect(callTool).toHaveBeenCalledWith(toolCall);
     expect(failedEvent(events)?.error).toBe(error);
   });
+
+  test("fails with tool_not_allowed when options.allowedTools blocks the proposed tool", async () => {
+    const task: AgentTask = {
+      id: "task_global_allow_deny",
+      goal: "Use a tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "README.md", content: "x" },
+      stepId: "step_1",
+      riskLevel: "write",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { emitted, host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: planEvents("step_1"),
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+
+    const events = await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+        options: { allowedTools: ["repo.read"] },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.task.failed",
+    ]);
+    expectEmittedToMatchYielded(emitted, events);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_not_allowed",
+      message: expect.stringContaining("repo.write"),
+    });
+  });
+
+  test("fails with tool_not_allowed when step.allowedTools blocks the proposed tool", async () => {
+    const task: AgentTask = {
+      id: "task_step_allow_deny",
+      goal: "Use a tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "README.md", content: "x" },
+      stepId: "step_safe",
+      riskLevel: "write",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { emitted, host } = createHost({ callTool });
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                steps: [
+                  {
+                    id: "step_safe",
+                    title: "Safe step",
+                    objective: "Only use repo.read.",
+                    allowedTools: ["repo.read"],
+                  },
+                ],
+              },
+            },
+          ];
+        }
+
+        if (input.mode === "execute") {
+          return [
+            { type: "tool_call.proposed", toolCall },
+            { type: "final", output: { summary: "Done." } },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    const events = await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.task.failed",
+    ]);
+    expectEmittedToMatchYielded(emitted, events);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_not_allowed",
+      message: expect.stringContaining("repo.write"),
+    });
+  });
+
+  test("executes tool normally when both options.allowedTools and step.allowedTools allow it", async () => {
+    const task: AgentTask = {
+      id: "task_both_allow",
+      goal: "Use an allowed tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_read",
+      toolName: "repo.read",
+      arguments: { path: "README.md" },
+      stepId: "step_safe",
+      riskLevel: "read",
+    };
+    const toolResult: AgentToolResult = {
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { content: "# README" },
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => toolResult);
+    const { emitted, host } = createHost({ callTool });
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                steps: [
+                  {
+                    id: "step_safe",
+                    title: "Safe step",
+                    objective: "Use repo.read.",
+                    allowedTools: ["repo.read"],
+                  },
+                ],
+              },
+            },
+          ];
+        }
+
+        if (input.mode === "execute") {
+          return [
+            { type: "tool_call.proposed", toolCall },
+            { type: "final", output: { summary: "Done." } },
+          ];
+        }
+
+        if (input.mode === "review") {
+          return [
+            {
+              type: "structured.output",
+              value: { status: "passed", summary: "OK." },
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    const events = await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+        options: { allowedTools: ["repo.read"] },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.tool.completed",
+      "agent.artifact.created",
+      "agent.review.started",
+      "agent.review.completed",
+      "agent.task.completed",
+    ]);
+    expectEmittedToMatchYielded(emitted, events);
+    expect(callTool).toHaveBeenCalledTimes(1);
+  });
+
+  test("fails with tool_not_allowed when options.allowedTools is an empty array (blocks all)", async () => {
+    const task: AgentTask = {
+      id: "task_global_empty_array",
+      goal: "Use a tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_read",
+      toolName: "repo.read",
+      arguments: { path: "README.md" },
+      stepId: "step_1",
+      riskLevel: "read",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { emitted, host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: planEvents("step_1"),
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+
+    const events = await collectEvents(
+      new PlanRunReviewEngine().run({
+        task,
+        model,
+        host,
+        options: { allowedTools: [] },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.task.failed",
+    ]);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_not_allowed",
+    });
+  });
 });
 
 describe("DeepResearchEngine", () => {
@@ -957,9 +1214,32 @@ describe("DeepResearchEngine", () => {
     const { emitted, host } = createHost({
       callTool,
     });
-    const model = createModeModel({
-      plan: planEvents("step_tool_error"),
-      execute: [{ type: "tool_call.proposed", toolCall }],
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return [
+            {
+              type: "structured.output",
+              value: {
+                steps: [
+                  {
+                    id: "step_tool_error",
+                    title: "Local source step",
+                    objective: "Read a local source.",
+                    allowedTools: ["local.readSource"],
+                  },
+                ],
+              },
+            },
+          ];
+        }
+
+        if (input.mode === "execute") {
+          return [{ type: "tool_call.proposed", toolCall }];
+        }
+
+        return [];
+      },
     });
 
     const events = await collectEvents(
@@ -1057,6 +1337,131 @@ describe("DeepResearchEngine", () => {
       message: "Report artifact store failed.",
     });
     expect(failedEvent(events)?.error.cause).toBe(thrown);
+  });
+
+  test("fails with tool_not_allowed during step execution when tool is not in options.allowedTools", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research_step_deny",
+      goal: "Research with blocked step tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "x", content: "y" },
+      stepId: "step_1",
+      riskLevel: "write",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { emitted, host } = createHost({ callTool });
+    const model = createModeModel({
+      plan: planEvents("step_1"),
+      execute: [
+        { type: "tool_call.proposed", toolCall },
+        { type: "final", output: { summary: "Done." } },
+      ],
+    });
+
+    const events = await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+        options: { allowedTools: ["repo.read"] },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.task.failed",
+    ]);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_not_allowed",
+      message: expect.stringContaining("repo.write"),
+    });
+  });
+
+  test("fails with tool_not_allowed during synthesis when tool is not in options.allowedTools", async () => {
+    const task: AgentTask = {
+      id: "task_deep_research_synthesis_deny",
+      goal: "Research with blocked synthesis tool.",
+    };
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "x", content: "y" },
+      riskLevel: "write",
+    };
+    const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+      id: toolCall.id,
+      toolName: toolCall.toolName,
+      output: { ok: true },
+    }));
+    const { emitted, host } = createHost({ callTool });
+    const model = new ScriptedModelAdapter({
+      events(input) {
+        if (input.mode === "plan") {
+          return planEvents("step_1");
+        }
+
+        if (input.mode === "execute" && input.step) {
+          return [
+            {
+              type: "final",
+              output: { summary: "Step collected sources.", sources: [] },
+            },
+          ];
+        }
+
+        if (input.mode === "execute") {
+          return [
+            { type: "tool_call.proposed", toolCall },
+            {
+              type: "structured.output",
+              value: {
+                title: "Report",
+                summary: "Synthesis done.",
+                findings: [],
+                sources: [],
+              },
+            },
+          ];
+        }
+
+        return [];
+      },
+    });
+
+    const events = await collectEvents(
+      new DeepResearchEngine().run({
+        task,
+        model,
+        host,
+        options: { allowedTools: ["repo.read"] },
+      }),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "agent.task.created",
+      "agent.plan.started",
+      "agent.plan.completed",
+      "agent.step.started",
+      "agent.tool.proposed",
+      "agent.task.failed",
+    ]);
+    expect(callTool).not.toHaveBeenCalled();
+    expect(failedEvent(events)?.error).toMatchObject({
+      code: "tool_not_allowed",
+      message: expect.stringContaining("repo.write"),
+    });
   });
 });
 
@@ -1369,6 +1774,41 @@ describe("AgentRuntime.runTask", () => {
       expectedError: {
         code: "tool_provider_error",
         message: "Tool returned an error.",
+      },
+    },
+    {
+      name: "tool not allowed by options",
+      engineName: "plan-run-review",
+      createInput() {
+        const toolCall: AgentToolRequest = {
+          id: "tool_runtime_not_allowed",
+          toolName: "repo.write",
+          arguments: { path: "README.md", content: "x" },
+          stepId: "step_runtime_deny",
+          riskLevel: "write",
+        };
+        const callTool = vi.fn(async (): Promise<AgentToolResult> => ({
+          id: toolCall.id,
+          toolName: toolCall.toolName,
+          output: { ok: true },
+        }));
+        const { host } = createHost({ callTool });
+        return {
+          task: {
+            id: "task_runtime_tool_not_allowed",
+            goal: "Use a disallowed tool.",
+          },
+          model: createModeModel({
+            plan: planEvents("step_runtime_deny"),
+            execute: [{ type: "tool_call.proposed", toolCall }],
+          }),
+          host,
+          options: { allowedTools: ["repo.read"] },
+        };
+      },
+      expectedError: {
+        code: "tool_not_allowed",
+        message: expect.stringContaining("repo.write"),
       },
     },
     {

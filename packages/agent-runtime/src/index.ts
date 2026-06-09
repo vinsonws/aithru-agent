@@ -51,6 +51,47 @@ function isAgentError(value: unknown): value is AgentError {
   );
 }
 
+function validateToolAllowed(
+  input: AgentEngineRunInput,
+  step: AgentPlanStep | undefined,
+  toolName: string,
+): AgentError | undefined {
+  const globalAllowed = input.options?.allowedTools;
+  const stepAllowed = step?.allowedTools;
+
+  if (globalAllowed === undefined && stepAllowed === undefined) {
+    return undefined;
+  }
+
+  if (globalAllowed !== undefined && !globalAllowed.includes(toolName)) {
+    return {
+      code: "tool_not_allowed",
+      message: `Tool "${toolName}" is not allowed for this agent run or step.`,
+      metadata: {
+        toolName,
+        allowedTools: globalAllowed,
+        ...(stepAllowed !== undefined ? { stepAllowedTools: stepAllowed } : {}),
+        ...(step?.id !== undefined ? { stepId: step.id } : {}),
+      },
+    };
+  }
+
+  if (stepAllowed !== undefined && !stepAllowed.includes(toolName)) {
+    return {
+      code: "tool_not_allowed",
+      message: `Tool "${toolName}" is not allowed for this agent run or step.`,
+      metadata: {
+        toolName,
+        ...(globalAllowed !== undefined ? { allowedTools: globalAllowed } : {}),
+        stepAllowedTools: stepAllowed,
+        ...(step?.id !== undefined ? { stepId: step.id } : {}),
+      },
+    };
+  }
+
+  return undefined;
+}
+
 async function emitEvent(
   input: AgentEngineRunInput,
   event: AgentEvent,
@@ -373,6 +414,16 @@ export class PlanRunReviewEngine implements AgentEngine {
             request: event.toolCall,
           };
           yield await emitEvent(input, proposed);
+
+          const notAllowedError = validateToolAllowed(
+            input,
+            step,
+            event.toolCall.toolName,
+          );
+          if (notAllowedError) {
+            yield await emitTaskFailed(input, notAllowedError);
+            return;
+          }
 
           let result: AgentToolResult;
           try {
@@ -826,6 +877,16 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
           };
           yield await emitEvent(input, proposed);
 
+          const notAllowedError = validateToolAllowed(
+            input,
+            step,
+            event.toolCall.toolName,
+          );
+          if (notAllowedError) {
+            yield await emitTaskFailed(input, notAllowedError);
+            return;
+          }
+
           let result: AgentToolResult;
           try {
             result = await input.host.callTool(event.toolCall);
@@ -896,6 +957,16 @@ export class DeepResearchEngine implements AgentEngine<AgentResearchOptions> {
           request: event.toolCall,
         };
         yield await emitEvent(input, proposed);
+
+        const notAllowedError = validateToolAllowed(
+          input,
+          undefined,
+          event.toolCall.toolName,
+        );
+        if (notAllowedError) {
+          yield await emitTaskFailed(input, notAllowedError);
+          return;
+        }
 
         let result: AgentToolResult;
         try {

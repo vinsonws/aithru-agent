@@ -457,6 +457,25 @@ describe("agent.deepResearch node", () => {
     const node = createAgentDeepResearchNode({
       resolveModel: async () =>
         deepResearchModel({
+          plan() {
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  id: "plan_test",
+                  taskId: "task_test",
+                  steps: [
+                    {
+                      id: "step_source",
+                      title: "Read local source",
+                      objective: "Read a local source.",
+                      allowedTools: ["local.readSource"],
+                    },
+                  ],
+                },
+              },
+            ];
+          },
           execute(input) {
             if (input.step) {
               return [
@@ -529,6 +548,25 @@ describe("agent.deepResearch node", () => {
     const node = createAgentDeepResearchNode({
       resolveModel: async () =>
         deepResearchModel({
+          plan() {
+            return [
+              {
+                type: "structured.output",
+                value: {
+                  id: "plan_test",
+                  taskId: "task_test",
+                  steps: [
+                    {
+                      id: "step_source",
+                      title: "Read local source",
+                      objective: "Read a local source.",
+                      allowedTools: ["local.readSource"],
+                    },
+                  ],
+                },
+              },
+            ];
+          },
           execute(input) {
             if (!input.step) {
               return [];
@@ -748,5 +786,50 @@ describe("agent.task node", () => {
     await expect(node.execute(ctx, {}, { goal: "Read the README." })).rejects.toThrow(
       "Agent node requires NodeExecutionContext.callTool to execute tools.",
     );
+  });
+
+  test("rejects with tool_not_allowed when config.allowedTools blocks the proposed tool and ctx.callTool is not invoked", async () => {
+    const toolCall: AgentToolRequest = {
+      id: "tool_write",
+      toolName: "repo.write",
+      arguments: { path: "README.md", content: "x" },
+      stepId: "step_read",
+      riskLevel: "write",
+    };
+    const callTool = vi.fn(
+      async (): Promise<{ output: unknown; metadata?: Record<string, unknown> }> => ({
+        output: { ok: true },
+      }),
+    );
+    const node = createAgentTaskNode({
+      resolveModel: async () =>
+        createModeModel({
+          plan: planEvents("step_read"),
+          execute: [
+            { type: "tool_call.proposed", toolCall },
+            { type: "final", output: { summary: "Done." } },
+          ],
+        }),
+    });
+    const { ctx } = createContext({
+      callTool: callTool as NodeExecutionContext["callTool"],
+    });
+
+    let caught: unknown;
+    try {
+      await node.execute(ctx, {}, {
+        goal: "Read the README.",
+        allowedTools: ["repo.read"],
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AgentTaskFailedError);
+    expect((caught as AgentTaskFailedError).agentError).toMatchObject({
+      code: "tool_not_allowed",
+      message: expect.stringContaining("repo.write"),
+    });
+    expect(callTool).not.toHaveBeenCalled();
   });
 });
