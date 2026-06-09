@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "apps/*"
   - "../aithru-core/packages/spec"
   - "../aithru-core/packages/runtime-core"
   - "../aithru-core/packages/runtime-local"
