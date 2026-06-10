@@ -1,0 +1,35 @@
+{
+  "name": "@aithru/agent-server",
+  "version": "0.2.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "Aithru Agent P3 server host with HTTP APIs, SSE stream, in-memory store, and approval resume support.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "tsc -b tsconfig.json --force",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aithru/agent-core": "workspace:*",
+    "@aithru/agent-stream": "workspace:*",
+    "@aithru/agent-skills": "workspace:*",
+    "@aithru/agent-workspace": "workspace:*",
+    "@aithru/agent-tools": "workspace:*",
+    "@aithru/agent-harness": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.8"
+  }
+}

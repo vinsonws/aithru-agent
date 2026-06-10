@@ -12,10 +12,11 @@
       "@aithru/agent-workspace": ["./packages/agent-workspace/src/index.ts"],
       "@aithru/agent-tools": ["./packages/agent-tools/src/index.ts"],
       "@aithru/agent-harness": ["./packages/agent-harness/src/index.ts"],
-      "@aithru/agent-trace": ["./packages/agent-trace/src/index.ts"]
+      "@aithru/agent-trace": ["./packages/agent-trace/src/index.ts"],
+      "@aithru/agent-server": ["./apps/agent-server/src/index.ts"]
     },
     "rootDir": ".",
     "sourceMap": false
   },
-  "include": ["examples/**/*.ts", "packages/*/src/**/*.ts", "packages/*/test/**/*.ts"]
+  "include": ["examples/**/*.ts", "packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "apps/*/src/**/*.ts"]
 }

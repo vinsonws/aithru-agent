@@ -1,0 +1,305 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import type { Server } from "node:http";
+import { createAgentServerRuntime } from "../runtime/create-agent-server-runtime.js";
+import { createAgentHttpServer } from "../server/create-agent-http-server.js";
+import type { AgentStreamEvent } from "@aithru/agent-stream";
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+async function fetchJson(url: string, options?: RequestInit): Promise<unknown> {
+  const res = await fetch(url, options);
+  const body = await res.json();
+  return body;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function waitForEvents(
+  baseUrl: string,
+  runId: string,
+  predicate: (events: AgentStreamEvent[]) => boolean,
+  timeoutMs = 10000,
+): Promise<AgentStreamEvent[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const res = await fetch(`${baseUrl}/runs/${runId}/events`);
+    const events = (await res.json()) as AgentStreamEvent[];
+    if (predicate(events)) return events;
+    await wait(100);
+  }
+  // On timeout, fetch one more time for diagnostic info
+  const res = await fetch(`${baseUrl}/runs/${runId}/events`);
+  const events = (await res.json()) as AgentStreamEvent[];
+  const types = events.map((e) => e.type).join(", ");
+  throw new Error(
+    `Timeout waiting for events. Got after timeout: [${types}] (${events.length} events)`,
+  );
+}
+
+/** Create a run, wait for it to pause for approval, resolve the approval, and wait for completion. */
+async function createAndCompleteRun(baseUrl: string, goal: string): Promise<string> {
+  const createBody = await fetchJson(`${baseUrl}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ goal, scopes: ["*"] }),
+  }) as Record<string, unknown>;
+  const runId = createBody.runId as string;
+
+  // Wait for pause
+  await waitForEvents(baseUrl, runId, (events) =>
+    events.some((e) => e.type === "run.paused"),
+  );
+
+  // Get pending approval
+  const approvals = await fetchJson(`${baseUrl}/approvals?status=pending`) as unknown[];
+  const approval = (approvals as Record<string, unknown>[]).find(
+    (a) => a.runId === runId,
+  ) as Record<string, unknown>;
+
+  // Resolve
+  await fetchJson(`${baseUrl}/approvals/${approval.id}/resolve`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision: "approved" }),
+  });
+
+  // Wait for completion
+  await waitForEvents(baseUrl, runId, (events) =>
+    events.some((e) => e.type === "run.completed"),
+  );
+
+  return runId;
+}
+
+// ── Suite ──────────────────────────────────────────────────────────────────
+
+describe("agent-server", () => {
+  let server: Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    const rt = createAgentServerRuntime();
+    server = createAgentHttpServer(rt);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    if (!addr || typeof addr === "string") {
+      throw new Error("Could not determine server address");
+    }
+    baseUrl = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  // ── Test 1: Health ───────────────────────────────────────────────────────
+
+  it("should return health OK", async () => {
+    const body = await fetchJson(`${baseUrl}/health`) as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+    expect(body.service).toBe("agent-server");
+    expect(body.version).toBe("0.2.0-alpha.0");
+  });
+
+  // ── Test 2: Full run → approval → resume → complete ─────────────────────
+
+  it("should create run, pause for approval, resume, and complete", async () => {
+    // 2a. Create run
+    const createBody = await fetchJson(`${baseUrl}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        goal: "Analyze and write a report.",
+        orgId: "org_1",
+        actorUserId: "user_1",
+        scopes: ["*"],
+      }),
+    }) as Record<string, unknown>;
+
+    expect(createBody).toHaveProperty("runId");
+    expect(createBody).toHaveProperty("status", "queued");
+    expect(createBody).toHaveProperty("eventsUrl");
+    expect(createBody).toHaveProperty("streamUrl");
+
+    const runId = createBody.runId as string;
+    expect(typeof runId).toBe("string");
+
+    // 2b. Wait for run.created, run.started, approval.requested, run.paused
+    const phase1Events = await waitForEvents(baseUrl, runId, (events) => {
+      const types = events.map((e) => e.type);
+      return (
+        types.includes("run.created") &&
+        types.includes("run.started") &&
+        types.includes("approval.requested") &&
+        types.includes("run.paused")
+      );
+    });
+
+    // 2c. Get pending approval
+    const approvalsBody = await fetchJson(
+      `${baseUrl}/approvals?status=pending`,
+    ) as unknown[];
+
+    expect(approvalsBody.length).toBeGreaterThanOrEqual(1);
+    const approval = approvalsBody[approvalsBody.length - 1] as Record<string, unknown>;
+    const approvalId = approval.id as string;
+    expect(approvalId).toBeTruthy();
+
+    // 2d. Approve via POST /approvals/:id/resolve
+    const resolveBody = await fetchJson(`${baseUrl}/approvals/${approvalId}/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "approved", comment: "Looks safe" }),
+    }) as Record<string, unknown>;
+
+    expect(resolveBody.approvalId).toBe(approvalId);
+    expect(resolveBody.status).toBe("running");
+
+    // 2e. Wait for approval.resolved, run.resumed, tool.started, tool.completed, run.completed
+    const phase2Events = await waitForEvents(baseUrl, runId, (events) => {
+      const types = events.map((e) => e.type);
+      return (
+        types.includes("approval.resolved") &&
+        types.includes("run.resumed") &&
+        types.includes("tool.completed") &&
+        types.includes("run.completed")
+      );
+    });
+
+    expect(phase2Events.some((e) => e.type === "approval.resolved")).toBe(true);
+    expect(phase2Events.some((e) => e.type === "run.resumed")).toBe(true);
+    expect(phase2Events.some((e) => e.type === "tool.started")).toBe(true);
+    expect(phase2Events.some((e) => e.type === "tool.completed")).toBe(true);
+    expect(phase2Events.some((e) => e.type === "run.completed")).toBe(true);
+
+    // 2f. Verify run record shows completed
+    const runBody = await fetchJson(`${baseUrl}/runs/${runId}`) as Record<string, unknown>;
+    expect(runBody.status).toBe("completed");
+  });
+
+  // ── Test 3: Event sequence strictly increasing ───────────────────────────
+
+  it("should have strictly increasing event sequences", { timeout: 15000 }, async () => {
+    const runId = await createAndCompleteRun(baseUrl, "Test sequence.");
+
+    const eventsBody = await fetchJson(`${baseUrl}/runs/${runId}/events`) as AgentStreamEvent[];
+    const sequences = eventsBody.map((e) => e.sequence).sort((a, b) => a - b);
+    const isIncreasing = sequences.every((s, i) => i === 0 || s > sequences[i - 1]!);
+    expect(isIncreasing).toBe(true);
+    expect(sequences.length).toBeGreaterThan(0);
+  });
+
+  // ── Test 4: Bad request ─────────────────────────────────────────────────
+
+  it("should return 400 when creating run without goal", async () => {
+    const body = await fetchJson(`${baseUrl}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    }) as Record<string, unknown>;
+
+    // Fetch doesn't throw on non-2xx, so we check the body
+    expect(body).toHaveProperty("error");
+    const error = (body as { error: { code: string } }).error;
+    expect(error.code).toBe("BAD_REQUEST");
+  });
+
+  // ── Test 5: Thread creation and message append ──────────────────────────
+
+  it("should create thread and append messages", async () => {
+    const thread = await fetchJson(`${baseUrl}/threads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Test thread", orgId: "org_1", ownerUserId: "user_1" }),
+    }) as Record<string, unknown>;
+
+    expect(thread).toHaveProperty("id");
+    expect(thread.title).toBe("Test thread");
+
+    const threadId = thread.id as string;
+
+    const msg = await fetchJson(`${baseUrl}/threads/${threadId}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ role: "user", content: "Hello" }),
+    }) as Record<string, unknown>;
+
+    expect(msg).toHaveProperty("id");
+    expect(msg.content).toBe("Hello");
+
+    const messages = await fetchJson(`${baseUrl}/threads/${threadId}/messages`) as unknown[];
+    expect(messages).toHaveLength(1);
+  });
+
+  // ── Test 6: Event filtering with ?after= ────────────────────────────────
+
+  it("should filter events with after query", async () => {
+    const createBody = await fetchJson(`${baseUrl}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ goal: "Test after query.", scopes: ["*"] }),
+    }) as Record<string, unknown>;
+    const runId = createBody.runId as string;
+
+    // Wait for at least some events
+    await waitForEvents(baseUrl, runId, (events) => events.length >= 3);
+
+    const allEvents = await fetchJson(`${baseUrl}/runs/${runId}/events`) as AgentStreamEvent[];
+    const after1 = await fetchJson(`${baseUrl}/runs/${runId}/events?after=1`) as AgentStreamEvent[];
+
+    expect(after1.length).toBeLessThan(allEvents.length);
+    expect(after1.every((e) => e.sequence > 1)).toBe(true);
+  });
+
+  // ── Test 7: Resume from /runs/:runId/resume ─────────────────────────────
+
+  it("should resume run via POST /runs/:runId/resume", async () => {
+    const createBody = await fetchJson(`${baseUrl}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ goal: "Resume test.", scopes: ["*"] }),
+    }) as Record<string, unknown>;
+    const runId = createBody.runId as string;
+
+    // Wait for pause
+    await waitForEvents(baseUrl, runId, (events) =>
+      events.some((e) => e.type === "run.paused"),
+    );
+
+    // Get approval
+    const approvals = await fetchJson(`${baseUrl}/approvals?status=pending`) as unknown[];
+    const approval = (approvals as Record<string, unknown>[]).find(
+      (a) => a.runId === runId,
+    ) as Record<string, unknown>;
+
+    const resumeBody = await fetchJson(`${baseUrl}/runs/${runId}/resume`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        approvalId: approval.id,
+        decision: "approved",
+      }),
+    }) as Record<string, unknown>;
+
+    expect(resumeBody.runId).toBe(runId);
+    expect(resumeBody.status).toBe("running");
+
+    // Wait for completion
+    await waitForEvents(baseUrl, runId, (events) =>
+      events.some((e) => e.type === "run.completed"),
+    );
+
+    const run = await fetchJson(`${baseUrl}/runs/${runId}`) as Record<string, unknown>;
+    expect(run.status).toBe("completed");
+  });
+
+  // ── Test 8: 404 for unknown run ─────────────────────────────────────────
+
+  it("should return 404 for unknown run", async () => {
+    const body = await fetchJson(`${baseUrl}/runs/run_nonexistent`) as Record<string, unknown>;
+    expect(body).toHaveProperty("error");
+    expect((body as { error: { code: string } }).error.code).toBe("NOT_FOUND");
+  });
+});

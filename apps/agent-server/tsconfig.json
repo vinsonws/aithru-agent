@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "references": [
+    { "path": "../../packages/agent-core" },
+    { "path": "../../packages/agent-stream" },
+    { "path": "../../packages/agent-skills" },
+    { "path": "../../packages/agent-workspace" },
+    { "path": "../../packages/agent-tools" },
+    { "path": "../../packages/agent-harness" }
+  ],
+  "include": ["src/**/*.ts"]
+}

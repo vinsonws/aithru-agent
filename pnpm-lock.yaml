@@ -45,6 +45,40 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@25.9.1)
 
+  apps/agent-server:
+    dependencies:
+      '@aithru/agent-core':
+        specifier: workspace:*
+        version: link:../../packages/agent-core
+      '@aithru/agent-harness':
+        specifier: workspace:*
+        version: link:../../packages/agent-harness
+      '@aithru/agent-skills':
+        specifier: workspace:*
+        version: link:../../packages/agent-skills
+      '@aithru/agent-stream':
+        specifier: workspace:*
+        version: link:../../packages/agent-stream
+      '@aithru/agent-tools':
+        specifier: workspace:*
+        version: link:../../packages/agent-tools
+      '@aithru/agent-workspace':
+        specifier: workspace:*
+        version: link:../../packages/agent-workspace
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
+
   packages/agent-core:
     devDependencies:
       typescript:
