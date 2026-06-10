@@ -14,10 +14,13 @@ import { StaticCapabilityRouter, WorkspaceToolAdapter, FakeSearchToolAdapter } f
 import type { AgentSkill, OrgId, SkillId, UserId, RunId } from "@aithru/agent-core";
 import type { AgentSkillManifest } from "@aithru/agent-skills";
 
-function createTestPorts(): AgentHarnessEnginePorts & { eventBus: InMemoryAgentEventBus } {
-  const store = new InMemoryAgentEventStore();
+function createTestPorts(): AgentHarnessEnginePorts & {
+  eventBus: InMemoryAgentEventBus;
+  eventStore: InMemoryAgentEventStore;
+} {
+  const eventStore = new InMemoryAgentEventStore();
   const bus = new InMemoryAgentEventBus();
-  const writer = new AgentEventWriter(store, bus);
+  const writer = new AgentEventWriter(eventStore, bus);
   const workspaceProvider = new InMemoryWorkspaceProvider();
   const capabilityRouter = new StaticCapabilityRouter([
     new WorkspaceToolAdapter(workspaceProvider),
@@ -42,6 +45,7 @@ function createTestPorts(): AgentHarnessEnginePorts & { eventBus: InMemoryAgentE
     skillResolver,
     model,
     eventBus: bus,
+    eventStore,
   };
 }
 
@@ -523,12 +527,8 @@ describe("NativeHarnessEngine", () => {
     expect(events[0]!.type).toBe("run.failed");
     expect(events[0]!.id).toBeTruthy();
     expect(events[0]!.sequence).toBeGreaterThan(0);
-    // Verify event was written to EventStore
-    const stored = await ports.eventBus["subscribers"] // access internal subscriber set — skip
-    const store = new (await import("@aithru/agent-stream")).InMemoryAgentEventStore();
-    // Instead verify via the event writer's underlying store
-    const eventStore: import("@aithru/agent-stream").AgentEventStore = (ports.eventWriter as any).store;
-    const storedRun = await eventStore.listByRun("run_nonexistent" as unknown as RunId);
+    // Verify event was written to EventStore (exposed by createTestPorts)
+    const storedRun = await ports.eventStore.listByRun("run_nonexistent" as unknown as RunId);
     expect(storedRun.length).toBeGreaterThanOrEqual(1);
   });
 });

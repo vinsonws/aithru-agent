@@ -301,7 +301,7 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
     };
 
     try {
-      const toolResult = await this.ports.capabilityRouter.callTool(approvedRequest, runContext);
+      const toolResult = await this.ports.capabilityRouter.executeToolCall(approvedRequest, runContext);
       yield* this._emitToolResult(writer, runId, threadId, runContext.workspaceId, toolCallId, tc.name, toolResult);
 
       // Continue model loop after tool completes
