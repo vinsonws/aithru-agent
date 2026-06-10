@@ -357,7 +357,7 @@ async function handleResumeRun(req: IncomingMessage, res: ServerResponse, rt: Ag
 
   const comment = body?.comment as string | undefined;
 
-  await rt.runController.resumeRun(runId as RunId, {
+  await rt.runController.resumeRunWithProjection(runId as RunId, {
     approvalId: approvalId as ApprovalId,
     decision: decision as "approved" | "rejected",
     comment,
@@ -420,14 +420,11 @@ async function handleResolveApproval(req: IncomingMessage, res: ServerResponse, 
     return sendError(res, 409, "RUN_NOT_RESUMABLE", `Run ${approval.runId} is not resumable`);
   }
 
-  await rt.runController.resumeRun(approval.runId, {
+  await rt.runController.resumeRunWithProjection(approval.runId, {
     approvalId: approvalId as ApprovalId,
     decision: decision as "approved" | "rejected",
     comment,
   });
-
-  // Update the projection
-  await rt.store.resolveApproval(approvalId as ApprovalId, decision as "approved" | "rejected", comment);
 
   sendJson(res, 200, {
     approvalId,

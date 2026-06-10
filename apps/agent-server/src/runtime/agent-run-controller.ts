@@ -64,6 +64,16 @@ export class AgentRunController {
 
     // Project the first event and consume the rest in background
     projectEventIntoStore(first.value, this.store);
+
+    // Supplement projection with metadata not carried by run.created payload
+    this.store.updateRun(runId, {
+      orgId: input.orgId,
+      actorUserId: input.actorUserId,
+      goal: input.goal,
+      threadId: input.threadId,
+      skillId: input.skillId,
+    }).catch(() => {});
+
     this.consumeRunInBackground(runId, iterator);
 
     return runId;
@@ -94,7 +104,32 @@ export class AgentRunController {
   }
 
   /**
+   * Resume a run and immediately update the store projection.
+   *
+   * Both POST /runs/:runId/resume and POST /approvals/:approvalId/resolve
+   * should use this method for consistent behavior, avoiding a race where
+   * the resolution event hasn't been projected yet by the background consumer.
+   */
+  async resumeRunWithProjection(
+    runId: RunId,
+    approval: {
+      approvalId: ApprovalId;
+      decision: "approved" | "rejected";
+      comment?: string;
+    },
+  ): Promise<void> {
+    await this.resumeRun(runId, approval);
+    await this.store.resolveApproval(approval.approvalId, approval.decision, approval.comment);
+  }
+
+  /**
    * Cancel a run.
+   *
+   * For active runs, engine.cancel() sets the cancellation flag and the model
+   * loop emits run.cancelled on its next iteration.
+   *
+   * For paused runs (waiting_approval), the model loop is not running so
+   * engine.cancel() alone won't produce a terminal event. We emit one directly.
    */
   async cancelRun(runId: RunId): Promise<void> {
     const engine = this.engines.get(runId);
@@ -102,6 +137,25 @@ export class AgentRunController {
       throw new Error(`Run ${runId} not found`);
     }
     await engine.cancel(runId);
+
+    // Check if the run is paused — engine.cancel won't produce run.cancelled
+    // because the model loop isn't iterating (it returned after run.paused).
+    const run = await this.store.getRun(runId);
+    if (run && run.status === "waiting_approval") {
+      const event = await this.ports.eventWriter.write({
+        runId,
+        threadId: run.threadId,
+        timestamp: new Date().toISOString(),
+        type: "run.cancelled" as const,
+        source: { kind: "harness" as const },
+        visibility: "user" as const,
+        redaction: "none" as const,
+        payload: { status: "cancelled" },
+      });
+      projectEventIntoStore(event, this.store);
+      this.engines.delete(runId);
+      this.running.delete(runId);
+    }
   }
 
   /**
