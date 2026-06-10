@@ -15,3 +15,9 @@ export type {
 } from "./store/types.js";
 
 export { createAgentHttpServer, startAgentServer } from "./server/create-agent-http-server.js";
+
+export type { AgentHttpMode, AgentHttpActor, AgentHttpContext } from "./server/context.js";
+export { createStandaloneContext } from "./server/context.js";
+
+export type { PlatformConfig } from "./platform/config.js";
+export { loadPlatformConfig } from "./platform/config.js";

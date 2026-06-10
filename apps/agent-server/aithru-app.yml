@@ -1,0 +1,100 @@
+app:
+  key: agent
+  name: Aithru Agent
+  version: 0.2.0-alpha.0
+  description: Platform-hosted AI harness
+  appType: internal
+  integrationMode: iframe
+  defaultPath: /
+
+version: "1.0"
+
+permissions:
+  - key: agent.app.view
+    name: View Agent
+
+  - key: agent.thread.read
+    name: Read Agent Threads
+  - key: agent.thread.write
+    name: Create and update Agent Threads
+
+  - key: agent.run.create
+    name: Create Agent Runs
+  - key: agent.run.read
+    name: Read Agent Runs
+  - key: agent.run.cancel
+    name: Cancel Agent Runs
+
+  - key: agent.approval.read
+    name: Read Agent Approvals
+  - key: agent.approval.resolve
+    name: Resolve Agent Approvals
+
+  - key: agent.workspace.read
+    name: Read Agent Workspace
+  - key: agent.workspace.write
+    name: Write Agent Workspace
+
+  - key: agent.skill.read
+    name: Read Agent Skills
+  - key: agent.skill.write
+    name: Manage Agent Skills
+
+  - key: agent.tool.use
+    name: Use Agent Tools
+
+roles:
+  - key: agent.viewer
+    name: Agent Viewer
+    permissions:
+      - agent.app.view
+      - agent.thread.read
+      - agent.run.read
+      - agent.approval.read
+      - agent.workspace.read
+      - agent.skill.read
+
+  - key: agent.operator
+    name: Agent Operator
+    permissions:
+      - agent.app.view
+      - agent.thread.read
+      - agent.thread.write
+      - agent.run.create
+      - agent.run.read
+      - agent.run.cancel
+      - agent.approval.read
+      - agent.approval.resolve
+      - agent.workspace.read
+      - agent.workspace.write
+      - agent.skill.read
+      - agent.tool.use
+
+  - key: agent.admin
+    name: Agent Admin
+    permissions:
+      - agent.app.view
+      - agent.thread.read
+      - agent.thread.write
+      - agent.run.create
+      - agent.run.read
+      - agent.run.cancel
+      - agent.approval.read
+      - agent.approval.resolve
+      - agent.workspace.read
+      - agent.workspace.write
+      - agent.skill.read
+      - agent.skill.write
+      - agent.tool.use
+
+resourceTypes:
+  - key: thread
+    name: Agent Thread
+  - key: run
+    name: Agent Run
+  - key: workspace
+    name: Agent Workspace
+  - key: skill
+    name: Agent Skill
+  - key: artifact
+    name: Agent Artifact
