@@ -11,7 +11,8 @@
       "@aithru/agent-skills": ["./packages/agent-skills/src/index.ts"],
       "@aithru/agent-workspace": ["./packages/agent-workspace/src/index.ts"],
       "@aithru/agent-tools": ["./packages/agent-tools/src/index.ts"],
-      "@aithru/agent-harness": ["./packages/agent-harness/src/index.ts"]
+      "@aithru/agent-harness": ["./packages/agent-harness/src/index.ts"],
+      "@aithru/agent-trace": ["./packages/agent-trace/src/index.ts"]
     },
     "rootDir": ".",
     "sourceMap": false

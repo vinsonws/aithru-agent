@@ -6,6 +6,7 @@
     { "path": "./packages/agent-skills" },
     { "path": "./packages/agent-workspace" },
     { "path": "./packages/agent-tools" },
+    { "path": "./packages/agent-trace" },
     { "path": "./packages/agent-harness" }
   ]
 }

@@ -39,7 +39,7 @@ export interface AgentWorkspaceProvider {
 
   writeFile(input: WriteWorkspaceFileInput): Promise<AgentWorkspaceFile>;
 
-  deleteFile(workspaceId: string, path: string): Promise<void>;
+  deleteFile(workspaceId: string, path: string): Promise<{ path: string }>;
 
   createSnapshot?(workspaceId: string): Promise<unknown>;
 }
@@ -172,11 +172,13 @@ export class InMemoryWorkspaceProvider implements AgentWorkspaceProvider {
     };
   }
 
-  async deleteFile(workspaceId: string, path: string): Promise<void> {
-    const key = workspaceKey(workspaceId, path);
+  async deleteFile(workspaceId: string, path: string): Promise<{ path: string }> {
+    const safe = normalizePath(path);
+    const key = workspaceKey(workspaceId, safe);
     if (!this.files.has(key)) {
       throw new AgentError("NOT_FOUND", `File not found: ${path}`);
     }
     this.files.delete(key);
+    return { path: safe };
   }
 }

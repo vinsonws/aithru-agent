@@ -31,6 +31,27 @@ export type AgentRunContext = {
   traceId?: string;
 };
 
+// ── Prepare result type ────────────────────────────────────────────────────
+
+export type AgentToolPrepareResult =
+  | {
+      status: "ready";
+      descriptor: AgentToolDescriptor;
+      redaction: "none" | "partial" | "full";
+    }
+  | {
+      status: "waiting_approval";
+      descriptor: AgentToolDescriptor;
+      approvalId?: string;
+      output?: unknown;
+      redaction: "none" | "partial" | "full";
+    }
+  | {
+      status: "denied";
+      error: { code: string; message: string; retryable?: boolean };
+      redaction: "none" | "partial" | "full";
+    };
+
 // ── Adapter interface ───────────────────────────────────────────────────────
 
 export interface AgentToolAdapter {
@@ -48,10 +69,62 @@ export interface AgentToolAdapter {
 export interface AithruCapabilityRouter {
   listTools(context: AgentRunContext): Promise<AgentToolDescriptor[]>;
 
+  /**
+   * Two-phase prepare: check policy (scopes, approval).  Never calls the adapter.
+   * Returns "ready", "waiting_approval", or "denied".
+   */
+  prepareToolCall(
+    request: AgentToolCallRequest,
+    context: AgentRunContext,
+  ): Promise<AgentToolPrepareResult>;
+
+  /**
+   * Two-phase execute: called only after prepare returned "ready" (or after
+   * an approval was resolved).  Calls the adapter.
+   */
+  executeToolCall(
+    request: AgentToolCallRequest,
+    context: AgentRunContext,
+  ): Promise<AgentToolCallResult>;
+
+  /**
+   * Convenience: prepare + execute in one call.  Kept for compatibility.
+   */
   callTool(
     request: AgentToolCallRequest,
     context: AgentRunContext,
   ): Promise<AgentToolCallResult>;
+}
+
+// ── Shared helpers ──────────────────────────────────────────────────────────
+
+function checkScopes(match: AgentToolDescriptor, context: AgentRunContext): boolean {
+  return match.requiredScopes.length === 0
+    || context.actor.scopes.includes("*")
+    || match.requiredScopes.every((s) => context.actor.scopes.includes(s));
+}
+
+function needsApproval(match: AgentToolDescriptor, request: AgentToolCallRequest): boolean {
+  // Harness-resolved approvals bypass the check
+  if (request.alreadyApproved === true && request.requestedBy === "harness") return false;
+  if (match.approvalPolicy === "always") return true;
+  if (match.approvalPolicy === "on_risk" && (match.riskLevel === "write" || match.riskLevel === "dangerous")) return true;
+  return false;
+}
+
+function findDescriptor(
+  adapters: AgentToolAdapter[],
+  toolName: string,
+  context: AgentRunContext,
+): Promise<{ adapter: AgentToolAdapter; descriptor: AgentToolDescriptor } | null> {
+  return (async () => {
+    for (const adapter of adapters) {
+      const descriptors = await adapter.listTools(context);
+      const match = descriptors.find((d) => d.name === toolName);
+      if (match) return { adapter, descriptor: match };
+    }
+    return null;
+  })();
 }
 
 // ── Static router ───────────────────────────────────────────────────────────
@@ -66,63 +139,109 @@ export class StaticCapabilityRouter implements AithruCapabilityRouter {
     return results.flat();
   }
 
+  async prepareToolCall(
+    request: AgentToolCallRequest,
+    context: AgentRunContext,
+  ): Promise<AgentToolPrepareResult> {
+    const found = await findDescriptor(this.adapters, request.toolName, context);
+    if (!found) {
+      return {
+        status: "denied",
+        error: { code: "TOOL_NOT_FOUND", message: `Tool '${request.toolName}' is not available` },
+        redaction: "none",
+      };
+    }
+
+    if (!checkScopes(found.descriptor, context)) {
+      return {
+        status: "denied",
+        error: {
+          code: "AUTHZ_DENIED",
+          message: `Missing required scopes: ${found.descriptor.requiredScopes.filter((s) => !context.actor.scopes.includes(s)).join(", ")}`,
+        },
+        redaction: "none",
+      };
+    }
+
+    if (needsApproval(found.descriptor, request)) {
+      return {
+        status: "waiting_approval",
+        descriptor: found.descriptor,
+        output: { reason: `Tool '${request.toolName}' requires approval (risk: ${found.descriptor.riskLevel})` },
+        redaction: "none",
+      };
+    }
+
+    return { status: "ready", descriptor: found.descriptor, redaction: "none" };
+  }
+
+  async executeToolCall(
+    request: AgentToolCallRequest,
+    context: AgentRunContext,
+  ): Promise<AgentToolCallResult> {
+    const found = await findDescriptor(this.adapters, request.toolName, context);
+    if (!found) {
+      return {
+        id: request.id,
+        toolName: request.toolName,
+        status: "denied",
+        error: { code: "TOOL_NOT_FOUND", message: `Tool '${request.toolName}' is not available` },
+        redaction: "none",
+      };
+    }
+
+    // Quick scope re-check
+    if (!checkScopes(found.descriptor, context)) {
+      return {
+        id: request.id,
+        toolName: request.toolName,
+        status: "denied",
+        error: {
+          code: "AUTHZ_DENIED",
+          message: `Missing scopes: ${found.descriptor.requiredScopes.filter((s) => !context.actor.scopes.includes(s)).join(", ")}`,
+        },
+        redaction: "none",
+      };
+    }
+
+    // If the caller is NOT harness-approved but the tool would need approval, block.
+    if (needsApproval(found.descriptor, request)) {
+      return {
+        id: request.id,
+        toolName: request.toolName,
+        status: "waiting_approval",
+        output: { reason: `Tool '${request.toolName}' requires approval` },
+        redaction: "none",
+      };
+    }
+
+    return found.adapter.callTool(request, found.descriptor, context);
+  }
+
   async callTool(
     request: AgentToolCallRequest,
     context: AgentRunContext,
   ): Promise<AgentToolCallResult> {
-    // Find first adapter that can handle this tool
-    for (const adapter of this.adapters) {
-      const descriptors = await adapter.listTools(context);
-      const match = descriptors.find((d) => d.name === request.toolName);
-      if (!match) continue;
-
-      // ── Scope check ──────────────────────────────────────────────────
-      const hasAllScopes = match.requiredScopes.length === 0
-        || context.actor.scopes.includes("*")
-        || match.requiredScopes.every((s) => context.actor.scopes.includes(s));
-
-      if (!hasAllScopes) {
-        return {
-          id: request.id,
-          toolName: request.toolName,
-          status: "denied",
-          error: {
-            code: "AUTHZ_DENIED",
-            message: `Missing required scopes: ${match.requiredScopes.filter((s) => !context.actor.scopes.includes(s)).join(", ")}`,
-          },
-          redaction: "none",
-        };
-      }
-
-      // ── Approval policy check ────────────────────────────────────────
-      const hasHarnessApproval = request.alreadyApproved === true && request.requestedBy === "harness";
-      const needsApproval = !hasHarnessApproval
-        && (match.approvalPolicy === "always"
-          || (match.approvalPolicy === "on_risk" && (match.riskLevel === "write" || match.riskLevel === "dangerous")));
-
-      if (needsApproval) {
-        // MVP: no approval gateway yet, so deny with waiting_approval
-        return {
-          id: request.id,
-          toolName: request.toolName,
-          status: "waiting_approval",
-          output: { reason: `Tool '${request.toolName}' requires approval (risk: ${match.riskLevel})` },
-          redaction: "none",
-        };
-      }
-
-      return adapter.callTool(request, match, context);
+    const prepared = await this.prepareToolCall(request, context);
+    if (prepared.status === "ready") {
+      return this.executeToolCall(request, context);
     }
-
+    if (prepared.status === "denied") {
+      return {
+        id: request.id,
+        toolName: request.toolName,
+        status: "denied",
+        error: prepared.error,
+        redaction: prepared.redaction,
+      };
+    }
+    // waiting_approval
     return {
       id: request.id,
       toolName: request.toolName,
-      status: "denied",
-      error: {
-        code: "TOOL_NOT_FOUND",
-        message: `Tool '${request.toolName}' is not available`,
-      },
-      redaction: "none",
+      status: "waiting_approval",
+      output: prepared.output,
+      redaction: prepared.redaction,
     };
   }
 }
@@ -233,13 +352,13 @@ export class WorkspaceToolAdapter implements AgentToolAdapter {
         }
         case "workspace.deleteFile": {
           const inputD = request.input as { path: string };
-          await this.provider.deleteFile(context.workspaceId, inputD.path);
+          const deleted = await this.provider.deleteFile(context.workspaceId, inputD.path);
           return {
             id: request.id,
             toolName: request.toolName,
             status: "completed",
             output: { deleted: true },
-            workspaceChanges: [{ path: inputD.path, operation: "deleted" }],
+            workspaceChanges: [{ path: deleted.path, operation: "deleted" }],
             redaction: "none",
           };
         }
@@ -248,10 +367,7 @@ export class WorkspaceToolAdapter implements AgentToolAdapter {
             id: request.id,
             toolName: request.toolName,
             status: "failed",
-            error: {
-              code: "TOOL_FAILED",
-              message: `Unknown workspace tool: ${request.toolName}`,
-            },
+            error: { code: "TOOL_FAILED", message: `Unknown workspace tool: ${request.toolName}` },
             redaction: "none",
           };
       }
@@ -260,10 +376,7 @@ export class WorkspaceToolAdapter implements AgentToolAdapter {
         id: request.id,
         toolName: request.toolName,
         status: "failed",
-        error: {
-          code: "TOOL_FAILED",
-          message: err instanceof Error ? err.message : String(err),
-        },
+        error: { code: "TOOL_FAILED", message: err instanceof Error ? err.message : String(err) },
         redaction: "none",
       };
     }
@@ -305,9 +418,7 @@ export class FakeSearchToolAdapter implements AgentToolAdapter {
       id: request.id,
       toolName: request.toolName,
       status: "completed",
-      output: {
-        result: `[fake] ${request.toolName} called with: ${JSON.stringify(request.input)}`,
-      },
+      output: { result: `[fake] ${request.toolName} called with: ${JSON.stringify(request.input)}` },
       redaction: "none",
     };
   }

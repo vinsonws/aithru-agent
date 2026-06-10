@@ -23,6 +23,9 @@ importers:
       '@aithru/agent-tools':
         specifier: workspace:*
         version: link:packages/agent-tools
+      '@aithru/agent-trace':
+        specifier: workspace:*
+        version: link:packages/agent-trace
       '@aithru/agent-workspace':
         specifier: workspace:*
         version: link:packages/agent-workspace
@@ -110,6 +113,22 @@ importers:
       '@aithru/agent-workspace':
         specifier: workspace:*
         version: link:../agent-workspace
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
+
+  packages/agent-trace:
+    dependencies:
+      '@aithru/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@aithru/agent-stream':
+        specifier: workspace:*
+        version: link:../agent-stream
     devDependencies:
       typescript:
         specifier: ^6.0.3

@@ -156,6 +156,7 @@ packages/
   agent-workspace/        AgentWorkspaceProvider interface, InMemoryWorkspaceProvider, path normalization
   agent-tools/            AithruCapabilityRouter interface, StaticCapabilityRouter, tool adapters
   agent-harness/          NativeHarnessEngine, ScriptedModelPort, AgentModelPort interface
+  agent-trace/            AgentTraceSpan model and Event → Trace projection
 ```
 
 Package roles:
@@ -168,6 +169,7 @@ Package roles:
 | `@aithru/agent-workspace` | Workspace provider abstractions — in-memory implementation for dev/test. |
 | `@aithru/agent-tools` | Capability Router — tool adapters, policy checks, workspace/fake adapters. |
 | `@aithru/agent-harness` | Harness engine — NativeHarnessEngine, ScriptedModelPort, event-driven run loop. |
+| `@aithru/agent-trace` | AgentTraceSpan model and AgentStreamEvent → trace span projection. |
 
 ## Target future packages
 
