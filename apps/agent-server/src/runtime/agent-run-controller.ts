@@ -142,7 +142,23 @@ export class AgentRunController {
     // because the model loop isn't iterating (it returned after run.paused).
     const run = await this.store.getRun(runId);
     if (run && run.status === "waiting_approval") {
-      const event = await this.ports.eventWriter.write({
+      // Emit approval.expired so the pending approval isn't orphaned
+      const currentApprovalId = run.currentApprovalId;
+      if (currentApprovalId) {
+        const expiryEvent = await this.ports.eventWriter.write({
+          runId,
+          threadId: run.threadId,
+          timestamp: new Date().toISOString(),
+          type: "approval.expired" as const,
+          source: { kind: "approval" as const },
+          visibility: "user" as const,
+          redaction: "none" as const,
+          payload: { approvalId: currentApprovalId, status: "expired", reason: "run_cancelled" },
+        });
+        projectEventIntoStore(expiryEvent, this.store);
+      }
+
+      const cancelEvent = await this.ports.eventWriter.write({
         runId,
         threadId: run.threadId,
         timestamp: new Date().toISOString(),
@@ -152,7 +168,7 @@ export class AgentRunController {
         redaction: "none" as const,
         payload: { status: "cancelled" },
       });
-      projectEventIntoStore(event, this.store);
+      projectEventIntoStore(cancelEvent, this.store);
       this.engines.delete(runId);
       this.running.delete(runId);
     }

@@ -73,6 +73,24 @@ async function createAndCompleteRun(baseUrl: string, goal: string): Promise<stri
   return runId;
 }
 
+async function waitForRunStatus(
+  baseUrl: string,
+  runId: string,
+  expectedStatus: string,
+  timeoutMs = 5000,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const run = await fetchJson(`${baseUrl}/runs/${runId}`) as Record<string, unknown>;
+    if (run.status === expectedStatus) return;
+    await wait(100);
+  }
+  const run = await fetchJson(`${baseUrl}/runs/${runId}`) as Record<string, unknown>;
+  throw new Error(
+    `Timeout waiting for run status "${expectedStatus}". Last status: "${run.status}"`,
+  );
+}
+
 // ── Suite ──────────────────────────────────────────────────────────────────
 
 describe("agent-server", () => {
@@ -301,5 +319,82 @@ describe("agent-server", () => {
     const body = await fetchJson(`${baseUrl}/runs/run_nonexistent`) as Record<string, unknown>;
     expect(body).toHaveProperty("error");
     expect((body as { error: { code: string } }).error.code).toBe("NOT_FOUND");
+  });
+
+  // ── Test 9: Run metadata projection ─────────────────────────────────────
+
+  it("should preserve run metadata in projection", async () => {
+    const thread = await fetchJson(`${baseUrl}/threads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Metadata test", orgId: "org_test", ownerUserId: "user_test" }),
+    }) as Record<string, unknown>;
+    const threadId = thread.id as string;
+
+    const createBody = await fetchJson(`${baseUrl}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        goal: "Metadata projection test.",
+        orgId: "org_test_42",
+        actorUserId: "user_test_99",
+        threadId,
+        skillId: "skill_test_1",
+        scopes: ["*"],
+      }),
+    }) as Record<string, unknown>;
+    const runId = createBody.runId as string;
+
+    const run = await fetchJson(`${baseUrl}/runs/${runId}`) as Record<string, unknown>;
+    expect(run.goal).toBe("Metadata projection test.");
+    expect(run.orgId).toBe("org_test_42");
+    expect(run.actorUserId).toBe("user_test_99");
+    expect(run.threadId).toBe(threadId);
+    expect(run.skillId).toBe("skill_test_1");
+  });
+
+  // ── Test 10: Cancel paused run ──────────────────────────────────────────
+
+  it("should cancel paused run and expire pending approval", async () => {
+    const createBody = await fetchJson(`${baseUrl}/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ goal: "Cancel test.", scopes: ["*"] }),
+    }) as Record<string, unknown>;
+    const runId = createBody.runId as string;
+
+    // Wait for the run to pause
+    await waitForEvents(baseUrl, runId, (events) =>
+      events.some((e) => e.type === "run.paused"),
+    );
+
+    // Wait for projection to catch up (cancelRun reads from store, not event store)
+    await waitForRunStatus(baseUrl, runId, "waiting_approval");
+
+    // Get the pending approval
+    const approvals = await fetchJson(`${baseUrl}/approvals?status=pending`) as unknown[];
+    const approval = (approvals as Record<string, unknown>[]).find(
+      (a) => a.runId === runId,
+    ) as Record<string, unknown>;
+    const approvalId = approval.id as string;
+
+    // Cancel the run
+    const cancelBody = await fetchJson(`${baseUrl}/runs/${runId}/cancel`, {
+      method: "POST",
+    }) as Record<string, unknown>;
+    expect(cancelBody.status).toBe("cancel_requested");
+
+    // Verify run status is cancelled
+    const run = await fetchJson(`${baseUrl}/runs/${runId}`) as Record<string, unknown>;
+    expect(run.status).toBe("cancelled");
+
+    // Verify approval is expired
+    const expiredApproval = await fetchJson(`${baseUrl}/approvals/${approvalId}`) as Record<string, unknown>;
+    expect(expiredApproval.status).toBe("expired");
+
+    // Verify events contain terminal and expiry events
+    const events = await fetchJson(`${baseUrl}/runs/${runId}/events`) as AgentStreamEvent[];
+    expect(events.some((e) => e.type === "run.cancelled")).toBe(true);
+    expect(events.some((e) => e.type === "approval.expired")).toBe(true);
   });
 });
