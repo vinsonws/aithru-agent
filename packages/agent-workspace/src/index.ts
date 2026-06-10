@@ -148,7 +148,8 @@ export class InMemoryWorkspaceProvider implements AgentWorkspaceProvider {
   }
 
   async writeFile(input: WriteWorkspaceFileInput): Promise<AgentWorkspaceFile> {
-    const key = workspaceKey(input.workspaceId, input.path);
+    const normalizedPath = normalizePath(input.path);
+    const key = workspaceKey(input.workspaceId, normalizedPath);
     const now = new Date().toISOString();
     const existing = this.files.get(key);
 
@@ -163,7 +164,7 @@ export class InMemoryWorkspaceProvider implements AgentWorkspaceProvider {
 
     return {
       workspaceId: input.workspaceId,
-      path: input.path,
+      path: normalizedPath,
       size: typeof input.content === "string" ? new TextEncoder().encode(input.content).length : input.content.length,
       mediaType: input.mediaType,
       createdAt: record.createdAt,

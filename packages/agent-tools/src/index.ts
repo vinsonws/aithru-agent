@@ -95,7 +95,8 @@ export class StaticCapabilityRouter implements AithruCapabilityRouter {
       }
 
       // ── Approval policy check ────────────────────────────────────────
-      const needsApproval = !request.alreadyApproved
+      const hasHarnessApproval = request.alreadyApproved === true && request.requestedBy === "harness";
+      const needsApproval = !hasHarnessApproval
         && (match.approvalPolicy === "always"
           || (match.approvalPolicy === "on_risk" && (match.riskLevel === "write" || match.riskLevel === "dangerous")));
 
@@ -226,7 +227,7 @@ export class WorkspaceToolAdapter implements AgentToolAdapter {
             toolName: request.toolName,
             status: "completed",
             output: file,
-            workspaceChanges: [{ path: inputW.path, operation: "created" }],
+            workspaceChanges: [{ path: file.path, operation: "created" }],
             redaction: "none",
           };
         }

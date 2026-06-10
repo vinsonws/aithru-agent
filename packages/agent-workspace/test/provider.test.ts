@@ -73,6 +73,19 @@ describe("InMemoryWorkspaceProvider", () => {
     expect(file.content).toBe("Hello, World!");
   });
 
+  it("should return normalized paths after writing", async () => {
+    const provider = new InMemoryWorkspaceProvider();
+    const ws = await provider.createWorkspace({ orgId: "org_1" as OrgId });
+
+    const file = await provider.writeFile({
+      workspaceId: ws.id,
+      path: "/reports/../reports/result.md",
+      content: "Result",
+    });
+
+    expect(file.path).toBe("/reports/result.md");
+  });
+
   it("should list files after writing", async () => {
     const provider = new InMemoryWorkspaceProvider();
     const ws = await provider.createWorkspace({ orgId: "org_1" as OrgId });

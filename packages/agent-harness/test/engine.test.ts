@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   NativeHarnessEngine,
   ScriptedModelPort,
@@ -14,7 +14,7 @@ import { StaticCapabilityRouter, WorkspaceToolAdapter, FakeSearchToolAdapter } f
 import type { AgentSkill, OrgId, SkillId, UserId, RunId } from "@aithru/agent-core";
 import type { AgentSkillManifest } from "@aithru/agent-skills";
 
-function createTestPorts(): AgentHarnessEnginePorts {
+function createTestPorts(): AgentHarnessEnginePorts & { eventBus: InMemoryAgentEventBus } {
   const store = new InMemoryAgentEventStore();
   const bus = new InMemoryAgentEventBus();
   const writer = new AgentEventWriter(store, bus);
@@ -41,6 +41,7 @@ function createTestPorts(): AgentHarnessEnginePorts {
     capabilityRouter,
     skillResolver,
     model,
+    eventBus: bus,
   };
 }
 
@@ -66,9 +67,9 @@ describe("NativeHarnessEngine", () => {
     expect(types).toContain("todo.created");
     expect(types).toContain("model.started");
     expect(types).toContain("tool.proposed");
-    expect(types).toContain("tool.started");
     expect(types).toContain("approval.requested");
     expect(types).toContain("run.paused");
+    expect(types).not.toContain("tool.started");
     expect(types).not.toContain("tool.completed");
     expect(types).not.toContain("run.completed");
   });
@@ -199,8 +200,50 @@ describe("NativeHarnessEngine", () => {
     const types = events.map((e) => e.type);
     expect(types).toContain("approval.requested");
     expect(types).toContain("run.paused");
+    expect(types.indexOf("approval.requested")).toBeLessThan(types.indexOf("run.paused"));
+    expect(types).not.toContain("tool.started");
     expect(types).not.toContain("tool.failed");
     expect(types).not.toContain("run.completed");
+  });
+
+  it("should store pending approval before publishing run.paused", async () => {
+    const ports = createTestPorts();
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workspace.writeFile", input: { path: "/out.txt", content: "hello" } },
+      { type: "finish" },
+    ]);
+    const engine = new NativeHarnessEngine(ports);
+    const resumeResults: string[][] = [];
+    const originalWrite = ports.eventWriter.write.bind(ports.eventWriter);
+    ports.eventWriter.write = async (input) => {
+      const event = await originalWrite(input);
+      if (event.type === "run.paused") {
+        const events = [];
+        for await (const resumed of engine.resume({
+          runId: event.runId,
+          approval: {
+            approvalId: (event.payload as { approvalId: string }).approvalId as never,
+            decision: "approved",
+          },
+        })) {
+          events.push(resumed.type);
+        }
+        resumeResults.push(events);
+      }
+      return event;
+    };
+
+    for await (const _event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Write a file",
+      scopes: ["workspace:write"],
+    })) {
+      // drain
+    }
+
+    expect(resumeResults[0]).toContain("approval.resolved");
+    expect(resumeResults[0]).not.toContain("run.failed");
   });
 
   it("should resume after approval and complete the run", async () => {
@@ -212,22 +255,29 @@ describe("NativeHarnessEngine", () => {
     const engine = new NativeHarnessEngine(ports);
 
     // Phase 1: run until pause
-    const phase1: Array<{ type: string; runId: RunId }> = [];
+    const phase1 = [];
     for await (const event of engine.run({
       orgId: "org_test" as OrgId,
       actorUserId: "user_test" as UserId,
       goal: "Write a file",
       scopes: ["workspace:write"],
     })) {
-      phase1.push({ type: event.type, runId: event.runId });
+      phase1.push(event);
     }
 
     const runId = phase1[0]!.runId;
     expect(phase1.some((e) => e.type === "run.paused")).toBe(true);
+    const paused = phase1.find((e) => e.type === "run.paused")!;
 
     // Phase 2: resume
     const phase2 = [];
-    for await (const event of engine.resume({ runId })) {
+    for await (const event of engine.resume({
+      runId,
+      approval: {
+        approvalId: (paused.payload as { approvalId: string }).approvalId as never,
+        decision: "approved",
+      },
+    })) {
       phase2.push(event.type);
     }
 
@@ -236,6 +286,135 @@ describe("NativeHarnessEngine", () => {
     expect(phase2).toContain("tool.completed");
     expect(phase2).toContain("workspace.file.created");
     expect(phase2).toContain("run.completed");
+  });
+
+  it("should support rejecting a pending approval", async () => {
+    const ports = createTestPorts();
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workspace.writeFile", input: { path: "/out.txt", content: "hello" } },
+      { type: "finish" },
+    ]);
+    const engine = new NativeHarnessEngine(ports);
+
+    const phase1 = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Write a file",
+      scopes: ["workspace:write"],
+    })) {
+      phase1.push(event);
+    }
+
+    const paused = phase1.find((event) => event.type === "run.paused")!;
+    const phase2 = [];
+    for await (const event of engine.resume({
+      runId: paused.runId,
+      approval: {
+        approvalId: (paused.payload as { approvalId: string }).approvalId as never,
+        decision: "rejected",
+        comment: "No write needed",
+      },
+    })) {
+      phase2.push(event);
+    }
+
+    expect(phase2.map((event) => event.type)).toEqual([
+      "approval.resolved",
+      "tool.denied",
+      "run.failed",
+    ]);
+    expect(phase2[0]!.payload).toMatchObject({ decision: "rejected" });
+  });
+
+  it("should continue model output after an approved tool", async () => {
+    const ports = createTestPorts();
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workspace.writeFile", input: { path: "/out.txt", content: "hello" } },
+      { type: "delta", text: "after approval" },
+      { type: "finish" },
+    ]);
+    const engine = new NativeHarnessEngine(ports);
+
+    const phase1 = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Write a file",
+      scopes: ["workspace:write"],
+    })) {
+      phase1.push(event);
+    }
+
+    const paused = phase1.find((event) => event.type === "run.paused")!;
+    const phase2 = [];
+    for await (const event of engine.resume({
+      runId: paused.runId,
+      approval: {
+        approvalId: (paused.payload as { approvalId: string }).approvalId as never,
+        decision: "approved",
+      },
+    })) {
+      phase2.push(event);
+    }
+
+    expect(phase2).toContainEqual(expect.objectContaining({
+      type: "message.delta",
+      payload: expect.objectContaining({ delta: "after approval" }),
+    }));
+    expect(phase2.map((event) => event.type)).toContain("run.completed");
+  });
+
+  it("should emit run.failed when skill resolution fails", async () => {
+    const ports = createTestPorts();
+    const engine = new NativeHarnessEngine(ports);
+
+    const events = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Use missing skill",
+      skillId: "missing_skill" as SkillId,
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)?.type).toBe("run.failed");
+    expect(events.at(-1)?.payload).toMatchObject({
+      status: "failed",
+      error: {
+        code: "SKILL_NOT_FOUND",
+      },
+    });
+  });
+
+  it("should emit run.failed when model iteration throws", async () => {
+    const ports = createTestPorts();
+    ports.model = {
+      async *start() {
+        throw new Error("model stream failed");
+      },
+      cancel: vi.fn(),
+    };
+    const engine = new NativeHarnessEngine(ports);
+
+    const events = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Fail model",
+    })) {
+      events.push(event);
+    }
+
+    expect(events.at(-1)?.type).toBe("run.failed");
+    expect(events.at(-1)?.payload).toMatchObject({
+      status: "failed",
+      error: {
+        code: "MODEL_FAILED",
+        message: "model stream failed",
+      },
+    });
   });
 
   it("should cancel properly", async () => {
