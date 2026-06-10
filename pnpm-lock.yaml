@@ -11,33 +11,21 @@ importers:
       '@aithru/agent-core':
         specifier: workspace:*
         version: link:packages/agent-core
-      '@aithru/agent-model-openai-compatible':
+      '@aithru/agent-harness':
         specifier: workspace:*
-        version: link:packages/agent-model-openai-compatible
-      '@aithru/agent-model-test':
+        version: link:packages/agent-harness
+      '@aithru/agent-skills':
         specifier: workspace:*
-        version: link:packages/agent-model-test
-      '@aithru/agent-runtime':
+        version: link:packages/agent-skills
+      '@aithru/agent-stream':
         specifier: workspace:*
-        version: link:packages/agent-runtime
-      '@aithru/node-agent':
+        version: link:packages/agent-stream
+      '@aithru/agent-tools':
         specifier: workspace:*
-        version: link:packages/node-agent
-      '@aithru/node-sdk':
+        version: link:packages/agent-tools
+      '@aithru/agent-workspace':
         specifier: workspace:*
-        version: link:../aithru-core/packages/node-sdk
-      '@aithru/nodes-core':
-        specifier: workspace:*
-        version: link:../aithru-core/packages/nodes-core
-      '@aithru/runtime-core':
-        specifier: workspace:*
-        version: link:../aithru-core/packages/runtime-core
-      '@aithru/runtime-local':
-        specifier: workspace:*
-        version: link:../aithru-core/packages/runtime-local
-      '@aithru/spec':
-        specifier: workspace:*
-        version: link:../aithru-core/packages/spec
+        version: link:packages/agent-workspace
       '@types/node':
         specifier: ^25.9.1
         version: 25.9.1
@@ -54,11 +42,7 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@25.9.1)
 
-  ../aithru-core/packages/node-sdk:
-    dependencies:
-      '@aithru/runtime-core':
-        specifier: workspace:*
-        version: link:../runtime-core
+  packages/agent-core:
     devDependencies:
       typescript:
         specifier: ^6.0.3
@@ -67,118 +51,85 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@25.9.1)
 
-  ../aithru-core/packages/nodes-core:
-    dependencies:
-      '@aithru/node-sdk':
-        specifier: workspace:*
-        version: link:../node-sdk
-      '@aithru/runtime-core':
-        specifier: workspace:*
-        version: link:../runtime-core
-    devDependencies:
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@25.9.1)
-
-  ../aithru-core/packages/runtime-core:
-    dependencies:
-      '@aithru/spec':
-        specifier: workspace:*
-        version: link:../spec
-    devDependencies:
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@25.9.1)
-
-  ../aithru-core/packages/runtime-local:
-    dependencies:
-      '@aithru/runtime-core':
-        specifier: workspace:*
-        version: link:../runtime-core
-      '@aithru/spec':
-        specifier: workspace:*
-        version: link:../spec
-    devDependencies:
-      '@types/node':
-        specifier: ^25.9.1
-        version: 25.9.1
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@25.9.1)
-
-  ../aithru-core/packages/spec:
-    dependencies:
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@25.9.1)
-
-  packages/agent-core: {}
-
-  packages/agent-model-openai-compatible:
+  packages/agent-harness:
     dependencies:
       '@aithru/agent-core':
         specifier: workspace:*
         version: link:../agent-core
-
-  packages/agent-model-test:
-    dependencies:
-      '@aithru/agent-core':
+      '@aithru/agent-skills':
         specifier: workspace:*
-        version: link:../agent-core
+        version: link:../agent-skills
+      '@aithru/agent-stream':
+        specifier: workspace:*
+        version: link:../agent-stream
+      '@aithru/agent-tools':
+        specifier: workspace:*
+        version: link:../agent-tools
+      '@aithru/agent-workspace':
+        specifier: workspace:*
+        version: link:../agent-workspace
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
 
-  packages/agent-runtime:
+  packages/agent-skills:
     dependencies:
       '@aithru/agent-core':
         specifier: workspace:*
         version: link:../agent-core
     devDependencies:
-      '@aithru/agent-model-test':
-        specifier: workspace:*
-        version: link:../agent-model-test
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
 
-  packages/node-agent:
+  packages/agent-stream:
     dependencies:
       '@aithru/agent-core':
         specifier: workspace:*
         version: link:../agent-core
-      '@aithru/agent-runtime':
-        specifier: workspace:*
-        version: link:../agent-runtime
     devDependencies:
-      '@aithru/agent-model-test':
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
+
+  packages/agent-tools:
+    dependencies:
+      '@aithru/agent-core':
         specifier: workspace:*
-        version: link:../agent-model-test
-      '@aithru/node-sdk':
+        version: link:../agent-core
+      '@aithru/agent-workspace':
         specifier: workspace:*
-        version: link:../../../aithru-core/packages/node-sdk
-      '@aithru/nodes-core':
+        version: link:../agent-workspace
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
+
+  packages/agent-workspace:
+    dependencies:
+      '@aithru/agent-core':
         specifier: workspace:*
-        version: link:../../../aithru-core/packages/nodes-core
-      '@aithru/runtime-core':
-        specifier: workspace:*
-        version: link:../../../aithru-core/packages/runtime-core
-      '@aithru/runtime-local':
-        specifier: workspace:*
-        version: link:../../../aithru-core/packages/runtime-local
-      '@aithru/spec':
-        specifier: workspace:*
-        version: link:../../../aithru-core/packages/spec
+        version: link:../agent-core
+    devDependencies:
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@25.9.1)
 
 packages:
 
@@ -841,9 +792,6 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
-  zod@4.4.3:
-    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
-
 snapshots:
 
   '@esbuild/aix-ppc64@0.21.5':
@@ -1351,5 +1299,3 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
-
-  zod@4.4.3: {}

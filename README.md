@@ -146,44 +146,36 @@ Capability backends may include:
 - memory providers;
 - future MCP adapters.
 
-## Current implemented packages
-
-The current repository still contains the initial primitive implementation:
+## Current packages
 
 ```txt
 packages/
-  agent-core/                         primitive Agent contracts and types
-  agent-runtime/                      ClassifyEngine, PlanRunReviewEngine, DeepResearchEngine, AgentRuntime
-  agent-model-test/                   deterministic scripted model adapters
-  agent-model-openai-compatible/      OpenAI-compatible HTTP model adapter
-  node-agent/                         workflow NodeDefinition factories
+  agent-core/             shared harness contracts and types (Thread, Skill, Run, Todo, Workspace, Tool, etc.)
+  agent-stream/           AgentStreamEvent protocol, InMemoryEventStore, EventBus, EventWriter, SSE helper
+  agent-skills/           Skill manifest parsing, validation, and AgentSkill conversion
+  agent-workspace/        AgentWorkspaceProvider interface, InMemoryWorkspaceProvider, path normalization
+  agent-tools/            AithruCapabilityRouter interface, StaticCapabilityRouter, tool adapters
+  agent-harness/          NativeHarnessEngine, ScriptedModelPort, AgentModelPort interface
 ```
 
-Current package roles:
+Package roles:
 
-| Package | Current role | Future positioning |
-| --- | --- | --- |
-| `@aithru/agent-core` | `AgentTask`, `AgentPlan`, events, model adapter, host, artifacts, approval, trace types. | Extend toward harness contracts: Thread, Skill, Run, Todo, Workspace, Tool, Subagent, Memory. |
-| `@aithru/agent-runtime` | `ClassifyEngine`, `PlanRunReviewEngine`, `DeepResearchEngine`, `AgentRuntime`. | Keep as compatibility/runtime primitive layer below the harness. |
-| `@aithru/agent-model-test` | Deterministic scripted adapter. | Keep for tests and examples. |
-| `@aithru/agent-model-openai-compatible` | OpenAI-compatible model adapter. | Keep as provider-neutral model adapter. |
-| `@aithru/node-agent` | Workflow nodes for current engines. | Evolve toward skill/harness invocation nodes. |
+| Package | Role |
+| --- | --- |
+| `@aithru/agent-core` | Pure TypeScript contract types — no runtime dependencies. |
+| `@aithru/agent-stream` | Event protocol — envelope types, writers, stores, bus, SSE helper. |
+| `@aithru/agent-skills` | Skill manifest definitions, parsing, validation. |
+| `@aithru/agent-workspace` | Workspace provider abstractions — in-memory implementation for dev/test. |
+| `@aithru/agent-tools` | Capability Router — tool adapters, policy checks, workspace/fake adapters. |
+| `@aithru/agent-harness` | Harness engine — NativeHarnessEngine, ScriptedModelPort, event-driven run loop. |
 
-## Target package direction
-
-Future package shape should move toward:
+## Target future packages
 
 ```txt
 packages/
-  agent-core/            shared harness contracts
-  agent-harness/         main DeepAgents-like harness
-  agent-skills/          skill loading, validation, prompt composition
-  agent-workspace/       workspace and artifact APIs
-  agent-tools/           capability router and adapters
-  agent-subagents/       subagent delegation contracts
-  agent-sandbox/         sandbox/interpreter interfaces
-  agent-memory/          memory provider contracts
-  agent-model-*/         model adapters
+  agent-subagents/       subagent delegation contracts (interface only)
+  agent-sandbox/         sandbox/interpreter interfaces (interface only)
+  agent-memory/          memory provider contracts (interface only)
   node-agent/            Workbench/Core workflow node integration
 
 apps/
@@ -191,7 +183,7 @@ apps/
   agent-web/             Platform hosted app frontend
 ```
 
-This is a target architecture, not an immediate implementation requirement.
+These are not yet implemented.
 
 ## Workbench integration
 
@@ -245,76 +237,13 @@ pnpm install
 pnpm typecheck
 pnpm build
 pnpm test
-pnpm example:classify
-pnpm example:plan-run-review
-pnpm example:node-agent-basic
-pnpm example:workflow-node-agent
-pnpm example:workflow-node-agent-deep-research
-pnpm example:openai-compatible-classify
-pnpm example:deep-research
+pnpm example:harness-basic
 ```
 
 `pnpm typecheck` checks package sources, tests, and examples without emitting build output.
 `pnpm build` emits package `dist` output and excludes `*.test.ts` files.
-`pnpm test` runs Vitest coverage for the existing primitive packages.
-
-## Core workflow integration setup
-
-For local development, the Aithru Core public packages must be available beside this repository.
-
-Expected parent workspace layout:
-
-```txt
-vinsonws/
-  aithru-core/
-  aithru-agent/
-  pnpm-workspace.yaml
-```
-
-Parent `pnpm-workspace.yaml`:
-
-```yaml
-packages:
-  - "aithru-core/packages/*"
-  - "aithru-agent/packages/*"
-```
-
-Then run:
-
-```bash
-pnpm example:workflow-node-agent
-pnpm example:workflow-node-agent-deep-research
-```
-
-The workflow examples use `@aithru/runtime-local`, `@aithru/nodes-core`, and `@aithru/agent-model-test`. They do not call a real model provider or the network.
-
-## Optional real-provider example
-
-`example:openai-compatible-classify` demonstrates a manual, opt-in classify task using `@aithru/agent-model-openai-compatible`.
-
-Required environment variables:
-
-```txt
-AITHRU_OPENAI_COMPATIBLE_BASE_URL
-AITHRU_OPENAI_COMPATIBLE_MODEL
-```
-
-Optional:
-
-```txt
-AITHRU_OPENAI_COMPATIBLE_API_KEY
-```
-
-Example:
-
-```bash
-AITHRU_OPENAI_COMPATIBLE_BASE_URL=https://api.deepseek.com/v1 \
-AITHRU_OPENAI_COMPATIBLE_MODEL=deepseek-chat \
-AITHRU_OPENAI_COMPATIBLE_API_KEY=... \
-pnpm example:openai-compatible-classify
-```
-
-The example uses a host whose `callTool` throws if invoked. Model adapters may propose tool calls, but actual tool execution must stay behind the Aithru host/capability layer.
+`pnpm test` runs Vitest coverage across all packages.
+`pnpm example:harness-basic` demonstrates the full NativeHarnessEngine end-to-end with a ScriptedModelPort.
 
 ## Boundary rules
 

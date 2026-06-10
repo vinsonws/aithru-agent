@@ -4,6 +4,8 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"]
+  "references": [
+    { "path": "../agent-core" }
+  ],
+  "include": ["src/**/*.ts"]
 }

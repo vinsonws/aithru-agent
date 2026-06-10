@@ -2,9 +2,10 @@
   "files": [],
   "references": [
     { "path": "./packages/agent-core" },
-    { "path": "./packages/agent-model-test" },
-    { "path": "./packages/agent-model-openai-compatible" },
-    { "path": "./packages/agent-runtime" },
-    { "path": "./packages/node-agent" }
+    { "path": "./packages/agent-stream" },
+    { "path": "./packages/agent-skills" },
+    { "path": "./packages/agent-workspace" },
+    { "path": "./packages/agent-tools" },
+    { "path": "./packages/agent-harness" }
   ]
 }

@@ -76,31 +76,30 @@ Current packages:
 
 ```txt
 packages/
-  agent-core/
-  agent-runtime/
-  agent-model-test/
-  agent-model-openai-compatible/
-  node-agent/
+  agent-core/             shared harness contracts and types
+  agent-stream/           AgentStreamEvent protocol and in-memory implementations
+  agent-skills/           Skill manifest parsing, validation, and conversion
+  agent-workspace/        AgentWorkspaceProvider interface and InMemoryWorkspaceProvider
+  agent-tools/            AithruCapabilityRouter, StaticCapabilityRouter, tool adapters
+  agent-harness/          NativeHarnessEngine, ScriptedModelPort, AgentModelPort
 ```
 
-Current meanings:
+Package meanings:
 
-- `agent-core`: primitive contracts and types. Future harness contracts may be introduced here or in a new package.
-- `agent-runtime`: compatibility primitive layer for current engines.
-- `agent-model-test`: deterministic model adapter for tests and examples.
-- `agent-model-openai-compatible`: OpenAI-compatible model adapter. It must not execute tools.
-- `node-agent`: Workbench/Core workflow node integration. It must not own workflow semantics.
+- `agent-core`: Pure TypeScript contract types. No runtime dependencies. No Node-only APIs.
+- `agent-stream`: Event protocol envelope, InMemoryEventStore, EventBus, EventWriter, SSE format helper.
+- `agent-skills`: Skill manifest definitions, parsing, validation, and AgentSkill conversion.
+- `agent-workspace`: Workspace provider abstractions. InMemoryWorkspaceProvider for test/dev.
+- `agent-tools`: Capability Router interface and implementation. Tool adapters for workspace, search, etc.
+- `agent-harness`: Harness engine with NativeHarnessEngine. ScriptedModelPort for testing without real LLM.
 
 Future target packages may include:
 
 ```txt
-agent-harness
-agent-skills
-agent-workspace
-agent-tools
 agent-subagents
 agent-sandbox
 agent-memory
+node-agent
 ```
 
 Do not create these packages casually. If adding them, update docs and README first.
@@ -226,21 +225,10 @@ pnpm build
 pnpm test
 ```
 
-When changing examples or runtime behavior, also run relevant examples:
+When changing examples or runtime behavior, also run the harness example:
 
 ```bash
-pnpm example:classify
-pnpm example:plan-run-review
-pnpm example:deep-research
-pnpm example:node-agent-basic
-pnpm example:workflow-node-agent
-pnpm example:workflow-node-agent-deep-research
-```
-
-The OpenAI-compatible example is opt-in and should safely skip when required environment variables are missing:
-
-```bash
-pnpm example:openai-compatible-classify
+pnpm example:harness-basic
 ```
 
 ## Pre-merge checklist

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "references": [
+    { "path": "../agent-core" },
+    { "path": "../agent-stream" },
+    { "path": "../agent-skills" },
+    { "path": "../agent-workspace" },
+    { "path": "../agent-tools" }
+  ],
+  "include": ["src/**/*.ts"]
+}

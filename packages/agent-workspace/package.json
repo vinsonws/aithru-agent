@@ -1,5 +1,5 @@
 {
-  "name": "@aithru/agent-core",
+  "name": "@aithru/agent-workspace",
   "version": "0.2.0-alpha.0",
   "private": true,
   "type": "module",
@@ -19,6 +19,9 @@
     "build": "tsc -b tsconfig.json --force",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aithru/agent-core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
