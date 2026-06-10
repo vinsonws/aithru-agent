@@ -134,13 +134,13 @@ export class InMemoryAgentServerStore implements AgentServerStore {
     const record: AgentApprovalRecord = {
       id: input.id,
       runId: input.runId,
-      threadId: input.threadId,
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
+      threadId: input.threadId ?? existing?.threadId,
+      toolCallId: input.toolCallId ?? existing?.toolCallId,
+      toolName: input.toolName ?? existing?.toolName,
       status: input.status,
-      reason: input.reason,
+      reason: input.reason ?? existing?.reason,
       createdAt: existing?.createdAt ?? now,
-      payload: input.payload,
+      payload: input.payload ?? existing?.payload,
     };
     this.approvals.set(input.id, record);
     return record;

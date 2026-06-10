@@ -388,9 +388,10 @@ describe("agent-server", () => {
     const run = await fetchJson(`${baseUrl}/runs/${runId}`) as Record<string, unknown>;
     expect(run.status).toBe("cancelled");
 
-    // Verify approval is expired
+    // Verify approval is expired with preserved metadata
     const expiredApproval = await fetchJson(`${baseUrl}/approvals/${approvalId}`) as Record<string, unknown>;
     expect(expiredApproval.status).toBe("expired");
+    expect(expiredApproval.toolName).toBe("workspace.writeFile");
 
     // Verify events contain terminal and expiry events
     const events = await fetchJson(`${baseUrl}/runs/${runId}/events`) as AgentStreamEvent[];
