@@ -78,6 +78,31 @@ describe("projectTraceSpans", () => {
     expect(spans.some((s) => s.kind === "artifact")).toBe(true);
   });
 
+  it("should produce a completed model span from model.started + model.completed", () => {
+    const events = [
+      ev({ type: "run.created", sequence: 1 }),
+      ev({ type: "model.started", sequence: 2 }),
+      ev({ type: "model.completed", sequence: 3 }),
+    ];
+    const spans = projectTraceSpans(events);
+    const modelSpan = spans.find((s) => s.kind === "model");
+    expect(modelSpan).toBeDefined();
+    expect(modelSpan!.status).toBe("completed");
+    expect(modelSpan!.eventIds).toHaveLength(2);
+  });
+
+  it("should produce a failed model span from model.started + model.failed", () => {
+    const events = [
+      ev({ type: "run.created", sequence: 1 }),
+      ev({ type: "model.started", sequence: 2 }),
+      ev({ type: "model.failed", sequence: 3, payload: { error: { code: "MODEL_FAILED" } } }),
+    ];
+    const spans = projectTraceSpans(events);
+    const modelSpan = spans.find((s) => s.kind === "model");
+    expect(modelSpan).toBeDefined();
+    expect(modelSpan!.status).toBe("failed");
+  });
+
   it("should handle span duration calculation", () => {
     const events = [
       { ...ev({ type: "run.created", sequence: 1 }), timestamp: new Date("2025-01-01T00:00:00Z").toISOString() },

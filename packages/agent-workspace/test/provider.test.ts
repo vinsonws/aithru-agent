@@ -185,6 +185,20 @@ describe("InMemoryWorkspaceProvider", () => {
     );
   });
 
+  it("should return normalized path from deleteFile", async () => {
+    const provider = new InMemoryWorkspaceProvider();
+    const ws = await provider.createWorkspace({ orgId: "org_1" as OrgId });
+
+    await provider.writeFile({
+      workspaceId: ws.id,
+      path: "/reports/result.md",
+      content: "Result",
+    });
+
+    const deleted = await provider.deleteFile(ws.id, "/reports/../reports/result.md");
+    expect(deleted.path).toBe("/reports/result.md");
+  });
+
   it("should throw on reading non-existent file", async () => {
     const provider = new InMemoryWorkspaceProvider();
     const ws = await provider.createWorkspace({ orgId: "org_1" as OrgId });

@@ -59,15 +59,57 @@ model proposes tool call
 ## Primary interface
 
 ```ts
+type AgentToolPrepareResult =
+  | { status: "ready"; descriptor: AgentToolDescriptor; redaction: "none" | "partial" | "full" }
+  | { status: "waiting_approval"; descriptor: AgentToolDescriptor; approvalId?: string; output?: unknown; redaction: "none" | "partial" | "full" }
+  | { status: "denied"; error: { code: string; message: string; retryable?: boolean }; redaction: "none" | "partial" | "full" };
+
 interface AithruCapabilityRouter {
   listTools(context: AgentRunContext): Promise<AgentToolDescriptor[]>;
 
+  /**
+   * Two-phase prepare: check policy (scopes, approval). Never calls the adapter.
+   * Returns "ready", "waiting_approval", or "denied".
+   */
+  prepareToolCall(
+    request: AgentToolCallRequest,
+    context: AgentRunContext,
+  ): Promise<AgentToolPrepareResult>;
+
+  /**
+   * Two-phase execute: called only after prepare returned "ready" (or after
+   * an approval was resolved). Calls the adapter.
+   */
+  executeToolCall(
+    request: AgentToolCallRequest,
+    context: AgentRunContext,
+  ): Promise<AgentToolCallResult>;
+
+  /**
+   * Compatibility helper.
+   * Must call prepareToolCall + executeToolCall.
+   */
   callTool(
     request: AgentToolCallRequest,
     context: AgentRunContext,
   ): Promise<AgentToolCallResult>;
 }
 ```
+
+### Two-phase protocol
+
+```
+prepareToolCall = policy/authz/approval preflight  (never executes the adapter)
+executeToolCall = actual adapter execution          (only after prepare succeeds)
+callTool        = compatibility wrapper             (prepare + execute in one call)
+```
+
+The harness must call `prepareToolCall` first to determine if the tool is allowed, needs approval, or is denied. After approval is resolved, the harness calls `executeToolCall` with `alreadyApproved: true` + `requestedBy: "harness"` to bypass the approval check and execute the adapter directly.
+
+Approval bypass is only allowed when:
+- `request.alreadyApproved === true` AND `request.requestedBy === "harness"`
+
+Model-initiated calls with `alreadyApproved: true` still go through the approval gate. Only the harness can bypass after resolving a pending approval.
 
 ## AgentRunContext
 

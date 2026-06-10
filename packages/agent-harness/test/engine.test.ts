@@ -388,7 +388,7 @@ describe("NativeHarnessEngine", () => {
     });
   });
 
-  it("should emit run.failed when model iteration throws", async () => {
+  it("should emit model.failed and run.failed when model iteration throws", async () => {
     const ports = createTestPorts();
     ports.model = {
       async *start() {
@@ -407,13 +407,14 @@ describe("NativeHarnessEngine", () => {
       events.push(event);
     }
 
-    expect(events.at(-1)?.type).toBe("run.failed");
-    expect(events.at(-1)?.payload).toMatchObject({
-      status: "failed",
-      error: {
-        code: "MODEL_FAILED",
-        message: "model stream failed",
-      },
+    const types = events.map((e) => e.type);
+    expect(types).toContain("model.failed");
+    expect(types).toContain("run.failed");
+    const mfIdx = types.indexOf("model.failed");
+    const rfIdx = types.indexOf("run.failed");
+    expect(mfIdx).toBeLessThan(rfIdx);
+    expect(events.find((e) => e.type === "model.failed")?.payload).toMatchObject({
+      error: { code: "MODEL_FAILED", message: "model stream failed" },
     });
   });
 
@@ -424,7 +425,90 @@ describe("NativeHarnessEngine", () => {
     await expect(engine.cancel("run_test")).resolves.toBeUndefined();
   });
 
-  it("resume should fail for unknown run", async () => {
+  it("should emit model.completed on normal completion", async () => {
+    const ports = createTestPorts();
+    ports.model = new ScriptedModelPort([
+      { type: "delta", text: "hello" },
+      { type: "finish" },
+    ]);
+    const engine = new NativeHarnessEngine(ports);
+
+    const events = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Say hello",
+    })) {
+      events.push(event);
+    }
+
+    const types = events.map((e) => e.type);
+    expect(types).toContain("model.completed");
+    expect(types.indexOf("model.completed")).toBeLessThan(types.indexOf("todo.completed"));
+    expect(types.indexOf("model.completed")).toBeLessThan(types.indexOf("run.completed"));
+  });
+
+  it("should not emit model.completed during approval pause", async () => {
+    const ports = createTestPorts();
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workspace.writeFile", input: { path: "/out.txt", content: "data" } },
+      { type: "finish" },
+    ]);
+    const engine = new NativeHarnessEngine(ports);
+
+    const events = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Write file",
+      scopes: ["workspace:write"],
+    })) {
+      events.push(event);
+    }
+
+    expect(events.map((e) => e.type)).not.toContain("model.completed");
+  });
+
+  it("should emit model.completed after resume approved", async () => {
+    const ports = createTestPorts();
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workspace.writeFile", input: { path: "/out.txt", content: "hello" } },
+      { type: "delta", text: "done" },
+      { type: "finish" },
+    ]);
+    const engine = new NativeHarnessEngine(ports);
+
+    const phase1 = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Write a file",
+      scopes: ["workspace:write"],
+    })) {
+      phase1.push(event);
+    }
+
+    const paused = phase1.find((event) => event.type === "run.paused")!;
+    const phase2 = [];
+    for await (const event of engine.resume({
+      runId: paused.runId,
+      approval: {
+        approvalId: (paused.payload as { approvalId: string }).approvalId as never,
+        decision: "approved",
+      },
+    })) {
+      phase2.push(event);
+    }
+
+    const phase2Types = phase2.map((e) => e.type);
+    expect(phase2Types).toContain("model.completed");
+    const mcIdx = phase2Types.indexOf("model.completed");
+    const rcIdx = phase2Types.indexOf("run.completed");
+    expect(mcIdx).toBeLessThan(rcIdx);
+    expect(phase2Types.indexOf("todo.completed")).toBeGreaterThan(mcIdx);
+  });
+
+  it("resume should fail for unknown run and emit through EventWriter", async () => {
     const ports = createTestPorts();
     const engine = new NativeHarnessEngine(ports);
 
@@ -437,5 +521,14 @@ describe("NativeHarnessEngine", () => {
 
     expect(events.length).toBeGreaterThanOrEqual(1);
     expect(events[0]!.type).toBe("run.failed");
+    expect(events[0]!.id).toBeTruthy();
+    expect(events[0]!.sequence).toBeGreaterThan(0);
+    // Verify event was written to EventStore
+    const stored = await ports.eventBus["subscribers"] // access internal subscriber set — skip
+    const store = new (await import("@aithru/agent-stream")).InMemoryAgentEventStore();
+    // Instead verify via the event writer's underlying store
+    const eventStore: import("@aithru/agent-stream").AgentEventStore = (ports.eventWriter as any).store;
+    const storedRun = await eventStore.listByRun("run_nonexistent" as unknown as RunId);
+    expect(storedRun.length).toBeGreaterThanOrEqual(1);
   });
 });

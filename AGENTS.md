@@ -82,6 +82,7 @@ packages/
   agent-workspace/        AgentWorkspaceProvider interface and InMemoryWorkspaceProvider
   agent-tools/            AithruCapabilityRouter, StaticCapabilityRouter, tool adapters
   agent-harness/          NativeHarnessEngine, ScriptedModelPort, AgentModelPort
+  agent-trace/            AgentTraceSpan model and Event → Trace projection
 ```
 
 Package meanings:
@@ -92,6 +93,7 @@ Package meanings:
 - `agent-workspace`: Workspace provider abstractions. InMemoryWorkspaceProvider for test/dev.
 - `agent-tools`: Capability Router interface and implementation. Tool adapters for workspace, search, etc.
 - `agent-harness`: Harness engine with NativeHarnessEngine. ScriptedModelPort for testing without real LLM.
+- `agent-trace`: Trace span model and event-to-span projection for observability.
 
 Future target packages may include:
 

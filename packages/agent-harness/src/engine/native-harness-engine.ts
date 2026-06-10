@@ -1,19 +1,21 @@
 import type {
-  AgentRun, RunId, MessageId, TodoId, WorkspaceId, ArtifactId, ApprovalId, ToolCallId,
-  AgentToolCallRequest, AgentErrorCode, ThreadId,
+  AgentRun, RunId, MessageId, TodoId, WorkspaceId, ApprovalId, ToolCallId,
+  AgentToolCallRequest, ThreadId,
 } from "@aithru/agent-core";
 import { AgentError } from "@aithru/agent-core";
 import type { AgentStreamEvent, AgentEventWriter } from "@aithru/agent-stream";
-import type { AgentRunContext, AithruCapabilityRouter, AgentToolPrepareResult } from "@aithru/agent-tools";
+import type { AgentRunContext, AithruCapabilityRouter } from "@aithru/agent-tools";
 import { applyAllowedToolsFilter } from "@aithru/agent-tools";
 import type { AgentWorkspaceProvider } from "@aithru/agent-workspace";
 import type { AgentModelPort, AgentModelResult, AgentModelMessage } from "../model/model-port.js";
 import type { AgentSkillResolver } from "../skill/skill-resolver.js";
 import type { AgentHarnessEngine, AgentHarnessRunInput, AgentHarnessResumeInput, AgentHarnessEnginePorts } from "./types.js";
 import { ev } from "../events/event-input.js";
+import { emitCompletion, emitRunFailed } from "../events/run-events.js";
+import { emitToolResult } from "../events/tool-events.js";
 import type { PendingApproval } from "../approval/pending-approval.js";
 import {
-  nextRunId, nextMessageId, nextTodoId, nextToolCallId, nextArtifactId, nextApprovalId,
+  nextRunId, nextMessageId, nextTodoId, nextToolCallId, nextApprovalId,
 } from "../internal/counters.js";
 
 export class NativeHarnessEngine implements AgentHarnessEngine {
@@ -26,6 +28,7 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
   async *run(input: AgentHarnessRunInput): AsyncIterable<AgentStreamEvent> {
     const writer = this.ports.eventWriter;
     const runId = nextRunId() as RunId;
+    let modelStarted = false;
 
     try {
       const workspace = await this.ports.workspaceProvider.createWorkspace({
@@ -84,6 +87,7 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
         runId, threadId: input.threadId,
         type: "model.started", source: { kind: "model" }, payload: {},
       }));
+      modelStarted = true;
 
       this.currentModelPort = this.ports.model;
       const modelResults = this.ports.model.start(modelMessages, { tools });
@@ -95,10 +99,13 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
       });
 
       if (!paused) {
-        yield* this._emitCompletion(writer, runId, input.threadId, msgId, todoId);
+        this.pendingApprovals.delete(runId);
+        // Part F: emit model.completed before todo/message/run completion
+        yield* emitCompletion(writer, runId, input.threadId, msgId, todoId);
       }
     } catch (err) {
-      yield* this._emitRunFailed(writer, runId, input.threadId, err);
+      // Part F: emit model.failed before run.failed when model was started
+      yield* emitRunFailed(writer, runId, input.threadId, err, { emitModelFailed: modelStarted });
     }
   }
 
@@ -206,7 +213,7 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
           const toolResult = await this.ports.capabilityRouter.executeToolCall(callRequest, runContext);
 
           // ── 5. Result events ────────────────────────────────────────────
-          yield* this._emitToolResult(writer, runId, threadId, runContext.workspaceId, toolCallId, tc.name, toolResult);
+          yield* emitToolResult(writer, runId, threadId, runContext.workspaceId, toolCallId, tc.name, toolResult);
         }
       }
 
@@ -215,69 +222,12 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
     return false;
   }
 
-  /**
-   * Emit workspace/artifact/tool-completion events from a tool result.
-   */
   private async *_emitToolResult(
     writer: AgentEventWriter, runId: RunId, threadId: ThreadId | undefined,
     workspaceId: WorkspaceId, toolCallId: ToolCallId, toolName: string,
     toolResult: Awaited<ReturnType<AithruCapabilityRouter["callTool"]>>,
   ): AsyncGenerator<AgentStreamEvent> {
-    if (toolResult.workspaceChanges) {
-      for (const change of toolResult.workspaceChanges) {
-        yield await writer.write(ev({
-          runId, threadId,
-          type: change.operation === "deleted" ? "workspace.file.deleted" : "workspace.file.created",
-          source: { kind: "workspace" },
-          payload: { workspaceId, path: change.path, operation: change.operation },
-        }));
-      }
-    }
-
-    if (toolResult.status === "completed" && toolResult.output) {
-      yield await writer.write(ev({
-        runId, threadId, type: "artifact.created", source: { kind: "harness" },
-        payload: { artifactId: nextArtifactId() as ArtifactId, type: "text", name: `tool-output-${toolName}` },
-      }));
-    }
-
-    const eventType = toolResult.status === "completed" ? "tool.completed"
-      : toolResult.status === "denied" ? "tool.denied" : "tool.failed";
-    yield await writer.write(ev({
-      runId, threadId, type: eventType, source: { kind: "tool" },
-      redaction: toolResult.redaction,
-      payload: { toolCallId, toolName, status: toolResult.status },
-    }));
-  }
-
-  private async *_emitCompletion(
-    writer: AgentEventWriter, runId: RunId, threadId: ThreadId | undefined,
-    msgId: MessageId, todoId: TodoId,
-  ): AsyncGenerator<AgentStreamEvent> {
-    yield await writer.write(ev({
-      runId, threadId, type: "todo.completed", source: { kind: "harness" },
-      payload: { todoId, title: "Process user request", status: "done", order: 1 },
-    }));
-    yield await writer.write(ev({
-      runId, threadId, type: "message.completed", source: { kind: "harness" },
-      payload: { messageId: msgId, role: "assistant" },
-    }));
-    yield await writer.write(ev({
-      runId, threadId, type: "run.completed", source: { kind: "harness" },
-      payload: { status: "completed" },
-    }));
-  }
-
-  private async *_emitRunFailed(
-    writer: AgentEventWriter, runId: RunId, threadId: ThreadId | undefined,
-    err: unknown, codeOverride?: AgentErrorCode,
-  ): AsyncGenerator<AgentStreamEvent> {
-    const code = codeOverride ?? (err instanceof AgentError ? err.code : "MODEL_FAILED");
-    const message = err instanceof Error ? err.message.replace(/^\[[^\]]+\]\s*/, "") : String(err);
-    yield await writer.write(ev({
-      runId, threadId, type: "run.failed", source: { kind: "harness" },
-      payload: { status: "failed", error: { code, message, retryable: err instanceof AgentError ? err.retryable : false } },
-    }));
+    yield* emitToolResult(writer, runId, threadId, workspaceId, toolCallId, toolName, toolResult);
   }
 
   /**
@@ -292,11 +242,10 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
   async *resume(input: AgentHarnessResumeInput): AsyncIterable<AgentStreamEvent> {
     const writer = this.ports.eventWriter;
 
-    // Part D: unknown resume now goes through EventWriter
     const pending = this.pendingApprovals.get(input.runId);
     if (!pending) {
       const runId = input.runId;
-      yield* this._emitRunFailed(
+      yield* emitRunFailed(
         writer, runId, undefined,
         new AgentError("NOT_FOUND", "No pending approval found for this run"),
       );
@@ -306,7 +255,7 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
     const { runId, threadId, msgId, todoId, toolCallId, tc, runContext } = pending;
     const approval = input.approval ?? { approvalId: pending.approvalId, decision: "approved" as const };
     if (approval.approvalId !== pending.approvalId) {
-      yield* this._emitRunFailed(
+      yield* emitRunFailed(
         writer, runId, threadId,
         new AgentError("AUTHZ_DENIED", `Approval id does not match: ${approval.approvalId}`),
       );
@@ -328,7 +277,7 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
         runId, threadId, type: "tool.denied", source: { kind: "tool" },
         payload: { toolCallId, toolName: tc.name, status: "denied", reason: approval.comment },
       }));
-      yield* this._emitRunFailed(
+      yield* emitRunFailed(
         writer, runId, threadId,
         new AgentError("TOOL_DENIED", `Tool '${tc.name}' rejected`),
       );
@@ -363,12 +312,13 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
       });
 
       if (!paused) {
-        yield* this._emitCompletion(writer, runId, threadId, msgId, todoId);
+        // Part F: emit model.completed before todo/message/run completion
+        yield* emitCompletion(writer, runId, threadId, msgId, todoId);
         this.pendingApprovals.delete(runId);
       }
     } catch (err) {
       this.pendingApprovals.delete(runId);
-      yield* this._emitRunFailed(writer, runId, threadId, err);
+      yield* emitRunFailed(writer, runId, threadId, err, { emitModelFailed: true });
     }
   }
 

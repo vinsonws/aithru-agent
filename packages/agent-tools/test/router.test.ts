@@ -167,6 +167,109 @@ describe("StaticCapabilityRouter", () => {
     expect(result.status).toBe("denied");
     expect(result.error?.code).toBe("TOOL_NOT_FOUND");
   });
+
+  // ── Two-phase prepare / execute tests ─────────────────────────────────
+
+  it("prepareToolCall safe tool returns ready and does not execute", async () => {
+    let adapterCalled = false;
+    const wsProvider = new InMemoryWorkspaceProvider();
+    const adapter = new (class extends WorkspaceToolAdapter {
+      constructor() { super(wsProvider); }
+      async callTool(req: any, desc: any, ctx: any) {
+        adapterCalled = true;
+        return super.callTool(req, desc, ctx);
+      }
+    })();
+    const router = new StaticCapabilityRouter([adapter]);
+
+    const result = await router.prepareToolCall(
+      makeToolCall("workspace.listFiles", {}),
+      makeContext(),
+    );
+
+    expect(result.status).toBe("ready");
+    expect(adapterCalled).toBe(false);
+  });
+
+  it("prepareToolCall write tool returns waiting_approval", async () => {
+    const wsProvider = new InMemoryWorkspaceProvider();
+    const router = new StaticCapabilityRouter([
+      new WorkspaceToolAdapter(wsProvider),
+    ]);
+
+    const result = await router.prepareToolCall(
+      makeToolCall("workspace.writeFile", { path: "/test.md", content: "data" }),
+      makeContext(),
+    );
+
+    expect(result.status).toBe("waiting_approval");
+  });
+
+  it("prepareToolCall unknown tool returns denied", async () => {
+    const router = new StaticCapabilityRouter([]);
+
+    const result = await router.prepareToolCall(
+      makeToolCall("nonexistent.tool", {}),
+      makeContext(),
+    );
+
+    expect(result.status).toBe("denied");
+    if (result.status === "denied") {
+      expect(result.error?.code).toBe("TOOL_NOT_FOUND");
+    }
+  });
+
+  it("executeToolCall safe tool returns completed", async () => {
+    const wsProvider = new InMemoryWorkspaceProvider();
+    const ws = await wsProvider.createWorkspace({ orgId: "org_t" as any });
+    await wsProvider.writeFile({ workspaceId: ws.id, path: "/test.md", content: "# Hello" });
+    const router = new StaticCapabilityRouter([
+      new WorkspaceToolAdapter(wsProvider),
+    ]);
+
+    const result = await router.executeToolCall(
+      makeToolCall("workspace.readFile", { path: "/test.md" }),
+      makeContext({ workspaceId: ws.id }),
+    );
+
+    expect(result.status).toBe("completed");
+  });
+
+  it("executeToolCall write tool + harness alreadyApproved returns completed", async () => {
+    const wsProvider = new InMemoryWorkspaceProvider();
+    const ws = await wsProvider.createWorkspace({ orgId: "org_t" as any });
+    const router = new StaticCapabilityRouter([
+      new WorkspaceToolAdapter(wsProvider),
+    ]);
+
+    const result = await router.executeToolCall(
+      makeToolCall("workspace.writeFile", { path: "/test.md", content: "# Hello" }, {
+        alreadyApproved: true,
+        requestedBy: "harness",
+      }),
+      makeContext({ workspaceId: ws.id }),
+    );
+
+    expect(result.status).toBe("completed");
+  });
+
+  it("executeToolCall write tool + model alreadyApproved returns waiting_approval", async () => {
+    const wsProvider = new InMemoryWorkspaceProvider();
+    const ws = await wsProvider.createWorkspace({ orgId: "org_t" as any });
+    const router = new StaticCapabilityRouter([
+      new WorkspaceToolAdapter(wsProvider),
+    ]);
+
+    const result = await router.executeToolCall(
+      makeToolCall("workspace.writeFile", { path: "/test.md", content: "# Hello" }, {
+        alreadyApproved: true,
+        requestedBy: "model",
+      }),
+      makeContext({ workspaceId: ws.id }),
+    );
+
+    expect(result.status).toBe("waiting_approval");
+  });
 });
 
 describe("applyAllowedToolsFilter", () => {

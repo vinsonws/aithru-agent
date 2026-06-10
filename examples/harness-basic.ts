@@ -139,6 +139,11 @@ async function main() {
       console.log(`  ${event.type} — approved`);
     } else if (event.type === "run.resumed") {
       console.log(`  ${event.type}`);
+    } else if (event.type === "message.delta") {
+      const d = (event.payload as { delta: string }).delta;
+      process.stdout.write(`  ${event.type}: "${d.trim()}"\n`);
+    } else if (event.type === "model.completed") {
+      console.log(`  ${event.type}`);
     } else if (event.type === "workspace.file.created") {
       const p = (event.payload as { path: string }).path;
       console.log(`  ${event.type}: ${p}`);

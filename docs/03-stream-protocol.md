@@ -261,6 +261,12 @@ model.failed
 
 Model raw deltas should normally be debug visibility. User-facing assistant text should be emitted as `message.delta`.
 
+`model.completed` is emitted when the model loop finishes normally (after all model results are consumed, including after approval resume).
+
+`model.failed` is emitted when the model iterator throws an error. Must appear before `run.failed`.
+
+During an approval pause, the model iterator is saved but no `model.completed` is emitted until the run resumes and the iterator finishes. If the run is rejected, the model span is implicitly terminated by `run.failed`.
+
 ```json
 {
   "model": "openai-compatible:deepseek-chat",
@@ -281,9 +287,32 @@ tool.failed
 tool.denied
 ```
 
-`tool.proposed` means the model/harness requested a tool.
+`tool.proposed` means the model proposed a tool call.
 
-`tool.started` means policy and approval checks passed and execution began.
+`tool.started` means policy and approval checks passed and **real execution is about to begin**. Approval must not happen after `tool.started`.
+
+#### Safe/read tool event order (no approval needed)
+
+```
+tool.proposed  ← model proposed the call
+tool.started   ← prepareToolCall returned "ready", execution imminent
+tool.completed ← executeToolCall finished
+```
+
+#### Write/dangerous tool event order (approval needed)
+
+```
+tool.proposed       ← model proposed the call
+approval.requested  ← prepareToolCall returned "waiting_approval"
+run.paused          ← run is paused, harness stores pending approval
+...
+approval.resolved   ← human or policy resolved the approval
+run.resumed         ← run continues
+tool.started        ← executeToolCall begins (with alreadyApproved=true)
+tool.completed      ← executeToolCall finished
+```
+
+`tool.started` must never be emitted before approval. The approval workflow must validate that `tool.started` is not present in the event stream for any tool that goes through an approval gate.
 
 ```json
 {
