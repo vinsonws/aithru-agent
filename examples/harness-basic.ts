@@ -1,14 +1,12 @@
 /**
  * Basic example: NativeHarnessEngine with ScriptedModelPort
  *
- * This demonstrates:
- * 1. InMemoryEventStore / EventBus / EventWriter
- * 2. InMemoryWorkspaceProvider
- * 3. WorkspaceToolAdapter + FakeSearchToolAdapter
- * 4. StaticCapabilityRouter
- * 5. NativeHarnessEngine with ScriptedModelPort
- * 6. Full event stream iteration
- * 7. Workspace file read after run
+ * Demonstrates:
+ * 1. Event infrastructure (InMemoryEventStore / EventBus / EventWriter)
+ * 2. Workspace provider + tool adapters + capability router
+ * 3. NativeHarnessEngine run() — full approval pause flow
+ * 4. NativeHarnessEngine resume() — resolve approval and complete
+ * 5. Workspace file read after resume
  */
 
 import {
@@ -32,7 +30,7 @@ import type { AgentSkillManifest } from "@aithru/agent-skills";
 import type { AgentSkill } from "@aithru/agent-core";
 
 async function main() {
-  console.log("=== Aithru Agent Harness Basic Example ===\n");
+  console.log("=== Aithru Agent Harness — Approval + Resume Demo ===\n");
 
   // 1. Create event infrastructure
   const eventStore = new InMemoryAgentEventStore();
@@ -40,12 +38,13 @@ async function main() {
   const eventWriter = new AgentEventWriter(eventStore, eventBus);
   console.log("✓ Event infrastructure created");
 
-  // 2. Subscribe to events for demonstration
-  const testRunId = "run_1" as RunId;
-  const userEvents: string[] = [];
-  eventBus.subscribe(testRunId, (event) => {
-    if (event.visibility === "user") {
-      userEvents.push(`${event.type}: ${event.summary ?? ""}`);
+  // 2. Subscribe to events
+  eventBus.subscribe("run_1" as RunId, (event) => {
+    if (event.type === "approval.requested") {
+      console.log("  [bus]  → approval requested");
+    }
+    if (event.type === "approval.resolved") {
+      console.log("  [bus]  → approval resolved");
     }
   });
   console.log("✓ Event bus subscribed");
@@ -61,17 +60,7 @@ async function main() {
 
   // 5. Create capability router
   const capabilityRouter = new StaticCapabilityRouter([workspaceTools, fakeSearch]);
-  const tools = await capabilityRouter.listTools({
-    runId: testRunId,
-    workspaceId: "ws_1" as WorkspaceId,
-    actor: {
-      actorType: "user",
-      orgId: "org_1" as OrgId,
-      scopes: ["*"],
-    },
-  });
-  console.log(`✓ Capability router created with ${tools.length} tools`);
-  console.log(`  Tools: ${tools.map((t) => t.name).join(", ")}\n`);
+  console.log("✓ Capability router created");
 
   // 6. Create skill resolver (minimal)
   const skillResolver: AgentSkillResolver = {
@@ -86,7 +75,7 @@ async function main() {
     },
   };
 
-  // 7. Create model port (scripted - no real LLM)
+  // 7. Create model port — ScriptedModelPort will request workspace.writeFile
   const model = new ScriptedModelPort();
   console.log("✓ Scripted model port created");
 
@@ -101,78 +90,105 @@ async function main() {
   const engine = new NativeHarnessEngine(ports);
   console.log("✓ Native harness engine created\n");
 
-  // 9. Run the harness
-  console.log("=== Running harness ===\n");
-  const events: string[] = [];
-  let capturedWorkspaceId = "";
+  // ════════════════════════════════════════════════════════════════════
+  // 9. Phase 1 — Run until approval pause
+  // ════════════════════════════════════════════════════════════════════
+  console.log("═══ Phase 1: run() — workspace.writeFile triggers approval ═══\n");
+
+  let capturedRunId: RunId = "run_1" as RunId;
+  const phase1Events: string[] = [];
 
   for await (const event of engine.run({
     orgId: "org_1" as OrgId,
     actorUserId: "user_1" as UserId,
-    goal: "Analyze the project structure and write a report.",
+    goal: "Analyze and write a report.",
   })) {
-    const line = `[${event.sequence}] ${event.type}`;
-    events.push(line);
+    phase1Events.push(`[${event.sequence}] ${event.type}`);
+    capturedRunId = event.runId;
 
     if (event.type === "run.created") {
-      const p = event.payload as { workspaceId: string };
-      capturedWorkspaceId = p.workspaceId;
-      console.log(`  ${line} (workspace: ${p.workspaceId})`);
+      const ws = (event.payload as { workspaceId: string }).workspaceId;
+      console.log(`  ${event.type}  (workspace: ${ws})`);
     } else if (event.type === "message.delta") {
-      const p = event.payload as { delta: string };
-      process.stdout.write(`  ${line}: "${p.delta}"`);
-    } else if (
-      event.type === "tool.completed" ||
-      event.type === "tool.failed" ||
-      event.type === "tool.denied"
-    ) {
-      console.log(`  ${line}`);
-    } else if (
-      event.type === "workspace.file.created" ||
-      event.type === "workspace.file.updated"
-    ) {
-      const p = event.payload as { path: string };
-      console.log(`  ${line}: ${p.path}`);
-    } else if (
-      event.type === "run.completed" ||
-      event.type === "run.failed" ||
-      event.type === "run.cancelled"
-    ) {
-      console.log(`  ${line}`);
+      const d = (event.payload as { delta: string }).delta;
+      process.stdout.write(`  ${event.type}: "${d.trim()}"\n`);
+    } else if (event.type === "approval.requested") {
+      console.log(`  ${event.type} — tool needs approval`);
+    } else if (event.type === "run.paused") {
+      console.log(`  ${event.type} — waiting for approval`);
+    } else if (event.type === "run.completed" || event.type === "run.failed") {
+      console.log(`  ${event.type}`);
     } else {
-      console.log(`  ${line}`);
+      console.log(`  ${event.type}`);
     }
   }
 
-  console.log(`\n=== Run complete (${events.length} events) ===\n`);
+  console.log(`\n→ Phase 1 complete (${phase1Events.length} events)`);
+  console.log(`→ Run paused, waiting for approval\n`);
 
-  // 10. Direct workspace access
-  console.log("=== Writing and reading workspace files directly ===\n");
-  await workspaceProvider.writeFile({
-    workspaceId: capturedWorkspaceId as WorkspaceId,
-    path: "/reports/result.md",
-    content: "# Analysis Result\n\nTask completed successfully.\n",
-  });
-  const file = await workspaceProvider.readFile(
-    capturedWorkspaceId,
-    "/reports/result.md",
-  );
-  console.log("File: /reports/result.md");
-  console.log("Content:");
-  console.log("---");
-  console.log(file.content);
-  console.log("---");
+  // ════════════════════════════════════════════════════════════════════
+  // 10. Phase 2 — Resume and complete
+  // ════════════════════════════════════════════════════════════════════
+  console.log("═══ Phase 2: resume() — approve and complete ═══\n");
 
-  // 11. Verify events were stored
-  const storedEvents = await eventStore.listByRun(testRunId);
-  console.log(`\n=== Event store has ${storedEvents.length} events ===`);
+  const phase2Events: string[] = [];
+  for await (const event of engine.resume({ runId: capturedRunId })) {
+    phase2Events.push(`[${event.sequence}] ${event.type}`);
 
-  const sequences = storedEvents.map((e) => e.sequence).sort((a, b) => a - b);
+    if (event.type === "approval.resolved") {
+      console.log(`  ${event.type} — approved`);
+    } else if (event.type === "run.resumed") {
+      console.log(`  ${event.type}`);
+    } else if (event.type === "workspace.file.created") {
+      const p = (event.payload as { path: string }).path;
+      console.log(`  ${event.type}: ${p}`);
+    } else if (event.type === "artifact.created") {
+      console.log(`  ${event.type}`);
+    } else if (event.type === "tool.completed") {
+      console.log(`  ${event.type}`);
+    } else if (event.type === "run.completed") {
+      console.log(`  ${event.type}`);
+    }
+  }
+
+  console.log(`\n→ Phase 2 complete (${phase2Events.length} events)`);
+  console.log(`→ Run completed successfully\n`);
+
+  // ════════════════════════════════════════════════════════════════════
+  // 11. Verify — read the file that was written through the tool pipeline
+  // ════════════════════════════════════════════════════════════════════
+  console.log("═══ Verification: workspace file written through tool pipeline ═══\n");
+
+  // Get the workspaceId from the first event's payload
+  const storedEvents = await eventStore.listByRun(capturedRunId);
+  const createdEvent = storedEvents.find((e) => e.type === "run.created");
+  const workspaceId = (createdEvent?.payload as { workspaceId: string }).workspaceId;
+
+  try {
+    const file = await workspaceProvider.readFile(workspaceId, "/reports/result.md");
+    console.log("File: /reports/result.md");
+    console.log("Content:");
+    console.log("---");
+    console.log(file.content);
+    console.log("---");
+    console.log("\n✓ File was written through: model → harness → capabilityRouter → toolAdapter → workspaceProvider");
+  } catch {
+    console.log("✗ File not found — the tool pipeline may have failed");
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // 12. Verify event store
+  // ════════════════════════════════════════════════════════════════════
+  console.log("\n═══ Final state ═══\n");
+  const allEvents = await eventStore.listByRun(capturedRunId);
+  const sequences = allEvents.map((e) => e.sequence).sort((a, b) => a - b);
   const isStrictlyIncreasing = sequences.every(
     (s, i) => i === 0 || s > sequences[i - 1]!,
   );
-  console.log(`Sequences strictly increasing: ${isStrictlyIncreasing}`);
 
+  console.log(`Total events across both phases: ${allEvents.length}`);
+  console.log(`Sequences strictly increasing: ${isStrictlyIncreasing}`);
+  console.log(`Event types: ${[...new Set(allEvents.map((e) => e.type))].join(", ")}`);
   console.log("\n=== Example completed successfully ===");
 }
 

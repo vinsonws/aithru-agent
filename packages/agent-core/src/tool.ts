@@ -40,6 +40,9 @@ export type AgentToolCallRequest = {
   requestedBy: "model" | "harness" | "subagent" | "user" | "system";
   subagentRunId?: SubagentRunId;
   todoId?: TodoId;
+  /** Set true when an approval has been resolved externally and policy checks
+   *  should be bypassed. Only the harness should set this during resume. */
+  alreadyApproved?: boolean;
 };
 
 export type AgentToolCallResult = {

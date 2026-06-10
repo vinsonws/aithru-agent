@@ -128,15 +128,27 @@ let toolCallCounter = 0;
 let artifactCounter = 0;
 let approvalCounter = 0;
 
+type PendingApproval = {
+  runId: RunId;
+  threadId?: ThreadId;
+  msgId: MessageId;
+  todoId: TodoId;
+  workspaceId: WorkspaceId;
+  toolCallId: ToolCallId;
+  tc: { name: string; input: unknown };
+  runContext: AgentRunContext;
+  approvalId: ApprovalId;
+};
+
 export class NativeHarnessEngine implements AgentHarnessEngine {
   private cancelled = new Set<string>();
   private currentModelPort: AgentModelPort | null = null;
+  private pendingApprovals = new Map<RunId, PendingApproval>();
 
   constructor(private ports: AgentHarnessEnginePorts) {}
 
   async *run(input: AgentHarnessRunInput): AsyncIterable<AgentStreamEvent> {
     const writer = this.ports.eventWriter;
-    writer.resetSequence();
 
     runCounter++;
     const runId = `run_${runCounter}` as RunId;
@@ -147,22 +159,20 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
       threadId: input.threadId,
     });
 
-    // ── run.created ──────────────────────────────────────────────────────
+    // ── run.created ──────────────────────────────────────────────────────────
     yield await writer.write(
       ev({
-        runId,
-        threadId: input.threadId,
+        runId, threadId: input.threadId,
         type: "run.created",
         source: { kind: "harness" },
         payload: { status: "queued", source: "chat", workspaceId: workspace.id },
       }),
     );
 
-    // ── run.started ──────────────────────────────────────────────────────
+    // ── run.started ──────────────────────────────────────────────────────────
     yield await writer.write(
       ev({
-        runId,
-        threadId: input.threadId,
+        runId, threadId: input.threadId,
         type: "run.started",
         source: { kind: "harness" },
         payload: { status: "running" },
@@ -183,26 +193,24 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
       startedAt: new Date().toISOString(),
     };
 
-    // ── message.created ──────────────────────────────────────────────────
+    // ── message.created ──────────────────────────────────────────────────────
     messageCounter++;
     const msgId = `msg_${messageCounter}` as MessageId;
     yield await writer.write(
       ev({
-        runId,
-        threadId: input.threadId,
+        runId, threadId: input.threadId,
         type: "message.created",
         source: { kind: "harness" },
         payload: { messageId: msgId, role: "assistant" },
       }),
     );
 
-    // ── todo.created ─────────────────────────────────────────────────────
+    // ── todo.created ─────────────────────────────────────────────────────────
     todoCounter++;
     const todoId = `todo_${todoCounter}` as TodoId;
     yield await writer.write(
       ev({
-        runId,
-        threadId: input.threadId,
+        runId, threadId: input.threadId,
         type: "todo.created",
         source: { kind: "harness" },
         payload: { todoId, title: "Process user request", status: "running", order: 1 },
@@ -240,11 +248,10 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
       { role: "user" as const, content: input.goal },
     ];
 
-    // ── model.started ────────────────────────────────────────────────────
+    // ── model.started ────────────────────────────────────────────────────────
     yield await writer.write(
       ev({
-        runId,
-        threadId: input.threadId,
+        runId, threadId: input.threadId,
         type: "model.started",
         source: { kind: "model" },
         payload: {},
@@ -254,239 +261,386 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
     this.currentModelPort = this.ports.model;
     const modelResults = this.ports.model.start(modelMessages, { tools });
 
-    try {
-      for await (const result of modelResults) {
-        if (this.cancelled.has(runId)) {
-          yield await writer.write(
-            ev({
-              runId,
-              threadId: input.threadId,
-              type: "run.cancelled",
-              source: { kind: "harness" },
-              payload: { status: "cancelled" },
-            }),
-          );
-          return;
-        }
+    // Wrap the model iteration so we can replay it on resume.
+    const toolAllowedNames = new Set(tools.map((t) => t.name));
 
-        // Emit message delta
-        if (result.delta) {
-          yield await writer.write(
-            ev({
-              runId,
-              threadId: input.threadId,
-              type: "message.delta",
-              source: { kind: "model" },
-              payload: { messageId: msgId, delta: result.delta },
-            }),
-          );
-        }
+    const paused = yield* this._runModelLoop({
+      writer, runId, threadId: input.threadId, runContext,
+      msgId, todoId,
+      modelResults, toolAllowedNames,
+    });
 
-        // Process tool calls
-        if (result.toolCalls) {
-          for (const tc of result.toolCalls) {
+    // Only emit completion events if the run was NOT paused for approval.
+    if (!paused) {
+      yield* this.emitCompletion(writer, runId, input.threadId, msgId, todoId);
+    }
+  }
+
+  /**
+   * Shared generator: consume model results, emitting deltas and processing
+   * tool calls.  Returns `false` when the model finishes or `true` when a
+   * tool requires approval (caller should NOT complete the run yet).
+   */
+  private async *_runModelLoop(ctx: {
+    writer: AgentEventWriter;
+    runId: RunId;
+    threadId?: ThreadId;
+    runContext: AgentRunContext;
+    msgId: MessageId;
+    todoId: TodoId;
+    modelResults: AsyncIterable<AgentModelResult>;
+    toolAllowedNames: Set<string>;
+  }): AsyncGenerator<AgentStreamEvent, boolean, undefined> {
+    const { writer, runId, threadId, runContext, msgId, todoId, modelResults, toolAllowedNames } = ctx;
+
+    for await (const result of modelResults) {
+      if (this.cancelled.has(runId)) {
+        yield await writer.write(
+          ev({
+            runId, threadId,
+            type: "run.cancelled",
+            source: { kind: "harness" },
+            payload: { status: "cancelled" },
+          }),
+        );
+        return false;
+      }
+
+      // Emit message delta
+      if (result.delta) {
+        yield await writer.write(
+          ev({
+            runId, threadId,
+            type: "message.delta",
+            source: { kind: "model" },
+            payload: { messageId: msgId, delta: result.delta },
+          }),
+        );
+      }
+
+      // Process tool calls
+      if (result.toolCalls) {
+        for (const tc of result.toolCalls) {
+          // ── Fix 2: Skill-policy check ──────────────────────────────────
+          // The model is untrusted — verify the tool was in the filtered list.
+          if (!toolAllowedNames.has(tc.name)) {
             toolCallCounter++;
-            const toolCallId = `tc_${toolCallCounter}` as ToolCallId;
-
-            // ── tool.proposed ────────────────────────────────────────────
             yield await writer.write(
               ev({
-                runId,
-                threadId: input.threadId,
-                type: "tool.proposed",
+                runId, threadId,
+                type: "tool.denied",
                 source: { kind: "tool" },
-                summary: `Proposing ${tc.name}`,
-                payload: { toolCallId, toolName: tc.name },
+                summary: `Tool '${tc.name}' denied by skill policy`,
+                payload: {
+                  toolCallId: `tc_${toolCallCounter}` as ToolCallId,
+                  toolName: tc.name,
+                  status: "denied",
+                },
+              }),
+            );
+            continue;
+          }
+
+          toolCallCounter++;
+          const toolCallId = `tc_${toolCallCounter}` as ToolCallId;
+
+          // ── tool.proposed ──────────────────────────────────────────────
+          yield await writer.write(
+            ev({
+              runId, threadId,
+              type: "tool.proposed",
+              source: { kind: "tool" },
+              summary: `Proposing ${tc.name}`,
+              payload: { toolCallId, toolName: tc.name },
+            }),
+          );
+
+          // ── tool.started ───────────────────────────────────────────────
+          yield await writer.write(
+            ev({
+              runId, threadId,
+              type: "tool.started",
+              source: { kind: "tool" },
+              payload: { toolCallId, toolName: tc.name },
+            }),
+          );
+
+          // Execute through capability router
+          const callRequest: AgentToolCallRequest = {
+            id: toolCallId,
+            toolName: tc.name,
+            input: tc.input,
+            requestedBy: "model",
+          };
+
+          const toolResult = await this.ports.capabilityRouter.callTool(
+            callRequest,
+            runContext,
+          );
+
+          // ── Fix 3: Approval gate ───────────────────────────────────────
+          if (toolResult.status === "waiting_approval") {
+            approvalCounter++;
+            const approvalId = toolResult.approvalId ?? (`approval_${approvalCounter}` as ApprovalId);
+
+            yield await writer.write(
+              ev({
+                runId, threadId,
+                type: "approval.requested",
+                source: { kind: "approval" },
+                payload: {
+                  approvalId, toolCallId, toolName: tc.name,
+                  status: "pending", output: toolResult.output,
+                },
               }),
             );
 
-            // ── tool.started ─────────────────────────────────────────────
             yield await writer.write(
               ev({
-                runId,
-                threadId: input.threadId,
-                type: "tool.started",
-                source: { kind: "tool" },
-                payload: { toolCallId, toolName: tc.name },
+                runId, threadId,
+                type: "run.paused",
+                source: { kind: "harness" },
+                payload: {
+                  status: "waiting_approval", approvalId,
+                  toolCallId, toolName: tc.name,
+                },
               }),
             );
 
-            // Execute through capability router
-            const callRequest: AgentToolCallRequest = {
-              id: toolCallId,
-              toolName: tc.name,
-              input: tc.input,
-              requestedBy: "model",
-            };
+            // Store pending state for resume()
+            this.pendingApprovals.set(runId, {
+              runId, threadId, msgId, todoId,
+              workspaceId: runContext.workspaceId,
+              toolCallId, tc, runContext, approvalId,
+            });
+            return true;
+          }
 
-            const toolResult = await this.ports.capabilityRouter.callTool(
-              callRequest,
-              runContext,
-            );
-
-            if (toolResult.status === "waiting_approval") {
-              approvalCounter++;
-              const approvalId = toolResult.approvalId ?? (`approval_${approvalCounter}` as ApprovalId);
-
+          // Handle workspace changes
+          if (toolResult.workspaceChanges) {
+            for (const change of toolResult.workspaceChanges) {
               yield await writer.write(
                 ev({
-                  runId,
-                  threadId: input.threadId,
-                  type: "approval.requested",
-                  source: { kind: "approval" },
+                  runId, threadId,
+                  type: change.operation === "deleted"
+                    ? "workspace.file.deleted"
+                    : "workspace.file.created",
+                  source: { kind: "workspace" },
                   payload: {
-                    approvalId,
-                    toolCallId,
-                    toolName: tc.name,
-                    status: "pending",
-                    output: toolResult.output,
-                  },
-                }),
-              );
-
-              yield await writer.write(
-                ev({
-                  runId,
-                  threadId: input.threadId,
-                  type: "run.paused",
-                  source: { kind: "harness" },
-                  payload: {
-                    status: "waiting_approval",
-                    approvalId,
-                    toolCallId,
-                    toolName: tc.name,
-                  },
-                }),
-              );
-              return;
-            }
-
-            // Handle workspace changes
-            if (toolResult.workspaceChanges) {
-              for (const change of toolResult.workspaceChanges) {
-                yield await writer.write(
-                  ev({
-                    runId,
-                    threadId: input.threadId,
-                    type:
-                      change.operation === "deleted"
-                        ? "workspace.file.deleted"
-                        : "workspace.file.created",
-                    source: { kind: "workspace" },
-                    payload: {
-                      workspaceId: run.workspaceId,
-                      path: change.path,
-                      operation: change.operation,
-                    },
-                  }),
-                );
-              }
-            }
-
-            // ── artifact.created for any output ──────────────────────────
-            if (toolResult.status === "completed" && toolResult.output) {
-              artifactCounter++;
-              const artId = `art_${artifactCounter}` as ArtifactId;
-              yield await writer.write(
-                ev({
-                  runId,
-                  threadId: input.threadId,
-                  type: "artifact.created",
-                  source: { kind: "harness" },
-                  payload: {
-                    artifactId: artId,
-                    type: "text",
-                    name: `tool-output-${tc.name}`,
+                    workspaceId: runContext.workspaceId,
+                    path: change.path, operation: change.operation,
                   },
                 }),
               );
             }
+          }
 
-            // ── tool.completed/failed/denied ─────────────────────────────
-            const eventType =
-              toolResult.status === "completed"
-                ? "tool.completed"
-                : toolResult.status === "denied"
-                  ? "tool.denied"
-                  : "tool.failed";
+          // ── artifact.created for any output ────────────────────────────
+          if (toolResult.status === "completed" && toolResult.output) {
+            artifactCounter++;
             yield await writer.write(
               ev({
-                runId,
-                threadId: input.threadId,
-                type: eventType,
-                source: { kind: "tool" },
-                redaction: toolResult.redaction,
-                payload: { toolCallId, toolName: tc.name, status: toolResult.status },
+                runId, threadId,
+                type: "artifact.created",
+                source: { kind: "harness" },
+                payload: {
+                  artifactId: `art_${artifactCounter}` as ArtifactId,
+                  type: "text", name: `tool-output-${tc.name}`,
+                },
               }),
             );
           }
-        }
 
-        if (result.finished) break;
+          // ── tool.completed/failed/denied ───────────────────────────────
+          const eventType =
+            toolResult.status === "completed"
+              ? "tool.completed"
+              : toolResult.status === "denied"
+                ? "tool.denied"
+                : "tool.failed";
+          yield await writer.write(
+            ev({
+              runId, threadId,
+              type: eventType,
+              source: { kind: "tool" },
+              redaction: toolResult.redaction,
+              payload: { toolCallId, toolName: tc.name, status: toolResult.status },
+            }),
+          );
+        }
       }
 
-      // ── todo.completed ─────────────────────────────────────────────────
-      yield await writer.write(
-        ev({
-          runId,
-          threadId: input.threadId,
-          type: "todo.completed",
-          source: { kind: "harness" },
-          payload: { todoId, title: "Process user request", status: "done", order: 1 },
-        }),
-      );
+      if (result.finished) break;
+    }
 
-      // ── message.completed ──────────────────────────────────────────────
-      yield await writer.write(
-        ev({
-          runId,
-          threadId: input.threadId,
-          type: "message.completed",
-          source: { kind: "harness" },
-          payload: { messageId: msgId, role: "assistant" },
-        }),
-      );
+    return false;
+  }
 
-      // ── run.completed ──────────────────────────────────────────────────
+  /**
+   * Emit the final three completion events.
+   */
+  private async *emitCompletion(
+    writer: AgentEventWriter,
+    runId: RunId,
+    threadId: ThreadId | undefined,
+    msgId: MessageId,
+    todoId: TodoId,
+  ): AsyncGenerator<AgentStreamEvent> {
+    yield await writer.write(
+      ev({
+        runId, threadId,
+        type: "todo.completed",
+        source: { kind: "harness" },
+        payload: { todoId, title: "Process user request", status: "done", order: 1 },
+      }),
+    );
+    yield await writer.write(
+      ev({
+        runId, threadId,
+        type: "message.completed",
+        source: { kind: "harness" },
+        payload: { messageId: msgId, role: "assistant" },
+      }),
+    );
+    yield await writer.write(
+      ev({
+        runId, threadId,
+        type: "run.completed",
+        source: { kind: "harness" },
+        payload: { status: "completed" },
+      }),
+    );
+  }
+
+  /**
+   * Resume a run paused for approval.
+   *
+   * Flow: approval.resolved → run.resumed → tool retry (alreadyApproved) →
+   *       workspace events → artifact → tool.completed → completion events.
+   */
+  async *resume(input: AgentHarnessResumeInput): AsyncIterable<AgentStreamEvent> {
+    const pending = this.pendingApprovals.get(input.runId);
+    if (!pending) {
+      yield {
+        id: "" as unknown as never,
+        runId: input.runId,
+        sequence: 0,
+        timestamp: new Date().toISOString(),
+        type: "run.failed",
+        source: { kind: "harness" },
+        visibility: "user",
+        redaction: "none",
+        summary: "No pending approval found for this run",
+        payload: { status: "failed", error: "NOT_FOUND" },
+      };
+      return;
+    }
+
+    const writer = this.ports.eventWriter;
+    const { runId, threadId, msgId, todoId, toolCallId, tc, runContext } = pending;
+
+    // ── approval.resolved ──────────────────────────────────────────────────
+    yield await writer.write(
+      ev({
+        runId, threadId,
+        type: "approval.resolved",
+        source: { kind: "approval" },
+        payload: {
+          approvalId: pending.approvalId,
+          toolCallId,
+          toolName: tc.name,
+          decision: "approved",
+        },
+      }),
+    );
+
+    // ── run.resumed ─────────────────────────────────────────────────────────
+    yield await writer.write(
+      ev({
+        runId, threadId,
+        type: "run.resumed",
+        source: { kind: "harness" },
+        payload: { status: "running" },
+      }),
+    );
+
+    // ── Re-execute tool with alreadyApproved flag ───────────────────────────
+    const approvedRequest: AgentToolCallRequest = {
+      id: toolCallId,
+      toolName: tc.name,
+      input: tc.input,
+      requestedBy: "harness",
+      alreadyApproved: true,
+    };
+
+    const toolResult = await this.ports.capabilityRouter.callTool(
+      approvedRequest,
+      runContext,
+    );
+
+    // Handle workspace changes
+    if (toolResult.workspaceChanges) {
+      for (const change of toolResult.workspaceChanges) {
+        yield await writer.write(
+          ev({
+            runId, threadId,
+            type: change.operation === "deleted"
+              ? "workspace.file.deleted"
+              : "workspace.file.created",
+            source: { kind: "workspace" },
+            payload: {
+              workspaceId: runContext.workspaceId,
+              path: change.path, operation: change.operation,
+            },
+          }),
+        );
+      }
+    }
+
+    // ── artifact.created for any tool output ────────────────────────────────
+    if (toolResult.status === "completed" && toolResult.output) {
+      artifactCounter++;
       yield await writer.write(
         ev({
-          runId,
-          threadId: input.threadId,
-          type: "run.completed",
-          source: { kind: "harness" },
-          payload: { status: "completed" },
-        }),
-      );
-    } catch (err) {
-      // ── run.failed ─────────────────────────────────────────────────────
-      yield await writer.write(
-        ev({
-          runId,
-          threadId: input.threadId,
-          type: "run.failed",
+          runId, threadId,
+          type: "artifact.created",
           source: { kind: "harness" },
           payload: {
-            status: "failed",
-            error: err instanceof Error ? err.message : String(err),
+            artifactId: `art_${artifactCounter}` as ArtifactId,
+            type: "text", name: `tool-output-${tc.name}`,
           },
         }),
       );
     }
-  }
 
-  async *resume(_input: AgentHarnessResumeInput): AsyncIterable<AgentStreamEvent> {
-    yield {
-      id: "" as unknown as never,
-      runId: _input.runId,
-      sequence: 0,
-      timestamp: new Date().toISOString(),
-      type: "run.failed",
-      source: { kind: "harness" },
-      visibility: "user",
-      redaction: "none",
-      summary: "Resume not yet implemented",
-      payload: { status: "failed", error: "NOT_IMPLEMENTED" },
-    };
+    // ── tool.completed / tool.failed ────────────────────────────────────────
+    if (toolResult.status === "completed") {
+      yield await writer.write(
+        ev({
+          runId, threadId,
+          type: "tool.completed",
+          source: { kind: "tool" },
+          redaction: toolResult.redaction,
+          payload: { toolCallId, toolName: tc.name, status: "completed" },
+        }),
+      );
+    } else {
+      yield await writer.write(
+        ev({
+          runId, threadId,
+          type: "tool.failed",
+          source: { kind: "tool" },
+          redaction: toolResult.redaction,
+          payload: { toolCallId, toolName: tc.name, status: toolResult.status },
+        }),
+      );
+      // Even on tool failure, continue to complete the run.
+    }
+
+    // ── Complete the run ──────────────────────────────────────────────────
+    yield* this.emitCompletion(writer, runId, threadId, msgId, todoId);
+
+    this.pendingApprovals.delete(runId);
   }
 
   async cancel(runId: string): Promise<void> {
@@ -509,13 +663,13 @@ export class ScriptedModelPort implements AgentModelPort {
   constructor(steps?: ScriptStep[]) {
     this.steps = steps ?? [
       { type: "delta", text: "I'll process your request step by step.\n\n" },
-      { type: "delta", text: "First, let me check the workspace.\n\n" },
+      { type: "delta", text: "Let me write the results to a file.\n\n" },
       {
         type: "tool",
-        name: "workspace.listFiles",
-        input: {},
+        name: "workspace.writeFile",
+        input: { path: "/reports/result.md", content: "# Analysis Result\n\nTask completed successfully.\n" },
       },
-      { type: "delta", text: "\nDone! The workspace is ready.\n" },
+      { type: "delta", text: "\nDone! Written to /reports/result.md.\n" },
       { type: "finish" },
     ];
   }

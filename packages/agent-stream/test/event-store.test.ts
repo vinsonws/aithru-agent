@@ -151,7 +151,7 @@ describe("AgentEventWriter", () => {
     expect(publishedEvent).not.toBeNull();
   });
 
-  it("resetSequence should reset the counter", async () => {
+  it("resetSequence should reset a single run", async () => {
     const store = new InMemoryAgentEventStore();
     const bus = new InMemoryAgentEventBus();
     const writer = new AgentEventWriter(store, bus);
@@ -168,7 +168,7 @@ describe("AgentEventWriter", () => {
       timestamp: new Date().toISOString(),
     });
 
-    writer.resetSequence();
+    writer.resetSequence(runId);
 
     const e2 = await writer.write({
       runId,
@@ -181,5 +181,41 @@ describe("AgentEventWriter", () => {
     });
 
     expect(e2.sequence).toBe(1);
+  });
+
+  it("should maintain separate sequences per runId", async () => {
+    const store = new InMemoryAgentEventStore();
+    const bus = new InMemoryAgentEventBus();
+    const writer = new AgentEventWriter(store, bus);
+
+    const runA = "run_A" as RunId;
+    const runB = "run_B" as RunId;
+
+    // Interleave writes to two different runs
+    const a1 = await writer.write({
+      runId: runA, type: "run.created", source: { kind: "harness" },
+      visibility: "user", redaction: "none", payload: {},
+      timestamp: new Date().toISOString(),
+    });
+    const b1 = await writer.write({
+      runId: runB, type: "run.created", source: { kind: "harness" },
+      visibility: "user", redaction: "none", payload: {},
+      timestamp: new Date().toISOString(),
+    });
+    const a2 = await writer.write({
+      runId: runA, type: "run.completed", source: { kind: "harness" },
+      visibility: "user", redaction: "none", payload: {},
+      timestamp: new Date().toISOString(),
+    });
+    const b2 = await writer.write({
+      runId: runB, type: "run.started", source: { kind: "harness" },
+      visibility: "user", redaction: "none", payload: {},
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(a1.sequence).toBe(1);
+    expect(a2.sequence).toBe(2);
+    expect(b1.sequence).toBe(1);
+    expect(b2.sequence).toBe(2);
   });
 });

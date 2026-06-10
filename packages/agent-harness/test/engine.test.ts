@@ -11,7 +11,7 @@ import {
 } from "@aithru/agent-stream";
 import { InMemoryWorkspaceProvider } from "@aithru/agent-workspace";
 import { StaticCapabilityRouter, WorkspaceToolAdapter, FakeSearchToolAdapter } from "@aithru/agent-tools";
-import type { AgentSkill, OrgId, SkillId, UserId } from "@aithru/agent-core";
+import type { AgentSkill, OrgId, SkillId, UserId, RunId } from "@aithru/agent-core";
 import type { AgentSkillManifest } from "@aithru/agent-skills";
 
 function createTestPorts(): AgentHarnessEnginePorts {
@@ -45,7 +45,7 @@ function createTestPorts(): AgentHarnessEnginePorts {
 }
 
 describe("NativeHarnessEngine", () => {
-  it("should produce run.created, run.started, and run.completed events", async () => {
+  it("should produce lifecycle events and pause for approval on write tool", async () => {
     const ports = createTestPorts();
     const engine = new NativeHarnessEngine(ports);
 
@@ -67,14 +67,18 @@ describe("NativeHarnessEngine", () => {
     expect(types).toContain("model.started");
     expect(types).toContain("tool.proposed");
     expect(types).toContain("tool.started");
-    expect(types).toContain("tool.completed");
-    expect(types).toContain("todo.completed");
-    expect(types).toContain("message.completed");
-    expect(types).toContain("run.completed");
+    expect(types).toContain("approval.requested");
+    expect(types).toContain("run.paused");
+    expect(types).not.toContain("tool.completed");
+    expect(types).not.toContain("run.completed");
   });
 
-  it("should route tool calls through capability router", async () => {
+  it("should route safe tool calls through capability router", async () => {
     const ports = createTestPorts();
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workspace.listFiles", input: {} },
+      { type: "finish" },
+    ]);
     const engine = new NativeHarnessEngine(ports);
 
     const events = [];
@@ -88,33 +92,47 @@ describe("NativeHarnessEngine", () => {
 
     const toolCompleted = events.filter((e) => e.type === "tool.completed");
     expect(toolCompleted.length).toBeGreaterThanOrEqual(1);
+    expect(events.some((e) => e.type === "run.completed")).toBe(true);
   });
 
-  it("should route tool calls through capability router with proper scopes", async () => {
+  it("should deny tool calls not in skill allowedTools", async () => {
     const ports = createTestPorts();
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workspace.readFile", input: { path: "/test.txt" } },
+      { type: "finish" },
+    ]);
+    ports.skillResolver = {
+      async resolve(_skillIdOrKey: string) {
+        return {
+          id: "skill_test" as SkillId,
+          orgId: "org_test" as OrgId,
+          key: "list-only",
+          name: "List Only",
+          instructions: "Only list files.",
+          allowedTools: ["workspace.listFiles"],
+          allowedSubagents: [],
+          version: "1.0.0",
+          status: "published",
+        };
+      },
+      async resolveFromManifest(_manifest: AgentSkillManifest, _orgId: OrgId) {
+        throw new Error("Not implemented");
+      },
+    };
     const engine = new NativeHarnessEngine(ports);
 
     const events = [];
     for await (const event of engine.run({
       orgId: "org_test" as OrgId,
       actorUserId: "user_test" as UserId,
-      goal: "List the workspace",
+      goal: "Read workspace",
+      skillId: "skill_test" as SkillId,
     })) {
       events.push(event);
     }
 
-    // Safe tool (workspace.listFiles) should complete with default scopes ["*"]
-    const completed = events.filter((e) => e.type === "tool.completed");
-    expect(completed.length).toBeGreaterThanOrEqual(1);
-
-    // No workspace.file events since we only called listFiles
-    const workspaceFileEvents = events.filter(
-      (e) =>
-        e.type === "workspace.file.created" ||
-        e.type === "workspace.file.updated" ||
-        e.type === "workspace.file.deleted",
-    );
-    expect(workspaceFileEvents).toHaveLength(0);
+    const denied = events.filter((e) => e.type === "tool.denied");
+    expect(denied.length).toBeGreaterThanOrEqual(1);
   });
 
   it("should expose only skill-allowed tools to the model", async () => {
@@ -185,21 +203,55 @@ describe("NativeHarnessEngine", () => {
     expect(types).not.toContain("run.completed");
   });
 
+  it("should resume after approval and complete the run", async () => {
+    const ports = createTestPorts();
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workspace.writeFile", input: { path: "/out.txt", content: "hello" } },
+      { type: "finish" },
+    ]);
+    const engine = new NativeHarnessEngine(ports);
+
+    // Phase 1: run until pause
+    const phase1: Array<{ type: string; runId: RunId }> = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Write a file",
+      scopes: ["workspace:write"],
+    })) {
+      phase1.push({ type: event.type, runId: event.runId });
+    }
+
+    const runId = phase1[0]!.runId;
+    expect(phase1.some((e) => e.type === "run.paused")).toBe(true);
+
+    // Phase 2: resume
+    const phase2 = [];
+    for await (const event of engine.resume({ runId })) {
+      phase2.push(event.type);
+    }
+
+    expect(phase2).toContain("approval.resolved");
+    expect(phase2).toContain("run.resumed");
+    expect(phase2).toContain("tool.completed");
+    expect(phase2).toContain("workspace.file.created");
+    expect(phase2).toContain("run.completed");
+  });
+
   it("should cancel properly", async () => {
     const ports = createTestPorts();
     const engine = new NativeHarnessEngine(ports);
 
-    // Cancel should not throw
     await expect(engine.cancel("run_test")).resolves.toBeUndefined();
   });
 
-  it("resume should return not-implemented", async () => {
+  it("resume should fail for unknown run", async () => {
     const ports = createTestPorts();
     const engine = new NativeHarnessEngine(ports);
 
     const events = [];
     for await (const event of engine.resume({
-      runId: "run_nonexistent" as unknown as import("@aithru/agent-core").RunId,
+      runId: "run_nonexistent" as unknown as RunId,
     })) {
       events.push(event);
     }

@@ -201,23 +201,24 @@ export class InMemoryAgentEventBus implements AgentEventBus {
 export type AgentEventWriterInput = Omit<AgentStreamEvent, "id" | "sequence">;
 
 export class AgentEventWriter {
-  private _sequence = 0;
+  private sequences = new Map<RunId, number>();
 
   constructor(
     private store: AgentEventStore,
     private bus: AgentEventBus,
   ) {}
 
-  get currentSequence(): number {
-    return this._sequence;
+  currentSequence(runId: RunId): number {
+    return this.sequences.get(runId) ?? 0;
   }
 
   async write(event: AgentEventWriterInput): Promise<AgentStreamEvent> {
-    this._sequence++;
+    const seq = (this.sequences.get(event.runId) ?? 0) + 1;
+    this.sequences.set(event.runId, seq);
     const full: AgentStreamEvent = {
       ...event,
-      sequence: this._sequence,
-      id: `${event.runId}:${this._sequence}` as EventId,
+      sequence: seq,
+      id: `${event.runId}:${seq}` as EventId,
     };
 
     // Persist before publish
@@ -227,8 +228,12 @@ export class AgentEventWriter {
     return full;
   }
 
-  resetSequence(): void {
-    this._sequence = 0;
+  resetSequence(runId?: RunId): void {
+    if (runId) {
+      this.sequences.delete(runId);
+    } else {
+      this.sequences.clear();
+    }
   }
 }
 

@@ -95,8 +95,9 @@ export class StaticCapabilityRouter implements AithruCapabilityRouter {
       }
 
       // ── Approval policy check ────────────────────────────────────────
-      const needsApproval = match.approvalPolicy === "always"
-        || (match.approvalPolicy === "on_risk" && (match.riskLevel === "write" || match.riskLevel === "dangerous"));
+      const needsApproval = !request.alreadyApproved
+        && (match.approvalPolicy === "always"
+          || (match.approvalPolicy === "on_risk" && (match.riskLevel === "write" || match.riskLevel === "dangerous")));
 
       if (needsApproval) {
         // MVP: no approval gateway yet, so deny with waiting_approval

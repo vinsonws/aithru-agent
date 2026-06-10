@@ -87,6 +87,23 @@ describe("StaticCapabilityRouter", () => {
     expect(result.status).toBe("waiting_approval");
   });
 
+  it("should bypass approval check when alreadyApproved flag is set", async () => {
+    const wsProvider = new InMemoryWorkspaceProvider();
+    const ws = await wsProvider.createWorkspace({ orgId: "org_t" as unknown as AgentRunContext["actor"]["orgId"] });
+    const router = new StaticCapabilityRouter([
+      new WorkspaceToolAdapter(wsProvider),
+    ]);
+
+    const result = await router.callTool(
+      makeToolCall("workspace.writeFile", { path: "/test/hello.md", content: "# Hello" }, { alreadyApproved: true }),
+      makeContext({ workspaceId: ws.id }),
+    );
+
+    // Should complete instead of returning waiting_approval
+    expect(result.status).toBe("completed");
+    expect(result.workspaceChanges).toHaveLength(1);
+  });
+
   it("should deny tool when required scopes are missing", async () => {
     const wsProvider = new InMemoryWorkspaceProvider();
     const ws = await wsProvider.createWorkspace({ orgId: "org_t" as unknown as AgentRunContext["actor"]["orgId"] });
