@@ -1,4 +1,8 @@
 import type { RunId, ThreadId, WorkspaceId, ToolCallId, ArtifactId, AgentToolCallResult } from "@aithru/agent-core";
+
+export type EmitToolResultOptions = {
+  externalRunAlreadyCreated?: boolean;
+};
 import type { AgentEventWriter, AgentStreamEvent } from "@aithru/agent-stream";
 import { ev } from "./event-input.js";
 import { nextArtifactId } from "../internal/counters.js";
@@ -17,6 +21,7 @@ export async function* emitToolResult(
   toolCallId: ToolCallId,
   toolName: string,
   toolResult: AgentToolCallResult,
+  options: EmitToolResultOptions = {},
 ): AsyncGenerator<AgentStreamEvent> {
   if (toolResult.workspaceChanges) {
     for (const change of toolResult.workspaceChanges) {
@@ -30,25 +35,27 @@ export async function* emitToolResult(
   }
 
   if (toolResult.externalRun) {
-    yield await writer.write(ev({
-      runId,
-      threadId,
-      type: "external_run.created",
-      source: { kind: "external" },
-      redaction: toolResult.redaction,
-      payload: {
-        kind: toolResult.externalRun.kind,
-        capabilityKey: toolResult.externalRun.capabilityKey,
-        capabilityVersion: toolResult.externalRun.capabilityVersion,
-        capabilityRunId: toolResult.externalRun.capabilityRunId,
-        toolCallId,
-        toolName,
-        status: toolResult.externalRun.status,
-        approvalId: toolResult.externalRun.approvalId,
-        correlationId: toolResult.externalRun.correlationId,
-        traceId: toolResult.externalRun.traceId,
-      },
-    }));
+    if (!options.externalRunAlreadyCreated) {
+      yield await writer.write(ev({
+        runId,
+        threadId,
+        type: "external_run.created",
+        source: { kind: "external" },
+        redaction: toolResult.redaction,
+        payload: {
+          kind: toolResult.externalRun.kind,
+          capabilityKey: toolResult.externalRun.capabilityKey,
+          capabilityVersion: toolResult.externalRun.capabilityVersion,
+          capabilityRunId: toolResult.externalRun.capabilityRunId,
+          toolCallId,
+          toolName,
+          status: toolResult.externalRun.status,
+          approvalId: toolResult.externalRun.approvalId,
+          correlationId: toolResult.externalRun.correlationId,
+          traceId: toolResult.externalRun.traceId,
+        },
+      }));
+    }
 
     if (toolResult.status === "waiting_approval" && toolResult.externalRun.approvalId) {
       yield await writer.write(ev({

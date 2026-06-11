@@ -113,6 +113,63 @@ describe("projectTraceSpans", () => {
     expect(runSpan.durationMs).toBe(60000);
   });
 
+  it("should produce exactly one external_run span for approval flow without duplicates", () => {
+    const events = [
+      ev({ type: "run.created", sequence: 1 }),
+      ev({
+        type: "external_run.created",
+        sequence: 2,
+        payload: {
+          kind: "workflow_capability",
+          capabilityKey: "send_email",
+          capabilityRunId: "caprun_1",
+          toolCallId: "tc_1",
+          correlationId: "corr_1",
+        },
+      }),
+      ev({
+        type: "external_approval.requested",
+        sequence: 3,
+        payload: {
+          kind: "workflow_capability",
+          capabilityRunId: "caprun_1",
+          approvalId: "capapproval_1",
+          toolCallId: "tc_1",
+          status: "pending",
+        },
+      }),
+      ev({
+        type: "external_approval.resolved",
+        sequence: 4,
+        payload: {
+          kind: "workflow_capability",
+          capabilityRunId: "caprun_1",
+          approvalId: "capapproval_1",
+          toolCallId: "tc_1",
+          decision: "approved",
+        },
+      }),
+      ev({
+        type: "external_run.completed",
+        sequence: 5,
+        payload: {
+          kind: "workflow_capability",
+          capabilityKey: "send_email",
+          capabilityRunId: "caprun_1",
+          toolCallId: "tc_1",
+          correlationId: "corr_1",
+        },
+      }),
+      ev({ type: "run.completed", sequence: 6 }),
+    ];
+
+    const spans = projectTraceSpans(events);
+    const externalSpans = spans.filter((span) => span.kind === "external_run");
+
+    expect(externalSpans).toHaveLength(1);
+    expect(externalSpans[0]!.status).toBe("completed");
+  });
+
   it("should produce a linked external run span for workflow capability events", () => {
     const events = [
       ev({ type: "run.created", sequence: 1 }),

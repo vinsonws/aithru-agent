@@ -5,6 +5,7 @@ import type {
 import { AgentError } from "@aithru/agent-core";
 import type { AgentStreamEvent, AgentEventWriter } from "@aithru/agent-stream";
 import type { AgentRunContext, AithruCapabilityRouter } from "@aithru/agent-tools";
+import type { EmitToolResultOptions } from "../events/tool-events.js";
 import { applyAllowedToolsFilter } from "@aithru/agent-tools";
 import type { AgentWorkspaceProvider } from "@aithru/agent-workspace";
 import type { AgentModelPort, AgentModelResult, AgentModelMessage } from "../model/model-port.js";
@@ -267,8 +268,9 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
     writer: AgentEventWriter, runId: RunId, threadId: ThreadId | undefined,
     workspaceId: WorkspaceId, toolCallId: ToolCallId, toolName: string,
     toolResult: Awaited<ReturnType<AithruCapabilityRouter["callTool"]>>,
+    options?: EmitToolResultOptions,
   ): AsyncGenerator<AgentStreamEvent> {
-    yield* emitToolResult(writer, runId, threadId, workspaceId, toolCallId, toolName, toolResult);
+    yield* emitToolResult(writer, runId, threadId, workspaceId, toolCallId, toolName, toolResult, options);
   }
 
   /**
@@ -304,72 +306,79 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
     }
 
     if (pending.kind === "workflow_capability") {
-      yield await writer.write(ev({
-        runId,
-        threadId,
-        type: "external_approval.resolved",
-        source: { kind: "external" },
-        payload: {
-          kind: "workflow_capability",
-          capabilityRunId: pending.externalRun.capabilityRunId,
-          approvalId: pending.approvalId,
-          toolCallId,
+      try {
+        const resolver = this.ports.capabilityRouter.resolveExternalApproval;
+        if (!resolver) {
+          throw new AgentError("TOOL_FAILED", `No external approval resolver for '${tc.name}'`);
+        }
+        const toolResult = await resolver({
           toolName: tc.name,
+          externalRun: pending.externalRun,
+          approvalId: pending.approvalId,
           decision: approval.decision,
           comment: approval.comment,
-          correlationId: pending.externalRun.correlationId,
-        },
-      }));
+        }, runContext);
 
-      if (approval.decision === "rejected") {
-        this.pendingApprovals.delete(runId);
-        yield* emitRunFailed(
+        yield await writer.write(ev({
+          runId,
+          threadId,
+          type: "external_approval.resolved",
+          source: { kind: "external" },
+          payload: {
+            kind: "workflow_capability",
+            capabilityRunId: pending.externalRun.capabilityRunId,
+            approvalId: pending.approvalId,
+            toolCallId,
+            toolName: tc.name,
+            decision: approval.decision,
+            comment: approval.comment,
+            correlationId: pending.externalRun.correlationId,
+          },
+        }));
+
+        if (approval.decision === "rejected") {
+          yield* this._emitToolResult(writer, runId, threadId, runContext.workspaceId, toolCallId, tc.name, toolResult, { externalRunAlreadyCreated: true });
+          this.pendingApprovals.delete(runId);
+          yield* emitRunFailed(
+            writer,
+            runId,
+            threadId,
+            new AgentError("TOOL_DENIED", `Workflow approval '${pending.approvalId}' rejected`),
+          );
+          return;
+        }
+
+        yield await writer.write(ev({
+          runId,
+          threadId,
+          type: "run.resumed",
+          source: { kind: "harness" },
+          payload: { status: "running" },
+        }));
+
+        yield* this._emitToolResult(writer, runId, threadId, runContext.workspaceId, toolCallId, tc.name, toolResult, { externalRunAlreadyCreated: true });
+
+        const paused = yield* this._runModelLoop({
           writer,
           runId,
           threadId,
-          new AgentError("TOOL_DENIED", `Workflow approval '${pending.approvalId}' rejected`),
-        );
+          runContext,
+          msgId,
+          todoId,
+          modelIterator: pending.modelIterator,
+          toolAllowedNames: pending.toolAllowedNames,
+        });
+
+        if (!paused) {
+          yield* emitCompletion(writer, runId, threadId, msgId, todoId);
+          this.pendingApprovals.delete(runId);
+        }
+        return;
+      } catch (err) {
+        this.pendingApprovals.delete(runId);
+        yield* emitRunFailed(writer, runId, threadId, err, { emitModelFailed: true });
         return;
       }
-
-      yield await writer.write(ev({
-        runId,
-        threadId,
-        type: "run.resumed",
-        source: { kind: "harness" },
-        payload: { status: "running" },
-      }));
-
-      const toolResult = await this.ports.capabilityRouter.resolveExternalApproval?.({
-        toolName: tc.name,
-        externalRun: pending.externalRun,
-        approvalId: pending.approvalId,
-        decision: approval.decision,
-        comment: approval.comment,
-      }, runContext);
-
-      if (!toolResult) {
-        throw new AgentError("TOOL_FAILED", `No external approval resolver for '${tc.name}'`);
-      }
-
-      yield* this._emitToolResult(writer, runId, threadId, runContext.workspaceId, toolCallId, tc.name, toolResult);
-
-      const paused = yield* this._runModelLoop({
-        writer,
-        runId,
-        threadId,
-        runContext,
-        msgId,
-        todoId,
-        modelIterator: pending.modelIterator,
-        toolAllowedNames: pending.toolAllowedNames,
-      });
-
-      if (!paused) {
-        yield* emitCompletion(writer, runId, threadId, msgId, todoId);
-        this.pendingApprovals.delete(runId);
-      }
-      return;
     }
 
     // ── Local approval: approval.resolved ──────────────────────────────────

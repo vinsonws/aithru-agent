@@ -587,6 +587,290 @@ describe("NativeHarnessEngine", () => {
     );
   });
 
+  it("should reject workflow-owned external approvals through the Workflow product", async () => {
+    const ports = createTestPorts();
+    const descriptor = {
+      name: "workflow.send_email",
+      description: "Send email through Workflow.",
+      kind: "workflow_capability" as const,
+      requiredScopes: ["workflow.capability.invoke.send_email"],
+      riskLevel: "write" as const,
+      approvalPolicy: "never" as const,
+      metadata: {
+        capabilityKey: "send_email",
+        capabilityVersion: "0.1.0",
+        externalApprovalOwner: "workflow" as const,
+      },
+    };
+
+    const resolveCalls: any[] = [];
+    ports.capabilityRouter = {
+      async listTools() { return [descriptor]; },
+      async prepareToolCall() { return { status: "ready" as const, descriptor, redaction: "none" as const }; },
+      async executeToolCall(request: any) {
+        return {
+          id: request.id,
+          toolName: request.toolName,
+          status: "waiting_approval" as const,
+          output: { reason: "Workflow approval required" },
+          externalRun: {
+            kind: "workflow_capability" as const,
+            capabilityKey: "send_email",
+            capabilityVersion: "0.1.0",
+            capabilityRunId: "caprun_email_1",
+            status: "waiting_approval" as const,
+            approvalId: "capapproval_email_1",
+            correlationId: "corr_email_1",
+          },
+          redaction: "partial" as const,
+        };
+      },
+      async resolveExternalApproval(input: any) {
+        resolveCalls.push(input);
+        return {
+          id: "caprun_email_1" as any,
+          toolName: input.toolName,
+          status: "failed",
+          error: { code: "TOOL_DENIED", message: "Workflow approval rejected" },
+          externalRun: {
+            ...input.externalRun,
+            status: "failed" as const,
+            approvalId: undefined,
+          },
+          redaction: "partial" as const,
+        };
+      },
+    } as any;
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workflow.send_email", input: { to: "user@example.com" } },
+      { type: "finish" },
+    ]);
+
+    const engine = new NativeHarnessEngine(ports);
+    const phase1 = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Send email",
+      scopes: ["workflow.capability.invoke.send_email"],
+    })) {
+      phase1.push(event);
+    }
+
+    expect(phase1.map((event) => event.type)).toContain("external_approval.requested");
+    expect(phase1.map((event) => event.type)).toContain("run.paused");
+    expect(phase1.map((event) => event.type)).not.toContain("approval.requested");
+
+    const paused = phase1.find((event) => event.type === "run.paused")!;
+    const phase2 = [];
+    for await (const event of engine.resume({
+      runId: paused.runId,
+      approval: {
+        approvalId: "capapproval_email_1" as any,
+        decision: "rejected",
+      },
+    })) {
+      phase2.push(event);
+    }
+
+    expect(resolveCalls[0]!.approvalId).toBe("capapproval_email_1");
+    expect(resolveCalls[0]!.decision).toBe("rejected");
+
+    const phase2Types = phase2.map((event) => event.type);
+    expect(phase2Types).toContain("external_approval.resolved");
+    expect(phase2Types).toContain("external_run.failed");
+    expect(phase2Types).toContain("tool.failed");
+    expect(phase2Types).toContain("run.failed");
+    expect(phase2Types).not.toContain("approval.requested");
+  });
+
+  it("should handle external approval resolver failures gracefully", async () => {
+    const ports = createTestPorts();
+    const descriptor = {
+      name: "workflow.send_email",
+      description: "Send email through Workflow.",
+      kind: "workflow_capability" as const,
+      requiredScopes: ["workflow.capability.invoke.send_email"],
+      riskLevel: "write" as const,
+      approvalPolicy: "never" as const,
+      metadata: {
+        capabilityKey: "send_email",
+        capabilityVersion: "0.1.0",
+        externalApprovalOwner: "workflow" as const,
+      },
+    };
+
+    ports.capabilityRouter = {
+      async listTools() { return [descriptor]; },
+      async prepareToolCall() { return { status: "ready" as const, descriptor, redaction: "none" as const }; },
+      async executeToolCall(request: any) {
+        return {
+          id: request.id,
+          toolName: request.toolName,
+          status: "waiting_approval" as const,
+          output: { reason: "Workflow approval required" },
+          externalRun: {
+            kind: "workflow_capability" as const,
+            capabilityKey: "send_email",
+            capabilityVersion: "0.1.0",
+            capabilityRunId: "caprun_email_1",
+            status: "waiting_approval" as const,
+            approvalId: "capapproval_email_1",
+            correlationId: "corr_email_1",
+          },
+          redaction: "partial" as const,
+        };
+      },
+      async resolveExternalApproval() {
+        throw new Error("workflow unavailable");
+      },
+    } as any;
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workflow.send_email", input: { to: "user@example.com" } },
+      { type: "finish" },
+    ]);
+
+    const engine = new NativeHarnessEngine(ports);
+    const phase1 = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Send email",
+      scopes: ["workflow.capability.invoke.send_email"],
+    })) {
+      phase1.push(event);
+    }
+
+    const paused = phase1.find((event) => event.type === "run.paused")!;
+
+    // Phase 2 resume should NOT throw
+    const phase2Events: any[] = [];
+    let threw = false;
+    try {
+      for await (const event of engine.resume({
+        runId: paused.runId,
+        approval: {
+          approvalId: "capapproval_email_1" as any,
+          decision: "approved",
+        },
+      })) {
+        phase2Events.push(event);
+      }
+    } catch {
+      threw = true;
+    }
+
+    expect(threw).toBe(false);
+    const phase2Types = phase2Events.map((e: any) => e.type);
+    expect(phase2Types).toContain("run.failed");
+
+    // Second resume for the same run should find no pending approval
+    const phase3: any[] = [];
+    for await (const event of engine.resume({
+      runId: paused.runId,
+      approval: {
+        approvalId: "capapproval_email_1" as any,
+        decision: "approved",
+      },
+    })) {
+      phase3.push(event);
+    }
+    expect(phase3[0]!.type).toBe("run.failed");
+  });
+
+  it("should not emit duplicate external_run.created after approval resume", async () => {
+    const ports = createTestPorts();
+    const descriptor = {
+      name: "workflow.http_download",
+      description: "Download through Workflow.",
+      kind: "workflow_capability" as const,
+      requiredScopes: ["workflow.capability.invoke.http_download"],
+      riskLevel: "read" as const,
+      approvalPolicy: "never" as const,
+      metadata: {
+        capabilityKey: "http_download",
+        capabilityVersion: "0.1.0",
+        externalApprovalOwner: "workflow" as const,
+      },
+    };
+
+    ports.capabilityRouter = {
+      async listTools() { return [descriptor]; },
+      async prepareToolCall() { return { status: "ready" as const, descriptor, redaction: "none" as const }; },
+      async executeToolCall(request: any) {
+        return {
+          id: request.id,
+          toolName: request.toolName,
+          status: "waiting_approval" as const,
+          output: { reason: "Workflow approval required" },
+          externalRun: {
+            kind: "workflow_capability" as const,
+            capabilityKey: "http_download",
+            capabilityVersion: "0.1.0",
+            capabilityRunId: "caprun_email_1",
+            status: "waiting_approval" as const,
+            approvalId: "capapproval_email_1",
+            correlationId: "corr_email_1",
+          },
+          redaction: "partial" as const,
+        };
+      },
+      async resolveExternalApproval(input: any) {
+        return {
+          id: "caprun_email_1" as any,
+          toolName: input.toolName,
+          status: "completed" as const,
+          output: { status: 200 },
+          externalRun: {
+            ...input.externalRun,
+            status: "completed" as const,
+            approvalId: undefined,
+          },
+          redaction: "partial" as const,
+        };
+      },
+    } as any;
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workflow.http_download", input: { url: "https://example.com" } },
+      { type: "finish" },
+    ]);
+
+    const engine = new NativeHarnessEngine(ports);
+
+    const phase1: any[] = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Download a URL",
+      scopes: ["workflow.capability.invoke.http_download"],
+    })) {
+      phase1.push(event);
+    }
+
+    const paused = phase1.find((event) => event.type === "run.paused")!;
+    const phase2: any[] = [];
+    for await (const event of engine.resume({
+      runId: paused.runId,
+      approval: {
+        approvalId: "capapproval_email_1" as any,
+        decision: "approved",
+      },
+    })) {
+      phase2.push(event);
+    }
+
+    const allTypes = [...phase1, ...phase2];
+    const createdEvents = allTypes.filter(
+      (e) => e.type === "external_run.created" && e.payload?.capabilityRunId === "caprun_email_1",
+    );
+    const completedEvents = allTypes.filter(
+      (e) => e.type === "external_run.completed" && e.payload?.capabilityRunId === "caprun_email_1",
+    );
+
+    expect(createdEvents).toHaveLength(1);
+    expect(completedEvents).toHaveLength(1);
+  });
+
   it("should pause and resume around workflow-owned external approvals", async () => {
     const ports = createTestPorts();
     const descriptor = {
