@@ -65,12 +65,22 @@ export type AgentStreamEventType =
   // Memory events
   | "memory.read"
   | "memory.written"
-  | "memory.skipped";
+  | "memory.skipped"
+  // External run reference events
+  | "external_run.created"
+  | "external_run.updated"
+  | "external_run.completed"
+  | "external_run.failed"
+  | "external_run.cancelled"
+  // External approval reference events
+  | "external_approval.requested"
+  | "external_approval.resolved";
 
 export type AgentStreamSourceKind =
   | "harness"
   | "model"
   | "tool"
+  | "external"
   | "subagent"
   | "sandbox"
   | "workspace"

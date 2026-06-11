@@ -112,4 +112,40 @@ describe("projectTraceSpans", () => {
     const runSpan = spans.find((s) => s.kind === "run")!;
     expect(runSpan.durationMs).toBe(60000);
   });
+
+  it("should produce a linked external run span for workflow capability events", () => {
+    const events = [
+      ev({ type: "run.created", sequence: 1 }),
+      ev({
+        type: "external_run.created",
+        sequence: 2,
+        payload: {
+          kind: "workflow_capability",
+          capabilityKey: "http_download",
+          capabilityRunId: "caprun_1",
+          toolCallId: "tc_1",
+          correlationId: "corr_1",
+        },
+      }),
+      ev({
+        type: "external_run.completed",
+        sequence: 3,
+        payload: {
+          kind: "workflow_capability",
+          capabilityKey: "http_download",
+          capabilityRunId: "caprun_1",
+          toolCallId: "tc_1",
+          correlationId: "corr_1",
+        },
+      }),
+    ];
+
+    const spans = projectTraceSpans(events);
+    const externalSpan = spans.find((span) => span.kind === "external_run");
+
+    expect(externalSpan).toBeDefined();
+    expect(externalSpan!.status).toBe("completed");
+    expect(externalSpan!.refs?.externalRunId).toBe("caprun_1");
+    expect(externalSpan!.refs?.capabilityKey).toBe("http_download");
+  });
 });

@@ -5,7 +5,7 @@ import type { AgentStreamEvent } from "@aithru/agent-stream";
 
 export type AgentTraceSpanKind =
   | "run" | "message" | "model" | "tool" | "approval"
-  | "workspace" | "artifact" | "subagent" | "sandbox" | "memory" | "system";
+  | "workspace" | "artifact" | "external_run" | "subagent" | "sandbox" | "memory" | "system";
 
 export type AgentTraceSpanStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -26,6 +26,10 @@ export type AgentTraceSpan = {
     approvalId?: string;
     artifactId?: string;
     workspacePath?: string;
+    externalKind?: "workflow_capability";
+    externalRunId?: string;
+    capabilityKey?: string;
+    correlationId?: string;
   };
   metrics?: {
     inputTokens?: number;
@@ -152,6 +156,50 @@ export function projectTraceSpans(events: AgentStreamEvent[]): AgentTraceSpan[] 
       case "approval.resolved": {
         const aIdRes = (event.payload as { approvalId?: string }).approvalId ?? "unknown";
         closeSpan(openSpans, spans, `${event.runId}:approval:${aIdRes}`, "completed", event);
+        break;
+      }
+
+      // ── External run references ────────────────────────────────────────
+      case "external_run.created": {
+        const payload = event.payload as {
+          kind?: "workflow_capability";
+          capabilityKey?: string;
+          capabilityRunId?: string;
+          correlationId?: string;
+        };
+        const externalRunId = payload.capabilityRunId ?? "unknown";
+        spans.push({
+          id: `${event.runId}:external:${externalRunId}`,
+          traceId,
+          runId: event.runId,
+          kind: "external_run",
+          name: payload.capabilityKey ?? "Workflow Capability",
+          status: "running",
+          startedAt: event.timestamp,
+          eventIds: [event.id],
+          parentSpanId: `${event.runId}:run`,
+          refs: {
+            externalKind: payload.kind ?? "workflow_capability",
+            externalRunId,
+            capabilityKey: payload.capabilityKey,
+            correlationId: payload.correlationId,
+          },
+          redaction: event.redaction,
+        });
+        openSpans.set(`${event.runId}:external:${externalRunId}`, spans[spans.length - 1]!);
+        break;
+      }
+      case "external_run.completed":
+      case "external_run.failed":
+      case "external_run.cancelled": {
+        const payload = event.payload as { capabilityRunId?: string };
+        const externalRunId = payload.capabilityRunId ?? "unknown";
+        const status = event.type === "external_run.completed"
+          ? "completed"
+          : event.type === "external_run.cancelled"
+            ? "cancelled"
+            : "failed";
+        closeSpan(openSpans, spans, `${event.runId}:external:${externalRunId}`, status, event);
         break;
       }
 
