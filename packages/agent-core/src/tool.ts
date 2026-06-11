@@ -1,18 +1,27 @@
 import type { ToolCallId, SubagentRunId, TodoId, ArtifactId, ApprovalId } from "./ids.js";
 
-export type AgentToolKind =
-  | "core_tool"
-  | "core_node"
-  | "workbench_workflow"
-  | "subsystem_api"
-  | "workspace"
-  | "memory"
-  | "sandbox"
-  | "mcp";
+export type AgentToolKind = "local_tool" | "workflow_capability";
 
 export type AgentToolRiskLevel = "safe" | "read" | "write" | "dangerous";
 
 export type AgentToolApprovalPolicy = "never" | "on_risk" | "always";
+
+export type AgentExternalRunRef = {
+  kind: "workflow_capability";
+  capabilityKey: string;
+  capabilityVersion?: string;
+  capabilityRunId: string;
+  status:
+    | "queued"
+    | "running"
+    | "waiting_approval"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  approvalId?: string;
+  correlationId?: string;
+  traceId?: string;
+};
 
 export type AgentToolDescriptor = {
   name: string;
@@ -29,7 +38,13 @@ export type AgentToolDescriptor = {
     icon?: string;
     category?: string;
   };
-  metadata?: Record<string, unknown>;
+  metadata?: {
+    provider?: "workspace" | "artifact" | "test";
+    capabilityKey?: string;
+    capabilityVersion?: string;
+    externalApprovalOwner?: "workflow";
+    [key: string]: unknown;
+  };
 };
 
 export type AgentToolCallRequest = {
@@ -40,7 +55,7 @@ export type AgentToolCallRequest = {
   requestedBy: "model" | "harness" | "subagent" | "user" | "system";
   subagentRunId?: SubagentRunId;
   todoId?: TodoId;
-  /** Set true only by the harness after a pending approval is resolved. */
+  /** Set true only by the harness after a pending Agent-owned approval is resolved. */
   alreadyApproved?: boolean;
 };
 
@@ -55,6 +70,7 @@ export type AgentToolCallResult = {
     operation: "created" | "updated" | "deleted";
   }>;
   approvalId?: ApprovalId;
+  externalRun?: AgentExternalRunRef;
   error?: {
     code: string;
     message: string;

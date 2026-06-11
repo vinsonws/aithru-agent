@@ -52,6 +52,7 @@ export type {
   AgentToolRiskLevel,
   AgentToolApprovalPolicy,
   AgentToolDescriptor,
+  AgentExternalRunRef,
   AgentToolCallRequest,
   AgentToolCallResult,
 } from "./tool.js";
