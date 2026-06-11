@@ -29,6 +29,67 @@ export async function* emitToolResult(
     }
   }
 
+  if (toolResult.externalRun) {
+    yield await writer.write(ev({
+      runId,
+      threadId,
+      type: "external_run.created",
+      source: { kind: "external" },
+      redaction: toolResult.redaction,
+      payload: {
+        kind: toolResult.externalRun.kind,
+        capabilityKey: toolResult.externalRun.capabilityKey,
+        capabilityVersion: toolResult.externalRun.capabilityVersion,
+        capabilityRunId: toolResult.externalRun.capabilityRunId,
+        toolCallId,
+        toolName,
+        status: toolResult.externalRun.status,
+        approvalId: toolResult.externalRun.approvalId,
+        correlationId: toolResult.externalRun.correlationId,
+        traceId: toolResult.externalRun.traceId,
+      },
+    }));
+
+    if (toolResult.status === "completed") {
+      yield await writer.write(ev({
+        runId,
+        threadId,
+        type: "external_run.completed",
+        source: { kind: "external" },
+        redaction: toolResult.redaction,
+        payload: {
+          kind: toolResult.externalRun.kind,
+          capabilityKey: toolResult.externalRun.capabilityKey,
+          capabilityRunId: toolResult.externalRun.capabilityRunId,
+          toolCallId,
+          toolName,
+          status: "completed",
+          correlationId: toolResult.externalRun.correlationId,
+        },
+      }));
+    }
+
+    if (toolResult.status === "failed") {
+      yield await writer.write(ev({
+        runId,
+        threadId,
+        type: "external_run.failed",
+        source: { kind: "external" },
+        redaction: toolResult.redaction,
+        payload: {
+          kind: toolResult.externalRun.kind,
+          capabilityKey: toolResult.externalRun.capabilityKey,
+          capabilityRunId: toolResult.externalRun.capabilityRunId,
+          toolCallId,
+          toolName,
+          status: "failed",
+          correlationId: toolResult.externalRun.correlationId,
+          error: toolResult.error,
+        },
+      }));
+    }
+  }
+
   if (toolResult.status === "completed" && toolResult.output) {
     yield await writer.write(ev({
       runId, threadId, type: "artifact.created", source: { kind: "harness" },

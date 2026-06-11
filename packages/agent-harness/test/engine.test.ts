@@ -10,7 +10,7 @@ import {
   InMemoryAgentEventBus,
 } from "@aithru/agent-stream";
 import { InMemoryWorkspaceProvider } from "@aithru/agent-workspace";
-import { StaticCapabilityRouter, WorkspaceToolAdapter, FakeSearchToolAdapter } from "@aithru/agent-tools";
+import { StaticCapabilityRouter, WorkspaceToolAdapter } from "@aithru/agent-tools";
 import type { AgentSkill, OrgId, SkillId, UserId, RunId } from "@aithru/agent-core";
 import type { AgentSkillManifest } from "@aithru/agent-skills";
 
@@ -24,7 +24,6 @@ function createTestPorts(): AgentHarnessEnginePorts & {
   const workspaceProvider = new InMemoryWorkspaceProvider();
   const capabilityRouter = new StaticCapabilityRouter([
     new WorkspaceToolAdapter(workspaceProvider),
-    new FakeSearchToolAdapter(),
   ]);
 
   const skillResolver: AgentSkillResolver = {
@@ -46,6 +45,50 @@ function createTestPorts(): AgentHarnessEnginePorts & {
     model,
     eventBus: bus,
     eventStore,
+  };
+}
+
+function createWorkflowCapabilityRouter(resultStatus: "completed" | "failed" | "waiting_approval") {
+  const descriptor = {
+    name: "workflow.http_download",
+    description: "Download through Workflow.",
+    kind: "workflow_capability" as const,
+    requiredScopes: ["workflow.capability.invoke.http_download"],
+    riskLevel: "read" as const,
+    approvalPolicy: "never" as const,
+    metadata: {
+      capabilityKey: "http_download",
+      capabilityVersion: "0.1.0",
+      externalApprovalOwner: "workflow" as const,
+    },
+  };
+
+  return {
+    async listTools() {
+      return [descriptor];
+    },
+    async prepareToolCall() {
+      return { status: "ready" as const, descriptor, redaction: "none" as const };
+    },
+    async executeToolCall(request: any) {
+      return {
+        id: request.id,
+        toolName: request.toolName,
+        status: resultStatus,
+        output: resultStatus === "completed" ? { status: 200 } : undefined,
+        error: resultStatus === "failed" ? { code: "TOOL_FAILED", message: "download failed" } : undefined,
+        externalRun: {
+          kind: "workflow_capability" as const,
+          capabilityKey: "http_download",
+          capabilityVersion: "0.1.0",
+          capabilityRunId: "caprun_1",
+          status: resultStatus,
+          approvalId: resultStatus === "waiting_approval" ? "capapproval_1" : undefined,
+          correlationId: "corr_1",
+        },
+        redaction: "partial" as const,
+      };
+    },
   };
 }
 
@@ -510,6 +553,38 @@ describe("NativeHarnessEngine", () => {
     const rcIdx = phase2Types.indexOf("run.completed");
     expect(mcIdx).toBeLessThan(rcIdx);
     expect(phase2Types.indexOf("todo.completed")).toBeGreaterThan(mcIdx);
+  });
+
+  it("should emit external run events for completed workflow capability tools", async () => {
+    const ports = createTestPorts();
+    ports.capabilityRouter = createWorkflowCapabilityRouter("completed") as any;
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workflow.http_download", input: { url: "https://example.com" } },
+      { type: "finish" },
+    ]);
+    const engine = new NativeHarnessEngine(ports);
+
+    const events = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Download a URL",
+      scopes: ["workflow.capability.invoke.http_download"],
+    })) {
+      events.push(event);
+    }
+
+    const types = events.map((event) => event.type);
+    expect(types).toContain("external_run.created");
+    expect(types).toContain("external_run.completed");
+    expect(types).toContain("tool.completed");
+    expect(events.find((event) => event.type === "external_run.created")?.payload).toEqual(
+      expect.objectContaining({
+        kind: "workflow_capability",
+        capabilityKey: "http_download",
+        capabilityRunId: "caprun_1",
+      }),
+    );
   });
 
   it("resume should fail for unknown run and emit through EventWriter", async () => {
