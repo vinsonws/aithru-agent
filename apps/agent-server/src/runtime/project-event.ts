@@ -114,6 +114,16 @@ export function projectEventIntoStore(event: AgentStreamEvent, store: AgentServe
       break;
     }
 
+    case "external_approval.requested":
+    case "external_approval.resolved":
+    case "external_run.created":
+    case "external_run.updated":
+    case "external_run.completed":
+    case "external_run.failed":
+    case "external_run.cancelled": {
+      break;
+    }
+
     default:
       // Other events (message.*, todo.*, model.*, tool.*, workspace.*, artifact.*)
       // are not projected into the server store in this phase.

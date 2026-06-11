@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { Server } from "node:http";
 import { createAgentServerRuntime } from "../runtime/create-agent-server-runtime.js";
 import { createAgentHttpServer } from "../server/create-agent-http-server.js";
+import { projectEventIntoStore } from "../runtime/project-event.js";
 import type { AgentStreamEvent } from "@aithru/agent-stream";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -351,6 +352,41 @@ describe("agent-server", () => {
     expect(run.actorUserId).toBe("user_test_99");
     expect(run.threadId).toBe(threadId);
     expect(run.skillId).toBe("skill_test_1");
+  });
+
+  // ── Test: External approvals not projected into Agent approvals ─────────
+
+  it("should not project workflow-owned external approvals into Agent approvals", async () => {
+    const rt = createAgentServerRuntime();
+    projectEventIntoStore({
+      id: "run_external:1" as any,
+      runId: "run_external" as any,
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+      type: "run.created",
+      source: { kind: "harness" },
+      visibility: "user",
+      redaction: "none",
+      payload: { workspaceId: "ws_external", orgId: "org_1", actorUserId: "user_1", goal: "External" },
+    }, rt.store);
+    projectEventIntoStore({
+      id: "run_external:2" as any,
+      runId: "run_external" as any,
+      sequence: 2,
+      timestamp: new Date().toISOString(),
+      type: "external_approval.requested",
+      source: { kind: "external" },
+      visibility: "user",
+      redaction: "partial",
+      payload: {
+        kind: "workflow_capability",
+        capabilityRunId: "caprun_1",
+        approvalId: "capapproval_1",
+      },
+    }, rt.store);
+
+    const approvals = await rt.store.listApprovals();
+    expect(approvals).toEqual([]);
   });
 
   // ── Test 10: Cancel paused run ──────────────────────────────────────────
