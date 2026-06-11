@@ -38,14 +38,6 @@ export type AgentHttpContext = {
     },
   ): Promise<void>;
 
-  registerResource?(input: {
-    orgId: string;
-    resourceType: string;
-    resourceId: string;
-    displayName: string;
-    ownerUserId?: string;
-    metadata?: Record<string, unknown>;
-  }): Promise<void>;
 };
 
 export function createStandaloneContext(): AgentHttpContext {
@@ -57,6 +49,5 @@ export function createStandaloneContext(): AgentHttpContext {
     },
     auditSuccess: undefined,
     auditFailure: undefined,
-    registerResource: undefined,
   };
 }

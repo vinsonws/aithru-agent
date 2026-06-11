@@ -225,18 +225,6 @@ async function handleCreateThread(
     title,
   });
 
-  // Resource registration in platform mode
-  if (ctx.registerResource) {
-    await ctx.registerResource({
-      orgId,
-      resourceType: "thread",
-      resourceId: thread.id,
-      displayName: thread.title,
-      ownerUserId,
-      metadata: { status: thread.status },
-    }).catch((err) => warnBestEffortFailure("registerResource(thread)", err));
-  }
-
   // Audit in platform mode
   if (ctx.auditSuccess) {
     await ctx.auditSuccess("agent.thread.create", {
@@ -355,18 +343,6 @@ async function handleCreateRun(
     skillId: skillId as any,
     scopes,
   });
-
-  // Resource registration in platform mode
-  if (ctx.registerResource) {
-    await ctx.registerResource({
-      orgId,
-      resourceType: "run",
-      resourceId: runId,
-      displayName: goal.slice(0, 80),
-      ownerUserId: actorUserId,
-      metadata: { status: "queued", threadId: threadId ?? null, skillId: skillId ?? null },
-    }).catch((err) => warnBestEffortFailure("registerResource(run)", err));
-  }
 
   // Audit in platform mode
   if (ctx.auditSuccess) {

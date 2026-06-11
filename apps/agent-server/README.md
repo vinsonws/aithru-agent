@@ -1,6 +1,6 @@
 # @aithru/agent-server
 
-Phase 3 server host for Aithru Agent Harness.
+Phase 3 / Phase 4a server host for Aithru Agent Harness.
 
 This is a dev server with in-memory-only state. Do not expose to public networks.
 
@@ -83,26 +83,39 @@ GET  /api/agent/approvals/:approvalId
 POST /api/agent/approvals/:approvalId/resolve
 ```
 
-Environment variables:
+#### Required environment variables
 
-| Variable | Default |
-|----------|---------|
-| `PORT` | `4317` |
-| `AITHRU_AGENT_SERVER_PORT` | `4317` (fallback) |
-| `AITHRU_PLATFORM_URL` | `http://localhost:8080` |
-| `AITHRU_ISSUER` | `http://localhost:8080` |
-| `AITHRU_APP_KEY` | `agent` |
-| `AITHRU_SERVICE_NAME` | `agent-api` |
-| `AITHRU_SERVICE_VERSION` | `0.2.0-alpha.0` |
-| `AITHRU_CLIENT_ID` | `agent-client` |
-| `AITHRU_CLIENT_SECRET` | `agent-secret` |
-| `AITHRU_AUDIENCE` | `agent` |
-| `AITHRU_PUBLIC_BASE_URL` | `http://localhost:4317` |
-| `AITHRU_INTERNAL_BASE_URL` | `http://localhost:4317` |
-| `AITHRU_HEALTH_URL` | `http://localhost:4317/health` |
-| `AITHRU_MANIFEST_LOCATION` | `apps/agent-server/aithru-app.yml` |
-| `AITHRU_REGISTRATION_ENABLED` | `true` |
-| `AITHRU_FAIL_ON_REGISTRATION_ERROR` | `false` (for local dev) |
+Every production subsystem must be configurable through these five variables:
+
+| Variable | Default | Used for |
+|----------|---------|----------|
+| `AITHRU_PLATFORM_URL` | `http://localhost:8080` | Platform backend — JWKS, authz, audit, manifest registration, token APIs |
+| `AITHRU_APP_KEY` | `agent` | Subsystem app identity — permission namespace, token audience, manifest path |
+| `AITHRU_CLIENT_SECRET` | `agent-secret` | Service client secret for Platform internal API auth |
+| `AITHRU_PUBLIC_BASE_URL` | `http://localhost:PORT` | Browser-reachable subsystem URL — portal iframe loading |
+| `AITHRU_INTERNAL_BASE_URL` | `http://localhost:PORT` | Platform/service-reachable subsystem URL — health checks, routing |
+
+#### Convention-derived overrides
+
+| Variable | Default | Used for |
+|----------|---------|----------|
+| `AITHRU_ISSUER` | `AITHRU_PLATFORM_URL` | JWT `iss` validation |
+| `AITHRU_AUDIENCE` | `AITHRU_APP_KEY` | JWT `aud` validation |
+| `AITHRU_CLIENT_ID` | `${AITHRU_APP_KEY}-client` | Service client id paired with `AITHRU_CLIENT_SECRET` |
+| `AITHRU_SERVICE_NAME` | `${AITHRU_APP_KEY}-api` | Audit source, tracing, optional service policy matching |
+| `AITHRU_HEALTH_URL` | `${AITHRU_INTERNAL_BASE_URL}/health` | Platform health checks |
+
+#### Optional behavior controls
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` / `AITHRU_AGENT_SERVER_PORT` | `4317` | HTTP listen port |
+| `AITHRU_SERVICE_VERSION` | `0.2.0-alpha.0` | Runtime/audit/debug metadata |
+| `AITHRU_MANIFEST_LOCATION` | `apps/agent-server/aithru-app.yml` | Manifest file path |
+| `AITHRU_REGISTRATION_ENABLED` | `true` | Auto-register manifest at startup |
+| `AITHRU_FAIL_ON_REGISTRATION_ERROR` | `true` | Fail startup on manifest registration failure (set `false` for local dev) |
+
+The config never accepts user, organization, session, or grant identity — runtime identity comes only from verified Platform-issued JWTs.
 
 #### SDK dependency setup
 
@@ -131,15 +144,24 @@ npm link @aithru/subsystem-sdk-node
 
 Before running platform mode, create in the Aithru Platform:
 
-1. **App record**: key = `agent`
-2. **Service client**: `agent-client` with scopes:
-   - `manifest.register`
-   - `resource.register`
-   - `audit.write`
-   - `runtime.report`
-   - `authz.check`
-3. **App grants** for the test user with `agent.operator` or equivalent role
-4. **Service policy** for agent-server if calling other subsystems
+1. **App record**: `POST /api/admin/apps` — key = `agent`, name = `Aithru Agent`, integration mode = `iframe`
+2. **Service client**: `POST /api/admin/apps/{appId}/service-clients` with scopes:
+   - `manifest.register` — required for manifest registration
+   - `audit.write` — required for audit event reporting
+3. **User grants**: `POST /api/admin/app-user-context-grants` for test users:
+   - `app_access` grant for portal entry
+   - `agent.viewer` / `agent.operator` / `agent.admin` role grants as needed
+4. **Service policy**: `POST /api/admin/service-policies` only if agent-server calls other subsystems
+
+Do not create `app-grants` grants or resource registry entries — `POST /api/admin/app-grants` and
+`/api/internal/apps/{appKey}/resources` are removed endpoints.
+
+Agent business resources (threads, runs, workspaces, skills, artifacts) are owned by Agent, not
+registered with Platform. Platform manages app identity, org context, tokens, scopes, grants,
+connection policies, and audit.
+
+The hosted frontend (`/` route) is a minimal iframe placeholder. A complete `agent-web` hosted app
+will be built separately.
 
 ## API
 
@@ -254,15 +276,16 @@ In platform mode, each API endpoint requires a specific scope:
 
 - **Permissions**: view, thread read/write, run create/read/cancel, approval read/resolve, workspace read/write, skill read/write, tool use
 - **Roles**: viewer, operator, admin
-- **Resource types**: thread, run, workspace, skill, artifact
+- No platform resource types — Agent business resources are owned by Agent
 
 ## Platform mode behavior
 
 - **CurrentActor**: extracted from JWT by SDK middleware, mapped to AgentHttpActor
 - **Run identity**: orgId, actorUserId, scopes come from CurrentActor, never from request body
-- **Resource registration**: creating threads and runs registers them as platform resources
 - **Audit**: run creation, run cancellation, and approval resolution produce audit events
 - **Fail closed**: missing actor fields (orgId, userId) return 403; missing scopes return 403
+- **No resource registration**: Agent threads, runs, workspaces, skills, and artifacts are Agent business resources — Platform is not a resource registry
+- **Scope boundary**: requires `agent.*` scopes via `requireScope()` — app/org/group context helper not yet implemented; see [SDK README](../../../aithru-platform/subsystem-sdks/README.md) for future `requireAppPermission()` support
 
 ## Verification commands
 

@@ -78,15 +78,5 @@ export function createPlatformAgentHttpContext(
       await builder.send();
     },
 
-    async registerResource(resource: {
-      orgId: string;
-      resourceType: string;
-      resourceId: string;
-      displayName: string;
-      ownerUserId?: string;
-      metadata?: Record<string, unknown>;
-    }): Promise<void> {
-      await aithru.registry().registerResource(resource);
-    },
   };
 }

@@ -87,14 +87,3 @@ roles:
       - agent.skill.write
       - agent.tool.use
 
-resourceTypes:
-  - key: thread
-    name: Agent Thread
-  - key: run
-    name: Agent Run
-  - key: workspace
-    name: Agent Workspace
-  - key: skill
-    name: Agent Skill
-  - key: artifact
-    name: Agent Artifact

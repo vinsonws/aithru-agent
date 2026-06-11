@@ -4,6 +4,7 @@ import { createAgentServerRuntime } from "../runtime/create-agent-server-runtime
 import { createAgentHttpServer } from "../server/create-agent-http-server.js";
 import { handleRequest } from "../server/routes.js";
 import type { AgentHttpContext } from "../server/context.js";
+import { loadPlatformConfig } from "../platform/config.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -25,7 +26,6 @@ function createFakePlatformContext(overrides?: {
   userId?: string;
   scopes?: string[];
   requireScope?: (scope: string) => void | Promise<void>;
-  registerResource?: (input: Record<string, unknown>) => void;
   auditSuccess?: (action: string, input?: Record<string, unknown>) => void;
   auditFailure?: (action: string, input?: Record<string, unknown>) => void;
 }): AgentHttpContext {
@@ -71,20 +71,119 @@ function createFakePlatformContext(overrides?: {
         overrides.auditFailure(action, _input as Record<string, unknown>);
       }
     },
-    async registerResource(input: {
-      orgId: string;
-      resourceType: string;
-      resourceId: string;
-      displayName: string;
-      ownerUserId?: string;
-      metadata?: Record<string, unknown>;
-    }): Promise<void> {
-      if (overrides?.registerResource) {
-        overrides.registerResource(input as Record<string, unknown>);
-      }
-    },
   };
 }
+
+// ── Config tests ──────────────────────────────────────────────────────────
+
+describe("platform-config", () => {
+  const OLD_ENV = process.env;
+
+  function isolateEnv(): void {
+    // Create a fresh env copy for each test
+    process.env = { ...OLD_ENV };
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("AITHRU_")) {
+        delete process.env[key];
+      }
+    }
+    delete process.env.PORT;
+  }
+
+  function restoreEnv(): void {
+    process.env = OLD_ENV;
+  }
+
+  it("should derive defaults from five required vars", () => {
+    isolateEnv();
+    try {
+      process.env.AITHRU_PLATFORM_URL = "https://platform.example.com";
+      process.env.AITHRU_APP_KEY = "my-agent";
+      process.env.AITHRU_CLIENT_SECRET = "sec_ret";
+      process.env.AITHRU_PUBLIC_BASE_URL = "https://agent.example.com";
+      process.env.AITHRU_INTERNAL_BASE_URL = "http://agent.internal:9000";
+
+      const cfg = loadPlatformConfig();
+
+      expect(cfg.platformUrl).toBe("https://platform.example.com");
+      expect(cfg.appKey).toBe("my-agent");
+      expect(cfg.clientSecret).toBe("sec_ret");
+      expect(cfg.publicBaseUrl).toBe("https://agent.example.com");
+      expect(cfg.internalBaseUrl).toBe("http://agent.internal:9000");
+
+      expect(cfg.issuer).toBe("https://platform.example.com");
+      expect(cfg.audience).toBe("my-agent");
+      expect(cfg.clientId).toBe("my-agent-client");
+      expect(cfg.serviceName).toBe("my-agent-api");
+      expect(cfg.healthUrl).toBe("http://agent.internal:9000/health");
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("should allow overrides for convention-derived values", () => {
+    isolateEnv();
+    try {
+      process.env.AITHRU_PLATFORM_URL = "https://platform.example.com";
+      process.env.AITHRU_APP_KEY = "my-agent";
+      process.env.AITHRU_CLIENT_SECRET = "sec_ret";
+      process.env.AITHRU_PUBLIC_BASE_URL = "https://agent.example.com";
+      process.env.AITHRU_INTERNAL_BASE_URL = "http://agent.internal:9000";
+      process.env.AITHRU_ISSUER = "https://custom-issuer.example.com";
+      process.env.AITHRU_AUDIENCE = "custom-aud";
+      process.env.AITHRU_CLIENT_ID = "custom-client";
+      process.env.AITHRU_SERVICE_NAME = "custom-service";
+      process.env.AITHRU_HEALTH_URL = "https://hc.example.com/ok";
+
+      const cfg = loadPlatformConfig();
+
+      expect(cfg.issuer).toBe("https://custom-issuer.example.com");
+      expect(cfg.audience).toBe("custom-aud");
+      expect(cfg.clientId).toBe("custom-client");
+      expect(cfg.serviceName).toBe("custom-service");
+      expect(cfg.healthUrl).toBe("https://hc.example.com/ok");
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("should default failOnRegistrationError to true", () => {
+    isolateEnv();
+    try {
+      process.env.AITHRU_PLATFORM_URL = "http://localhost:8080";
+      process.env.AITHRU_APP_KEY = "agent";
+      process.env.AITHRU_CLIENT_SECRET = "secret";
+      process.env.AITHRU_PUBLIC_BASE_URL = "http://localhost:4317";
+      process.env.AITHRU_INTERNAL_BASE_URL = "http://localhost:4317";
+
+      const cfg = loadPlatformConfig();
+      expect(cfg.failOnRegistrationError).toBe(true);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("should not accept user/org/session/grant identity through config", () => {
+    isolateEnv();
+    try {
+      process.env.AITHRU_PLATFORM_URL = "http://localhost:8080";
+      process.env.AITHRU_APP_KEY = "agent";
+      process.env.AITHRU_CLIENT_SECRET = "secret";
+      process.env.AITHRU_PUBLIC_BASE_URL = "http://localhost:4317";
+      process.env.AITHRU_INTERNAL_BASE_URL = "http://localhost:4317";
+
+      const cfg = loadPlatformConfig();
+
+      const keys = Object.keys(cfg);
+      expect(keys).not.toContain("userId");
+      expect(keys).not.toContain("orgId");
+      expect(keys).not.toContain("sessionId");
+      expect(keys).not.toContain("grantId");
+    } finally {
+      restoreEnv();
+    }
+  });
+});
 
 // ── Suite ──────────────────────────────────────────────────────────────────
 
@@ -357,10 +456,10 @@ describe("platform-context", () => {
     expect(result.actor).toBeNull();
   });
 
-  // ── Test E: Resource registration callback ───────────────────────────────
+  // ── Test E: Platform create thread/run does NOT call resource registry ────
 
-  it("platform should call registerResource on create thread", async () => {
-    const calledResources: Record<string, unknown>[] = [];
+  it("platform should not call registerResource on create thread", async () => {
+    let registerCalled = false;
 
     const { promise, resolve } = createPromiseWithResolvers<{ statusCode: number; body: unknown }>();
     const req = createMockRequest("POST", "/threads", {
@@ -371,24 +470,19 @@ describe("platform-context", () => {
     });
 
     const ctx = createFakePlatformContext({
-      registerResource(input: Record<string, unknown>) {
-        calledResources.push(input);
-      },
+      // No registerResource override — the old code path no longer exists
     });
 
     await handleRequest(req, res, rt, ctx);
     const result = await promise;
 
     expect(result.statusCode).toBe(201);
-    expect(calledResources.length).toBeGreaterThanOrEqual(1);
-    const resource = calledResources[0]!;
-    expect(resource.resourceType).toBe("thread");
-    expect(resource.orgId).toBe("org_from_token");
-    expect(resource.ownerUserId).toBe("user_from_token");
+    // This test passes if it doesn't throw — registerResource is not part of the context
+    expect(registerCalled).toBe(false);
   });
 
-  it("platform should call registerResource on create run", async () => {
-    const calledResources: Record<string, unknown>[] = [];
+  it("platform should not call registerResource on create run", async () => {
+    let registerCalled = false;
 
     const { promise, resolve } = createPromiseWithResolvers<{ statusCode: number; body: unknown }>();
     const req = createMockRequest("POST", "/runs", {
@@ -399,20 +493,14 @@ describe("platform-context", () => {
     });
 
     const ctx = createFakePlatformContext({
-      registerResource(input: Record<string, unknown>) {
-        calledResources.push(input);
-      },
+      // No registerResource override — the old code path no longer exists
     });
 
     await handleRequest(req, res, rt, ctx);
     const result = await promise;
 
     expect(result.statusCode).toBe(201);
-    expect(calledResources.length).toBeGreaterThanOrEqual(1);
-    const resource = calledResources[0]!;
-    expect(resource.resourceType).toBe("run");
-    expect(resource.orgId).toBe("org_from_token");
-    expect(resource.ownerUserId).toBe("user_from_token");
+    expect(registerCalled).toBe(false);
   });
 
   // ── Test F: Audit callback called ────────────────────────────────────────

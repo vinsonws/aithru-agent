@@ -62,27 +62,10 @@ declare module "@aithru/subsystem-sdk-node" {
     requireScope(permission: string): void;
     requireResourcePermission(action: string, resourceType: string, resourceId: string): Promise<void>;
     check(action: string, resourceType?: string, resourceId?: string): Promise<boolean>;
-    resourceFilter(targetApp: string, action: string, resourceType: string): Promise<string[]>;
-  }
-
-  export interface ResourceRef {
-    orgId: string;
-    resourceType: string;
-    resourceId: string;
-    displayName: string;
-    ownerUserId?: string;
-    metadata?: Record<string, unknown>;
-  }
-
-  export interface RegisteredResourceRef extends ResourceRef {
-    id: string;
   }
 
   export interface AithruRegistry {
     registerManifest(location?: string): Promise<void>;
-    registerResource(ref: ResourceRef): Promise<RegisteredResourceRef>;
-    updateResource(ref: ResourceRef): Promise<RegisteredResourceRef>;
-    deleteResource(resourceType: string, resourceId: string): Promise<void>;
   }
 
   export interface AithruAudit {
