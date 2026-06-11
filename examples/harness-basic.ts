@@ -18,7 +18,6 @@ import { InMemoryWorkspaceProvider } from "@aithru/agent-workspace";
 import {
   StaticCapabilityRouter,
   WorkspaceToolAdapter,
-  FakeSearchToolAdapter,
 } from "@aithru/agent-tools";
 import {
   NativeHarnessEngine,
@@ -55,11 +54,10 @@ async function main() {
 
   // 4. Create tool adapters
   const workspaceTools = new WorkspaceToolAdapter(workspaceProvider);
-  const fakeSearch = new FakeSearchToolAdapter();
   console.log("✓ Tool adapters created");
 
   // 5. Create capability router
-  const capabilityRouter = new StaticCapabilityRouter([workspaceTools, fakeSearch]);
+  const capabilityRouter = new StaticCapabilityRouter([workspaceTools]);
   console.log("✓ Capability router created");
 
   // 6. Create skill resolver (minimal)

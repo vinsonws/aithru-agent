@@ -7,7 +7,6 @@ import { InMemoryWorkspaceProvider } from "@aithru/agent-workspace";
 import {
   StaticCapabilityRouter,
   WorkspaceToolAdapter,
-  FakeSearchToolAdapter,
 } from "@aithru/agent-tools";
 import type { AgentSkillResolver } from "@aithru/agent-harness";
 import type { AgentSkillManifest } from "@aithru/agent-skills";
@@ -44,7 +43,6 @@ export function createAgentServerRuntime(): AgentServerRuntime {
 
   const capabilityRouter = new StaticCapabilityRouter([
     new WorkspaceToolAdapter(workspaceProvider),
-    new FakeSearchToolAdapter(),
   ]);
 
   const skillResolver: AgentSkillResolver = {

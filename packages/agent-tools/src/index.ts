@@ -8,6 +8,7 @@ import type {
   OrgId,
   UserId,
   ToolCallId,
+  AgentExternalRunRef,
 } from "@aithru/agent-core";
 import type { AgentWorkspaceProvider, WriteWorkspaceFileInput } from "@aithru/agent-workspace";
 
@@ -30,6 +31,63 @@ export type AgentRunContext = {
   requestId?: string;
   traceId?: string;
 };
+
+// ── Workflow capability types ────────────────────────────────────────────────
+
+export type WorkflowCapabilityDescriptor = {
+  key: string;
+  version: string;
+  displayName: string;
+  description: string;
+  agentToolName: string;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
+  riskLevel: AgentToolDescriptor["riskLevel"];
+  requiredScopes: string[];
+  approvalPolicy: AgentToolDescriptor["approvalPolicy"];
+};
+
+export type CreateWorkflowCapabilityRunInput = {
+  capabilityKey: string;
+  input: unknown;
+  source: {
+    kind: "agent_tool_call";
+    agentRunId: string;
+    toolCallId: string;
+  };
+  actor: {
+    mode: "delegated_user" | "service";
+    userId?: string;
+    orgId: string;
+  };
+  purpose: string;
+};
+
+export type WorkflowCapabilityRunResult = {
+  runId: string;
+  status: "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled";
+  output?: unknown;
+  approvalId?: string;
+  error?: { code: string; message: string; retryable?: boolean };
+  correlationId?: string;
+  traceId?: string;
+};
+
+export type WorkflowCapabilityRun = WorkflowCapabilityRunResult;
+
+export type ResolveWorkflowCapabilityApprovalInput = {
+  capabilityRunId: string;
+  approvalId: string;
+  decision: "approved" | "rejected";
+  comment?: string;
+};
+
+export interface WorkflowCapabilityClient {
+  listCapabilities(): Promise<WorkflowCapabilityDescriptor[]>;
+  createCapabilityRun(input: CreateWorkflowCapabilityRunInput): Promise<WorkflowCapabilityRunResult>;
+  getCapabilityRun(runId: string): Promise<WorkflowCapabilityRun>;
+  resolveCapabilityApproval(input: ResolveWorkflowCapabilityApprovalInput): Promise<void>;
+}
 
 // ── Prepare result type ────────────────────────────────────────────────────
 
@@ -54,12 +112,24 @@ export type AgentToolPrepareResult =
 
 // ── Adapter interface ───────────────────────────────────────────────────────
 
+export type ResolveExternalApprovalInput = {
+  toolName: string;
+  externalRun: NonNullable<AgentToolCallResult["externalRun"]>;
+  approvalId: string;
+  decision: "approved" | "rejected";
+  comment?: string;
+};
+
 export interface AgentToolAdapter {
   kind: AgentToolKind;
   listTools(context: AgentRunContext): Promise<AgentToolDescriptor[]>;
   callTool(
     request: AgentToolCallRequest,
     descriptor: AgentToolDescriptor,
+    context: AgentRunContext,
+  ): Promise<AgentToolCallResult>;
+  resolveExternalApproval?(
+    input: ResolveExternalApprovalInput,
     context: AgentRunContext,
   ): Promise<AgentToolCallResult>;
 }
@@ -92,6 +162,11 @@ export interface AithruCapabilityRouter {
    */
   callTool(
     request: AgentToolCallRequest,
+    context: AgentRunContext,
+  ): Promise<AgentToolCallResult>;
+
+  resolveExternalApproval?(
+    input: ResolveExternalApprovalInput,
     context: AgentRunContext,
   ): Promise<AgentToolCallResult>;
 }
@@ -163,7 +238,8 @@ export class StaticCapabilityRouter implements AithruCapabilityRouter {
       };
     }
 
-    if (needsApproval(found.descriptor, request)) {
+    // Workflow capabilities handle their own approval — skip Agent-owned check.
+    if (found.descriptor.kind !== "workflow_capability" && needsApproval(found.descriptor, request)) {
       return {
         status: "waiting_approval",
         descriptor: found.descriptor,
@@ -205,7 +281,8 @@ export class StaticCapabilityRouter implements AithruCapabilityRouter {
     }
 
     // If the caller is NOT harness-approved but the tool would need approval, block.
-    if (needsApproval(found.descriptor, request)) {
+    // Workflow capabilities handle their own approval — skip for those.
+    if (found.descriptor.kind !== "workflow_capability" && needsApproval(found.descriptor, request)) {
       return {
         id: request.id,
         toolName: request.toolName,
@@ -244,6 +321,27 @@ export class StaticCapabilityRouter implements AithruCapabilityRouter {
       redaction: prepared.redaction,
     };
   }
+
+  async resolveExternalApproval(
+    input: ResolveExternalApprovalInput,
+    context: AgentRunContext,
+  ): Promise<AgentToolCallResult> {
+    const found = await findDescriptor(this.adapters, input.toolName, context);
+    if (!found || !found.adapter.resolveExternalApproval) {
+      return {
+        id: input.externalRun.capabilityRunId as ToolCallId,
+        toolName: input.toolName,
+        status: "failed",
+        error: {
+          code: "TOOL_FAILED",
+          message: `Tool '${input.toolName}' cannot resolve external approvals`,
+        },
+        externalRun: input.externalRun,
+        redaction: "none",
+      };
+    }
+    return found.adapter.resolveExternalApproval(input, context);
+  }
 }
 
 // ── Allowed-tools policy check ──────────────────────────────────────────────
@@ -259,7 +357,7 @@ export function applyAllowedToolsFilter(
 // ── Workspace tool adapter ──────────────────────────────────────────────────
 
 export class WorkspaceToolAdapter implements AgentToolAdapter {
-  readonly kind = "workspace" as AgentToolKind;
+  readonly kind = "local_tool" as AgentToolKind;
 
   constructor(private provider: AgentWorkspaceProvider) {}
 
@@ -268,34 +366,38 @@ export class WorkspaceToolAdapter implements AgentToolAdapter {
       {
         name: "workspace.listFiles",
         description: "List files in the agent workspace",
-        kind: "workspace",
+        kind: "local_tool",
         requiredScopes: ["workspace:read"],
         riskLevel: "safe",
         approvalPolicy: "never",
+        metadata: { provider: "workspace" },
       },
       {
         name: "workspace.readFile",
         description: "Read a file from the agent workspace",
-        kind: "workspace",
+        kind: "local_tool",
         requiredScopes: ["workspace:read"],
         riskLevel: "safe",
         approvalPolicy: "never",
+        metadata: { provider: "workspace" },
       },
       {
         name: "workspace.writeFile",
         description: "Write a file to the agent workspace",
-        kind: "workspace",
+        kind: "local_tool",
         requiredScopes: ["workspace:write"],
         riskLevel: "write",
         approvalPolicy: "on_risk",
+        metadata: { provider: "workspace" },
       },
       {
         name: "workspace.deleteFile",
         description: "Delete a file from the agent workspace",
-        kind: "workspace",
+        kind: "local_tool",
         requiredScopes: ["workspace:write"],
         riskLevel: "write",
         approvalPolicy: "on_risk",
+        metadata: { provider: "workspace" },
       },
     ];
   }
@@ -383,43 +485,152 @@ export class WorkspaceToolAdapter implements AgentToolAdapter {
   }
 }
 
-// ── Fake search tool adapter ────────────────────────────────────────────────
+// ── Workflow capability adapter ────────────────────────────────────────────
 
-export class FakeSearchToolAdapter implements AgentToolAdapter {
-  readonly kind = "subsystem_api" as AgentToolKind;
+export class WorkflowCapabilityAdapter implements AgentToolAdapter {
+  readonly kind = "workflow_capability" as AgentToolKind;
+
+  constructor(private client: WorkflowCapabilityClient) {}
 
   async listTools(_context: AgentRunContext): Promise<AgentToolDescriptor[]> {
-    return [
-      {
-        name: "fake.search",
-        description: "Fake web search for testing",
-        kind: "subsystem_api",
-        requiredScopes: ["search:read"],
-        riskLevel: "safe",
-        approvalPolicy: "never",
+    const capabilities = await this.client.listCapabilities();
+    return capabilities.map((capability) => ({
+      name: capability.agentToolName,
+      description: capability.description,
+      kind: "workflow_capability",
+      inputSchema: capability.inputSchema,
+      outputSchema: capability.outputSchema,
+      requiredScopes: capability.requiredScopes,
+      riskLevel: capability.riskLevel,
+      approvalPolicy: capability.approvalPolicy,
+      display: {
+        name: capability.displayName,
+        category: "Workflow Capability",
       },
-      {
-        name: "fake.fetch",
-        description: "Fake URL fetch for testing",
-        kind: "subsystem_api",
-        requiredScopes: ["fetch:read"],
-        riskLevel: "safe",
-        approvalPolicy: "never",
+      metadata: {
+        capabilityKey: capability.key,
+        capabilityVersion: capability.version,
+        externalApprovalOwner: "workflow",
       },
-    ];
+    }));
   }
 
   async callTool(
     request: AgentToolCallRequest,
-    _descriptor: AgentToolDescriptor,
-    _context: AgentRunContext,
+    descriptor: AgentToolDescriptor,
+    context: AgentRunContext,
   ): Promise<AgentToolCallResult> {
+    const capabilityKey = descriptor.metadata?.capabilityKey;
+    if (typeof capabilityKey !== "string") {
+      return {
+        id: request.id,
+        toolName: request.toolName,
+        status: "failed",
+        error: { code: "TOOL_FAILED", message: `Missing capabilityKey for ${request.toolName}` },
+        redaction: "none",
+      };
+    }
+
+    const run = await this.client.createCapabilityRun({
+      capabilityKey,
+      input: request.input,
+      source: {
+        kind: "agent_tool_call",
+        agentRunId: context.runId,
+        toolCallId: request.id,
+      },
+      actor: {
+        mode: context.actor.actorType === "service" ? "service" : "delegated_user",
+        userId: context.actor.userId,
+        orgId: context.actor.orgId,
+      },
+      purpose: `Agent tool call ${request.toolName}`,
+    });
+
+    const externalRun = {
+      kind: "workflow_capability" as const,
+      capabilityKey,
+      capabilityVersion: descriptor.metadata?.capabilityVersion as string | undefined,
+      capabilityRunId: run.runId,
+      status: run.status,
+      approvalId: run.approvalId,
+      correlationId: run.correlationId,
+      traceId: run.traceId,
+    };
+
+    if (run.status === "completed") {
+      return {
+        id: request.id,
+        toolName: request.toolName,
+        status: "completed",
+        output: run.output,
+        externalRun,
+        redaction: "partial",
+      };
+    }
+
+    if (run.status === "waiting_approval") {
+      return {
+        id: request.id,
+        toolName: request.toolName,
+        status: "waiting_approval",
+        output: { reason: `Workflow capability '${capabilityKey}' requires approval` },
+        externalRun,
+        redaction: "partial",
+      };
+    }
+
     return {
       id: request.id,
       toolName: request.toolName,
-      status: "completed",
-      output: { result: `[fake] ${request.toolName} called with: ${JSON.stringify(request.input)}` },
-      redaction: "none",
+      status: "failed",
+      error: run.error ?? {
+        code: "TOOL_FAILED",
+        message: `Workflow capability '${capabilityKey}' ended with status ${run.status}`,
+      },
+      externalRun,
+      redaction: "partial",
+    };
+  }
+
+  async resolveExternalApproval(
+    input: ResolveExternalApprovalInput,
+    _context: AgentRunContext,
+  ): Promise<AgentToolCallResult> {
+    await this.client.resolveCapabilityApproval({
+      capabilityRunId: input.externalRun.capabilityRunId,
+      approvalId: input.approvalId,
+      decision: input.decision,
+      comment: input.comment,
+    });
+
+    const run = await this.client.getCapabilityRun(input.externalRun.capabilityRunId);
+    const externalRun = {
+      ...input.externalRun,
+      status: run.status,
+      approvalId: run.approvalId,
+      correlationId: run.correlationId ?? input.externalRun.correlationId,
+      traceId: run.traceId ?? input.externalRun.traceId,
+    };
+
+    if (run.status === "completed") {
+      return {
+        id: input.externalRun.capabilityRunId as ToolCallId,
+        toolName: input.toolName,
+        status: "completed",
+        output: run.output,
+        externalRun,
+        redaction: "partial",
+      };
+    }
+
+    return {
+      id: input.externalRun.capabilityRunId as ToolCallId,
+      toolName: input.toolName,
+      status: run.status === "waiting_approval" ? "waiting_approval" : "failed",
+      error: run.error,
+      externalRun,
+      redaction: "partial",
     };
   }
 }

@@ -2,10 +2,15 @@ import { describe, it, expect } from "vitest";
 import {
   StaticCapabilityRouter,
   WorkspaceToolAdapter,
-  FakeSearchToolAdapter,
+  WorkflowCapabilityAdapter,
   applyAllowedToolsFilter,
 } from "../src/index.js";
-import type { AgentRunContext } from "../src/index.js";
+import type {
+  AgentRunContext,
+  WorkflowCapabilityClient,
+  WorkflowCapabilityDescriptor,
+  WorkflowCapabilityRunResult,
+} from "../src/index.js";
 import { InMemoryWorkspaceProvider } from "@aithru/agent-workspace";
 import type { AgentToolCallRequest, ToolCallId, RunId } from "@aithru/agent-core";
 
@@ -36,12 +41,51 @@ function makeToolCall(
   };
 }
 
+class MockWorkflowCapabilityClient implements WorkflowCapabilityClient {
+  private runResult: WorkflowCapabilityRunResult;
+
+  constructor(
+    private capabilities: WorkflowCapabilityDescriptor[],
+    runResult?: Partial<WorkflowCapabilityRunResult>,
+  ) {
+    this.runResult = {
+      runId: runResult?.runId ?? "caprun_1",
+      status: runResult?.status ?? "completed",
+      output: runResult?.output ?? { ok: true },
+      approvalId: runResult?.approvalId,
+      error: runResult?.error,
+      correlationId: runResult?.correlationId ?? "corr_1",
+      traceId: runResult?.traceId ?? "trace_1",
+    };
+  }
+
+  async listCapabilities(): Promise<WorkflowCapabilityDescriptor[]> {
+    return this.capabilities;
+  }
+
+  async createCapabilityRun(): Promise<WorkflowCapabilityRunResult> {
+    return this.runResult;
+  }
+
+  async getCapabilityRun(): Promise<WorkflowCapabilityRunResult> {
+    return {
+      ...this.runResult,
+      status: "completed",
+      output: this.runResult.output ?? { approved: true },
+      approvalId: undefined,
+    };
+  }
+
+  async resolveCapabilityApproval(): Promise<void> {
+    return;
+  }
+}
+
 describe("StaticCapabilityRouter", () => {
   it("should aggregate tools from all adapters", async () => {
     const wsProvider = new InMemoryWorkspaceProvider();
     const router = new StaticCapabilityRouter([
       new WorkspaceToolAdapter(wsProvider),
-      new FakeSearchToolAdapter(),
     ]);
 
     const tools = await router.listTools(makeContext());
@@ -49,8 +93,7 @@ describe("StaticCapabilityRouter", () => {
 
     expect(names).toContain("workspace.listFiles");
     expect(names).toContain("workspace.writeFile");
-    expect(names).toContain("fake.search");
-    expect(names).toContain("fake.fetch");
+    expect(names.length).toBe(4);
   });
 
   it("should call workspace.readFile through the router (safe tool, no approval needed)", async () => {
@@ -270,12 +313,97 @@ describe("StaticCapabilityRouter", () => {
 
     expect(result.status).toBe("waiting_approval");
   });
+  it("should expose workspace tools as local tools", async () => {
+    const wsProvider = new InMemoryWorkspaceProvider();
+    const router = new StaticCapabilityRouter([
+      new WorkspaceToolAdapter(wsProvider),
+    ]);
+
+    const tools = await router.listTools(makeContext());
+    const writeTool = tools.find((tool) => tool.name === "workspace.writeFile");
+
+    expect(writeTool?.kind).toBe("local_tool");
+    expect(writeTool?.metadata?.provider).toBe("workspace");
+  });
+
+  it("should convert workflow capabilities into Agent tool descriptors", async () => {
+    const router = new StaticCapabilityRouter([
+      new WorkflowCapabilityAdapter(new MockWorkflowCapabilityClient([
+        {
+          key: "http_download",
+          version: "0.1.0",
+          displayName: "Download URL",
+          description: "Fetch content from an HTTP or HTTPS URL.",
+          agentToolName: "workflow.http_download",
+          inputSchema: { type: "object" },
+          outputSchema: { type: "object" },
+          riskLevel: "read",
+          requiredScopes: ["workflow.capability.invoke.http_download"],
+          approvalPolicy: "on_risk",
+        },
+      ])),
+    ]);
+
+    const tools = await router.listTools(makeContext());
+
+    expect(tools).toEqual([
+      expect.objectContaining({
+        name: "workflow.http_download",
+        kind: "workflow_capability",
+        metadata: expect.objectContaining({
+          capabilityKey: "http_download",
+          capabilityVersion: "0.1.0",
+          externalApprovalOwner: "workflow",
+        }),
+      }),
+    ]);
+  });
+
+  it("should return an external run reference when workflow capability waits for approval", async () => {
+    const router = new StaticCapabilityRouter([
+      new WorkflowCapabilityAdapter(new MockWorkflowCapabilityClient([
+        {
+          key: "send_email",
+          version: "0.1.0",
+          displayName: "Send Email",
+          description: "Send an email through Workflow.",
+          agentToolName: "workflow.send_email",
+          riskLevel: "write",
+          requiredScopes: ["workflow.capability.invoke.send_email"],
+          approvalPolicy: "always",
+        },
+      ], {
+        status: "waiting_approval",
+        runId: "caprun_email_1",
+        approvalId: "capapproval_email_1",
+      })),
+    ]);
+
+    const result = await router.executeToolCall(
+      makeToolCall("workflow.send_email", { to: "user@example.com" }),
+      makeContext({
+        actor: {
+          actorType: "user",
+          orgId: "org_test" as any,
+          scopes: ["workflow.capability.invoke.send_email"],
+        },
+      }),
+    );
+
+    expect(result.status).toBe("waiting_approval");
+    expect(result.externalRun).toEqual(expect.objectContaining({
+      kind: "workflow_capability",
+      capabilityKey: "send_email",
+      capabilityRunId: "caprun_email_1",
+      approvalId: "capapproval_email_1",
+    }));
+  });
 });
 
 describe("applyAllowedToolsFilter", () => {
   it("should return empty array when allowed list is empty", () => {
     const descriptors: Parameters<typeof applyAllowedToolsFilter>[0] = [
-      { name: "workspace.readFile", description: "Read files", kind: "workspace", requiredScopes: [], riskLevel: "safe", approvalPolicy: "never" },
+      { name: "workspace.readFile", description: "Read files", kind: "local_tool", requiredScopes: [], riskLevel: "safe", approvalPolicy: "never" },
     ];
 
     const result = applyAllowedToolsFilter(descriptors, []);
@@ -284,9 +412,8 @@ describe("applyAllowedToolsFilter", () => {
 
   it("should filter to only allowed tools", () => {
     const descriptors: Parameters<typeof applyAllowedToolsFilter>[0] = [
-      { name: "workspace.readFile", description: "Read files", kind: "workspace", requiredScopes: [], riskLevel: "safe", approvalPolicy: "never" },
-      { name: "workspace.writeFile", description: "Write files", kind: "workspace", requiredScopes: [], riskLevel: "write", approvalPolicy: "on_risk" },
-      { name: "fake.search", description: "Fake search", kind: "subsystem_api", requiredScopes: [], riskLevel: "safe", approvalPolicy: "never" },
+      { name: "workspace.readFile", description: "Read files", kind: "local_tool", requiredScopes: [], riskLevel: "safe", approvalPolicy: "never" },
+      { name: "workspace.writeFile", description: "Write files", kind: "local_tool", requiredScopes: [], riskLevel: "write", approvalPolicy: "on_risk" },
     ];
 
     const result = applyAllowedToolsFilter(descriptors, ["workspace.readFile"]);
