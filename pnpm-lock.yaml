@@ -68,6 +68,10 @@ importers:
       express:
         specifier: ^4.18.0
         version: 4.22.2
+    optionalDependencies:
+      '@aithru/subsystem-sdk-node':
+        specifier: ^0.10.0
+        version: 0.10.0
     devDependencies:
       '@types/express':
         specifier: ^4.17.0
@@ -191,6 +195,9 @@ importers:
         version: 2.1.9(@types/node@25.9.1)
 
 packages:
+
+  '@aithru/subsystem-sdk-node@0.10.0':
+    resolution: {}
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -1146,6 +1153,8 @@ packages:
     hasBin: true
 
 snapshots:
+
+  '@aithru/subsystem-sdk-node@0.10.0': {}
 
   '@esbuild/aix-ppc64@0.21.5':
     optional: true

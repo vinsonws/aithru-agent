@@ -74,7 +74,7 @@ async function route(
 
   // GET /me
   if (method === "GET" && parts.length === 1 && parts[0] === "me") {
-    ctx.requireScope("agent.app.view");
+    await ctx.requireScope("agent.app.view");
     return handleMe(res, ctx);
   }
 
@@ -82,31 +82,31 @@ async function route(
 
   // POST /threads
   if (method === "POST" && parts.length === 1 && parts[0] === "threads") {
-    ctx.requireScope("agent.thread.write");
+    await ctx.requireScope("agent.thread.write");
     return handleCreateThread(req, res, rt, ctx);
   }
 
   // GET /threads
   if (method === "GET" && parts.length === 1 && parts[0] === "threads") {
-    ctx.requireScope("agent.thread.read");
+    await ctx.requireScope("agent.thread.read");
     return handleListThreads(res, rt, ctx);
   }
 
   // GET /threads/:threadId
   if (method === "GET" && parts.length === 2 && parts[0] === "threads") {
-    ctx.requireScope("agent.thread.read");
+    await ctx.requireScope("agent.thread.read");
     return handleGetThread(res, rt, parts[1]!, ctx);
   }
 
   // POST /threads/:threadId/messages
   if (method === "POST" && parts.length === 3 && parts[0] === "threads" && parts[2] === "messages") {
-    ctx.requireScope("agent.thread.write");
+    await ctx.requireScope("agent.thread.write");
     return handleAppendMessage(req, res, rt, parts[1]!, ctx);
   }
 
   // GET /threads/:threadId/messages
   if (method === "GET" && parts.length === 3 && parts[0] === "threads" && parts[2] === "messages") {
-    ctx.requireScope("agent.thread.read");
+    await ctx.requireScope("agent.thread.read");
     return handleListMessages(res, rt, parts[1]!, ctx);
   }
 
@@ -114,43 +114,43 @@ async function route(
 
   // POST /runs
   if (method === "POST" && parts.length === 1 && parts[0] === "runs") {
-    ctx.requireScope("agent.run.create");
+    await ctx.requireScope("agent.run.create");
     return handleCreateRun(req, res, rt, ctx);
   }
 
   // GET /runs
   if (method === "GET" && parts.length === 1 && parts[0] === "runs") {
-    ctx.requireScope("agent.run.read");
+    await ctx.requireScope("agent.run.read");
     return handleListRuns(res, rt, ctx);
   }
 
   // GET /runs/:runId
   if (method === "GET" && parts.length === 2 && parts[0] === "runs") {
-    ctx.requireScope("agent.run.read");
+    await ctx.requireScope("agent.run.read");
     return handleGetRun(res, rt, parts[1]!, ctx);
   }
 
   // GET /runs/:runId/events
   if (method === "GET" && parts.length === 3 && parts[0] === "runs" && parts[2] === "events") {
-    ctx.requireScope("agent.run.read");
+    await ctx.requireScope("agent.run.read");
     return handleGetRunEvents(res, rt, parts[1]!, query, ctx);
   }
 
   // GET /runs/:runId/stream
   if (method === "GET" && parts.length === 3 && parts[0] === "runs" && parts[2] === "stream") {
-    ctx.requireScope("agent.run.read");
+    await ctx.requireScope("agent.run.read");
     return handleRunSse(req, res, rt, parts[1]!, query, ctx);
   }
 
   // POST /runs/:runId/resume
   if (method === "POST" && parts.length === 3 && parts[0] === "runs" && parts[2] === "resume") {
-    ctx.requireScope("agent.approval.resolve");
+    await ctx.requireScope("agent.approval.resolve");
     return handleResumeRun(req, res, rt, parts[1]!, ctx);
   }
 
   // POST /runs/:runId/cancel
   if (method === "POST" && parts.length === 3 && parts[0] === "runs" && parts[2] === "cancel") {
-    ctx.requireScope("agent.run.cancel");
+    await ctx.requireScope("agent.run.cancel");
     return handleCancelRun(res, rt, parts[1]!, ctx);
   }
 
@@ -158,19 +158,19 @@ async function route(
 
   // GET /approvals
   if (method === "GET" && parts.length === 1 && parts[0] === "approvals") {
-    ctx.requireScope("agent.approval.read");
+    await ctx.requireScope("agent.approval.read");
     return handleListApprovals(res, rt, query, ctx);
   }
 
   // GET /approvals/:approvalId
   if (method === "GET" && parts.length === 2 && parts[0] === "approvals") {
-    ctx.requireScope("agent.approval.read");
+    await ctx.requireScope("agent.approval.read");
     return handleGetApproval(res, rt, parts[1]!, ctx);
   }
 
   // POST /approvals/:approvalId/resolve
   if (method === "POST" && parts.length === 3 && parts[0] === "approvals" && parts[2] === "resolve") {
-    ctx.requireScope("agent.approval.resolve");
+    await ctx.requireScope("agent.approval.resolve");
     return handleResolveApproval(req, res, rt, parts[1]!, ctx);
   }
 
@@ -234,7 +234,7 @@ async function handleCreateThread(
       displayName: thread.title,
       ownerUserId,
       metadata: { status: thread.status },
-    }).catch(() => {});
+    }).catch((err) => warnBestEffortFailure("registerResource(thread)", err));
   }
 
   // Audit in platform mode
@@ -243,7 +243,7 @@ async function handleCreateThread(
       targetType: "thread",
       targetId: thread.id,
       metadata: { title: thread.title, orgId },
-    }).catch(() => {});
+    }).catch((err) => warnBestEffortFailure("auditSuccess(agent.thread.create)", err));
   }
 
   sendJson(res, 201, thread);
@@ -365,7 +365,7 @@ async function handleCreateRun(
       displayName: goal.slice(0, 80),
       ownerUserId: actorUserId,
       metadata: { status: "queued", threadId: threadId ?? null, skillId: skillId ?? null },
-    }).catch(() => {});
+    }).catch((err) => warnBestEffortFailure("registerResource(run)", err));
   }
 
   // Audit in platform mode
@@ -374,7 +374,7 @@ async function handleCreateRun(
       targetType: "run",
       targetId: runId,
       metadata: { goal: goal.slice(0, 80), threadId: threadId ?? null, orgId },
-    }).catch(() => {});
+    }).catch((err) => warnBestEffortFailure("auditSuccess(agent.run.create)", err));
   }
 
   sendJson(res, 201, {
@@ -527,7 +527,7 @@ async function handleResumeRun(
         runId,
         decision,
       },
-    }).catch(() => {});
+    }).catch((err) => warnBestEffortFailure("auditSuccess(agent.approval.resolve)", err));
   }
 
   sendJson(res, 200, {
@@ -557,7 +557,7 @@ async function handleCancelRun(
         targetType: "run",
         targetId: runId,
         metadata: { orgId: run.orgId },
-      }).catch(() => {});
+      }).catch((err) => warnBestEffortFailure("auditSuccess(agent.run.cancel)", err));
     }
 
     sendJson(res, 200, {
@@ -571,7 +571,7 @@ async function handleCancelRun(
         targetType: "run",
         targetId: runId,
         error: err,
-      }).catch(() => {});
+      }).catch((auditErr) => warnBestEffortFailure("auditFailure(agent.run.cancel)", auditErr));
     }
     throw err;
   }
@@ -657,7 +657,7 @@ async function handleResolveApproval(
         runId: approval.runId,
         decision,
       },
-    }).catch(() => {});
+    }).catch((err) => warnBestEffortFailure("auditSuccess(agent.approval.resolve)", err));
   }
 
   sendJson(res, 200, {
@@ -733,4 +733,9 @@ function mapPlatformScopesToHarnessScopes(platformScopes: string[]): string[] {
   }
 
   return [...mapped];
+}
+
+function warnBestEffortFailure(operation: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  console.warn(`[agent-server] ${operation} failed: ${message}`);
 }

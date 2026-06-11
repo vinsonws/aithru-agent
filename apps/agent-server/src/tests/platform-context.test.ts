@@ -24,6 +24,7 @@ function createFakePlatformContext(overrides?: {
   orgId?: string;
   userId?: string;
   scopes?: string[];
+  requireScope?: (scope: string) => void | Promise<void>;
   registerResource?: (input: Record<string, unknown>) => void;
   auditSuccess?: (action: string, input?: Record<string, unknown>) => void;
   auditFailure?: (action: string, input?: Record<string, unknown>) => void;
@@ -44,6 +45,9 @@ function createFakePlatformContext(overrides?: {
       tokenType: "access",
     },
     requireScope(scope: string): void {
+      if (overrides?.requireScope) {
+        return overrides.requireScope(scope) as void;
+      }
       const actor = this.actor!;
       if (!actor.scopes.includes(scope)) {
         const err = new Error(`Missing required scope: ${scope}`);
@@ -283,6 +287,32 @@ describe("platform-context", () => {
     expect(result.statusCode).toBe(403);
     const errorBody = result.body as Record<string, unknown>;
     expect(errorBody).toHaveProperty("error");
+    expect((errorBody.error as Record<string, unknown>).code).toBe("AITHRU_AUTHZ_DENIED");
+  });
+
+  it("platform should await asynchronous scope checks before handling requests", async () => {
+    const { promise, resolve } = createPromiseWithResolvers<{ statusCode: number; body: unknown }>();
+    const req = createMockRequest("POST", "/runs", {
+      goal: "Async authz should fail closed.",
+    });
+    const res = createMockResponse((statusCode: number, responseBody: unknown) => {
+      resolve({ statusCode, body: responseBody });
+    });
+
+    const ctx = createFakePlatformContext({
+      async requireScope(scope: string): Promise<void> {
+        await wait(10);
+        const err = new Error(`Missing required scope: ${scope}`);
+        err.name = "AithruAuthzDeniedError";
+        throw err;
+      },
+    });
+
+    await handleRequest(req, res, rt, ctx);
+    const result = await promise;
+
+    expect(result.statusCode).toBe(403);
+    const errorBody = result.body as Record<string, unknown>;
     expect((errorBody.error as Record<string, unknown>).code).toBe("AITHRU_AUTHZ_DENIED");
   });
 
