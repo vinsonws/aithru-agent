@@ -247,6 +247,28 @@ Rules:
 - if node calls tools, those calls still route through Core tool policy;
 - do not allow arbitrary node execution by type string.
 
+### workflow-capability-adapter
+
+Allows Agent to call curated standalone Workflow product capabilities as tools.
+
+Example tool:
+
+```txt
+workflow.invokeCapability
+```
+
+Rules:
+
+- Agent consumes the Workflow product capability catalog, not the raw node
+  catalog;
+- each invocation creates or observes a first-class `CapabilityRun`;
+- capability approval records are owned by the Workflow product;
+- Agent may present and resolve those approvals through Workflow APIs;
+- adapter calls Workflow APIs through platform-approved delegated user identity
+  by default;
+- return normalized result, artifact references, trace references, and external
+  run references to Agent.
+
 ### workbench-workflow-adapter
 
 Allows Agent to call saved Workbench workflows as tools.
@@ -539,6 +561,8 @@ Rules:
 - Agent receives a normalized result;
 - workflow trace may be linked, not copied in full by default.
 
+See [Workflow Capability and Agent Integration](./08-workflow-capability-integration.md).
+
 ## Core nodes as tools
 
 A Core node may be exposed as a tool only if it is safe to execute outside graph scheduling.
@@ -552,6 +576,8 @@ Rules:
 - no hidden scheduling;
 - no direct secret access;
 - no bypassing Core tool policy.
+- Agent-facing production capabilities should normally be exposed through the
+  Workflow product capability catalog rather than by exposing raw nodes directly.
 
 ## Minimal implementation requirements
 

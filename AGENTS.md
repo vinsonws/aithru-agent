@@ -168,13 +168,20 @@ agent.task
 
 The Workbench graph remains the formal workflow. Agent owns only the intelligent harness behavior inside the node.
 
-Agent may call Workbench workflows as tools:
+Agent may call Workflow product capabilities and workflows as tools:
+
+```txt
+workflow.invokeCapability
+```
 
 ```txt
 workbench.runWorkflow
 ```
 
-Agent must not import Workbench internals, schedule workflow graphs, or redefine workflow run persistence.
+Agent must not import Workbench internals, schedule workflow graphs, execute raw
+workflow nodes directly, or redefine workflow run persistence. Deterministic
+actions such as `http_download` should be exposed by the Workflow product as
+curated capabilities and invoked through CapabilityRun APIs.
 
 Agent may generate `WorkflowSpec` draft artifacts, but Workbench must validate, save, version, and run them.
 

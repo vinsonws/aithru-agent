@@ -439,9 +439,16 @@ type AgentSkillNodeConfig = {
 
 Workbench owns the outer workflow. Agent owns the intelligent behavior inside the node.
 
-### Agent calls Workbench
+### Agent calls Workflow product
 
-Agent can call Workbench workflows as tools:
+Agent can call Workflow product capabilities and workflows as tools:
+
+```txt
+Agent Harness
+  -> workflow.invokeCapability tool
+  -> Workflow product creates a CapabilityRun
+  -> Agent receives result/artifact/trace summary
+```
 
 ```txt
 Agent Harness
@@ -450,7 +457,12 @@ Agent Harness
   -> Agent receives result/artifact/trace summary
 ```
 
-Agent does not parse, schedule, or execute workflow graphs.
+Agent does not parse, schedule, or execute workflow graphs. Agent also does not
+execute raw workflow nodes directly. Deterministic standalone actions should be
+exposed by the Workflow product through curated capabilities and CapabilityRun
+APIs.
+
+See [Workflow Capability and Agent Integration](./08-workflow-capability-integration.md).
 
 ### Agent creates Workbench drafts
 

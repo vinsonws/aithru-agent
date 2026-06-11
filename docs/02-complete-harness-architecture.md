@@ -527,15 +527,23 @@ agent.task
 
 Workbench remains the formal workflow owner. Agent owns only harness behavior inside the node.
 
-### Agent calls Workbench
+### Agent calls Workflow product
 
-Agent calls Workbench workflows through a tool adapter:
+Agent calls Workflow product capabilities and workflows through tool adapters:
+
+```txt
+workflow.invokeCapability
+```
 
 ```txt
 workbench.runWorkflow
 ```
 
-Agent must not import Workbench internals or schedule workflow graphs.
+Agent must not import Workbench internals, schedule workflow graphs, or execute
+raw workflow nodes directly. Standalone deterministic actions are exposed by the
+Workflow product as curated capabilities and invoked through CapabilityRun APIs.
+
+See [Workflow Capability and Agent Integration](./08-workflow-capability-integration.md).
 
 ### Agent creates workflow drafts
 

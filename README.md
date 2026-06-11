@@ -200,9 +200,16 @@ agent.task
 
 The outer graph is still a formal `WorkflowSpec`. Agent owns only the intelligent harness behavior inside the node.
 
-### Agent calls Workbench
+### Agent calls Workflow product
 
-Agent can call Workbench workflows as tools:
+Agent can call Workflow product capabilities and workflows as tools:
+
+```txt
+Agent Harness
+  -> workflow.invokeCapability tool
+  -> Workflow product creates a CapabilityRun
+  -> Agent receives result/artifact/trace summary
+```
 
 ```txt
 Agent Harness
@@ -211,7 +218,12 @@ Agent Harness
   -> Agent receives result/artifact/trace summary
 ```
 
-Agent must not parse, schedule, or execute workflow graphs itself.
+Agent must not parse, schedule, or execute workflow graphs itself. Agent also
+must not import Workbench internals or execute raw workflow nodes directly.
+Standalone deterministic actions should be exposed by the Workflow product as
+curated capabilities and invoked through CapabilityRun APIs.
+
+See [Workflow Capability and Agent Integration](./docs/08-workflow-capability-integration.md).
 
 ### Agent creates workflow drafts
 
