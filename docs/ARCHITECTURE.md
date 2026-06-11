@@ -3,68 +3,42 @@
 ## Responsibility
 
 ```txt
-Formal Workflow
-  -> aithru-core
-
-Intelligent Execution
-  -> aithru-agent
+Workflow product = deterministic workflow and capability execution plane
+Agent product    = AI harness and intelligent orchestration plane
 ```
 
-## Core Concepts
+Agent is not a workflow runtime and does not own `WorkflowSpec`.
 
-### AgentTask
+## Agent Owns
 
-Represents a bounded intelligent task.
+- Agent threads, messages, skills, runs, todos, workspace, artifacts, and
+  Agent-owned approvals.
+- Agent stream events and Agent trace projections.
+- Agent-owned local tools.
+- Workflow capability client integration.
 
-### AgentPlan
+## Agent Does Not Own
 
-Task-local execution plan.
+- Core node execution.
+- Core tool execution.
+- Workbench workflow scheduling.
+- Raw workflow node catalog access.
+- Workflow-owned `CapabilityRun` or approval records.
 
-Not a WorkflowSpec.
+## Tool Boundary
 
-### AgentRun
-
-Execution state of a task.
-
-### AgentHost
-
-Bridge between agent runtime and environment.
-
-Responsible for:
-
-- tool execution
-- approval
-- artifacts
-- trace events
-
-### AgentEngine
-
-Execution strategy.
-
-Examples:
-
-- classify
-- plan-run-review
-
-## Package Layout
+Agent production tools have two kinds:
 
 ```txt
-packages/
-  agent-core/
-    contracts
-    types
+local_tool
+workflow_capability
+```
 
-  agent-runtime/
-    engines
-    runners
+External deterministic actions go through the Workflow product:
 
-  agent-model-test/
-    scripted adapters
-
-  agent-model-openai-compatible/
-    OpenAI-compatible HTTP adapter
-
-  node-agent/
-    agent.task
-    agent.classify
+```txt
+Agent Harness
+  -> WorkflowCapabilityAdapter
+  -> Workflow CapabilityRun API
+  -> Workflow/Core executor
 ```

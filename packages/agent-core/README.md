@@ -1,26 +1,17 @@
 # @aithru/agent-core
 
-Core contracts for Aithru Agent.
+Agent-owned contract types for Aithru Agent.
 
-This package defines Agent types and interfaces only. It does not call models, execute tools, schedule workflows, or depend on provider SDKs.
+This package defines the Agent product model: threads, messages, skills, runs,
+todos, workspace references, artifacts, Agent-owned approvals, tool
+descriptors, subagent references, memory references, and error types.
 
-## Owns
+It does not define Aithru Core workflow execution. Agent production tools are
+limited to:
 
-- AgentTask
-- AgentPlan
-- AgentRun
-- AgentEvent
-- AgentTraceEvent
-- AgentHost
-- AgentEngine
-- AgentModelAdapter
-- AgentArtifact
+- `local_tool`: Agent-owned harness tools such as workspace operations.
+- `workflow_capability`: deterministic capabilities exposed by the Workflow
+  product through `CapabilityCatalog` and `CapabilityRun` APIs.
 
-## Does not own
-
-- WorkflowSpec
-- workflow graph scheduling
-- concrete tools
-- model provider SDKs
-- UI
-- server workers
+Agent does not execute raw Core nodes, Core tools, Workbench workflow graphs, or
+Workflow product internals directly.

@@ -135,16 +135,16 @@ model proposes tool call
   -> trace + artifact + redaction
 ```
 
-Capability backends may include:
+Capability backends are:
+- Agent-owned local tools (e.g. workspace operations)
+- Workflow product capabilities invoked through `CapabilityRun` APIs
 
-- Core tool executors;
-- selected Core node adapters;
-- Workbench workflow APIs;
-- Platform subsystem APIs;
-- sandbox executors;
-- workspace providers;
-- memory providers;
-- future MCP adapters.
+Workflow capabilities may be backed by Core nodes, but the backing details
+belong to the Workflow product. Agent consumes the curated capability API and
+stores linked external run references.
+
+Future sandbox, memory, or MCP behavior must enter Agent through either
+Agent-owned local harness interfaces or Workflow product capabilities.
 
 ## Current packages
 
@@ -167,7 +167,7 @@ Package roles:
 | `@aithru/agent-stream` | Event protocol — envelope types, writers, stores, bus, SSE helper. |
 | `@aithru/agent-skills` | Skill manifest definitions, parsing, validation. |
 | `@aithru/agent-workspace` | Workspace provider abstractions — in-memory implementation for dev/test. |
-| `@aithru/agent-tools` | Capability Router — tool adapters, policy checks, workspace/fake adapters. |
+| `@aithru/agent-tools` | Capability Router — tool adapters, policy checks, Workflow capability adapter. |
 | `@aithru/agent-harness` | Harness engine — NativeHarnessEngine, ScriptedModelPort, event-driven run loop. |
 | `@aithru/agent-trace` | AgentTraceSpan model and AgentStreamEvent → trace span projection. |
 

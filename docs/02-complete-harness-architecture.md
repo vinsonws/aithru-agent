@@ -135,12 +135,8 @@ apps/agent-server/src/
 
   tools/
     capability-router.ts
-    core-tool-adapter.ts
-    core-node-adapter.ts
-    workbench-workflow-adapter.ts
-    subsystem-api-adapter.ts
     workspace-tool-adapter.ts
-    memory-tool-adapter.ts
+    workflow-capability-adapter.ts
 
   sandbox/
     sandbox-provider.ts
@@ -307,14 +303,8 @@ type AgentToolDescriptor = {
   name: string;
   description: string;
   kind:
-    | "core_tool"
-    | "core_node"
-    | "workbench_workflow"
-    | "subsystem_api"
-    | "workspace"
-    | "memory"
-    | "sandbox"
-    | "mcp";
+    | "local_tool"
+    | "workflow_capability";
   inputSchema?: unknown;
   outputSchema?: unknown;
   requiredScopes: string[];
@@ -620,9 +610,7 @@ It must not show Agent runtime plans as draggable graphs.
 
 - Platform actor context;
 - manifest/permissions;
-- Core tool adapter;
-- Core node adapter;
-- Workbench workflow adapter.
+- Workflow product capability adapter.
 
 ### Phase 5: complete harness maturity
 

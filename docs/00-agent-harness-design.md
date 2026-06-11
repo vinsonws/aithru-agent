@@ -40,14 +40,14 @@ Aithru Agent should provide:
 
 The actual execution capability must depend on Aithru-controlled capability boundaries:
 
-- Aithru Core contracts;
-- Core tool executors;
-- selected Core node adapters;
-- Workbench workflow execution APIs;
-- Platform subsystem APIs;
-- sandbox executors;
-- memory/workspace providers;
-- optional future MCP adapters.
+- Agent-owned local tools (workspace operations, artifact creation);
+- Workflow product capabilities consumed through `CapabilityRun` APIs.
+- Future sandbox, memory, or MCP behavior through Agent-owned harness
+  interfaces or additional Workflow product capabilities.
+
+Workflow capabilities may be backed by Core nodes, but the backing details
+belong to the Workflow product. Agent consumes the curated capability API and
+stores linked external run references.
 
 The model may propose actions, but it must never execute real actions directly.
 
@@ -326,14 +326,8 @@ type AgentToolDescriptor = {
   name: string;
   description: string;
   kind:
-    | "core_tool"
-    | "core_node"
-    | "workbench_workflow"
-    | "subsystem_api"
-    | "sandbox"
-    | "memory"
-    | "workspace"
-    | "mcp";
+    | "local_tool"
+    | "workflow_capability";
   inputSchema?: unknown;
   outputSchema?: unknown;
   requiredScopes: string[];
@@ -372,18 +366,15 @@ interface AithruCapabilityRouter {
 }
 ```
 
-Recommended backend adapters:
+Backend adapters:
 
-```txt
-core-tool-executor
-core-node-adapter
-workbench-workflow-adapter
-subsystem-api-adapter
-sandbox-adapter
-workspace-adapter
-memory-adapter
-mcp-adapter
-```
+- `local_tool` adapters for Agent-owned tools (workspace, artifact);
+- `workflow_capability` adapters that consume Workflow product capability APIs.
+
+Workflow capabilities may be backed by Core nodes, but the backing details
+belong to the Workflow product. Future sandbox, memory, or MCP behavior must
+enter Agent through either Agent-owned local harness interfaces or Workflow
+product capabilities - they are not top-level `AgentToolKind` values.
 
 ## Tool call pipeline
 

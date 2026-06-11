@@ -140,14 +140,8 @@ type AgentToolDescriptor = {
   name: string;
   description: string;
   kind:
-    | "core_tool"
-    | "core_node"
-    | "workbench_workflow"
-    | "subsystem_api"
-    | "workspace"
-    | "memory"
-    | "sandbox"
-    | "mcp";
+    | "local_tool"
+    | "workflow_capability";
   inputSchema?: unknown;
   outputSchema?: unknown;
   requiredScopes: string[];
@@ -216,91 +210,13 @@ interface AgentToolAdapter {
 
 ## Adapter types
 
-### core-tool-adapter
+### local-tool adapter
 
-Routes Agent tool calls to Aithru Core tool executor contracts.
+Agent-owned harness tools such as workspace operations and artifact creation.
 
-Use for:
+#### workspace-adapter
 
-- deterministic tool execution;
-- existing Core tool contracts;
-- reusable action executors.
-
-Rules:
-
-- preserve Core `ToolPermissionPolicy` behavior;
-- emit tool lifecycle events;
-- preserve redaction expectations;
-- do not expose raw secrets to Agent model context.
-
-### core-node-adapter
-
-Exposes selected Core nodes as Agent tools.
-
-Use only for single-node capability cases.
-
-Rules:
-
-- node must be explicitly allowlisted;
-- node must not require graph scheduling semantics;
-- node execution must receive a controlled execution context;
-- if node calls tools, those calls still route through Core tool policy;
-- do not allow arbitrary node execution by type string.
-
-### workflow-capability-adapter
-
-Allows Agent to call curated standalone Workflow product capabilities as tools.
-
-Example tool:
-
-```txt
-workflow.invokeCapability
-```
-
-Rules:
-
-- Agent consumes the Workflow product capability catalog, not the raw node
-  catalog;
-- each invocation creates or observes a first-class `CapabilityRun`;
-- capability approval records are owned by the Workflow product;
-- Agent may present and resolve those approvals through Workflow APIs;
-- adapter calls Workflow APIs through platform-approved delegated user identity
-  by default;
-- return normalized result, artifact references, trace references, and external
-  run references to Agent.
-
-### workbench-workflow-adapter
-
-Allows Agent to call saved Workbench workflows as tools.
-
-Example tool:
-
-```txt
-workbench.runWorkflow
-```
-
-Rules:
-
-- Agent does not parse or schedule `WorkflowSpec`;
-- Workbench owns validation, run storage, events, and workflow approvals;
-- adapter calls Workbench API through platform-approved service/user/delegated token flow;
-- return only result, artifact references, and trace summary to Agent.
-
-### subsystem-api-adapter
-
-Calls other Platform subsystems.
-
-Rules:
-
-- use platform token exchange, service token, or delegated token as appropriate;
-- obey connection policy;
-- obey app-level and resource-level authorization;
-- fail closed when policy is missing;
-- never expose service credentials to browser or model context.
-
-### workspace-adapter
-
-Provides tools such as:
+Provides tools:
 
 ```txt
 workspace.listFiles
@@ -319,60 +235,35 @@ Rules:
 - avoid leaking large/sensitive file contents into normal UI;
 - support artifact promotion.
 
-### memory-adapter
+### workflow-capability-adapter
 
-Provides tools such as:
+Allows Agent to call curated standalone Workflow product capabilities as tools.
+
+Example tool:
 
 ```txt
-memory.search
-memory.read
-memory.write
-memory.delete
+workflow.http_download
 ```
 
 Rules:
 
-- memory scope must be explicit;
-- memory writes should be attributed to source and actor;
-- sensitive memory requires policy and retention controls;
-- memory events are normally debug/audit visibility.
+- Agent consumes the Workflow product capability catalog, not the raw node
+  catalog;
+- each invocation creates or observes a first-class `CapabilityRun`;
+- capability approval records are owned by the Workflow product;
+- Agent may present and resolve those approvals through Workflow APIs;
+- adapter calls Workflow APIs through platform-approved delegated user identity
+  by default;
+- return normalized result, artifact references, trace references, and external
+  run references to Agent.
 
-### sandbox-adapter
+Workflow capabilities may be backed by Core nodes, but the backing details
+belong to the Workflow product. Agent consumes the curated capability API and
+stores linked external run references.
 
-Provides controlled execution tools such as:
-
-```txt
-sandbox.runPython
-sandbox.runNode
-sandbox.executeCommand
-sandbox.installPackage
-sandbox.readFile
-sandbox.writeFile
-sandbox.diff
-sandbox.patch
-```
-
-Rules:
-
-- no direct shell access to model code;
-- all execution is provider-mediated;
-- timeout is mandatory;
-- resource limits are mandatory;
-- network policy is explicit;
-- file mounts are explicit;
-- stdout/stderr stream as sandbox events;
-- dangerous operations require approval.
-
-### mcp-adapter
-
-Future optional adapter for MCP servers.
-
-Rules:
-
-- MCP servers must be registered and allowlisted;
-- capability descriptors must be normalized into `AgentToolDescriptor`;
-- tool calls still pass through skill policy, platform authz, approval, trace, and redaction;
-- MCP transport lifecycle stays outside Core.
+Future sandbox, memory, or MCP adapters must enter Agent through either
+Agent-owned local harness interfaces or Workflow product capabilities. They are
+not top-level `AgentToolKind` values in the simplified Agent contract.
 
 ## Policy checks
 
@@ -528,28 +419,28 @@ Tool catalog can combine static and dynamic sources.
 
 Sources:
 
-- built-in workspace tools;
+- built-in workspace tools (local_tool);
 - skill-provided tools;
-- platform app capabilities;
-- Workbench workflows exposed as tools;
-- Core tool adapters;
-- sandbox provider capabilities;
-- MCP server manifests;
-- memory provider capabilities.
+- Workflow capability catalog;
+- Workbench workflows exposed as workflow capabilities;
+- sandbox, memory, MCP providers through future local or capability interfaces.
 
 `listTools(context)` should return only tools available under current actor/org/skill/runtime context.
 
 ## Workbench workflows as tools
 
-A saved Workbench workflow can be exposed as:
+A saved Workbench workflow can be exposed as a workflow capability:
 
 ```ts
 type WorkbenchWorkflowToolDescriptor = AgentToolDescriptor & {
-  kind: "workbench_workflow";
+  kind: "workflow_capability";
   metadata: {
+    capabilityKey: string;
+    capabilityVersion?: string;
     workflowId: string;
     version?: string;
     inputSchema?: unknown;
+    externalApprovalOwner: "workflow";
   };
 };
 ```
@@ -565,19 +456,14 @@ See [Workflow Capability and Agent Integration](./08-workflow-capability-integra
 
 ## Core nodes as tools
 
-A Core node may be exposed as a tool only if it is safe to execute outside graph scheduling.
+Core nodes are not Agent tool kinds. Workflow capabilities may be backed by
+Core nodes, but the backing details belong to the Workflow product. Agent
+consumes the curated capability catalog and stores linked external run
+references.
 
-Examples may include deterministic transformations or simple utility nodes.
-
-Rules:
-
-- explicit allowlist only;
-- no graph traversal;
-- no hidden scheduling;
-- no direct secret access;
-- no bypassing Core tool policy.
-- Agent-facing production capabilities should normally be exposed through the
-  Workflow product capability catalog rather than by exposing raw nodes directly.
+Agent must not execute raw Core nodes directly. Deterministic actions must be
+exposed through the Workflow product capability catalog and invoked through
+`CapabilityRun` APIs.
 
 ## Minimal implementation requirements
 
@@ -586,23 +472,19 @@ First implementation should include:
 - `AithruCapabilityRouter` interface;
 - `AgentToolAdapter` interface;
 - static tool descriptor registry;
-- workspace adapter with list/read/write;
+- workspace adapter with list/read/write (as `local_tool`);
 - artifact creation hook;
-- fake search/fetch tool for tests;
+- `WorkflowCapabilityAdapter` with `WorkflowCapabilityClient` interface;
 - policy checks for allowed tool names and risk level;
-- stream events for proposed/started/completed/failed/denied.
+- stream events for proposed/started/completed/failed/denied;
+- external run and approval reference events.
 
 Future phases add:
 
 - Platform authz integration;
 - approval gateway;
-- sandbox adapter;
-- Core tool adapter;
-- Core node adapter;
-- Workbench workflow adapter;
-- subsystem API adapter;
-- memory adapter;
-- MCP adapter.
+- sandbox, memory, and MCP adapters through local or capability interfaces;
+- additional Workflow product capability adapters.
 
 ## Testing strategy
 
