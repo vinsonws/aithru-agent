@@ -1,6 +1,6 @@
 import express from "express";
-import { aithruExpressMiddleware } from "@aithru/subsystem-sdk-node/express";
 import type { AithruPlatform } from "@aithru/subsystem-sdk-node";
+import type { RequestHandler } from "express";
 import type { AgentServerRuntime } from "../runtime/create-agent-server-runtime.js";
 import { handleRequest } from "../server/routes.js";
 import { createPlatformAgentHttpContext } from "./actor-context.js";
@@ -18,7 +18,20 @@ import { createPlatformAgentHttpContext } from "./actor-context.js";
 export function createPlatformAgentApp(
   aithru: AithruPlatform,
   rt: AgentServerRuntime,
-): express.Application {
+): Promise<express.Application> {
+  return createPlatformAgentAppWithMiddleware(
+    aithru,
+    rt,
+    loadAithruExpressMiddleware(),
+  );
+}
+
+async function createPlatformAgentAppWithMiddleware(
+  aithru: AithruPlatform,
+  rt: AgentServerRuntime,
+  middlewarePromise: Promise<(input: AithruPlatform) => RequestHandler>,
+): Promise<express.Application> {
+  const aithruExpressMiddleware = await middlewarePromise;
   const app = express();
 
   // Unauthenticated health check
@@ -61,4 +74,19 @@ export function createPlatformAgentApp(
   });
 
   return app;
+}
+
+async function loadAithruExpressMiddleware(): Promise<
+  (input: AithruPlatform) => RequestHandler
+> {
+  const { aithruExpressMiddleware } = await import(
+    "@aithru/subsystem-sdk-node/express"
+  ).catch((cause: unknown) => {
+    throw new Error(
+      "Platform subsystem mode requires optional dependency @aithru/subsystem-sdk-node/express. Install @aithru/subsystem-sdk-node from Nexus or link it locally before running dev:platform.",
+      { cause },
+    );
+  });
+
+  return aithruExpressMiddleware;
 }

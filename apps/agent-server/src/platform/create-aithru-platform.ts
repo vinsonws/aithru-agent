@@ -1,5 +1,7 @@
-import { createAithruPlatform } from "@aithru/subsystem-sdk-node";
-import type { AithruPlatformConfig } from "@aithru/subsystem-sdk-node";
+import type {
+  AithruPlatform,
+  AithruPlatformConfig,
+} from "@aithru/subsystem-sdk-node";
 import type { PlatformConfig } from "./config.js";
 
 /**
@@ -9,7 +11,7 @@ import type { PlatformConfig } from "./config.js";
  */
 export function createAgentAithruPlatform(
   cfg: PlatformConfig,
-): ReturnType<typeof createAithruPlatform> {
+): Promise<AithruPlatform> {
   const sdkConfig: Partial<AithruPlatformConfig> = {
     baseUrl: cfg.platformUrl,
     issuer: cfg.issuer,
@@ -26,6 +28,21 @@ export function createAgentAithruPlatform(
     registrationEnabled: cfg.registrationEnabled,
     failOnRegistrationError: cfg.failOnRegistrationError,
   };
+
+  return createOptionalAithruPlatform(sdkConfig);
+}
+
+async function createOptionalAithruPlatform(
+  sdkConfig: Partial<AithruPlatformConfig>,
+): Promise<AithruPlatform> {
+  const { createAithruPlatform } = await import(
+    "@aithru/subsystem-sdk-node"
+  ).catch((cause: unknown) => {
+    throw new Error(
+      "Platform subsystem mode requires optional dependency @aithru/subsystem-sdk-node. Install it from Nexus or link it locally before running dev:platform.",
+      { cause },
+    );
+  });
 
   return createAithruPlatform(sdkConfig);
 }

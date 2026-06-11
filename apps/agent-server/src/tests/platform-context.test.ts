@@ -93,6 +93,11 @@ describe("platform-context", () => {
   let baseUrl: string;
   let rt: ReturnType<typeof createAgentServerRuntime>;
 
+  it("platform entry helpers should load without the optional subsystem SDK installed", async () => {
+    await expect(import("../platform/create-aithru-platform.js")).resolves.toBeTruthy();
+    await expect(import("../platform/create-platform-agent-app.js")).resolves.toBeTruthy();
+  });
+
   beforeAll(async () => {
     rt = createAgentServerRuntime();
     server = createAgentHttpServer(rt);

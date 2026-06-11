@@ -12,9 +12,9 @@ console.log(`[agent-server]   platform: ${config.platformUrl}`);
 console.log(`[agent-server]   app:      ${config.appKey}`);
 console.log(`[agent-server]   service:  ${config.serviceName}`);
 
-const aithru = createAgentAithruPlatform(config);
+const aithru = await createAgentAithruPlatform(config);
 const rt = createAgentServerRuntime();
-const app = createPlatformAgentApp(aithru, rt);
+const app = await createPlatformAgentApp(aithru, rt);
 
 // Start SDK lifecycle (manifest registration, heartbeat)
 await aithru.start();
