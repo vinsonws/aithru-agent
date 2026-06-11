@@ -21,7 +21,7 @@ export type AgentHarnessRunInput = {
 export type AgentHarnessResumeInput = {
   runId: RunId;
   approval?: {
-    approvalId: ApprovalId;
+    approvalId: string;
     decision: "approved" | "rejected";
     comment?: string;
   };

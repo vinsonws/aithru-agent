@@ -50,6 +50,26 @@ export async function* emitToolResult(
       },
     }));
 
+    if (toolResult.status === "waiting_approval" && toolResult.externalRun.approvalId) {
+      yield await writer.write(ev({
+        runId,
+        threadId,
+        type: "external_approval.requested",
+        source: { kind: "external" },
+        redaction: toolResult.redaction,
+        payload: {
+          kind: toolResult.externalRun.kind,
+          capabilityKey: toolResult.externalRun.capabilityKey,
+          capabilityRunId: toolResult.externalRun.capabilityRunId,
+          approvalId: toolResult.externalRun.approvalId,
+          toolCallId,
+          toolName,
+          status: "pending",
+          correlationId: toolResult.externalRun.correlationId,
+        },
+      }));
+    }
+
     if (toolResult.status === "completed") {
       yield await writer.write(ev({
         runId,
@@ -98,10 +118,15 @@ export async function* emitToolResult(
   }
 
   const eventType = toolResult.status === "completed" ? "tool.completed"
-    : toolResult.status === "denied" ? "tool.denied" : "tool.failed";
-  yield await writer.write(ev({
-    runId, threadId, type: eventType, source: { kind: "tool" },
-    redaction: toolResult.redaction,
-    payload: { toolCallId, toolName, status: toolResult.status },
-  }));
+    : toolResult.status === "denied" ? "tool.denied"
+    : toolResult.status === "waiting_approval" ? undefined
+    : "tool.failed";
+
+  if (eventType) {
+    yield await writer.write(ev({
+      runId, threadId, type: eventType, source: { kind: "tool" },
+      redaction: toolResult.redaction,
+      payload: { toolCallId, toolName, status: toolResult.status },
+    }));
+  }
 }

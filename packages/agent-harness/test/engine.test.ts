@@ -587,6 +587,102 @@ describe("NativeHarnessEngine", () => {
     );
   });
 
+  it("should pause and resume around workflow-owned external approvals", async () => {
+    const ports = createTestPorts();
+    const descriptor = {
+      name: "workflow.send_email",
+      description: "Send email through Workflow.",
+      kind: "workflow_capability" as const,
+      requiredScopes: ["workflow.capability.invoke.send_email"],
+      riskLevel: "write" as const,
+      approvalPolicy: "never" as const,
+      metadata: {
+        capabilityKey: "send_email",
+        capabilityVersion: "0.1.0",
+        externalApprovalOwner: "workflow" as const,
+      },
+    };
+
+    ports.capabilityRouter = {
+      async listTools() {
+        return [descriptor];
+      },
+      async prepareToolCall() {
+        return { status: "ready" as const, descriptor, redaction: "none" as const };
+      },
+      async executeToolCall(request: any) {
+        return {
+          id: request.id,
+          toolName: request.toolName,
+          status: "waiting_approval" as const,
+          output: { reason: "Workflow approval required" },
+          externalRun: {
+            kind: "workflow_capability" as const,
+            capabilityKey: "send_email",
+            capabilityVersion: "0.1.0",
+            capabilityRunId: "caprun_email_1",
+            status: "waiting_approval" as const,
+            approvalId: "capapproval_email_1",
+            correlationId: "corr_email_1",
+          },
+          redaction: "partial" as const,
+        };
+      },
+      async resolveExternalApproval(input: any) {
+        return {
+          id: "caprun_email_1" as any,
+          toolName: input.toolName,
+          status: "completed" as const,
+          output: { sent: true },
+          externalRun: {
+            ...input.externalRun,
+            status: "completed" as const,
+            approvalId: undefined,
+          },
+          redaction: "partial" as const,
+        };
+      },
+    } as any;  // missing callTool — only needed methods provided for this test
+    ports.model = new ScriptedModelPort([
+      { type: "tool", name: "workflow.send_email", input: { to: "user@example.com" } },
+      { type: "delta", text: "Email sent.\n" },
+      { type: "finish" },
+    ]);
+
+    const engine = new NativeHarnessEngine(ports);
+    const phase1 = [];
+    for await (const event of engine.run({
+      orgId: "org_test" as OrgId,
+      actorUserId: "user_test" as UserId,
+      goal: "Send email",
+      scopes: ["workflow.capability.invoke.send_email"],
+    })) {
+      phase1.push(event);
+    }
+
+    expect(phase1.map((event) => event.type)).toContain("external_approval.requested");
+    expect(phase1.map((event) => event.type)).toContain("run.paused");
+    expect(phase1.map((event) => event.type)).not.toContain("approval.requested");
+
+    const paused = phase1.find((event) => event.type === "run.paused")!;
+    const phase2 = [];
+    for await (const event of engine.resume({
+      runId: paused.runId,
+      approval: {
+        approvalId: "capapproval_email_1" as any,
+        decision: "approved",
+      },
+    })) {
+      phase2.push(event);
+    }
+
+    const phase2Types = phase2.map((event) => event.type);
+    expect(phase2Types).toContain("external_approval.resolved");
+    expect(phase2Types).toContain("external_run.completed");
+    expect(phase2Types).toContain("tool.completed");
+    expect(phase2Types).toContain("run.completed");
+  });
+
   it("resume should fail for unknown run and emit through EventWriter", async () => {
     const ports = createTestPorts();
     const engine = new NativeHarnessEngine(ports);

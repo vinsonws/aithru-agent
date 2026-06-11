@@ -186,6 +186,7 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
           if (prepared.status === "waiting_approval") {
             const approvalId = nextApprovalId() as ApprovalId;
             this.pendingApprovals.set(runId, {
+              kind: "local_tool",
               runId, threadId, msgId, todoId,
               workspaceId: runContext.workspaceId,
               toolCallId, tc, runContext, approvalId,
@@ -212,7 +213,47 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
           // ── 4. executeToolCall ──────────────────────────────────────────
           const toolResult = await this.ports.capabilityRouter.executeToolCall(callRequest, runContext);
 
-          // ── 5. Result events ────────────────────────────────────────────
+          // ── 5. External waiting approval: pause, don't continue model loop ──
+          if (
+            toolResult.status === "waiting_approval" &&
+            toolResult.externalRun?.approvalId
+          ) {
+            yield* emitToolResult(writer, runId, threadId, runContext.workspaceId, toolCallId, tc.name, toolResult);
+
+            this.pendingApprovals.set(runId, {
+              kind: "workflow_capability",
+              runId,
+              threadId,
+              msgId,
+              todoId,
+              workspaceId: runContext.workspaceId,
+              toolCallId,
+              tc,
+              runContext,
+              approvalId: toolResult.externalRun.approvalId,
+              externalRun: toolResult.externalRun,
+              modelIterator,
+              toolAllowedNames,
+            });
+
+            yield await writer.write(ev({
+              runId,
+              threadId,
+              type: "run.paused",
+              source: { kind: "harness" },
+              payload: {
+                status: "waiting_approval",
+                approvalId: toolResult.externalRun.approvalId,
+                toolCallId,
+                toolName: tc.name,
+                externalRun: toolResult.externalRun,
+              },
+            }));
+
+            return true;
+          }
+
+          // ── 6. Result events ────────────────────────────────────────────
           yield* emitToolResult(writer, runId, threadId, runContext.workspaceId, toolCallId, tc.name, toolResult);
         }
       }
@@ -262,7 +303,76 @@ export class NativeHarnessEngine implements AgentHarnessEngine {
       return;
     }
 
-    // ── approval.resolved ──────────────────────────────────────────────────
+    if (pending.kind === "workflow_capability") {
+      yield await writer.write(ev({
+        runId,
+        threadId,
+        type: "external_approval.resolved",
+        source: { kind: "external" },
+        payload: {
+          kind: "workflow_capability",
+          capabilityRunId: pending.externalRun.capabilityRunId,
+          approvalId: pending.approvalId,
+          toolCallId,
+          toolName: tc.name,
+          decision: approval.decision,
+          comment: approval.comment,
+          correlationId: pending.externalRun.correlationId,
+        },
+      }));
+
+      if (approval.decision === "rejected") {
+        this.pendingApprovals.delete(runId);
+        yield* emitRunFailed(
+          writer,
+          runId,
+          threadId,
+          new AgentError("TOOL_DENIED", `Workflow approval '${pending.approvalId}' rejected`),
+        );
+        return;
+      }
+
+      yield await writer.write(ev({
+        runId,
+        threadId,
+        type: "run.resumed",
+        source: { kind: "harness" },
+        payload: { status: "running" },
+      }));
+
+      const toolResult = await this.ports.capabilityRouter.resolveExternalApproval?.({
+        toolName: tc.name,
+        externalRun: pending.externalRun,
+        approvalId: pending.approvalId,
+        decision: approval.decision,
+        comment: approval.comment,
+      }, runContext);
+
+      if (!toolResult) {
+        throw new AgentError("TOOL_FAILED", `No external approval resolver for '${tc.name}'`);
+      }
+
+      yield* this._emitToolResult(writer, runId, threadId, runContext.workspaceId, toolCallId, tc.name, toolResult);
+
+      const paused = yield* this._runModelLoop({
+        writer,
+        runId,
+        threadId,
+        runContext,
+        msgId,
+        todoId,
+        modelIterator: pending.modelIterator,
+        toolAllowedNames: pending.toolAllowedNames,
+      });
+
+      if (!paused) {
+        yield* emitCompletion(writer, runId, threadId, msgId, todoId);
+        this.pendingApprovals.delete(runId);
+      }
+      return;
+    }
+
+    // ── Local approval: approval.resolved ──────────────────────────────────
     yield await writer.write(ev({
       runId, threadId, type: "approval.resolved", source: { kind: "approval" },
       payload: {
