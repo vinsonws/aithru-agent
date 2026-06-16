@@ -28,7 +28,7 @@ class CreateRunRequest(BaseModel):
     goal: str = Field(min_length=1)
     org_id: str = "org_1"
     actor_user_id: str = "user_1"
-    scopes: list[str] = Field(default_factory=lambda: ["*"])
+    scopes: list[str] | None = None
     thread_id: str | None = None
     skill_id: str | None = None
     wait_for_completion: bool = False
@@ -135,11 +135,14 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.post("/api/agent/runs", status_code=201)
     async def create_run(body: CreateRunRequest) -> dict[str, Any]:
+        scopes = body.scopes if body.scopes is not None else list(rt.settings.api_scopes)
+        if rt.settings.api_token and not _scopes_allowed(scopes, rt.settings.api_scopes):
+            raise HTTPException(status_code=403, detail="Requested scopes exceed API token scopes")
         run_kwargs = {
             "org_id": body.org_id,
             "actor_user_id": body.actor_user_id,
             "goal": body.goal,
-            "scopes": body.scopes,
+            "scopes": scopes,
             "thread_id": body.thread_id,
             "skill_id": body.skill_id,
         }
@@ -449,3 +452,9 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
 
 app = create_app()
+
+
+def _scopes_allowed(requested: list[str], allowed: list[str]) -> bool:
+    if "*" in allowed:
+        return True
+    return all(scope in allowed for scope in requested)

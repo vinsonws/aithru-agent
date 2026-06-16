@@ -122,6 +122,45 @@ async def test_agent_api_requires_bearer_token_when_configured() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_binds_run_scopes_to_configured_token_scopes() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        settings=AgentSettings(
+            api_token="secret-token",
+            api_scopes=["agent.workspace.read"],
+        ),
+    )
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        inherited = await client.post(
+            "/api/agent/runs",
+            headers={"Authorization": "Bearer secret-token"},
+            json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Read only"},
+        )
+        escalated = await client.post(
+            "/api/agent/runs",
+            headers={"Authorization": "Bearer secret-token"},
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "goal": "Escalate",
+                "scopes": ["*"],
+            },
+        )
+        runs = (await client.get(
+            "/api/agent/runs",
+            headers={"Authorization": "Bearer secret-token"},
+        )).json()
+
+    assert inherited.status_code == 201
+    assert inherited.json()["scopes"] == ["agent.workspace.read"]
+    assert escalated.status_code == 403
+    assert escalated.json()["detail"] == "Requested scopes exceed API token scopes"
+    assert [run["goal"] for run in runs] == ["Read only"]
+
+
+@pytest.mark.asyncio
 async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
     runtime = create_agent_runtime(driver=file_report_driver())
     app = create_app(runtime)

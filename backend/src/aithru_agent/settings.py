@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, cast
 
 
@@ -16,6 +16,7 @@ class AgentSettings:
     instructions: str = "You are Aithru Agent. Use controlled tools only."
     test_model_output: str = "Done."
     api_token: str | None = None
+    api_scopes: list[str] = field(default_factory=lambda: ["*"])
 
     @classmethod
     def from_env(cls) -> "AgentSettings":
@@ -33,4 +34,12 @@ class AgentSettings:
             instructions=os.getenv("AITHRU_AGENT_INSTRUCTIONS", cls.instructions),
             test_model_output=os.getenv("AITHRU_AGENT_TEST_MODEL_OUTPUT", cls.test_model_output),
             api_token=os.getenv("AITHRU_AGENT_API_TOKEN"),
+            api_scopes=_split_scopes(os.getenv("AITHRU_AGENT_API_SCOPES")),
         )
+
+
+def _split_scopes(raw: str | None) -> list[str]:
+    if raw is None:
+        return ["*"]
+    scopes = [scope.strip() for scope in raw.split(",") if scope.strip()]
+    return scopes or ["*"]

@@ -143,7 +143,9 @@ GET    /api/agent/subagents/{key}
 ```
 
 Set `AITHRU_AGENT_API_TOKEN` to require `Authorization: Bearer <token>` on Agent
-API endpoints. Health remains public for readiness checks.
+API endpoints. Health remains public for readiness checks. Set
+`AITHRU_AGENT_API_SCOPES` to a comma-separated scope allowlist; run creation
+inherits those scopes when no scopes are provided and rejects scope escalation.
 
 ## Verification
 
