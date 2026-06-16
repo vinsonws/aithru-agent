@@ -12,6 +12,8 @@ from aithru_agent.domain import (
     AgentRunStatus,
     AgentThread,
     AgentThreadStatus,
+    AgentTodo,
+    AgentTodoStatus,
     AgentWorkspace,
     AgentWorkspaceFile,
 )
@@ -56,6 +58,8 @@ class InMemoryAgentStore:
         self._messages: dict[str, AgentMessage] = {}
         self._messages_by_thread: dict[str, list[str]] = defaultdict(list)
         self._runs: dict[str, AgentRun] = {}
+        self._todos: dict[str, AgentTodo] = {}
+        self._todos_by_run: dict[str, list[str]] = defaultdict(list)
         self._approvals: dict[str, AgentApproval] = {}
         self._workspaces: dict[str, AgentWorkspace] = {}
         self._workspace_files: dict[tuple[str, str], tuple[AgentWorkspaceFile, WorkspaceFileContent]] = {}
@@ -175,6 +179,56 @@ class InMemoryAgentStore:
         updated = run.model_copy(update=updates)
         self._runs[run_id] = updated
         return updated
+
+    async def create_todo(
+        self,
+        *,
+        run_id: str,
+        title: str,
+        status: AgentTodoStatus | str = AgentTodoStatus.PENDING,
+        description: str | None = None,
+        created_by: str = "agent",
+    ) -> AgentTodo:
+        order = len(self._todos_by_run.get(run_id, [])) + 1
+        todo = AgentTodo(
+            id=self._ids.next("todo"),
+            run_id=run_id,
+            title=title,
+            description=description,
+            status=status,
+            created_by=created_by,  # type: ignore[arg-type]
+            order=order,
+        )
+        self._todos[todo.id] = todo
+        self._todos_by_run[run_id].append(todo.id)
+        return todo
+
+    async def update_todo(
+        self,
+        todo_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        status: AgentTodoStatus | str | None = None,
+    ) -> AgentTodo:
+        todo = self._todos.get(todo_id)
+        if not todo:
+            raise AgentError("NOT_FOUND", f"Todo not found: {todo_id}")
+        updates = {
+            key: value
+            for key, value in {
+                "title": title,
+                "description": description,
+                "status": status,
+            }.items()
+            if value is not None
+        }
+        updated = todo.model_copy(update=updates)
+        self._todos[todo_id] = updated
+        return updated
+
+    async def list_todos(self, run_id: str) -> list[AgentTodo]:
+        return [self._todos[todo_id] for todo_id in self._todos_by_run.get(run_id, [])]
 
     async def create_approval(
         self,
@@ -315,3 +369,10 @@ class InMemoryAgentStore:
             return artifacts
         return [artifact for artifact in artifacts if artifact.run_id == run_id]
 
+    async def finalize_artifact(self, artifact_id: str) -> AgentArtifact:
+        artifact = self._artifacts.get(artifact_id)
+        if not artifact:
+            raise AgentError("NOT_FOUND", f"Artifact not found: {artifact_id}")
+        finalized = artifact.model_copy(update={"finalized_at": utc_now()})
+        self._artifacts[artifact_id] = finalized
+        return finalized
