@@ -203,6 +203,56 @@ async def test_agent_api_run_resume_rejects_run_without_current_approval() -> No
 
 
 @pytest.mark.asyncio
+async def test_agent_api_accepts_user_input_for_paused_thread_run() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        policy=ToolPolicy(require_approval_for_risk=["write"]),
+    )
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        thread = (
+            await client.post(
+                "/api/agent/threads",
+                json={"org_id": "org_1", "owner_user_id": "user_1", "title": "Report"},
+            )
+        ).json()
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={
+                    "org_id": "org_1",
+                    "actor_user_id": "user_1",
+                    "thread_id": thread["id"],
+                    "goal": "Write report",
+                    "scopes": ["*"],
+                },
+            )
+        ).json()
+        await runtime.worker.drain()
+        response = await client.post(
+            f"/api/agent/runs/{run['id']}/input",
+            json={"content": "Please keep it brief."},
+        )
+        messages = (await client.get(f"/api/agent/threads/{thread['id']}/messages")).json()
+        events = (await client.get(f"/api/agent/runs/{run['id']}/events")).json()
+
+    created_message = response.json()
+
+    assert response.status_code == 201
+    assert created_message["role"] == "user"
+    assert created_message["content"] == "Please keep it brief."
+    assert created_message["run_id"] == run["id"]
+    assert messages == [created_message]
+    assert [event["type"] for event in events][-2:] == ["message.created", "message.completed"]
+    assert events[-2]["payload"] == {"message_id": created_message["id"], "role": "user"}
+    assert events[-1]["payload"] == {
+        "message_id": created_message["id"],
+        "content": "Please keep it brief.",
+    }
+
+
+@pytest.mark.asyncio
 async def test_agent_api_validates_create_run_body() -> None:
     app = create_app(create_agent_runtime(driver=file_report_driver()))
 

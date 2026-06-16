@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from aithru_agent.application import AgentRuntime, create_agent_runtime
-from aithru_agent.domain import AgentApprovalDecision, AgentMessageRole
+from aithru_agent.domain import AgentApprovalDecision, AgentMessageRole, AgentRunStatus
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import ContextBuilder
 from aithru_agent.stream import format_sse_event
@@ -36,6 +36,10 @@ class ResolveApprovalRequest(BaseModel):
     decision: AgentApprovalDecision
     approval_id: str | None = None
     comment: str | None = None
+
+
+class AppendRunInputRequest(BaseModel):
+    content: str = Field(min_length=1)
 
 
 class WriteWorkspaceFileRequest(BaseModel):
@@ -206,6 +210,37 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
             "".join(format_sse_event(event) for event in events),
             media_type="text/event-stream",
         )
+
+    @app.post("/api/agent/runs/{run_id}/input", status_code=201)
+    async def append_run_input(run_id: str, body: AppendRunInputRequest) -> dict[str, Any]:
+        run = await rt.store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.status in {AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELLED}:
+            raise HTTPException(status_code=409, detail="Run is not accepting input")
+        if not run.thread_id:
+            raise HTTPException(status_code=409, detail="Run has no thread")
+        message = await rt.store.append_message(
+            thread_id=run.thread_id,
+            role="user",
+            content=body.content,
+            run_id=run.id,
+        )
+        await rt.event_writer.write(
+            run_id=run.id,
+            thread_id=run.thread_id,
+            type="message.created",
+            source={"kind": "user", "id": run.actor_user_id},
+            payload={"message_id": message.id, "role": "user"},
+        )
+        await rt.event_writer.write(
+            run_id=run.id,
+            thread_id=run.thread_id,
+            type="message.completed",
+            source={"kind": "user", "id": run.actor_user_id},
+            payload={"message_id": message.id, "content": body.content},
+        )
+        return message.model_dump(mode="json")
 
     @app.post("/api/agent/runs/{run_id}/cancel")
     async def cancel_run(run_id: str) -> dict[str, Any]:
