@@ -6,6 +6,7 @@ from aithru_agent.capabilities import ToolPolicy
 from aithru_agent.domain import (
     AgentMemoryEntry,
     AgentMemoryPolicy,
+    AgentMessage,
     AgentRunStatus,
     AgentSkill,
     AgentWorkspaceFile,
@@ -19,6 +20,7 @@ class RecordingInstructionsPydanticDriver(PydanticAIHarnessDriver):
     def __init__(self) -> None:
         super().__init__(model=TestModel(custom_output_text="done"))
         self.seen_memory_entries: list[AgentMemoryEntry] | None = None
+        self.seen_thread_messages: list[AgentMessage] | None = None
         self.seen_workspace_files: list[AgentWorkspaceFile] | None = None
 
     def instructions_for_run(
@@ -26,13 +28,16 @@ class RecordingInstructionsPydanticDriver(PydanticAIHarnessDriver):
         skill: AgentSkill | None = None,
         *,
         memory_entries: list[AgentMemoryEntry] | None = None,
+        thread_messages: list[AgentMessage] | None = None,
         workspace_files: list[AgentWorkspaceFile] | None = None,
     ) -> str:
         self.seen_memory_entries = memory_entries
+        self.seen_thread_messages = thread_messages
         self.seen_workspace_files = workspace_files
         return super().instructions_for_run(
             skill,
             memory_entries=memory_entries,
+            thread_messages=thread_messages,
             workspace_files=workspace_files,
         )
 
@@ -190,3 +195,33 @@ async def test_pydantic_ai_driver_respects_workspace_read_policy_for_file_summar
     await runtime.runner.execute_run(run.id)
 
     assert driver.seen_workspace_files == []
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_driver_loads_thread_message_summary() -> None:
+    driver = RecordingInstructionsPydanticDriver()
+    runtime = create_agent_runtime(driver=driver)
+    thread = await runtime.store.create_thread(
+        org_id="org_1",
+        owner_user_id="user_1",
+        title="Planning",
+    )
+    await runtime.store.append_message(
+        thread_id=thread.id,
+        role="user",
+        content="Remember that reports should be concise.",
+    )
+    run = await runtime.runner.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Write a report.",
+        scopes=["*"],
+        thread_id=thread.id,
+    )
+
+    await runtime.runner.execute_run(run.id)
+
+    assert driver.seen_thread_messages is not None
+    assert [message.content for message in driver.seen_thread_messages] == [
+        "Remember that reports should be concise."
+    ]

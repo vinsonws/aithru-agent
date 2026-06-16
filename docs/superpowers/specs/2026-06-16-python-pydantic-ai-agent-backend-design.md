@@ -336,6 +336,7 @@ Responsibilities:
 
 - define the Aithru harness driver interface;
 - build model context;
+- inject bounded thread message summaries;
 - inject bounded workspace file summaries when workspace read policy allows;
 - call Pydantic AI through the `pydantic_ai` driver;
 - map Pydantic AI output/events into Aithru events;

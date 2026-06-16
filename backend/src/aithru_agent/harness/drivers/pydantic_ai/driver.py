@@ -4,12 +4,14 @@ from pydantic_ai import Agent, RunContext, Tool
 from pydantic_ai.messages import PartDeltaEvent, TextPartDelta
 from pydantic_ai.run import AgentRunResultEvent
 
-from aithru_agent.domain import AgentMemoryEntry, AgentSkill, AgentWorkspaceFile
+from aithru_agent.domain import AgentMemoryEntry, AgentMessage, AgentSkill, AgentWorkspaceFile
 from aithru_agent.harness.drivers.pydantic_ai.tool_bridge import PydanticAIToolBridge
 from aithru_agent.harness.engine import HarnessRunDeps, HarnessStep
 
 
 MAX_WORKSPACE_FILES_IN_PROMPT = 50
+MAX_THREAD_MESSAGES_IN_PROMPT = 20
+MAX_THREAD_MESSAGE_CHARS = 1_000
 
 
 class PydanticAIHarnessDriver:
@@ -25,12 +27,14 @@ class PydanticAIHarnessDriver:
     async def run(self, goal: str | None = None, deps: HarnessRunDeps | None = None) -> list[HarnessStep]:
         tools = await self._build_tools(deps) if deps else []
         memory_entries = await self._memory_entries_for_run(deps) if deps else []
+        thread_messages = await self._thread_messages_for_run(deps) if deps else []
         workspace_files = await self._workspace_files_for_run(deps) if deps else []
         agent = Agent(
             self._model,
             instructions=self.instructions_for_run(
                 deps.skill if deps else None,
                 memory_entries=memory_entries,
+                thread_messages=thread_messages,
                 workspace_files=workspace_files,
             ),
             output_type=str,
@@ -53,11 +57,18 @@ class PydanticAIHarnessDriver:
         skill: AgentSkill | None = None,
         *,
         memory_entries: list[AgentMemoryEntry] | None = None,
+        thread_messages: list[AgentMessage] | None = None,
         workspace_files: list[AgentWorkspaceFile] | None = None,
     ) -> str:
         sections = [self._instructions]
         if skill:
             sections.append(f"Skill instructions:\n{skill.instructions}")
+        if thread_messages:
+            lines = [
+                f"- {message.role}: {_truncate_message(message.content)}"
+                for message in thread_messages
+            ]
+            sections.append("Thread messages:\n" + "\n".join(lines))
         if workspace_files:
             lines = [
                 f"- {file.path} ({file.media_type or 'unknown'}, {file.size} bytes)"
@@ -91,6 +102,12 @@ class PydanticAIHarnessDriver:
                 seen.add(entry.id)
                 entries.append(entry)
         return entries
+
+    async def _thread_messages_for_run(self, deps: HarnessRunDeps) -> list[AgentMessage]:
+        if not deps.run.thread_id:
+            return []
+        messages = await deps.store.list_messages(deps.run.thread_id)
+        return messages[-MAX_THREAD_MESSAGES_IN_PROMPT:]
 
     async def _workspace_files_for_run(self, deps: HarnessRunDeps) -> list[AgentWorkspaceFile]:
         skill = deps.skill
@@ -141,6 +158,10 @@ class PydanticAIHarnessDriver:
 
 def _workspace_path_allowed(path: str, allowed_paths: list[str]) -> bool:
     return any(path == allowed or path.startswith(allowed.rstrip("/") + "/") for allowed in allowed_paths)
+
+
+def _truncate_message(content: str) -> str:
+    return content[:MAX_THREAD_MESSAGE_CHARS]
 
 
 def _memory_scope_id(scope: str, deps: HarnessRunDeps) -> str | None:
