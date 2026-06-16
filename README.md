@@ -142,6 +142,9 @@ GET    /api/agent/subagents
 GET    /api/agent/subagents/{key}
 ```
 
+Run streams replay existing events by default. Add `follow=true` to wait for new
+SSE events until the run reaches a terminal state or the stream timeout expires.
+
 Set `AITHRU_AGENT_API_TOKEN` to require `Authorization: Bearer <token>` on Agent
 API endpoints. Health remains public for readiness checks. Set
 `AITHRU_AGENT_API_SCOPES` to a comma-separated scope allowlist; run creation

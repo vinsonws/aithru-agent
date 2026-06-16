@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -86,6 +88,39 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
     assert files[0]["path"] == "/reports/report.md"
     assert file_content["content"] == "# Report\nDone.\n"
     assert artifacts[0]["type"] == "report"
+
+
+@pytest.mark.asyncio
+async def test_agent_api_follow_stream_waits_for_new_run_events() -> None:
+    runtime = create_agent_runtime(driver=file_report_driver())
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+            )
+        ).json()
+        stream_task = asyncio.create_task(
+            client.get(
+                f"/api/agent/runs/{run['id']}/stream",
+                params={
+                    "after_sequence": 1,
+                    "follow": True,
+                    "poll_interval_seconds": 0.01,
+                    "timeout_seconds": 2,
+                },
+            )
+        )
+        await asyncio.sleep(0.05)
+        assert not stream_task.done()
+        await runtime.worker.drain()
+        stream = await stream_task
+
+    assert stream.status_code == 200
+    assert "event: run.started" in stream.text
+    assert "event: run.completed" in stream.text
 
 
 @pytest.mark.asyncio

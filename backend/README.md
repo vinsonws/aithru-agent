@@ -42,6 +42,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Queued Agent runs with worker execution.
 - In-memory and SQLite persistence backends.
 - Agent stream events, SSE formatting, and trace projection.
+- Run stream follow mode waits for new SSE events until terminal run state or timeout.
 - Event writer redaction for common sensitive payload keys before replay or SSE output.
 - Run snapshot inspection with events, trace, todos, approvals, workspace file summaries, artifacts, and subagent runs.
 - Runtime user input for active threaded runs through persisted messages and stream events.

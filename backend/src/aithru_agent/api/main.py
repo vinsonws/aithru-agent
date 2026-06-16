@@ -1,8 +1,9 @@
+import asyncio
 from secrets import compare_digest
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from aithru_agent.application import AgentRuntime, create_agent_runtime
@@ -308,8 +309,25 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return [subagent_run.model_dump(mode="json") for subagent_run in subagent_runs]
 
     @app.get("/api/agent/runs/{run_id}/stream")
-    async def stream_run(request: Request, run_id: str, after_sequence: int = 0) -> Response:
+    async def stream_run(
+        request: Request,
+        run_id: str,
+        after_sequence: int = 0,
+        follow: bool = False,
+        poll_interval_seconds: float = 0.25,
+        timeout_seconds: float = 30.0,
+    ) -> Response:
         await require_run_for_request(request, run_id)
+        if follow:
+            return StreamingResponse(
+                follow_run_events(
+                    run_id,
+                    after_sequence=after_sequence,
+                    poll_interval_seconds=poll_interval_seconds,
+                    timeout_seconds=timeout_seconds,
+                ),
+                media_type="text/event-stream",
+            )
         events = await rt.event_store.list_after_sequence(run_id, after_sequence)
         return Response(
             "".join(format_sse_event(event) for event in events),
@@ -529,10 +547,42 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         entries = _filter_memory_entries_for_request(request, entries)
         return [entry.model_dump(mode="json") for entry in entries]
 
+    async def follow_run_events(
+        run_id: str,
+        *,
+        after_sequence: int,
+        poll_interval_seconds: float,
+        timeout_seconds: float,
+    ):
+        cursor = after_sequence
+        interval = max(0.01, poll_interval_seconds)
+        deadline = asyncio.get_running_loop().time() + max(0.0, timeout_seconds)
+        while True:
+            events = await rt.event_store.list_after_sequence(run_id, cursor)
+            if events:
+                for event in events:
+                    cursor = event.sequence
+                    yield format_sse_event(event)
+                continue
+
+            run = await rt.store.get_run(run_id)
+            if run is None or run.status in _TERMINAL_RUN_STATUSES:
+                break
+            if asyncio.get_running_loop().time() >= deadline:
+                break
+            await asyncio.sleep(interval)
+
     return app
 
 
 app = create_app()
+
+
+_TERMINAL_RUN_STATUSES = {
+    AgentRunStatus.COMPLETED,
+    AgentRunStatus.FAILED,
+    AgentRunStatus.CANCELLED,
+}
 
 
 def _scopes_allowed(requested: list[str], allowed: list[str]) -> bool:
