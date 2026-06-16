@@ -16,6 +16,5 @@ class HarnessStep:
 
 
 class AgentHarnessDriver(Protocol):
-    async def run(self) -> list[HarnessStep]:
+    async def run(self, goal: str | None = None) -> list[HarnessStep]:
         ...
-

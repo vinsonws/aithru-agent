@@ -25,6 +25,6 @@ class ScriptedHarnessDriver:
     def __init__(self, steps: list[ScriptedStep]) -> None:
         self._steps = steps
 
-    async def run(self) -> list[HarnessStep]:
+    async def run(self, goal: str | None = None) -> list[HarnessStep]:
+        del goal
         return [step.step for step in self._steps]
-
