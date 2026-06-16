@@ -372,7 +372,8 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         try:
             run = await rt.runner.cancel_run(run_id)
         except AgentError as err:
-            raise HTTPException(status_code=404, detail=err.message) from err
+            status_code = 404 if err.code == "NOT_FOUND" else 409
+            raise HTTPException(status_code=status_code, detail=err.message) from err
         return run.model_dump(mode="json")
 
     @app.post("/api/agent/runs/{run_id}/resume")

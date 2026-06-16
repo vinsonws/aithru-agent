@@ -3,6 +3,7 @@ import pytest
 from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
 from aithru_agent.capabilities.local_tools import ArtifactLocalTool, TodoLocalTool, WorkspaceLocalTool
 from aithru_agent.domain import AgentRunStatus
+from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
@@ -159,3 +160,24 @@ async def test_worker_can_cancel_a_stored_run() -> None:
 
     assert cancelled.status == AgentRunStatus.CANCELLED
     assert events[-1].type == "run.cancelled"
+
+
+@pytest.mark.asyncio
+async def test_worker_rejects_cancelling_terminal_run() -> None:
+    runner, store, event_store = make_runner(ScriptedHarnessDriver([ScriptedStep.finish()]))
+    completed = await runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Already done",
+        scopes=["*"],
+    )
+
+    with pytest.raises(AgentError) as exc_info:
+        await runner.cancel_run(completed.id)
+
+    stored = await store.get_run(completed.id)
+    events = await event_store.list_by_run(completed.id)
+
+    assert exc_info.value.code == "BAD_REQUEST"
+    assert stored.status == AgentRunStatus.COMPLETED
+    assert [event.type for event in events][-1] == "run.completed"

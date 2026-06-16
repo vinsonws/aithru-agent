@@ -777,7 +777,14 @@ class AgentWorkerRunner:
         run = await self._store.get_run(run_id)
         if not run:
             raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
-        cancelled = await self._store.update_run(run_id, status=AgentRunStatus.CANCELLED)
+        if run.status in _TERMINAL_RUN_STATUSES:
+            raise AgentError("BAD_REQUEST", f"Run is already terminal: {run.status.value}")
+        cancelled = await self._store.update_run(
+            run_id,
+            status=AgentRunStatus.CANCELLED,
+            completed_at=_event_completed_at_marker(),
+            current_approval_id=None,
+        )
         await self._event_writer.write(
             run_id=run_id,
             thread_id=run.thread_id,
@@ -1052,3 +1059,10 @@ def _tool_result_error_message(error: dict | None) -> str:
 
 def _approval_decision_value(decision: AgentApprovalDecision | str) -> str:
     return decision.value if isinstance(decision, AgentApprovalDecision) else str(decision)
+
+
+_TERMINAL_RUN_STATUSES = {
+    AgentRunStatus.COMPLETED,
+    AgentRunStatus.FAILED,
+    AgentRunStatus.CANCELLED,
+}

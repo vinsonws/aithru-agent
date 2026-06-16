@@ -908,6 +908,27 @@ async def test_agent_api_accepts_user_input_for_paused_thread_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_rejects_cancelling_completed_run() -> None:
+    runtime = create_agent_runtime(driver=file_report_driver())
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+            )
+        ).json()
+        await runtime.worker.drain()
+        response = await client.post(f"/api/agent/runs/{run['id']}/cancel")
+        events = (await client.get(f"/api/agent/runs/{run['id']}/events")).json()
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Run is already terminal: completed"
+    assert events[-1]["type"] == "run.completed"
+
+
+@pytest.mark.asyncio
 async def test_agent_api_validates_create_run_body() -> None:
     app = create_app(create_agent_runtime(driver=file_report_driver()))
 

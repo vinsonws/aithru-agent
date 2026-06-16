@@ -59,6 +59,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Skill approval policy contributes execution-time approval requirements.
 - Runtime subagent delegation with parent/child run links, events, and trace spans.
 - Delegated child completion, failure, and cancellation are projected back to the parent run.
+- Run cancellation rejects terminal runs and preserves completed/failed audit state.
 - Restricted local Python sandbox execution with stdout/stderr events and trace spans.
 - Per-run harness options for model selection and additional run instructions.
 - Pydantic AI prompt context with skill instructions, thread summaries, readable memory, and workspace file summaries.
