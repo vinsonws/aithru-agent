@@ -69,8 +69,16 @@ class WorkspaceLocalTool:
         match request.tool_name:
             case "workspace.list_files":
                 files = await self._store.list_workspace_files(context.workspace_id)
+                files = [
+                    file
+                    for file in files
+                    if _path_allowed(file.path, context.workspace_allowed_paths)
+                ]
                 output: Any = {"files": [file.model_dump(mode="json") for file in files]}
             case "workspace.read_file":
+                denied = _deny_if_path_outside_policy(input_data["path"], context)
+                if denied:
+                    return denied
                 content = await self._store.read_workspace_file(
                     context.workspace_id,
                     str(input_data["path"]),
@@ -81,6 +89,9 @@ class WorkspaceLocalTool:
                     "media_type": content.media_type,
                 }
             case "workspace.write_file":
+                denied = _deny_if_path_outside_policy(input_data["path"], context)
+                if denied:
+                    return denied
                 file = await self._store.write_workspace_file(
                     workspace_id=context.workspace_id,
                     path=str(input_data["path"]),
@@ -89,6 +100,9 @@ class WorkspaceLocalTool:
                 )
                 output = file.model_dump(mode="json")
             case "workspace.delete_file":
+                denied = _deny_if_path_outside_policy(input_data["path"], context)
+                if denied:
+                    return denied
                 output = await self._store.delete_workspace_file(
                     context.workspace_id,
                     str(input_data["path"]),
@@ -106,3 +120,37 @@ def _input_dict(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError("Tool input must be an object")
     return value
+
+
+def _deny_if_path_outside_policy(path: object, context: AgentRunContext) -> AgentToolCallResult | None:
+    if _path_allowed(str(path), context.workspace_allowed_paths):
+        return None
+    return AgentToolCallResult(
+        status="denied",
+        error={"message": f"Path is outside allowed workspace paths: {path}"},
+        redaction="none",
+    )
+
+
+def _path_allowed(path: str, allowed_paths: list[str] | None) -> bool:
+    if not allowed_paths:
+        return True
+    normalized = _normalize_for_policy(path)
+    return any(
+        normalized == allowed or normalized.startswith(allowed.rstrip("/") + "/")
+        for allowed in (_normalize_for_policy(allowed_path) for allowed_path in allowed_paths)
+    )
+
+
+def _normalize_for_policy(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    parts: list[str] = []
+    for part in normalized.split("/"):
+        if not part or part == ".":
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    return "/" + "/".join(parts)

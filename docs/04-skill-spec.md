@@ -63,6 +63,7 @@ skills/
 - The allowed tools list is an upper bound; workspace, memory, sandbox,
   approval, and subagent policy can further narrow the tools exposed to a run
 - Sandbox tools require an explicit enabled sandbox policy
+- Workspace `allowedPaths` is enforced by workspace tools at execution time
 
 ## Observability
 

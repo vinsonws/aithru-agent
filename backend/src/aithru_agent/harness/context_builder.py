@@ -13,6 +13,11 @@ class ContextBuilder:
             skill_id=run.skill_id,
             scopes=scopes,
             allowed_tools=_allowed_tools_for_skill(skill) if skill else None,
+            workspace_allowed_paths=(
+                skill.workspace_policy.allowed_paths
+                if skill and skill.workspace_policy
+                else None
+            ),
         )
 
 
