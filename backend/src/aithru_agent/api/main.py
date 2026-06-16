@@ -155,6 +155,9 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.get("/api/agent/runs/{run_id}/events")
     async def get_run_events(run_id: str, after_sequence: int = 0) -> list[dict[str, Any]]:
+        run = await rt.store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
         events = await rt.event_store.list_after_sequence(run_id, after_sequence)
         return [event.model_dump(mode="json") for event in events]
 
@@ -220,6 +223,9 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.get("/api/agent/runs/{run_id}/stream")
     async def stream_run(run_id: str, after_sequence: int = 0) -> Response:
+        run = await rt.store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
         events = await rt.event_store.list_after_sequence(run_id, after_sequence)
         return Response(
             "".join(format_sse_event(event) for event in events),

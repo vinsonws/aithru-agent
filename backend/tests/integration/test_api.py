@@ -418,6 +418,21 @@ async def test_agent_api_rejects_file_operations_for_unknown_workspace() -> None
 
 
 @pytest.mark.asyncio
+async def test_agent_api_rejects_run_event_reads_for_unknown_run() -> None:
+    runtime = create_agent_runtime()
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        events = await client.get("/api/agent/runs/missing-run/events")
+        stream = await client.get("/api/agent/runs/missing-run/stream")
+
+    assert events.status_code == 404
+    assert stream.status_code == 404
+    assert events.json()["detail"] == "Run not found"
+    assert stream.json()["detail"] == "Run not found"
+
+
+@pytest.mark.asyncio
 async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
     skill = AgentSkill(
         id="skill_1",
