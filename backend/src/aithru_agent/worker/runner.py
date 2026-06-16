@@ -803,6 +803,14 @@ class AgentWorkerRunner:
                 source={"kind": "artifact"},
                 payload=output,
             )
+        elif tool_name == "artifact.finalize":
+            await self._event_writer.write(
+                run_id=run.id,
+                thread_id=run.thread_id,
+                type="artifact.finalized",
+                source={"kind": "artifact"},
+                payload=output,
+            )
 
 
 def _event_completed_at_marker() -> str:

@@ -162,6 +162,14 @@ class PydanticAIToolBridge:
                 source={"kind": "artifact"},
                 payload=output,
             )
+        elif tool_name == "artifact.finalize":
+            await self._event_writer.write(
+                run_id=self._run.id,
+                thread_id=self._run.thread_id,
+                type="artifact.finalized",
+                source={"kind": "artifact"},
+                payload=output,
+            )
 
 
 def _tool_result_error_message(error: dict | None) -> str:

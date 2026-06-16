@@ -6,6 +6,7 @@ from aithru_agent.domain import AgentRunStatus
 from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
+from aithru_agent.trace import project_trace_spans
 from aithru_agent.worker.runner import AgentWorkerRunner
 
 
@@ -87,6 +88,52 @@ async def test_scripted_worker_executes_tools_writes_events_and_completes_run() 
         "message.completed",
         "run.completed",
     ]
+
+
+@pytest.mark.asyncio
+async def test_scripted_worker_emits_artifact_finalized_event_and_trace() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Finalize artifact",
+        workspace_id=workspace.id,
+        scopes=["*"],
+    )
+    artifact = await store.create_artifact(
+        org_id=run.org_id,
+        workspace_id=run.workspace_id,
+        run_id=run.id,
+        type="report",
+        name="Report",
+    )
+    runner = AgentWorkerRunner(
+        store=store,
+        event_writer=writer,
+        capability_router=AithruCapabilityRouter(
+            adapters=[ArtifactLocalTool(store)],
+            policy=ToolPolicy(require_approval_for_risk=[]),
+        ),
+        driver=ScriptedHarnessDriver(
+            [
+                ScriptedStep.tool("artifact.finalize", {"artifact_id": artifact.id}),
+                ScriptedStep.finish(),
+            ]
+        ),
+    )
+
+    completed = await runner.execute_run(run.id)
+    events = await event_store.list_by_run(run.id)
+    spans = project_trace_spans(events)
+    event_types = [event.type for event in events]
+
+    assert completed.status == AgentRunStatus.COMPLETED
+    assert "artifact.finalized" in event_types
+    assert next(span for span in spans if span.id == f"artifact:{artifact.id}").status == "completed"
 
 
 @pytest.mark.asyncio

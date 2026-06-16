@@ -140,7 +140,7 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
             continue
 
         if event.type in {"artifact.created", "artifact.updated", "artifact.finalized"}:
-            artifact_id = _payload_value(event, "artifact_id", "artifactId") or f"{event.sequence}"
+            artifact_id = _payload_value(event, "artifact_id", "artifactId", "id") or f"{event.sequence}"
             span_id = f"artifact:{artifact_id}"
             spans[span_id] = _start_span(
                 event,
