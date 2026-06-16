@@ -1,0 +1,317 @@
+from collections import defaultdict
+from datetime import UTC, datetime
+
+from aithru_agent.domain import (
+    AgentApproval,
+    AgentApprovalDecision,
+    AgentApprovalStatus,
+    AgentArtifact,
+    AgentMessage,
+    AgentRun,
+    AgentRunSource,
+    AgentRunStatus,
+    AgentThread,
+    AgentThreadStatus,
+    AgentWorkspace,
+    AgentWorkspaceFile,
+)
+from aithru_agent.domain.artifact import AgentArtifactType
+from aithru_agent.domain.errors import AgentError
+from aithru_agent.domain.message import AgentMessageRole
+from aithru_agent.persistence.protocols import WorkspaceFileContent
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def normalize_path(raw: str) -> str:
+    normalized = raw.replace("\\", "/")
+    parts: list[str] = []
+    for part in normalized.split("/"):
+        if not part or part == ".":
+            continue
+        if part == "..":
+            if not parts:
+                raise AgentError("PATH_TRAVERSAL_DENIED", f"Path traverses above root: {raw}")
+            parts.pop()
+            continue
+        parts.append(part)
+    return "/" + "/".join(parts)
+
+
+class IdFactory:
+    def __init__(self) -> None:
+        self._counters: dict[str, int] = defaultdict(int)
+
+    def next(self, prefix: str) -> str:
+        self._counters[prefix] += 1
+        return f"{prefix}_{self._counters[prefix]}"
+
+
+class InMemoryAgentStore:
+    def __init__(self) -> None:
+        self._ids = IdFactory()
+        self._threads: dict[str, AgentThread] = {}
+        self._messages: dict[str, AgentMessage] = {}
+        self._messages_by_thread: dict[str, list[str]] = defaultdict(list)
+        self._runs: dict[str, AgentRun] = {}
+        self._approvals: dict[str, AgentApproval] = {}
+        self._workspaces: dict[str, AgentWorkspace] = {}
+        self._workspace_files: dict[tuple[str, str], tuple[AgentWorkspaceFile, WorkspaceFileContent]] = {}
+        self._artifacts: dict[str, AgentArtifact] = {}
+
+    async def create_thread(
+        self,
+        *,
+        org_id: str,
+        owner_user_id: str,
+        title: str | None = None,
+    ) -> AgentThread:
+        now = utc_now()
+        thread = AgentThread(
+            id=self._ids.next("thread"),
+            org_id=org_id,
+            owner_user_id=owner_user_id,
+            title=title,
+            status=AgentThreadStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
+        self._threads[thread.id] = thread
+        return thread
+
+    async def get_thread(self, thread_id: str) -> AgentThread | None:
+        return self._threads.get(thread_id)
+
+    async def list_threads(self) -> list[AgentThread]:
+        return list(self._threads.values())
+
+    async def append_message(
+        self,
+        *,
+        thread_id: str,
+        role: AgentMessageRole,
+        content: str,
+        run_id: str | None = None,
+        artifact_ids: list[str] | None = None,
+    ) -> AgentMessage:
+        message = AgentMessage(
+            id=self._ids.next("msg"),
+            thread_id=thread_id,
+            role=role,
+            content=content,
+            run_id=run_id,
+            artifact_ids=artifact_ids or [],
+            created_at=utc_now(),
+        )
+        self._messages[message.id] = message
+        self._messages_by_thread[thread_id].append(message.id)
+        return message
+
+    async def list_messages(self, thread_id: str) -> list[AgentMessage]:
+        return [
+            self._messages[message_id]
+            for message_id in self._messages_by_thread.get(thread_id, [])
+        ]
+
+    async def create_workspace(
+        self,
+        *,
+        org_id: str,
+        thread_id: str | None = None,
+        run_id: str | None = None,
+    ) -> AgentWorkspace:
+        workspace = AgentWorkspace(
+            id=self._ids.next("ws"),
+            org_id=org_id,
+            thread_id=thread_id,
+            run_id=run_id,
+            storage_backend="memory",
+            created_at=utc_now(),
+        )
+        self._workspaces[workspace.id] = workspace
+        return workspace
+
+    async def get_workspace(self, workspace_id: str) -> AgentWorkspace | None:
+        return self._workspaces.get(workspace_id)
+
+    async def create_run(
+        self,
+        *,
+        org_id: str,
+        actor_user_id: str,
+        source: AgentRunSource | str,
+        goal: str,
+        workspace_id: str,
+        thread_id: str | None = None,
+        skill_id: str | None = None,
+    ) -> AgentRun:
+        run = AgentRun(
+            id=self._ids.next("run"),
+            org_id=org_id,
+            actor_user_id=actor_user_id,
+            source=source,
+            thread_id=thread_id,
+            skill_id=skill_id,
+            workspace_id=workspace_id,
+            goal=goal,
+            status=AgentRunStatus.QUEUED,
+            started_at=utc_now(),
+        )
+        self._runs[run.id] = run
+        return run
+
+    async def get_run(self, run_id: str) -> AgentRun | None:
+        return self._runs.get(run_id)
+
+    async def list_runs(self) -> list[AgentRun]:
+        return list(self._runs.values())
+
+    async def update_run(self, run_id: str, **updates: object) -> AgentRun:
+        run = self._runs.get(run_id)
+        if not run:
+            raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
+        updated = run.model_copy(update=updates)
+        self._runs[run_id] = updated
+        return updated
+
+    async def create_approval(
+        self,
+        *,
+        run_id: str,
+        tool_call_id: str,
+        tool_name: str,
+    ) -> AgentApproval:
+        approval = AgentApproval(
+            id=self._ids.next("approval"),
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            status=AgentApprovalStatus.PENDING,
+            decision=None,
+            created_at=utc_now(),
+        )
+        self._approvals[approval.id] = approval
+        return approval
+
+    async def get_approval(self, approval_id: str) -> AgentApproval | None:
+        return self._approvals.get(approval_id)
+
+    async def list_approvals(
+        self,
+        *,
+        status: AgentApprovalStatus | str | None = None,
+    ) -> list[AgentApproval]:
+        approvals = list(self._approvals.values())
+        if status is None:
+            return approvals
+        return [approval for approval in approvals if approval.status == status]
+
+    async def resolve_approval(
+        self,
+        approval_id: str,
+        *,
+        decision: AgentApprovalDecision | str,
+        comment: str | None = None,
+    ) -> AgentApproval:
+        approval = self._approvals.get(approval_id)
+        if not approval:
+            raise AgentError("APPROVAL_NOT_FOUND", f"Approval not found: {approval_id}")
+        resolved = approval.model_copy(
+            update={
+                "status": AgentApprovalStatus.RESOLVED,
+                "decision": decision,
+                "comment": comment,
+                "resolved_at": utc_now(),
+            }
+        )
+        self._approvals[approval_id] = resolved
+        return resolved
+
+    async def write_workspace_file(
+        self,
+        *,
+        workspace_id: str,
+        path: str,
+        content: str | bytes,
+        media_type: str | None = None,
+    ) -> AgentWorkspaceFile:
+        safe_path = normalize_path(path)
+        key = (workspace_id, safe_path)
+        now = utc_now()
+        existing = self._workspace_files.get(key)
+        file = AgentWorkspaceFile(
+            workspace_id=workspace_id,
+            path=safe_path,
+            size=len(content.encode("utf-8")) if isinstance(content, str) else len(content),
+            media_type=media_type,
+            created_at=existing[0].created_at if existing else now,
+            updated_at=now,
+        )
+        self._workspace_files[key] = (
+            file,
+            WorkspaceFileContent(content=content, media_type=media_type),
+        )
+        return file
+
+    async def read_workspace_file(self, workspace_id: str, path: str) -> WorkspaceFileContent:
+        key = (workspace_id, normalize_path(path))
+        record = self._workspace_files.get(key)
+        if not record:
+            raise AgentError("NOT_FOUND", f"File not found: {path}")
+        return record[1]
+
+    async def list_workspace_files(self, workspace_id: str) -> list[AgentWorkspaceFile]:
+        return [
+            file
+            for (stored_workspace_id, _), (file, _) in self._workspace_files.items()
+            if stored_workspace_id == workspace_id
+        ]
+
+    async def delete_workspace_file(self, workspace_id: str, path: str) -> dict[str, str]:
+        safe_path = normalize_path(path)
+        key = (workspace_id, safe_path)
+        if key not in self._workspace_files:
+            raise AgentError("NOT_FOUND", f"File not found: {path}")
+        del self._workspace_files[key]
+        return {"path": safe_path}
+
+    async def create_artifact(
+        self,
+        *,
+        org_id: str,
+        workspace_id: str,
+        run_id: str | None,
+        type: AgentArtifactType,
+        name: str,
+        media_type: str | None = None,
+        uri: str | None = None,
+        content: object | None = None,
+        metadata: dict | None = None,
+    ) -> AgentArtifact:
+        artifact = AgentArtifact(
+            id=self._ids.next("artifact"),
+            org_id=org_id,
+            workspace_id=workspace_id,
+            run_id=run_id,
+            type=type,
+            name=name,
+            media_type=media_type,
+            uri=uri,
+            content=content,
+            metadata=metadata,
+            created_at=utc_now(),
+        )
+        self._artifacts[artifact.id] = artifact
+        return artifact
+
+    async def get_artifact(self, artifact_id: str) -> AgentArtifact | None:
+        return self._artifacts.get(artifact_id)
+
+    async def list_artifacts(self, *, run_id: str | None = None) -> list[AgentArtifact]:
+        artifacts = list(self._artifacts.values())
+        if run_id is None:
+            return artifacts
+        return [artifact for artifact in artifacts if artifact.run_id == run_id]
+
