@@ -22,7 +22,18 @@ class TodoLocalTool:
                 name="todo.create",
                 kind=AgentToolKind.LOCAL_TOOL,
                 description="Create a runtime Agent todo.",
-                input_schema={"type": "object", "required": ["title"]},
+                input_schema={
+                    "type": "object",
+                    "required": ["title"],
+                    "properties": {
+                        "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["pending", "running", "done", "blocked", "cancelled"],
+                        },
+                    },
+                },
                 output_schema={"type": "object"},
                 risk_level=AgentToolRiskLevel.SAFE,
                 required_scopes=["agent.todo.write"],
@@ -32,7 +43,19 @@ class TodoLocalTool:
                 name="todo.update",
                 kind=AgentToolKind.LOCAL_TOOL,
                 description="Update a runtime Agent todo.",
-                input_schema={"type": "object", "required": ["todo_id"]},
+                input_schema={
+                    "type": "object",
+                    "required": ["todo_id"],
+                    "properties": {
+                        "todo_id": {"type": "string"},
+                        "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["pending", "running", "done", "blocked", "cancelled"],
+                        },
+                    },
+                },
                 output_schema={"type": "object"},
                 risk_level=AgentToolRiskLevel.SAFE,
                 required_scopes=["agent.todo.write"],

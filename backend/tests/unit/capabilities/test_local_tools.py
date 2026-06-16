@@ -50,6 +50,25 @@ def make_router(store: InMemoryAgentStore, policy: ToolPolicy | None = None) -> 
     )
 
 
+def test_local_tool_input_schemas_define_required_properties() -> None:
+    store = InMemoryAgentStore()
+    descriptors = [
+        descriptor
+        for adapter in [
+            WorkspaceLocalTool(store),
+            TodoLocalTool(store),
+            ArtifactLocalTool(store),
+            MemoryLocalTool(store),
+        ]
+        for descriptor in adapter.list_tools()
+    ]
+
+    for descriptor in descriptors:
+        required = set(descriptor.input_schema.get("required") or [])
+        properties = set((descriptor.input_schema.get("properties") or {}).keys())
+        assert required <= properties, descriptor.name
+
+
 @pytest.mark.asyncio
 async def test_router_lists_local_tools_with_risk_and_scopes() -> None:
     store = InMemoryAgentStore()
