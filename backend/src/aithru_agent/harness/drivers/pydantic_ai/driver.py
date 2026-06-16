@@ -53,6 +53,7 @@ class PydanticAIHarnessDriver:
             run_context=deps.run_context,
             event_writer=deps.event_writer,
             capability_router=deps.capability_router,
+            store=deps.store,
         )
 
         def make_tool(tool_name: str, description: str) -> Tool:

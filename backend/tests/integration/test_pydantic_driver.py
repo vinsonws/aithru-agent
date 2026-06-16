@@ -2,6 +2,8 @@ import pytest
 from pydantic_ai.models.test import TestModel
 
 from aithru_agent.application.runtime import create_agent_runtime
+from aithru_agent.capabilities import ToolPolicy
+from aithru_agent.domain import AgentRunStatus
 from aithru_agent.harness.drivers.pydantic_ai.driver import PydanticAIHarnessDriver
 
 
@@ -36,3 +38,25 @@ async def test_pydantic_ai_driver_routes_model_tool_calls_through_aithru_bridge(
     assert "tool.started" in event_types
     assert "tool.completed" in event_types
     assert event_types[-1] == "run.completed"
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_driver_pauses_when_tool_requires_approval() -> None:
+    runtime = create_agent_runtime(
+        driver=PydanticAIHarnessDriver(
+            model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
+        ),
+        policy=ToolPolicy(require_approval_for_risk=["write"]),
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Write a file.",
+        scopes=["*"],
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+
+    assert run.status == AgentRunStatus.WAITING_APPROVAL
+    assert [event.type for event in events][-2:] == ["approval.requested", "run.paused"]
+    assert "run.failed" not in [event.type for event in events]

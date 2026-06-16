@@ -7,6 +7,7 @@ from aithru_agent.harness import (
     AgentHarnessDriver,
     ContextBuilder,
     HarnessRunDeps,
+    HarnessRunPaused,
     HarnessStep,
     HarnessToolCall,
 )
@@ -140,6 +141,7 @@ class AgentWorkerRunner:
                     run_context=context,
                     event_writer=self._event_writer,
                     capability_router=self._capability_router,
+                    store=self._store,
                     skill=skill,
                 ),
             )
@@ -169,6 +171,11 @@ class AgentWorkerRunner:
                         return paused_run
                 elif step.type == "finish":
                     break
+        except HarnessRunPaused:
+            paused_run = await self._store.get_run(run.id)
+            if paused_run is None:
+                raise AgentError("NOT_FOUND", f"Run not found: {run.id}")
+            return paused_run
         except Exception as exc:
             return await self._fail_run(run, thread_id, exc)
 

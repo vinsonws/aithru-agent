@@ -1,7 +1,9 @@
 from typing import Any
 
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter
-from aithru_agent.domain import AgentRun, AgentToolCallRequest
+from aithru_agent.domain import AgentRun, AgentRunStatus, AgentToolCallRequest
+from aithru_agent.harness import HarnessRunPaused
+from aithru_agent.persistence.protocols import AgentStore
 from aithru_agent.stream import AgentEventWriter
 
 
@@ -13,11 +15,13 @@ class PydanticAIToolBridge:
         run_context: AgentRunContext,
         event_writer: AgentEventWriter,
         capability_router: AithruCapabilityRouter,
+        store: AgentStore,
     ) -> None:
         self._run = run
         self._run_context = run_context
         self._event_writer = event_writer
         self._capability_router = capability_router
+        self._store = store
 
     async def call_tool(
         self,
@@ -50,14 +54,42 @@ class PydanticAIToolBridge:
             )
             return {"status": "denied", "reason": prepared.reason}
         if prepared.status == "waiting_approval":
+            approval = await self._store.create_approval(
+                run_id=self._run.id,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+            )
             await self._event_writer.write(
                 run_id=self._run.id,
                 thread_id=self._run.thread_id,
                 type="approval.requested",
                 source={"kind": "approval"},
-                payload={"tool_call_id": tool_call_id, "tool_name": tool_name, "output": prepared.output},
+                payload={
+                    "approval_id": approval.id,
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "status": "pending",
+                    "output": prepared.output,
+                },
             )
-            return {"status": "waiting_approval", "output": prepared.output}
+            await self._store.update_run(
+                self._run.id,
+                status=AgentRunStatus.WAITING_APPROVAL,
+                current_approval_id=approval.id,
+            )
+            await self._event_writer.write(
+                run_id=self._run.id,
+                thread_id=self._run.thread_id,
+                type="run.paused",
+                source={"kind": "harness"},
+                payload={
+                    "status": "waiting_approval",
+                    "approval_id": approval.id,
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                },
+            )
+            raise HarnessRunPaused(self._run.id)
 
         await self._event_writer.write(
             run_id=self._run.id,
@@ -126,4 +158,3 @@ class PydanticAIToolBridge:
                 source={"kind": "artifact"},
                 payload=output,
             )
-

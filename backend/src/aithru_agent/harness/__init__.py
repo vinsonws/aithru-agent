@@ -1,4 +1,11 @@
 from .context_builder import ContextBuilder
-from .engine import AgentHarnessDriver, HarnessRunDeps, HarnessStep, HarnessToolCall
+from .engine import AgentHarnessDriver, HarnessRunDeps, HarnessRunPaused, HarnessStep, HarnessToolCall
 
-__all__ = ["AgentHarnessDriver", "ContextBuilder", "HarnessRunDeps", "HarnessStep", "HarnessToolCall"]
+__all__ = [
+    "AgentHarnessDriver",
+    "ContextBuilder",
+    "HarnessRunDeps",
+    "HarnessRunPaused",
+    "HarnessStep",
+    "HarnessToolCall",
+]
