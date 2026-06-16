@@ -29,6 +29,17 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
         if event.type == "model.started":
             spans[f"model:{event.run_id}"] = _start_span(event, "model", "model")
             continue
+        if event.type == "model.usage":
+            span_id = f"model:{event.run_id}"
+            usage_refs = _usage_refs(event)
+            existing = spans.get(span_id)
+            if existing:
+                spans[span_id] = existing.model_copy(
+                    update={"refs": {**(existing.refs or {}), **usage_refs}}
+                )
+            else:
+                spans[span_id] = _start_span(event, "model", "model", refs=usage_refs)
+            continue
         if event.type in {"model.completed", "model.failed"}:
             _finish_span(
                 spans,
@@ -297,6 +308,19 @@ def _payload_value(event: AgentStreamEvent, *keys: str) -> object | None:
         if key in event.payload:
             return event.payload[key]
     return None
+
+
+def _usage_refs(event: AgentStreamEvent) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in {
+            "input_tokens": _payload_value(event, "input_tokens"),
+            "output_tokens": _payload_value(event, "output_tokens"),
+            "total_tokens": _payload_value(event, "total_tokens"),
+            "requests": _payload_value(event, "requests"),
+        }.items()
+        if value is not None
+    }
 
 
 def _todo_status_from_event_type(event_type: str) -> str | None:

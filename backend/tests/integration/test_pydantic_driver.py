@@ -121,6 +121,28 @@ async def test_pydantic_ai_driver_streams_text_steps_from_test_model() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pydantic_ai_driver_emits_model_usage_event() -> None:
+    runtime = create_agent_runtime(
+        driver=PydanticAIHarnessDriver(model=TestModel(call_tools=[], custom_output_text="done"))
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Track usage.",
+        scopes=["*"],
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+    usage = next(event for event in events if event.type == "model.usage")
+
+    assert usage.visibility == "debug"
+    assert usage.payload["requests"] == 1
+    assert usage.payload["input_tokens"] > 0
+    assert usage.payload["output_tokens"] == 2
+    assert usage.payload["total_tokens"] == usage.payload["input_tokens"] + usage.payload["output_tokens"]
+
+
+@pytest.mark.asyncio
 async def test_pydantic_ai_driver_uses_run_model_override() -> None:
     def model_factory(model: str):
         return TestModel(call_tools=[], custom_output_text=f"selected {model}")

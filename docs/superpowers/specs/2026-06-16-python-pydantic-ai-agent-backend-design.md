@@ -675,6 +675,7 @@ todo.blocked
 todo.cancelled
 
 model.started
+model.usage
 model.completed
 model.failed
 

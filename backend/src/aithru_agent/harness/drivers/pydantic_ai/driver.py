@@ -10,6 +10,7 @@ from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 from aithru_agent.domain import AgentMemoryEntry, AgentMessage, AgentRun, AgentSkill, AgentWorkspaceFile
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness.drivers.pydantic_ai.tool_bridge import PydanticAIToolBridge
+from aithru_agent.harness.drivers.pydantic_ai.usage_mapper import map_run_usage
 from aithru_agent.harness.engine import HarnessRunDeps, HarnessRunPaused, HarnessStep
 
 
@@ -59,6 +60,8 @@ class PydanticAIHarnessDriver:
                     if event.delta.content_delta:
                         steps.append(HarnessStep(type="message", text=event.delta.content_delta))
                 elif isinstance(event, AgentRunResultEvent):
+                    if deps is not None:
+                        await self._emit_usage_event(deps, event.result.usage)
                     if isinstance(event.result.output, DeferredToolRequests):
                         if deps is None:
                             raise AgentError("BAD_REQUEST", "Deferred tool request requires run context")
@@ -122,6 +125,7 @@ class PydanticAIHarnessDriver:
                     if event.delta.content_delta:
                         steps.append(HarnessStep(type="message", text=event.delta.content_delta))
                 elif isinstance(event, AgentRunResultEvent):
+                    await self._emit_usage_event(deps, event.result.usage)
                     if isinstance(event.result.output, DeferredToolRequests):
                         await self._pause_for_deferred_approval(
                             deps,
@@ -227,6 +231,16 @@ class PydanticAIHarnessDriver:
                 "tool_call_id": tool_call.tool_call_id,
                 "tool_name": tool_call.tool_name,
             },
+        )
+
+    async def _emit_usage_event(self, deps: HarnessRunDeps, usage: object) -> None:
+        await deps.event_writer.write(
+            run_id=deps.run.id,
+            thread_id=deps.run.thread_id,
+            type="model.usage",
+            source={"kind": "model"},
+            visibility="debug",
+            payload=map_run_usage(usage),
         )
 
     def instructions_for_run(

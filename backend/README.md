@@ -63,6 +63,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Per-run harness options for model selection and additional run instructions.
 - Pydantic AI prompt context with skill instructions, thread summaries, readable memory, and workspace file summaries.
 - Pydantic AI harness driver with controlled tool bridge.
+- Pydantic AI usage counts are emitted as debug `model.usage` events and projected into model trace spans.
 - Pydantic AI tools expose Aithru descriptor input schemas directly to the model.
 - Approval pause/resume semantics for risky Pydantic AI tool calls, including model continuation after approved tools.
 - Pydantic AI approval resume state is persisted on approval metadata for worker restart recovery.

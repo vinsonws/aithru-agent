@@ -58,6 +58,36 @@ def test_failed_run_marks_open_model_span_failed() -> None:
     assert by_id["model:run_1"].status == "failed"
 
 
+def test_projects_model_usage_into_model_span_refs() -> None:
+    spans = project_trace_spans(
+        [
+            ev(1, "run.created", {"status": "queued"}),
+            ev(2, "model.started", {}, "model"),
+            ev(
+                3,
+                "model.usage",
+                {
+                    "input_tokens": 12,
+                    "output_tokens": 3,
+                    "total_tokens": 15,
+                    "requests": 1,
+                },
+                "model",
+            ),
+            ev(4, "model.completed", {}, "model"),
+        ]
+    )
+
+    by_id = {span.id: span for span in spans}
+
+    assert by_id["model:run_1"].refs == {
+        "input_tokens": 12,
+        "output_tokens": 3,
+        "total_tokens": 15,
+        "requests": 1,
+    }
+
+
 def test_projects_subagent_span() -> None:
     spans = project_trace_spans(
         [

@@ -32,6 +32,7 @@ Agent owns intelligent harness behavior:
 - Agent-owned Approvals;
 - replayable Agent stream events;
 - Agent trace projection;
+- debug model usage events;
 - Pydantic AI-backed harness execution.
 
 ## Backend
