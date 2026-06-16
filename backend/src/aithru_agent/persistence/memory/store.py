@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import UTC, datetime
+from typing import Literal
 
 from aithru_agent.domain import (
     AgentApproval,
@@ -187,7 +188,7 @@ class InMemoryAgentStore:
         title: str,
         status: AgentTodoStatus | str = AgentTodoStatus.PENDING,
         description: str | None = None,
-        created_by: str = "agent",
+        created_by: Literal["agent", "user", "system"] = "agent",
     ) -> AgentTodo:
         order = len(self._todos_by_run.get(run_id, [])) + 1
         todo = AgentTodo(
@@ -196,7 +197,7 @@ class InMemoryAgentStore:
             title=title,
             description=description,
             status=status,
-            created_by=created_by,  # type: ignore[arg-type]
+            created_by=created_by,
             order=order,
         )
         self._todos[todo.id] = todo

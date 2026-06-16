@@ -1,6 +1,8 @@
+from typing import cast
+
 from aithru_agent.stream import AgentStreamEvent
 
-from .spans import AgentTraceSpan, AgentTraceSpanStatus
+from .spans import AgentTraceSpan, AgentTraceSpanKind, AgentTraceSpanStatus
 
 
 def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
@@ -112,7 +114,7 @@ def _start_span(
     return AgentTraceSpan(
         id=f"{kind}:{event.run_id}" if kind in {"run", "model"} else "",
         run_id=event.run_id,
-        kind=kind,  # type: ignore[arg-type]
+        kind=cast(AgentTraceSpanKind, kind),
         name=name,
         status="running",
         start_sequence=event.sequence,
@@ -158,4 +160,3 @@ def _payload_value(event: AgentStreamEvent, *keys: str) -> object | None:
         if key in event.payload:
             return event.payload[key]
     return None
-
