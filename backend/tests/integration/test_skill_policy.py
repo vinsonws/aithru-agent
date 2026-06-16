@@ -1,7 +1,7 @@
 import pytest
 
 from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.domain import AgentSkill
+from aithru_agent.domain import AgentApprovalPolicy, AgentRunStatus, AgentSkill
 from aithru_agent.harness.engine import HarnessRunDeps, HarnessStep
 from aithru_agent.harness.drivers.pydantic_ai import PydanticAIHarnessDriver
 from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver, ScriptedStep
@@ -33,6 +33,21 @@ def file_report_skill(allowed_tools: list[str]) -> AgentSkill:
     )
 
 
+def write_approval_skill() -> AgentSkill:
+    return AgentSkill(
+        id="skill_approval",
+        org_id="org_1",
+        key="approval-file-report",
+        name="Approval File Report",
+        instructions="Write only after approval.",
+        allowed_tools=["workspace.write_file"],
+        allowed_subagents=[],
+        approval_policy=AgentApprovalPolicy(require_approval_for_risk=["write"]),
+        version="0.1.0",
+        status="published",
+    )
+
+
 @pytest.mark.asyncio
 async def test_worker_denies_scripted_tool_not_allowed_by_skill() -> None:
     runtime = create_agent_runtime(
@@ -55,6 +70,34 @@ async def test_worker_denies_scripted_tool_not_allowed_by_skill() -> None:
     events = await runtime.event_store.list_by_run(run.id)
 
     assert "tool.denied" in [event.type for event in events]
+    assert await runtime.store.list_workspace_files(run.workspace_id) == []
+
+
+@pytest.mark.asyncio
+async def test_worker_uses_skill_approval_policy_for_risky_tools() -> None:
+    runtime = create_agent_runtime(
+        driver=ScriptedHarnessDriver(
+            [
+                ScriptedStep.tool("workspace.write_file", {"path": "/x.md", "content": "x"}),
+                ScriptedStep.finish(),
+            ]
+        ),
+        skill_resolver=InMemorySkillResolver([write_approval_skill()]),
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Write with approval",
+        scopes=["*"],
+        skill_id="approval-file-report",
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+    approvals = await runtime.store.list_approvals()
+
+    assert run.status == AgentRunStatus.WAITING_APPROVAL
+    assert [event.type for event in events][-2:] == ["approval.requested", "run.paused"]
+    assert len(approvals) == 1
     assert await runtime.store.list_workspace_files(run.workspace_id) == []
 
 

@@ -43,6 +43,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Local workspace, todo, artifact, memory, subagent, and sandbox tools behind the capability router.
 - Memory tools emit read/write events and trace spans.
 - Workspace tools enforce skill path policy at execution time.
+- Skill approval policy contributes execution-time approval requirements.
 - Runtime subagent delegation with parent/child run links, events, and trace spans.
 - Restricted local Python sandbox execution with stdout/stderr events and trace spans.
 - Pydantic AI prompt context with skill instructions, thread summaries, readable memory, and workspace file summaries.

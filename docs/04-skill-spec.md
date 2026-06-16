@@ -64,6 +64,7 @@ skills/
   approval, and subagent policy can further narrow the tools exposed to a run
 - Sandbox tools require an explicit enabled sandbox policy
 - Workspace `allowedPaths` is enforced by workspace tools at execution time
+- Approval policy contributes required risk approvals to the capability router
 
 ## Observability
 

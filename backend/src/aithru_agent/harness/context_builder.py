@@ -18,6 +18,11 @@ class ContextBuilder:
                 if skill and skill.workspace_policy
                 else None
             ),
+            require_approval_for_risk=(
+                skill.approval_policy.require_approval_for_risk
+                if skill and skill.approval_policy
+                else []
+            ),
         )
 
 

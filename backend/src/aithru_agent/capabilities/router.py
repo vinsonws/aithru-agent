@@ -71,10 +71,11 @@ class AithruCapabilityRouter:
                 tool_name=request.tool_name,
                 reason=f"Missing required scope: {missing_scope}",
             )
-        if (
-            descriptor.risk_level.value in self._policy.require_approval_for_risk
-            and not request.already_approved
-        ):
+        approval_risks = {
+            *self._policy.require_approval_for_risk,
+            *context.require_approval_for_risk,
+        }
+        if descriptor.risk_level.value in approval_risks and not request.already_approved:
             return AgentToolPrepareResult(
                 status="waiting_approval",
                 tool_name=request.tool_name,

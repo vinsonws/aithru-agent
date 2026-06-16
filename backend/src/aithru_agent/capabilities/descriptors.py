@@ -13,6 +13,7 @@ class AgentRunContext(BaseModel):
     scopes: list[str] = []
     allowed_tools: list[str] | None = None
     workspace_allowed_paths: list[str] | None = None
+    require_approval_for_risk: list[str] = []
 
 
 class ToolPolicy(BaseModel):
