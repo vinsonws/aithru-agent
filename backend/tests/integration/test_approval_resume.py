@@ -90,3 +90,44 @@ async def test_rejected_approval_fails_run_without_executing_tool() -> None:
     assert failed_run.status == AgentRunStatus.FAILED
     assert "workspace.file.created" not in event_types
     assert event_types[-3:] == ["approval.resolved", "tool.denied", "run.failed"]
+
+
+@pytest.mark.asyncio
+async def test_approval_resume_fails_run_with_unresolvable_skill_before_tool_executes() -> None:
+    runner, store, event_store = make_approval_runner()
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Resume with missing skill",
+        workspace_id=workspace.id,
+        scopes=["*"],
+        skill_id="missing-skill",
+    )
+    approval = await store.create_approval(
+        run_id=run.id,
+        tool_call_id="toolcall_1",
+        tool_name="workspace.write_file",
+        tool_input={"path": "/reports/report.md", "content": "# Report\n", "media_type": "text/markdown"},
+    )
+    await store.update_run(
+        run.id,
+        status=AgentRunStatus.WAITING_APPROVAL,
+        current_approval_id=approval.id,
+    )
+
+    resumed = await runner.resume_run(
+        run.id,
+        approval_id=approval.id,
+        decision=AgentApprovalDecision.APPROVED,
+        comment="approved",
+    )
+    events = await event_store.list_by_run(run.id)
+    event_types = [event.type for event in events]
+    files = await store.list_workspace_files(workspace.id)
+
+    assert resumed.status == AgentRunStatus.FAILED
+    assert resumed.error["message"] == "Skill not found: missing-skill"
+    assert "tool.started" not in event_types
+    assert files == []

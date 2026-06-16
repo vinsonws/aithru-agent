@@ -8,6 +8,7 @@ from aithru_agent.domain import (
     AgentRunResult,
     AgentRunSource,
     AgentRunStatus,
+    AgentSkill,
     AgentSubagentRunStatus,
     AgentToolCallRequest,
 )
@@ -93,10 +94,7 @@ class AgentWorkerRunner:
             thread = await self._store.get_thread(thread_id)
             if thread is None or thread.org_id != org_id or thread.owner_user_id != actor_user_id:
                 raise AgentError("NOT_FOUND", f"Thread not found: {thread_id}")
-        if skill_id:
-            skill = self._skill_resolver.resolve(skill_id)
-            if skill is None or skill.org_id != org_id:
-                raise AgentError("SKILL_NOT_FOUND", f"Skill not found: {skill_id}")
+        self._resolve_run_skill(org_id=org_id, skill_id=skill_id)
         workspace = await self._store.create_workspace(org_id=org_id, thread_id=thread_id)
         run = await self._store.create_run(
             org_id=org_id,
@@ -136,6 +134,11 @@ class AgentWorkerRunner:
             raise AgentError("BAD_REQUEST", f"Run is not claimed: {run_id}")
 
         thread_id = run.thread_id
+        try:
+            skill = self._resolve_run_skill(org_id=run.org_id, skill_id=run.skill_id)
+        except AgentError as exc:
+            return await self._fail_run(run, thread_id, exc)
+
         await self._event_writer.write(
             run_id=run.id,
             thread_id=thread_id,
@@ -159,7 +162,6 @@ class AgentWorkerRunner:
             payload={},
         )
 
-        skill = self._skill_resolver.resolve(run.skill_id) if run.skill_id else None
         context = self._context_builder.build(run, run.scopes, skill)
         final_content: list[str] = []
         try:
@@ -209,6 +211,19 @@ class AgentWorkerRunner:
             return await self._fail_run(run, thread_id, exc)
 
         return await self._complete_run(run, thread_id, message_id, final_content)
+
+    def _resolve_run_skill(
+        self,
+        *,
+        org_id: str,
+        skill_id: str | None,
+    ) -> AgentSkill | None:
+        if skill_id is None:
+            return None
+        skill = self._skill_resolver.resolve(skill_id)
+        if skill is None or skill.org_id != org_id:
+            raise AgentError("SKILL_NOT_FOUND", f"Skill not found: {skill_id}")
+        return skill
 
     async def find_next_queued_run(self) -> AgentRun | None:
         for run in await self._store.list_runs():
@@ -462,6 +477,11 @@ class AgentWorkerRunner:
             )
             return failed
 
+        try:
+            skill = self._resolve_run_skill(org_id=run.org_id, skill_id=run.skill_id)
+        except AgentError as exc:
+            return await self._fail_run(run, run.thread_id, exc)
+
         resumed = await self._store.update_run(run_id, status=AgentRunStatus.RUNNING, current_approval_id=None)
         await self._event_writer.write(
             run_id=run_id,
@@ -471,7 +491,6 @@ class AgentWorkerRunner:
             payload={"status": "running"},
         )
 
-        skill = self._skill_resolver.resolve(run.skill_id) if run.skill_id else None
         context = self._context_builder.build(resumed, resumed.scopes, skill)
         resume_approval = getattr(self._driver, "resume_approval")
         try:
@@ -576,6 +595,11 @@ class AgentWorkerRunner:
             )
             return failed
 
+        try:
+            skill = self._resolve_run_skill(org_id=run.org_id, skill_id=run.skill_id)
+        except AgentError as exc:
+            return await self._fail_run(run, run.thread_id, exc)
+
         resumed = await self._store.update_run(run_id, status=AgentRunStatus.RUNNING, current_approval_id=None)
         await self._event_writer.write(
             run_id=run_id,
@@ -584,7 +608,6 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload={"status": "running"},
         )
-        skill = self._skill_resolver.resolve(run.skill_id) if run.skill_id else None
         context = self._context_builder.build(resumed, resumed.scopes, skill)
         approved_request = AgentToolCallRequest(
             id=approval.tool_call_id,

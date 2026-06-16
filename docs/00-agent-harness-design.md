@@ -146,7 +146,8 @@ A skill contains:
 - artifact expectations.
 
 A skill is not a workflow graph. It may be invoked from Chat, API, delegated work, or a Workbench `agent.*` node.
-Skill APIs and run creation must resolve skills inside the current organization boundary.
+Skill APIs, run creation, and run execution must resolve skills inside the
+current organization boundary.
 
 `allowedTools` is an upper bound. Workspace, memory, sandbox, approval, and
 subagent policies can further remove tools from a run's available catalog.

@@ -144,3 +144,35 @@ async def test_worker_passes_resolved_skill_to_harness_driver() -> None:
     )
 
     assert driver.seen_skill_instructions == "Only use the allowed file report tools."
+
+
+@pytest.mark.asyncio
+async def test_worker_fails_queued_run_with_unresolvable_skill_before_tools_execute() -> None:
+    runtime = create_agent_runtime(
+        driver=ScriptedHarnessDriver(
+            [
+                ScriptedStep.tool("workspace.write_file", {"path": "/x.md", "content": "x"}),
+                ScriptedStep.finish(),
+            ]
+        )
+    )
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    queued = await runtime.store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Use missing skill",
+        workspace_id=workspace.id,
+        scopes=["*"],
+        skill_id="missing-skill",
+    )
+
+    run = await runtime.worker.work_once()
+    events = await runtime.event_store.list_by_run(queued.id)
+    files = await runtime.store.list_workspace_files(workspace.id)
+
+    assert run is not None
+    assert run.status == AgentRunStatus.FAILED
+    assert run.error["message"] == "Skill not found: missing-skill"
+    assert "tool.proposed" not in [event.type for event in events]
+    assert files == []
