@@ -192,6 +192,78 @@ async def test_todo_and_artifact_tools_return_normalized_results() -> None:
 
 
 @pytest.mark.asyncio
+async def test_todo_update_cannot_modify_another_run_todo() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    other_workspace = await store.create_workspace(org_id=context.org_id)
+    other_run = await store.create_run(
+        org_id=context.org_id,
+        actor_user_id=context.actor_user_id,
+        source="api",
+        goal="Other run",
+        workspace_id=other_workspace.id,
+    )
+    other_todo = await store.create_todo(
+        run_id=other_run.id,
+        title="Other task",
+        status="pending",
+    )
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="todo.update",
+            input={"todo_id": other_todo.id, "status": "done"},
+            requested_by="model",
+        ),
+        context,
+    )
+    other_todos = await store.list_todos(other_run.id)
+
+    assert result.status == "denied"
+    assert result.error["message"] == f"Todo is outside current run: {other_todo.id}"
+    assert other_todos[0].status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_artifact_finalize_cannot_modify_another_run_artifact() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    other_workspace = await store.create_workspace(org_id=context.org_id)
+    other_run = await store.create_run(
+        org_id=context.org_id,
+        actor_user_id=context.actor_user_id,
+        source="api",
+        goal="Other run",
+        workspace_id=other_workspace.id,
+    )
+    other_artifact = await store.create_artifact(
+        org_id=context.org_id,
+        workspace_id=other_workspace.id,
+        run_id=other_run.id,
+        type="report",
+        name="Other report",
+    )
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="artifact.finalize",
+            input={"artifact_id": other_artifact.id},
+            requested_by="model",
+        ),
+        context,
+    )
+    persisted = await store.get_artifact(other_artifact.id)
+
+    assert result.status == "denied"
+    assert result.error["message"] == f"Artifact is outside current run: {other_artifact.id}"
+    assert persisted.finalized_at is None
+
+
+@pytest.mark.asyncio
 async def test_memory_tools_remember_and_search_entries() -> None:
     store = InMemoryAgentStore()
     context = await make_context(store)

@@ -79,8 +79,15 @@ class TodoLocalTool:
                     created_by="agent",
                 )
             case "todo.update":
+                todo_id = str(input_data["todo_id"])
+                if not await self._todo_belongs_to_run(todo_id, context.run_id):
+                    return AgentToolCallResult(
+                        status="denied",
+                        error={"message": f"Todo is outside current run: {todo_id}"},
+                        redaction="none",
+                    )
                 todo = await self._store.update_todo(
-                    str(input_data["todo_id"]),
+                    todo_id,
                     title=input_data.get("title"),
                     description=input_data.get("description"),
                     status=input_data.get("status"),
@@ -92,6 +99,9 @@ class TodoLocalTool:
                     redaction="none",
                 )
         return AgentToolCallResult(status="completed", output=todo.model_dump(mode="json"), redaction="none")
+
+    async def _todo_belongs_to_run(self, todo_id: str, run_id: str) -> bool:
+        return any(todo.id == todo_id for todo in await self._store.list_todos(run_id))
 
 
 def _input_dict(value: object) -> dict[str, Any]:

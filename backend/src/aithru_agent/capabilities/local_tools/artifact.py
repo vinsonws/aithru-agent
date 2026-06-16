@@ -87,7 +87,20 @@ class ArtifactLocalTool:
                     metadata=input_data.get("metadata"),
                 )
             case "artifact.finalize":
-                artifact = await self._store.finalize_artifact(str(input_data["artifact_id"]))
+                artifact_id = str(input_data["artifact_id"])
+                existing = await self._store.get_artifact(artifact_id)
+                if (
+                    existing is None
+                    or existing.org_id != context.org_id
+                    or existing.workspace_id != context.workspace_id
+                    or existing.run_id != context.run_id
+                ):
+                    return AgentToolCallResult(
+                        status="denied",
+                        error={"message": f"Artifact is outside current run: {artifact_id}"},
+                        redaction="none",
+                    )
+                artifact = await self._store.finalize_artifact(artifact_id)
             case _:
                 return AgentToolCallResult(
                     status="denied",
