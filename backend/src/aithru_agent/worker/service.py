@@ -34,9 +34,12 @@ class AgentWorkerService:
 
     async def work_once(self) -> AgentRun | None:
         queued = self.queue.pop()
-        if queued is None:
+        if queued is not None:
+            return await self.runner.execute_run(queued.run_id)
+        run = await self.runner.find_next_queued_run()
+        if run is None:
             return None
-        return await self.runner.execute_run(queued.run_id)
+        return await self.runner.execute_run(run.id)
 
     async def drain(self, *, limit: int | None = None) -> list[AgentRun]:
         completed: list[AgentRun] = []

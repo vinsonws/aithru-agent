@@ -88,3 +88,30 @@ async def test_runtime_can_execute_worker_runs_on_sqlite_store(tmp_path: Path) -
     assert persisted_run.status == AgentRunStatus.COMPLETED
     assert persisted_file.content == "# Report\n"
     assert [event.type for event in events][-1] == "run.completed"
+
+
+@pytest.mark.asyncio
+async def test_worker_discovers_queued_sqlite_runs_across_runtime_instances(tmp_path: Path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    api_runtime = create_agent_runtime(
+        store=SQLiteAgentStore(db_path),
+        event_store=SQLiteAgentEventStore(db_path),
+        driver=ScriptedHarnessDriver([]),
+    )
+    queued = await api_runtime.worker.submit_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Execute elsewhere",
+        scopes=["*"],
+    )
+
+    worker_runtime = create_agent_runtime(
+        store=SQLiteAgentStore(db_path),
+        event_store=SQLiteAgentEventStore(db_path),
+        driver=ScriptedHarnessDriver([ScriptedStep.finish()]),
+    )
+    completed = await worker_runtime.worker.work_once()
+
+    assert completed is not None
+    assert completed.id == queued.id
+    assert completed.status == AgentRunStatus.COMPLETED

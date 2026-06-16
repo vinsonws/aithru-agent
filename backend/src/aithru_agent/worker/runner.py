@@ -174,6 +174,12 @@ class AgentWorkerRunner:
 
         return await self._complete_run(run, thread_id, message_id, final_content)
 
+    async def find_next_queued_run(self) -> AgentRun | None:
+        for run in await self._store.list_runs():
+            if run.status == AgentRunStatus.QUEUED:
+                return run
+        return None
+
     async def resume_run(
         self,
         run_id: str,
