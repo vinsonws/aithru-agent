@@ -1,9 +1,23 @@
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter
-from aithru_agent.domain import AgentRun, AgentRunStatus, AgentToolCallRequest
+from dataclasses import dataclass
+
+from aithru_agent.domain import AgentApprovalDecision, AgentRun, AgentRunStatus, AgentToolCallRequest
 from aithru_agent.domain.errors import AgentError
-from aithru_agent.harness import AgentHarnessDriver, ContextBuilder
+from aithru_agent.harness import AgentHarnessDriver, ContextBuilder, HarnessStep, HarnessToolCall
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.stream import AgentEventWriter
+
+
+@dataclass
+class PendingToolApproval:
+    run: AgentRun
+    context: AgentRunContext
+    request: AgentToolCallRequest
+    tool_input: dict
+    remaining_steps: list[HarnessStep]
+    message_id: str
+    final_content: list[str]
+    approval_id: str
 
 
 class AgentWorkerRunner:
@@ -21,6 +35,7 @@ class AgentWorkerRunner:
         self._driver = driver
         self._context_builder = ContextBuilder()
         self._tool_counter = 0
+        self._pending_approvals: dict[str, PendingToolApproval] = {}
 
     async def start_run(
         self,
@@ -76,7 +91,8 @@ class AgentWorkerRunner:
 
         context = self._context_builder.build(run, scopes)
         final_content: list[str] = []
-        for step in await self._driver.run():
+        steps = await self._driver.run()
+        for index, step in enumerate(steps):
             if step.type == "message" and step.text is not None:
                 final_content.append(step.text)
                 await self._event_writer.write(
@@ -87,10 +103,165 @@ class AgentWorkerRunner:
                     payload={"message_id": message_id, "delta": step.text},
                 )
             elif step.type == "tool" and step.tool_call is not None:
-                await self._execute_tool_step(run, context, step.tool_call.name, step.tool_call.input)
+                paused = await self._execute_tool_step(
+                    run,
+                    context,
+                    step.tool_call,
+                    remaining_steps=steps[index + 1 :],
+                    message_id=message_id,
+                    final_content=final_content,
+                )
+                if paused:
+                    paused_run = await self._store.get_run(run.id)
+                    if paused_run is None:
+                        raise AgentError("NOT_FOUND", f"Run not found: {run.id}")
+                    return paused_run
             elif step.type == "finish":
                 break
 
+        return await self._complete_run(run, thread_id, message_id, final_content)
+
+    async def resume_run(
+        self,
+        run_id: str,
+        *,
+        approval_id: str,
+        decision: AgentApprovalDecision | str,
+        comment: str | None = None,
+    ) -> AgentRun:
+        pending = self._pending_approvals.get(run_id)
+        if pending is None:
+            raise AgentError("RUN_NOT_RESUMABLE", f"Run is not waiting for approval: {run_id}")
+        if pending.approval_id != approval_id:
+            raise AgentError("AUTHZ_DENIED", f"Approval id does not match: {approval_id}")
+
+        resolved = await self._store.resolve_approval(
+            approval_id,
+            decision=decision,
+            comment=comment,
+        )
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=pending.run.thread_id,
+            type="approval.resolved",
+            source={"kind": "approval"},
+            payload={
+                "approval_id": approval_id,
+                "tool_call_id": pending.request.id,
+                "tool_name": pending.request.tool_name,
+                "decision": str(resolved.decision.value if resolved.decision else decision),
+                "comment": comment,
+            },
+        )
+
+        if str(decision) == AgentApprovalDecision.REJECTED.value:
+            self._pending_approvals.pop(run_id, None)
+            failed = await self._store.update_run(
+                run_id,
+                status=AgentRunStatus.FAILED,
+                error={"message": "Approval rejected"},
+            )
+            await self._event_writer.write(
+                run_id=run_id,
+                thread_id=pending.run.thread_id,
+                type="tool.denied",
+                source={"kind": "tool"},
+                payload={
+                    "tool_call_id": pending.request.id,
+                    "tool_name": pending.request.tool_name,
+                    "reason": comment,
+                },
+            )
+            await self._event_writer.write(
+                run_id=run_id,
+                thread_id=pending.run.thread_id,
+                type="run.failed",
+                source={"kind": "harness"},
+                payload={"status": "failed", "error": {"message": "Approval rejected"}},
+            )
+            return failed
+
+        resumed = await self._store.update_run(run_id, status=AgentRunStatus.RUNNING, current_approval_id=None)
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=pending.run.thread_id,
+            type="run.resumed",
+            source={"kind": "harness"},
+            payload={"status": "running"},
+        )
+        approved_request = pending.request.model_copy(
+            update={"already_approved": True, "requested_by": "harness"}
+        )
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=pending.run.thread_id,
+            type="tool.started",
+            source={"kind": "tool"},
+            payload={"tool_call_id": approved_request.id, "tool_name": approved_request.tool_name},
+        )
+        result = await self._capability_router.execute_tool_call(approved_request, pending.context)
+        await self._emit_domain_tool_event(
+            resumed,
+            approved_request.id,
+            approved_request.tool_name,
+            result.output,
+        )
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=pending.run.thread_id,
+            type="tool.completed" if result.status == "completed" else "tool.failed",
+            source={"kind": "tool"},
+            payload={
+                "tool_call_id": approved_request.id,
+                "tool_name": approved_request.tool_name,
+                "status": result.status,
+                "output": result.output,
+                "error": result.error,
+            },
+        )
+        self._pending_approvals.pop(run_id, None)
+
+        for step in pending.remaining_steps:
+            if step.type == "message" and step.text is not None:
+                pending.final_content.append(step.text)
+                await self._event_writer.write(
+                    run_id=run_id,
+                    thread_id=pending.run.thread_id,
+                    type="message.delta",
+                    source={"kind": "model"},
+                    payload={"message_id": pending.message_id, "delta": step.text},
+                )
+            elif step.type == "tool" and step.tool_call is not None:
+                paused = await self._execute_tool_step(
+                    resumed,
+                    pending.context,
+                    step.tool_call,
+                    remaining_steps=[],
+                    message_id=pending.message_id,
+                    final_content=pending.final_content,
+                )
+                if paused:
+                    paused_run = await self._store.get_run(run_id)
+                    if paused_run is None:
+                        raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
+                    return paused_run
+            elif step.type == "finish":
+                break
+
+        return await self._complete_run(
+            resumed,
+            pending.run.thread_id,
+            pending.message_id,
+            pending.final_content,
+        )
+
+    async def _complete_run(
+        self,
+        run: AgentRun,
+        thread_id: str | None,
+        message_id: str,
+        final_content: list[str],
+    ) -> AgentRun:
         await self._event_writer.write(
             run_id=run.id,
             thread_id=thread_id,
@@ -138,15 +309,18 @@ class AgentWorkerRunner:
         self,
         run: AgentRun,
         context: AgentRunContext,
-        tool_name: str,
-        tool_input: dict,
-    ) -> None:
+        tool_call: HarnessToolCall,
+        *,
+        remaining_steps: list[HarnessStep],
+        message_id: str,
+        final_content: list[str],
+    ) -> bool:
         self._tool_counter += 1
         tool_call_id = f"toolcall_{self._tool_counter}"
         request = AgentToolCallRequest(
             id=tool_call_id,
-            tool_name=tool_name,
-            input=tool_input,
+            tool_name=tool_call.name,
+            input=tool_call.input,
             requested_by="model",
         )
         await self._event_writer.write(
@@ -154,7 +328,7 @@ class AgentWorkerRunner:
             thread_id=run.thread_id,
             type="tool.proposed",
             source={"kind": "tool"},
-            payload={"tool_call_id": tool_call_id, "tool_name": tool_name},
+            payload={"tool_call_id": tool_call_id, "tool_name": tool_call.name},
         )
         prepared = await self._capability_router.prepare_tool_call(request, context)
         if prepared.status == "denied":
@@ -163,18 +337,65 @@ class AgentWorkerRunner:
                 thread_id=run.thread_id,
                 type="tool.denied",
                 source={"kind": "tool"},
-                payload={"tool_call_id": tool_call_id, "tool_name": tool_name, "reason": prepared.reason},
+                payload={"tool_call_id": tool_call_id, "tool_name": tool_call.name, "reason": prepared.reason},
             )
-            return
+            return False
+        if prepared.status == "waiting_approval":
+            approval = await self._store.create_approval(
+                run_id=run.id,
+                tool_call_id=tool_call_id,
+                tool_name=tool_call.name,
+            )
+            self._pending_approvals[run.id] = PendingToolApproval(
+                run=run,
+                context=context,
+                request=request,
+                tool_input=tool_call.input,
+                remaining_steps=remaining_steps,
+                message_id=message_id,
+                final_content=final_content,
+                approval_id=approval.id,
+            )
+            await self._event_writer.write(
+                run_id=run.id,
+                thread_id=run.thread_id,
+                type="approval.requested",
+                source={"kind": "approval"},
+                payload={
+                    "approval_id": approval.id,
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_call.name,
+                    "status": "pending",
+                    "output": prepared.output,
+                },
+            )
+            await self._store.update_run(
+                run.id,
+                status=AgentRunStatus.WAITING_APPROVAL,
+                current_approval_id=approval.id,
+            )
+            await self._event_writer.write(
+                run_id=run.id,
+                thread_id=run.thread_id,
+                type="run.paused",
+                source={"kind": "harness"},
+                payload={
+                    "status": "waiting_approval",
+                    "approval_id": approval.id,
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_call.name,
+                },
+            )
+            return True
         await self._event_writer.write(
             run_id=run.id,
             thread_id=run.thread_id,
             type="tool.started",
             source={"kind": "tool"},
-            payload={"tool_call_id": tool_call_id, "tool_name": tool_name},
+            payload={"tool_call_id": tool_call_id, "tool_name": tool_call.name},
         )
         result = await self._capability_router.execute_tool_call(request, context)
-        await self._emit_domain_tool_event(run, tool_call_id, tool_name, result.output)
+        await self._emit_domain_tool_event(run, tool_call_id, tool_call.name, result.output)
         await self._event_writer.write(
             run_id=run.id,
             thread_id=run.thread_id,
@@ -182,12 +403,13 @@ class AgentWorkerRunner:
             source={"kind": "tool"},
             payload={
                 "tool_call_id": tool_call_id,
-                "tool_name": tool_name,
+                "tool_name": tool_call.name,
                 "status": result.status,
                 "output": result.output,
                 "error": result.error,
             },
         )
+        return False
 
     async def _emit_domain_tool_event(
         self,
@@ -244,4 +466,3 @@ def _event_completed_at_marker() -> str:
     from aithru_agent.persistence.memory.store import utc_now
 
     return utc_now()
-
