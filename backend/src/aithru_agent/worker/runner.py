@@ -197,7 +197,12 @@ class AgentWorkerRunner:
     ) -> AgentRun:
         pending = self._pending_approvals.get(run_id)
         if pending is None:
-            raise AgentError("RUN_NOT_RESUMABLE", f"Run is not waiting for approval: {run_id}")
+            return await self._resume_persisted_approval(
+                run_id,
+                approval_id=approval_id,
+                decision=decision,
+                comment=comment,
+            )
         if pending.approval_id != approval_id:
             raise AgentError("AUTHZ_DENIED", f"Approval id does not match: {approval_id}")
 
@@ -215,7 +220,7 @@ class AgentWorkerRunner:
                 "approval_id": approval_id,
                 "tool_call_id": pending.request.id,
                 "tool_name": pending.request.tool_name,
-                "decision": str(resolved.decision.value if resolved.decision else decision),
+                "decision": _approval_decision_value(resolved.decision or decision),
                 "comment": comment,
             },
         )
@@ -338,6 +343,124 @@ class AgentWorkerRunner:
             pending.final_content,
         )
 
+    async def _resume_persisted_approval(
+        self,
+        run_id: str,
+        *,
+        approval_id: str,
+        decision: AgentApprovalDecision | str,
+        comment: str | None,
+    ) -> AgentRun:
+        approval = await self._store.get_approval(approval_id)
+        if approval is None or approval.run_id != run_id:
+            raise AgentError("RUN_NOT_RESUMABLE", f"Run is not waiting for approval: {run_id}")
+        run = await self._store.get_run(run_id)
+        if run is None or run.status != AgentRunStatus.WAITING_APPROVAL:
+            raise AgentError("RUN_NOT_RESUMABLE", f"Run is not waiting for approval: {run_id}")
+
+        resolved = await self._store.resolve_approval(
+            approval_id,
+            decision=decision,
+            comment=comment,
+        )
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=run.thread_id,
+            type="approval.resolved",
+            source={"kind": "approval"},
+            payload={
+                "approval_id": approval_id,
+                "tool_call_id": approval.tool_call_id,
+                "tool_name": approval.tool_name,
+                "decision": _approval_decision_value(resolved.decision or decision),
+                "comment": comment,
+            },
+        )
+
+        if str(decision) == AgentApprovalDecision.REJECTED.value:
+            failed = await self._store.update_run(
+                run_id,
+                status=AgentRunStatus.FAILED,
+                current_approval_id=None,
+                error={"message": "Approval rejected"},
+            )
+            await self._event_writer.write(
+                run_id=run_id,
+                thread_id=run.thread_id,
+                type="tool.denied",
+                source={"kind": "tool"},
+                payload={
+                    "tool_call_id": approval.tool_call_id,
+                    "tool_name": approval.tool_name,
+                    "reason": comment,
+                },
+            )
+            await self._event_writer.write(
+                run_id=run_id,
+                thread_id=run.thread_id,
+                type="run.failed",
+                source={"kind": "harness"},
+                payload={"status": "failed", "error": {"message": "Approval rejected"}},
+            )
+            return failed
+
+        resumed = await self._store.update_run(run_id, status=AgentRunStatus.RUNNING, current_approval_id=None)
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=run.thread_id,
+            type="run.resumed",
+            source={"kind": "harness"},
+            payload={"status": "running"},
+        )
+        skill = self._skill_resolver.resolve(run.skill_id) if run.skill_id else None
+        context = self._context_builder.build(resumed, resumed.scopes, skill)
+        approved_request = AgentToolCallRequest(
+            id=approval.tool_call_id,
+            tool_name=approval.tool_name,
+            input=approval.tool_input or {},
+            requested_by="harness",
+            already_approved=True,
+        )
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=run.thread_id,
+            type="tool.started",
+            source={"kind": "tool"},
+            payload={"tool_call_id": approval.tool_call_id, "tool_name": approval.tool_name},
+        )
+        try:
+            result = await self._capability_router.execute_tool_call(approved_request, context)
+        except Exception as exc:
+            await self._emit_tool_exception(resumed, approval.tool_call_id, approval.tool_name, exc)
+            return await self._fail_run(resumed, run.thread_id, exc)
+
+        await self._emit_domain_tool_event(
+            resumed,
+            approval.tool_call_id,
+            approval.tool_name,
+            result.output,
+        )
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=run.thread_id,
+            type="tool.completed" if result.status == "completed" else "tool.failed",
+            source={"kind": "tool"},
+            payload={
+                "tool_call_id": approval.tool_call_id,
+                "tool_name": approval.tool_name,
+                "status": result.status,
+                "output": result.output,
+                "error": result.error,
+            },
+        )
+        if result.status != "completed":
+            return await self._fail_run(
+                resumed,
+                run.thread_id,
+                AgentError("TOOL_FAILED", _tool_result_error_message(result.error)),
+            )
+        return await self._complete_run(resumed, run.thread_id, "msg_1", [])
+
     async def _complete_run(
         self,
         run: AgentRun,
@@ -458,6 +581,7 @@ class AgentWorkerRunner:
                 run_id=run.id,
                 tool_call_id=tool_call_id,
                 tool_name=tool_call.name,
+                tool_input=tool_call.input,
             )
             self._pending_approvals[run.id] = PendingToolApproval(
                 run=run,
@@ -619,3 +743,7 @@ def _tool_result_error_message(error: dict | None) -> str:
         return "Tool failed"
     message = error.get("message")
     return str(message) if message else "Tool failed"
+
+
+def _approval_decision_value(decision: AgentApprovalDecision | str) -> str:
+    return decision.value if isinstance(decision, AgentApprovalDecision) else str(decision)

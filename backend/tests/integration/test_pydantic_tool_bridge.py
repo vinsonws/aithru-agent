@@ -1,5 +1,6 @@
 import pytest
 
+from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter, ToolPolicy
 from aithru_agent.capabilities.local_tools import ArtifactLocalTool, TodoLocalTool, WorkspaceLocalTool
 from aithru_agent.domain import AgentRunStatus
@@ -112,4 +113,62 @@ async def test_pydantic_tool_bridge_records_approval_and_pauses_run() -> None:
         "tool.proposed",
         "approval.requested",
         "run.paused",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
+    runtime = create_agent_runtime(policy=ToolPolicy(require_approval_for_risk=["write"]))
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    run = await runtime.store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Write file",
+        workspace_id=workspace.id,
+        scopes=["*"],
+    )
+    context = AgentRunContext(
+        run_id=run.id,
+        org_id="org_1",
+        actor_user_id="user_1",
+        workspace_id=workspace.id,
+        scopes=["*"],
+    )
+    bridge = PydanticAIToolBridge(
+        run=run,
+        run_context=context,
+        event_writer=runtime.event_writer,
+        capability_router=runtime.capability_router,
+        store=runtime.store,
+    )
+
+    with pytest.raises(HarnessRunPaused):
+        await bridge.call_tool(
+            tool_name="workspace.write_file",
+            tool_call_id="tc_resume",
+            tool_input={"path": "/notes.md", "content": "hello"},
+        )
+    approval = (await runtime.store.list_approvals())[0]
+
+    resumed = await runtime.runner.resume_run(
+        run.id,
+        approval_id=approval.id,
+        decision="approved",
+        comment="ok",
+    )
+    file = await runtime.store.read_workspace_file(workspace.id, "/notes.md")
+    events = await runtime.event_store.list_by_run(run.id)
+
+    assert resumed.status == AgentRunStatus.COMPLETED
+    assert file.content == "hello"
+    assert [event.type for event in events][-8:] == [
+        "approval.resolved",
+        "run.resumed",
+        "tool.started",
+        "workspace.file.created",
+        "tool.completed",
+        "model.completed",
+        "message.completed",
+        "run.completed",
     ]

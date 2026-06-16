@@ -58,6 +58,7 @@ class PydanticAIToolBridge:
                 run_id=self._run.id,
                 tool_call_id=tool_call_id,
                 tool_name=tool_name,
+                tool_input=tool_input or {},
             )
             await self._event_writer.write(
                 run_id=self._run.id,

@@ -239,12 +239,14 @@ class InMemoryAgentStore:
         run_id: str,
         tool_call_id: str,
         tool_name: str,
+        tool_input: dict | None = None,
     ) -> AgentApproval:
         approval = AgentApproval(
             id=self._ids.next("approval"),
             run_id=run_id,
             tool_call_id=tool_call_id,
             tool_name=tool_name,
+            tool_input=tool_input,
             status=AgentApprovalStatus.PENDING,
             decision=None,
             created_at=utc_now(),

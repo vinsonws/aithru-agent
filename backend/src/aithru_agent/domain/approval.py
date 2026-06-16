@@ -20,9 +20,9 @@ class AgentApproval(AithruBaseModel):
     run_id: str
     tool_call_id: str
     tool_name: str
+    tool_input: dict | None = None
     status: AgentApprovalStatus
     decision: AgentApprovalDecision | None = None
     comment: str | None = None
     created_at: str
     resolved_at: str | None = None
-
