@@ -89,8 +89,10 @@ class AgentWorkerRunner:
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:
-        if thread_id and await self._store.get_thread(thread_id) is None:
-            raise AgentError("NOT_FOUND", f"Thread not found: {thread_id}")
+        if thread_id:
+            thread = await self._store.get_thread(thread_id)
+            if thread is None or thread.org_id != org_id:
+                raise AgentError("NOT_FOUND", f"Thread not found: {thread_id}")
         if skill_id:
             skill = self._skill_resolver.resolve(skill_id)
             if skill is None or skill.org_id != org_id:
