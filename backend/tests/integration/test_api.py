@@ -161,6 +161,78 @@ async def test_agent_api_binds_run_scopes_to_configured_token_scopes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_binds_run_identity_to_trusted_headers() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        settings=AgentSettings(api_token="secret-token"),
+    )
+    app = create_app(runtime)
+    headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_from_header",
+        "X-Aithru-User-Id": "user_from_header",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        inherited = await client.post(
+            "/api/agent/runs",
+            headers=headers,
+            json={"goal": "Use trusted identity"},
+        )
+        conflicting = await client.post(
+            "/api/agent/runs",
+            headers=headers,
+            json={
+                "org_id": "org_from_body",
+                "actor_user_id": "user_from_header",
+                "goal": "Conflict",
+            },
+        )
+        runs = (await client.get("/api/agent/runs", headers=headers)).json()
+
+    assert inherited.status_code == 201
+    assert inherited.json()["org_id"] == "org_from_header"
+    assert inherited.json()["actor_user_id"] == "user_from_header"
+    assert conflicting.status_code == 403
+    assert conflicting.json()["detail"] == "Request identity conflicts with authenticated context"
+    assert [run["goal"] for run in runs] == ["Use trusted identity"]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_binds_thread_identity_to_trusted_headers() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        settings=AgentSettings(api_token="secret-token"),
+    )
+    app = create_app(runtime)
+    headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_from_header",
+        "X-Aithru-User-Id": "user_from_header",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        inherited = await client.post(
+            "/api/agent/threads",
+            headers=headers,
+            json={"title": "Trusted"},
+        )
+        conflicting = await client.post(
+            "/api/agent/threads",
+            headers=headers,
+            json={"org_id": "org_from_header", "owner_user_id": "user_from_body"},
+        )
+        threads = (await client.get("/api/agent/threads", headers=headers)).json()
+
+    assert inherited.status_code == 201
+    assert inherited.json()["org_id"] == "org_from_header"
+    assert inherited.json()["owner_user_id"] == "user_from_header"
+    assert conflicting.status_code == 403
+    assert conflicting.json()["detail"] == "Request identity conflicts with authenticated context"
+    assert [thread["title"] for thread in threads] == ["Trusted"]
+
+
+@pytest.mark.asyncio
 async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
     runtime = create_agent_runtime(driver=file_report_driver())
     app = create_app(runtime)

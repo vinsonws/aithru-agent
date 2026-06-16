@@ -146,6 +146,8 @@ Set `AITHRU_AGENT_API_TOKEN` to require `Authorization: Bearer <token>` on Agent
 API endpoints. Health remains public for readiness checks. Set
 `AITHRU_AGENT_API_SCOPES` to a comma-separated scope allowlist; run creation
 inherits those scopes when no scopes are provided and rejects scope escalation.
+When present, `X-Aithru-Org-Id` and `X-Aithru-User-Id` are treated as the
+authenticated platform identity for thread and run creation.
 
 ## Verification
 

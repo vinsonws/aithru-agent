@@ -95,10 +95,18 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return {"ok": True, "service": "aithru-agent-backend"}
 
     @app.post("/api/agent/threads", status_code=201)
-    async def create_thread(body: CreateThreadRequest) -> dict[str, Any]:
+    async def create_thread(request: Request, body: CreateThreadRequest) -> dict[str, Any]:
+        org_id = _identity_value(request, body, "org_id", body.org_id, "x-aithru-org-id")
+        owner_user_id = _identity_value(
+            request,
+            body,
+            "owner_user_id",
+            body.owner_user_id,
+            "x-aithru-user-id",
+        )
         thread = await rt.store.create_thread(
-            org_id=body.org_id,
-            owner_user_id=body.owner_user_id,
+            org_id=org_id,
+            owner_user_id=owner_user_id,
             title=body.title,
         )
         return thread.model_dump(mode="json")
@@ -134,13 +142,21 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return [message.model_dump(mode="json") for message in await rt.store.list_messages(thread_id)]
 
     @app.post("/api/agent/runs", status_code=201)
-    async def create_run(body: CreateRunRequest) -> dict[str, Any]:
+    async def create_run(request: Request, body: CreateRunRequest) -> dict[str, Any]:
         scopes = body.scopes if body.scopes is not None else list(rt.settings.api_scopes)
         if rt.settings.api_token and not _scopes_allowed(scopes, rt.settings.api_scopes):
             raise HTTPException(status_code=403, detail="Requested scopes exceed API token scopes")
+        org_id = _identity_value(request, body, "org_id", body.org_id, "x-aithru-org-id")
+        actor_user_id = _identity_value(
+            request,
+            body,
+            "actor_user_id",
+            body.actor_user_id,
+            "x-aithru-user-id",
+        )
         run_kwargs = {
-            "org_id": body.org_id,
-            "actor_user_id": body.actor_user_id,
+            "org_id": org_id,
+            "actor_user_id": actor_user_id,
             "goal": body.goal,
             "scopes": scopes,
             "thread_id": body.thread_id,
@@ -458,3 +474,18 @@ def _scopes_allowed(requested: list[str], allowed: list[str]) -> bool:
     if "*" in allowed:
         return True
     return all(scope in allowed for scope in requested)
+
+
+def _identity_value(
+    request: Request,
+    body: BaseModel,
+    field_name: str,
+    body_value: str,
+    header_name: str,
+) -> str:
+    header_value = request.headers.get(header_name)
+    if header_value is None:
+        return body_value
+    if field_name in body.model_fields_set and body_value != header_value:
+        raise HTTPException(status_code=403, detail="Request identity conflicts with authenticated context")
+    return header_value
