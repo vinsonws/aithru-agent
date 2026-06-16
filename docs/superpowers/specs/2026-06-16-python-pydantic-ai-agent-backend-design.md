@@ -502,6 +502,7 @@ GET    /api/agent/runs/{run_id}/tools
 GET    /api/agent/runs/{run_id}/subagents
 GET    /api/agent/runs/{run_id}/stream
 POST   /api/agent/runs/{run_id}/cancel
+POST   /api/agent/runs/{run_id}/resume
 
 GET    /api/agent/approvals
 GET    /api/agent/approvals/{approval_id}

@@ -34,6 +34,7 @@ class CreateRunRequest(BaseModel):
 
 class ResolveApprovalRequest(BaseModel):
     decision: AgentApprovalDecision
+    approval_id: str | None = None
     comment: str | None = None
 
 
@@ -179,6 +180,25 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         except AgentError as err:
             raise HTTPException(status_code=404, detail=err.message) from err
         return run.model_dump(mode="json")
+
+    @app.post("/api/agent/runs/{run_id}/resume")
+    async def resume_run(run_id: str, body: ResolveApprovalRequest) -> dict[str, Any]:
+        run = await rt.store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        approval_id = body.approval_id or run.current_approval_id
+        if not approval_id:
+            raise HTTPException(status_code=409, detail="Run is not waiting for approval")
+        try:
+            resumed = await rt.runner.resume_run(
+                run_id,
+                approval_id=approval_id,
+                decision=body.decision,
+                comment=body.comment,
+            )
+        except AgentError as err:
+            raise HTTPException(status_code=409, detail=err.message) from err
+        return resumed.model_dump(mode="json")
 
     @app.get("/api/agent/approvals")
     async def list_approvals() -> list[dict[str, Any]]:

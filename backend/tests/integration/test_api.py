@@ -116,6 +116,56 @@ async def test_agent_api_resolves_approval_and_resumes_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_run_resume_uses_current_approval() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        policy=ToolPolicy(require_approval_for_risk=["write"]),
+    )
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+            )
+        ).json()
+        await runtime.worker.drain()
+        paused = (await client.get(f"/api/agent/runs/{run['id']}")).json()
+        resumed = await client.post(
+            f"/api/agent/runs/{run['id']}/resume",
+            json={"decision": "approved", "comment": "ok"},
+        )
+        run_detail = (await client.get(f"/api/agent/runs/{run['id']}")).json()
+
+    assert paused["status"] == "waiting_approval"
+    assert paused["current_approval_id"] is not None
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == "completed"
+    assert run_detail["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_agent_api_run_resume_rejects_run_without_current_approval() -> None:
+    runtime = create_agent_runtime(driver=file_report_driver())
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+            )
+        ).json()
+        response = await client.post(
+            f"/api/agent/runs/{run['id']}/resume",
+            json={"decision": "approved"},
+        )
+
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_agent_api_validates_create_run_body() -> None:
     app = create_app(create_agent_runtime(driver=file_report_driver()))
 
