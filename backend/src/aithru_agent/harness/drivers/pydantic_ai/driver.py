@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic_ai import Agent, RunContext, Tool
-from pydantic_ai.messages import PartDeltaEvent, TextPartDelta
+from pydantic_ai.messages import ModelMessagesTypeAdapter, PartDeltaEvent, TextPartDelta
 from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 
@@ -15,6 +15,8 @@ from aithru_agent.harness.engine import HarnessRunDeps, HarnessRunPaused, Harnes
 MAX_WORKSPACE_FILES_IN_PROMPT = 50
 MAX_THREAD_MESSAGES_IN_PROMPT = 20
 MAX_THREAD_MESSAGE_CHARS = 1_000
+PYDANTIC_APPROVAL_METADATA_DRIVER = "pydantic_ai"
+PYDANTIC_APPROVAL_METADATA_HISTORY = "message_history_json"
 
 
 @dataclass
@@ -79,7 +81,22 @@ class PydanticAIHarnessDriver:
         approved: bool,
         deps: HarnessRunDeps,
     ) -> list[HarnessStep]:
-        pending = self._pending_approvals.pop((run_id, approval_id))
+        pending = self._pending_approvals.pop((run_id, approval_id), None)
+        if pending is None:
+            approval = await deps.store.get_approval(approval_id)
+            if approval is None or approval.run_id != run_id:
+                raise AgentError("RUN_NOT_RESUMABLE", f"Run is not waiting for approval: {run_id}")
+            metadata = approval.metadata or {}
+            if metadata.get("harness_driver") != PYDANTIC_APPROVAL_METADATA_DRIVER:
+                raise AgentError("RUN_NOT_RESUMABLE", f"Run is not waiting for Pydantic AI approval: {run_id}")
+            message_history_json = metadata.get(PYDANTIC_APPROVAL_METADATA_HISTORY)
+            if not isinstance(message_history_json, str):
+                raise AgentError("RUN_NOT_RESUMABLE", f"Missing Pydantic AI resume state: {run_id}")
+            pending = PendingPydanticApproval(
+                approval_id=approval_id,
+                tool_call_id=approval.tool_call_id,
+                message_history=ModelMessagesTypeAdapter.validate_json(message_history_json),
+            )
         tools = await self._build_tools(deps)
         memory_entries = await self._memory_entries_for_run(deps)
         thread_messages = await self._thread_messages_for_run(deps)
@@ -161,6 +178,12 @@ class PydanticAIHarnessDriver:
             tool_call_id=tool_call.tool_call_id,
             tool_name=tool_call.tool_name,
             tool_input=tool_input,
+            metadata={
+                "harness_driver": PYDANTIC_APPROVAL_METADATA_DRIVER,
+                PYDANTIC_APPROVAL_METADATA_HISTORY: ModelMessagesTypeAdapter.dump_json(message_history).decode(
+                    "utf-8"
+                ),
+            },
         )
         self._pending_approvals[(deps.run.id, approval.id)] = PendingPydanticApproval(
             approval_id=approval.id,

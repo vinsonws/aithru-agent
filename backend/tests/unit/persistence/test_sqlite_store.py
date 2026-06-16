@@ -32,6 +32,12 @@ async def test_sqlite_store_persists_runs_workspace_files_and_events(tmp_path: P
         media_type="text/markdown",
     )
     completed = await store.update_run(run.id, status=AgentRunStatus.COMPLETED)
+    approval = await store.create_approval(
+        run_id=run.id,
+        tool_call_id="toolcall_1",
+        tool_name="workspace.write_file",
+        metadata={"harness_driver": "pydantic_ai"},
+    )
     await writer.write(
         run_id=run.id,
         type="run.completed",
@@ -43,6 +49,7 @@ async def test_sqlite_store_persists_runs_workspace_files_and_events(tmp_path: P
     reopened_events = SQLiteAgentEventStore(db_path)
     persisted_run = await reopened_store.get_run(run.id)
     persisted_file = await reopened_store.read_workspace_file(workspace.id, "/reports/report.md")
+    persisted_approval = await reopened_store.get_approval(approval.id)
     events = await reopened_events.list_by_run(run.id)
 
     assert completed.status == AgentRunStatus.COMPLETED
@@ -50,6 +57,8 @@ async def test_sqlite_store_persists_runs_workspace_files_and_events(tmp_path: P
     assert persisted_run.status == AgentRunStatus.COMPLETED
     assert persisted_run.scopes == ["agent.workspace.write"]
     assert persisted_file.content == "# Report\n"
+    assert persisted_approval is not None
+    assert persisted_approval.metadata == {"harness_driver": "pydantic_ai"}
     assert [event.type for event in events] == ["run.completed"]
 
 

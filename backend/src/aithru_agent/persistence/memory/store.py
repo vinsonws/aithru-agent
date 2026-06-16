@@ -261,6 +261,7 @@ class InMemoryAgentStore:
         tool_call_id: str,
         tool_name: str,
         tool_input: dict | None = None,
+        metadata: dict | None = None,
     ) -> AgentApproval:
         approval = AgentApproval(
             id=self._ids.next("approval"),
@@ -270,6 +271,7 @@ class InMemoryAgentStore:
             tool_input=tool_input,
             status=AgentApprovalStatus.PENDING,
             decision=None,
+            metadata=metadata,
             created_at=utc_now(),
         )
         self._approvals[approval.id] = approval

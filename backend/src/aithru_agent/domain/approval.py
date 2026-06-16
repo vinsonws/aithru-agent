@@ -24,5 +24,6 @@ class AgentApproval(AithruBaseModel):
     status: AgentApprovalStatus
     decision: AgentApprovalDecision | None = None
     comment: str | None = None
+    metadata: dict | None = None
     created_at: str
     resolved_at: str | None = None

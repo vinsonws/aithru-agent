@@ -230,6 +230,21 @@ class AgentWorkerRunner:
                     decision=decision,
                     comment=comment,
                 )
+            approval = await self._store.get_approval(approval_id)
+            driver_resume_approval = getattr(self._driver, "resume_approval", None)
+            if (
+                approval is not None
+                and approval.run_id == run_id
+                and approval.metadata
+                and approval.metadata.get("harness_driver") == "pydantic_ai"
+                and callable(driver_resume_approval)
+            ):
+                return await self._resume_driver_approval(
+                    run_id,
+                    approval_id=approval_id,
+                    decision=decision,
+                    comment=comment,
+                )
             return await self._resume_persisted_approval(
                 run_id,
                 approval_id=approval_id,

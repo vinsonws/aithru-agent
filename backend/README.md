@@ -60,3 +60,4 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Pydantic AI harness driver with controlled tool bridge.
 - Pydantic AI tools expose Aithru descriptor input schemas directly to the model.
 - Approval pause/resume semantics for risky Pydantic AI tool calls, including model continuation after approved tools.
+- Pydantic AI approval resume state is persisted on approval metadata for worker restart recovery.

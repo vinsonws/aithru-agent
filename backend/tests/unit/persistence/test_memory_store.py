@@ -27,6 +27,7 @@ async def test_memory_store_manages_threads_messages_runs_and_approvals() -> Non
         run_id=run.id,
         tool_call_id="toolcall_1",
         tool_name="workspace.write_file",
+        metadata={"harness_driver": "pydantic_ai"},
     )
 
     await store.update_run(run.id, status=AgentRunStatus.WAITING_APPROVAL, current_approval_id=approval.id)
@@ -43,6 +44,7 @@ async def test_memory_store_manages_threads_messages_runs_and_approvals() -> Non
     assert await store.list_runs() == [await store.get_run(run.id)]
     assert resolved.status == AgentApprovalStatus.RESOLVED
     assert resolved.decision == AgentApprovalDecision.APPROVED
+    assert resolved.metadata == {"harness_driver": "pydantic_ai"}
     assert await store.list_approvals(status=AgentApprovalStatus.RESOLVED) == [resolved]
 
 

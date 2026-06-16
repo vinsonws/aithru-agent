@@ -256,6 +256,44 @@ async def test_pydantic_ai_driver_resumes_model_after_tool_approval() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pydantic_ai_driver_resumes_model_after_worker_restart() -> None:
+    runtime = create_agent_runtime(
+        driver=PydanticAIHarnessDriver(
+            model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
+        ),
+        policy=ToolPolicy(require_approval_for_risk=["write"]),
+    )
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Write a file and then summarize.",
+        scopes=["*"],
+    )
+    approval = (await runtime.store.list_approvals())[0]
+    restarted_runtime = create_agent_runtime(
+        store=runtime.store,
+        event_store=runtime.event_store,
+        driver=PydanticAIHarnessDriver(
+            model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
+        ),
+        policy=ToolPolicy(require_approval_for_risk=["write"]),
+    )
+
+    resumed = await restarted_runtime.runner.resume_run(
+        run.id,
+        approval_id=approval.id,
+        decision="approved",
+        comment="ok",
+    )
+    written = await restarted_runtime.store.read_workspace_file(run.workspace_id, "/a")
+    events = await restarted_runtime.event_store.list_by_run(run.id)
+
+    assert resumed.status == AgentRunStatus.COMPLETED
+    assert written.content == "a"
+    assert next(event for event in events if event.type == "message.completed").payload["content"] == "done"
+
+
+@pytest.mark.asyncio
 async def test_pydantic_ai_driver_loads_skill_memory_entries() -> None:
     driver = RecordingInstructionsPydanticDriver()
     skill = AgentSkill(

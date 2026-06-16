@@ -141,6 +141,7 @@ class AgentStore(Protocol):
         tool_call_id: str,
         tool_name: str,
         tool_input: dict | None = None,
+        metadata: dict | None = None,
     ) -> AgentApproval:
         ...
 

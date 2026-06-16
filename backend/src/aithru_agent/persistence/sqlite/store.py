@@ -296,6 +296,7 @@ class SQLiteAgentStore:
         tool_call_id: str,
         tool_name: str,
         tool_input: dict | None = None,
+        metadata: dict | None = None,
     ) -> AgentApproval:
         approval = AgentApproval(
             id=self._next_id("approval"),
@@ -305,6 +306,7 @@ class SQLiteAgentStore:
             tool_input=tool_input,
             status=AgentApprovalStatus.PENDING,
             decision=None,
+            metadata=metadata,
             created_at=utc_now(),
         )
         self._save_doc("approval", approval.id, approval)
