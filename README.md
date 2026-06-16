@@ -44,10 +44,10 @@ backend/
     capabilities/     tool descriptors, policy, router, local tools
     domain/           Agent product contracts
     harness/          scripted and Pydantic AI drivers
-    persistence/      in-memory stage-1 store
+    persistence/      in-memory and SQLite stores
     stream/           AgentStreamEvent writer/store/SSE
     trace/            event-to-span projection
-    worker/           Agent run execution
+    worker/           queued Agent run execution and worker CLI
 ```
 
 Pydantic AI powers the default real harness path, but it does not define public
@@ -89,6 +89,16 @@ uv run python examples/file_report_agent.py
 uv run uvicorn aithru_agent.api.main:app --reload
 ```
 
+For API and worker processes sharing queued runs:
+
+```bash
+export AITHRU_AGENT_PERSISTENCE_BACKEND=sqlite
+export AITHRU_AGENT_SQLITE_PATH=.aithru/agent.sqlite
+
+uv run uvicorn aithru_agent.api.main:app --reload
+uv run aithru-agent-worker --once
+```
+
 ## HTTP API
 
 Primary stage-1 endpoints:
@@ -103,6 +113,7 @@ POST   /api/agent/runs
 GET    /api/agent/runs
 GET    /api/agent/runs/{run_id}
 GET    /api/agent/runs/{run_id}/events
+GET    /api/agent/runs/{run_id}/trace
 GET    /api/agent/runs/{run_id}/stream
 POST   /api/agent/runs/{run_id}/cancel
 GET    /api/agent/approvals
