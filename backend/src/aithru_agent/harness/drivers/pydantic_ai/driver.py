@@ -4,7 +4,7 @@ from pydantic_ai import Agent, RunContext, Tool
 from pydantic_ai.messages import PartDeltaEvent, TextPartDelta
 from pydantic_ai.run import AgentRunResultEvent
 
-from aithru_agent.domain import AgentSkill
+from aithru_agent.domain import AgentMemoryEntry, AgentSkill
 from aithru_agent.harness.drivers.pydantic_ai.tool_bridge import PydanticAIToolBridge
 from aithru_agent.harness.engine import HarnessRunDeps, HarnessStep
 
@@ -21,9 +21,13 @@ class PydanticAIHarnessDriver:
 
     async def run(self, goal: str | None = None, deps: HarnessRunDeps | None = None) -> list[HarnessStep]:
         tools = await self._build_tools(deps) if deps else []
+        memory_entries = await self._memory_entries_for_run(deps) if deps else []
         agent = Agent(
             self._model,
-            instructions=self.instructions_for_run(deps.skill if deps else None),
+            instructions=self.instructions_for_run(
+                deps.skill if deps else None,
+                memory_entries=memory_entries,
+            ),
             output_type=str,
             tools=tools,
         )
@@ -39,10 +43,42 @@ class PydanticAIHarnessDriver:
             steps.append(HarnessStep(type="finish"))
         return steps
 
-    def instructions_for_run(self, skill: AgentSkill | None = None) -> str:
-        if not skill:
-            return self._instructions
-        return f"{self._instructions}\n\nSkill instructions:\n{skill.instructions}"
+    def instructions_for_run(
+        self,
+        skill: AgentSkill | None = None,
+        *,
+        memory_entries: list[AgentMemoryEntry] | None = None,
+    ) -> str:
+        sections = [self._instructions]
+        if skill:
+            sections.append(f"Skill instructions:\n{skill.instructions}")
+        if memory_entries:
+            lines = [
+                f"- {entry.scope}:{entry.key} = {entry.value}"
+                for entry in memory_entries
+            ]
+            sections.append("Memory:\n" + "\n".join(lines))
+        return "\n\n".join(sections)
+
+    async def _memory_entries_for_run(self, deps: HarnessRunDeps) -> list[AgentMemoryEntry]:
+        skill = deps.skill
+        if not skill or not skill.memory_policy or not skill.memory_policy.read:
+            return []
+        entries: list[AgentMemoryEntry] = []
+        seen: set[str] = set()
+        for scope in skill.memory_policy.scopes or ["user", "thread", "workspace", "organization", "skill"]:
+            scope_id = _memory_scope_id(scope, deps)
+            scoped_entries = await deps.store.list_memory_entries(
+                org_id=deps.run.org_id,
+                scope=scope,
+                scope_id=scope_id,
+            )
+            for entry in scoped_entries:
+                if entry.id in seen:
+                    continue
+                seen.add(entry.id)
+                entries.append(entry)
+        return entries
 
     async def _build_tools(self, deps: HarnessRunDeps | None) -> list[Tool]:
         if deps is None:
@@ -76,3 +112,19 @@ class PydanticAIHarnessDriver:
             )
 
         return [make_tool(descriptor.name, descriptor.description) for descriptor in descriptors]
+
+
+def _memory_scope_id(scope: str, deps: HarnessRunDeps) -> str | None:
+    match scope:
+        case "thread":
+            return deps.run.thread_id or deps.run.id
+        case "workspace":
+            return deps.run.workspace_id
+        case "user":
+            return deps.run.actor_user_id
+        case "organization":
+            return deps.run.org_id
+        case "skill":
+            return deps.run.skill_id
+        case _:
+            return None

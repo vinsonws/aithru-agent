@@ -3,8 +3,24 @@ from pydantic_ai.models.test import TestModel
 
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import ToolPolicy
-from aithru_agent.domain import AgentRunStatus
+from aithru_agent.domain import AgentMemoryEntry, AgentMemoryPolicy, AgentRunStatus, AgentSkill
 from aithru_agent.harness.drivers.pydantic_ai.driver import PydanticAIHarnessDriver
+from aithru_agent.skills import InMemorySkillResolver
+
+
+class RecordingInstructionsPydanticDriver(PydanticAIHarnessDriver):
+    def __init__(self) -> None:
+        super().__init__(model=TestModel(custom_output_text="done"))
+        self.seen_memory_entries: list[AgentMemoryEntry] | None = None
+
+    def instructions_for_run(
+        self,
+        skill: AgentSkill | None = None,
+        *,
+        memory_entries: list[AgentMemoryEntry] | None = None,
+    ) -> str:
+        self.seen_memory_entries = memory_entries
+        return super().instructions_for_run(skill, memory_entries=memory_entries)
 
 
 @pytest.mark.asyncio
@@ -60,3 +76,42 @@ async def test_pydantic_ai_driver_pauses_when_tool_requires_approval() -> None:
     assert run.status == AgentRunStatus.WAITING_APPROVAL
     assert [event.type for event in events][-2:] == ["approval.requested", "run.paused"]
     assert "run.failed" not in [event.type for event in events]
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_driver_loads_skill_memory_entries() -> None:
+    driver = RecordingInstructionsPydanticDriver()
+    skill = AgentSkill(
+        id="skill_1",
+        org_id="org_1",
+        key="memory-skill",
+        name="Memory Skill",
+        instructions="Use memory.",
+        allowed_tools=[],
+        allowed_subagents=[],
+        memory_policy=AgentMemoryPolicy(read=True, scopes=["user"]),
+        version="0.1.0",
+        status="published",
+    )
+    runtime = create_agent_runtime(
+        driver=driver,
+        skill_resolver=InMemorySkillResolver([skill]),
+    )
+    await runtime.store.create_memory_entry(
+        org_id="org_1",
+        scope="user",
+        scope_id="user_1",
+        key="preference.language",
+        value="Prefers Chinese summaries.",
+    )
+
+    await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Use memory.",
+        scopes=["*"],
+        skill_id="memory-skill",
+    )
+
+    assert driver.seen_memory_entries is not None
+    assert [entry.key for entry in driver.seen_memory_entries] == ["preference.language"]
