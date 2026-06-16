@@ -91,7 +91,7 @@ class AgentWorkerRunner:
 
         context = self._context_builder.build(run, scopes)
         final_content: list[str] = []
-        steps = await self._driver.run()
+        steps = await self._driver.run(run.goal)
         for index, step in enumerate(steps):
             if step.type == "message" and step.text is not None:
                 final_content.append(step.text)
