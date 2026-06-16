@@ -1,0 +1,161 @@
+from aithru_agent.stream import AgentStreamEvent
+
+from .spans import AgentTraceSpan, AgentTraceSpanStatus
+
+
+def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
+    spans: dict[str, AgentTraceSpan] = {}
+    sorted_events = sorted(events, key=lambda event: event.sequence)
+
+    for event in sorted_events:
+        if event.type == "run.created":
+            spans[f"run:{event.run_id}"] = _start_span(event, "run", "run")
+            continue
+        if event.type in {"run.completed", "run.failed", "run.cancelled"}:
+            status: AgentTraceSpanStatus = (
+                "completed"
+                if event.type == "run.completed"
+                else "cancelled"
+                if event.type == "run.cancelled"
+                else "failed"
+            )
+            _finish_span(spans, f"run:{event.run_id}", event, status)
+            if status == "failed":
+                _finish_open_span(spans, f"model:{event.run_id}", event, "failed")
+            continue
+
+        if event.type == "model.started":
+            spans[f"model:{event.run_id}"] = _start_span(event, "model", "model")
+            continue
+        if event.type in {"model.completed", "model.failed"}:
+            _finish_span(
+                spans,
+                f"model:{event.run_id}",
+                event,
+                "completed" if event.type == "model.completed" else "failed",
+            )
+            continue
+
+        if event.type == "tool.started":
+            tool_call_id = _payload_value(event, "tool_call_id", "toolCallId") or f"{event.sequence}"
+            tool_name = _payload_value(event, "tool_name", "toolName") or "tool"
+            spans[f"tool:{tool_call_id}"] = _start_span(
+                event,
+                "tool",
+                str(tool_name),
+                refs={"tool_call_id": tool_call_id},
+            )
+            continue
+        if event.type in {"tool.completed", "tool.failed", "tool.denied"}:
+            tool_call_id = _payload_value(event, "tool_call_id", "toolCallId")
+            if tool_call_id:
+                _finish_span(
+                    spans,
+                    f"tool:{tool_call_id}",
+                    event,
+                    "completed" if event.type == "tool.completed" else "failed",
+                )
+            continue
+
+        if event.type == "approval.requested":
+            approval_id = _payload_value(event, "approval_id", "approvalId") or f"{event.sequence}"
+            spans[f"approval:{approval_id}"] = _start_span(
+                event,
+                "approval",
+                "approval",
+                refs={"approval_id": approval_id},
+            )
+            continue
+        if event.type in {"approval.resolved", "approval.expired"}:
+            approval_id = _payload_value(event, "approval_id", "approvalId")
+            if approval_id:
+                _finish_span(
+                    spans,
+                    f"approval:{approval_id}",
+                    event,
+                    "completed" if event.type == "approval.resolved" else "failed",
+                )
+            continue
+
+        if event.type.startswith("workspace.file."):
+            path = _payload_value(event, "path")
+            span_id = f"workspace:{event.run_id}:{event.sequence}"
+            spans[span_id] = _start_span(
+                event,
+                "workspace",
+                event.type,
+                refs={"path": path} if path else None,
+            )
+            _finish_span(spans, span_id, event, "completed")
+            continue
+
+        if event.type in {"artifact.created", "artifact.updated", "artifact.finalized"}:
+            artifact_id = _payload_value(event, "artifact_id", "artifactId") or f"{event.sequence}"
+            span_id = f"artifact:{artifact_id}"
+            spans[span_id] = _start_span(
+                event,
+                "artifact",
+                event.type,
+                refs={"artifact_id": artifact_id},
+            )
+            _finish_span(spans, span_id, event, "completed")
+
+    return list(spans.values())
+
+
+def _start_span(
+    event: AgentStreamEvent,
+    kind: str,
+    name: str,
+    refs: dict | None = None,
+) -> AgentTraceSpan:
+    return AgentTraceSpan(
+        id=f"{kind}:{event.run_id}" if kind in {"run", "model"} else "",
+        run_id=event.run_id,
+        kind=kind,  # type: ignore[arg-type]
+        name=name,
+        status="running",
+        start_sequence=event.sequence,
+        started_at=event.timestamp,
+        refs=refs,
+    )
+
+
+def _finish_span(
+    spans: dict[str, AgentTraceSpan],
+    span_id: str,
+    event: AgentStreamEvent,
+    status: AgentTraceSpanStatus,
+) -> None:
+    span = spans.get(span_id)
+    if not span:
+        return
+    spans[span_id] = span.model_copy(
+        update={
+            "id": span_id,
+            "status": status,
+            "end_sequence": event.sequence,
+            "ended_at": event.timestamp,
+        }
+    )
+
+
+def _finish_open_span(
+    spans: dict[str, AgentTraceSpan],
+    span_id: str,
+    event: AgentStreamEvent,
+    status: AgentTraceSpanStatus,
+) -> None:
+    span = spans.get(span_id)
+    if span and span.status == "running":
+        _finish_span(spans, span_id, event, status)
+
+
+def _payload_value(event: AgentStreamEvent, *keys: str) -> object | None:
+    if not isinstance(event.payload, dict):
+        return None
+    for key in keys:
+        if key in event.payload:
+            return event.payload[key]
+    return None
+
