@@ -125,6 +125,45 @@ async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_persists_completed_assistant_message_to_thread() -> None:
+    runtime = create_agent_runtime(driver=file_report_driver())
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        thread = (
+            await client.post(
+                "/api/agent/threads",
+                json={"org_id": "org_1", "owner_user_id": "user_1", "title": "Report"},
+            )
+        ).json()
+        user_message = (
+            await client.post(
+                f"/api/agent/threads/{thread['id']}/messages",
+                json={"role": "user", "content": "Please write a report"},
+            )
+        ).json()
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={
+                    "org_id": "org_1",
+                    "actor_user_id": "user_1",
+                    "thread_id": thread["id"],
+                    "goal": "Write report",
+                    "scopes": ["*"],
+                },
+            )
+        ).json()
+        await runtime.worker.drain()
+        messages = (await client.get(f"/api/agent/threads/{thread['id']}/messages")).json()
+
+    assert messages[0] == user_message
+    assert messages[1]["role"] == "assistant"
+    assert messages[1]["content"] == "I will write the report.\n"
+    assert messages[1]["run_id"] == run["id"]
+
+
+@pytest.mark.asyncio
 async def test_agent_api_resolves_approval_and_resumes_run() -> None:
     runtime = create_agent_runtime(
         driver=file_report_driver(),

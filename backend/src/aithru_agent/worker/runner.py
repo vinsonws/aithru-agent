@@ -497,12 +497,24 @@ class AgentWorkerRunner:
             payload={},
         )
         content = "".join(final_content)
+        persisted_message_id = None
+        if thread_id and content:
+            message = await self._store.append_message(
+                thread_id=thread_id,
+                role="assistant",
+                content=content,
+                run_id=run.id,
+            )
+            persisted_message_id = message.id
+        message_payload = {"message_id": message_id, "content": content}
+        if persisted_message_id:
+            message_payload["thread_message_id"] = persisted_message_id
         await self._event_writer.write(
             run_id=run.id,
             thread_id=thread_id,
             type="message.completed",
             source={"kind": "harness"},
-            payload={"message_id": message_id, "content": content},
+            payload=message_payload,
         )
         run = await self._store.update_run(
             run.id,
