@@ -101,42 +101,45 @@ class AgentWorkerRunner:
         skill = self._skill_resolver.resolve(skill_id) if skill_id else None
         context = self._context_builder.build(run, scopes, skill)
         final_content: list[str] = []
-        steps = await self._driver.run(
-            run.goal,
-            HarnessRunDeps(
-                run=run,
-                run_context=context,
-                event_writer=self._event_writer,
-                capability_router=self._capability_router,
-                skill=skill,
-            ),
-        )
-        for index, step in enumerate(steps):
-            if step.type == "message" and step.text is not None:
-                final_content.append(step.text)
-                await self._event_writer.write(
-                    run_id=run.id,
-                    thread_id=thread_id,
-                    type="message.delta",
-                    source={"kind": "model"},
-                    payload={"message_id": message_id, "delta": step.text},
-                )
-            elif step.type == "tool" and step.tool_call is not None:
-                paused = await self._execute_tool_step(
-                    run,
-                    context,
-                    step.tool_call,
-                    remaining_steps=steps[index + 1 :],
-                    message_id=message_id,
-                    final_content=final_content,
-                )
-                if paused:
-                    paused_run = await self._store.get_run(run.id)
-                    if paused_run is None:
-                        raise AgentError("NOT_FOUND", f"Run not found: {run.id}")
-                    return paused_run
-            elif step.type == "finish":
-                break
+        try:
+            steps = await self._driver.run(
+                run.goal,
+                HarnessRunDeps(
+                    run=run,
+                    run_context=context,
+                    event_writer=self._event_writer,
+                    capability_router=self._capability_router,
+                    skill=skill,
+                ),
+            )
+            for index, step in enumerate(steps):
+                if step.type == "message" and step.text is not None:
+                    final_content.append(step.text)
+                    await self._event_writer.write(
+                        run_id=run.id,
+                        thread_id=thread_id,
+                        type="message.delta",
+                        source={"kind": "model"},
+                        payload={"message_id": message_id, "delta": step.text},
+                    )
+                elif step.type == "tool" and step.tool_call is not None:
+                    paused = await self._execute_tool_step(
+                        run,
+                        context,
+                        step.tool_call,
+                        remaining_steps=steps[index + 1 :],
+                        message_id=message_id,
+                        final_content=final_content,
+                    )
+                    if paused:
+                        paused_run = await self._store.get_run(run.id)
+                        if paused_run is None:
+                            raise AgentError("NOT_FOUND", f"Run not found: {run.id}")
+                        return paused_run
+                elif step.type == "finish":
+                    break
+        except Exception as exc:
+            return await self._fail_run(run, thread_id, exc)
 
         return await self._complete_run(run, thread_id, message_id, final_content)
 
@@ -218,54 +221,71 @@ class AgentWorkerRunner:
             source={"kind": "tool"},
             payload={"tool_call_id": approved_request.id, "tool_name": approved_request.tool_name},
         )
-        result = await self._capability_router.execute_tool_call(approved_request, pending.context)
-        await self._emit_domain_tool_event(
-            resumed,
-            approved_request.id,
-            approved_request.tool_name,
-            result.output,
-        )
-        await self._event_writer.write(
-            run_id=run_id,
-            thread_id=pending.run.thread_id,
-            type="tool.completed" if result.status == "completed" else "tool.failed",
-            source={"kind": "tool"},
-            payload={
-                "tool_call_id": approved_request.id,
-                "tool_name": approved_request.tool_name,
-                "status": result.status,
-                "output": result.output,
-                "error": result.error,
-            },
-        )
+        try:
+            result = await self._capability_router.execute_tool_call(approved_request, pending.context)
+            await self._emit_domain_tool_event(
+                resumed,
+                approved_request.id,
+                approved_request.tool_name,
+                result.output,
+            )
+            await self._event_writer.write(
+                run_id=run_id,
+                thread_id=pending.run.thread_id,
+                type="tool.completed" if result.status == "completed" else "tool.failed",
+                source={"kind": "tool"},
+                payload={
+                    "tool_call_id": approved_request.id,
+                    "tool_name": approved_request.tool_name,
+                    "status": result.status,
+                    "output": result.output,
+                    "error": result.error,
+                },
+            )
+            if result.status != "completed":
+                error = AgentError("TOOL_FAILED", _tool_result_error_message(result.error))
+                self._pending_approvals.pop(run_id, None)
+                return await self._fail_run(resumed, pending.run.thread_id, error)
+        except Exception as exc:
+            await self._emit_tool_exception(
+                resumed,
+                approved_request.id,
+                approved_request.tool_name,
+                exc,
+            )
+            self._pending_approvals.pop(run_id, None)
+            return await self._fail_run(resumed, pending.run.thread_id, exc)
         self._pending_approvals.pop(run_id, None)
 
-        for step in pending.remaining_steps:
-            if step.type == "message" and step.text is not None:
-                pending.final_content.append(step.text)
-                await self._event_writer.write(
-                    run_id=run_id,
-                    thread_id=pending.run.thread_id,
-                    type="message.delta",
-                    source={"kind": "model"},
-                    payload={"message_id": pending.message_id, "delta": step.text},
-                )
-            elif step.type == "tool" and step.tool_call is not None:
-                paused = await self._execute_tool_step(
-                    resumed,
-                    pending.context,
-                    step.tool_call,
-                    remaining_steps=[],
-                    message_id=pending.message_id,
-                    final_content=pending.final_content,
-                )
-                if paused:
-                    paused_run = await self._store.get_run(run_id)
-                    if paused_run is None:
-                        raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
-                    return paused_run
-            elif step.type == "finish":
-                break
+        try:
+            for step in pending.remaining_steps:
+                if step.type == "message" and step.text is not None:
+                    pending.final_content.append(step.text)
+                    await self._event_writer.write(
+                        run_id=run_id,
+                        thread_id=pending.run.thread_id,
+                        type="message.delta",
+                        source={"kind": "model"},
+                        payload={"message_id": pending.message_id, "delta": step.text},
+                    )
+                elif step.type == "tool" and step.tool_call is not None:
+                    paused = await self._execute_tool_step(
+                        resumed,
+                        pending.context,
+                        step.tool_call,
+                        remaining_steps=[],
+                        message_id=pending.message_id,
+                        final_content=pending.final_content,
+                    )
+                    if paused:
+                        paused_run = await self._store.get_run(run_id)
+                        if paused_run is None:
+                            raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
+                        return paused_run
+                elif step.type == "finish":
+                    break
+        except Exception as exc:
+            return await self._fail_run(resumed, pending.run.thread_id, exc)
 
         return await self._complete_run(
             resumed,
@@ -309,6 +329,36 @@ class AgentWorkerRunner:
             payload={"status": "completed"},
         )
         return run
+
+    async def _fail_run(
+        self,
+        run: AgentRun,
+        thread_id: str | None,
+        error: Exception,
+    ) -> AgentRun:
+        error_payload = _error_payload(error)
+        await self._event_writer.write(
+            run_id=run.id,
+            thread_id=thread_id,
+            type="model.failed",
+            source={"kind": "model"},
+            payload={"error": error_payload},
+        )
+        failed = await self._store.update_run(
+            run.id,
+            status=AgentRunStatus.FAILED,
+            completed_at=_event_completed_at_marker(),
+            current_approval_id=None,
+            error=error_payload,
+        )
+        await self._event_writer.write(
+            run_id=run.id,
+            thread_id=thread_id,
+            type="run.failed",
+            source={"kind": "harness"},
+            payload={"status": "failed", "error": error_payload},
+        )
+        return failed
 
     async def cancel_run(self, run_id: str) -> AgentRun:
         run = await self._store.get_run(run_id)
@@ -413,7 +463,11 @@ class AgentWorkerRunner:
             source={"kind": "tool"},
             payload={"tool_call_id": tool_call_id, "tool_name": tool_call.name},
         )
-        result = await self._capability_router.execute_tool_call(request, context)
+        try:
+            result = await self._capability_router.execute_tool_call(request, context)
+        except Exception as exc:
+            await self._emit_tool_exception(run, tool_call_id, tool_call.name, exc)
+            raise
         await self._emit_domain_tool_event(run, tool_call_id, tool_call.name, result.output)
         await self._event_writer.write(
             run_id=run.id,
@@ -428,7 +482,30 @@ class AgentWorkerRunner:
                 "error": result.error,
             },
         )
+        if result.status != "completed":
+            raise AgentError("TOOL_FAILED", _tool_result_error_message(result.error))
         return False
+
+    async def _emit_tool_exception(
+        self,
+        run: AgentRun,
+        tool_call_id: str,
+        tool_name: str,
+        error: Exception,
+    ) -> None:
+        await self._event_writer.write(
+            run_id=run.id,
+            thread_id=run.thread_id,
+            type="tool.failed",
+            source={"kind": "tool"},
+            payload={
+                "tool_call_id": tool_call_id,
+                "tool_name": tool_name,
+                "status": "failed",
+                "output": None,
+                "error": _error_payload(error),
+            },
+        )
 
     async def _emit_domain_tool_event(
         self,
@@ -485,3 +562,16 @@ def _event_completed_at_marker() -> str:
     from aithru_agent.persistence.memory.store import utc_now
 
     return utc_now()
+
+
+def _error_payload(error: Exception) -> dict[str, str]:
+    if isinstance(error, AgentError):
+        return {"code": error.code, "message": error.message}
+    return {"message": str(error)}
+
+
+def _tool_result_error_message(error: dict | None) -> str:
+    if not error:
+        return "Tool failed"
+    message = error.get("message")
+    return str(message) if message else "Tool failed"
