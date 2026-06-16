@@ -3,7 +3,7 @@ from typing import Literal
 from .base import AithruBaseModel
 
 
-AgentWorkspaceStorageBackend = Literal["memory", "filesystem", "object_storage"]
+AgentWorkspaceStorageBackend = Literal["memory", "sqlite", "filesystem", "object_storage"]
 
 
 class AgentWorkspace(AithruBaseModel):
@@ -22,4 +22,3 @@ class AgentWorkspaceFile(AithruBaseModel):
     media_type: str | None = None
     created_at: str
     updated_at: str
-

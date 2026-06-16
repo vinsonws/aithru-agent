@@ -27,26 +27,28 @@ class AgentRuntime:
 
 def create_agent_runtime(
     *,
+    store: AgentStore | None = None,
+    event_store: AgentEventStore | None = None,
     driver: AgentHarnessDriver | None = None,
     policy: ToolPolicy | None = None,
     settings: AgentSettings | None = None,
     skill_resolver: AgentSkillResolver | None = None,
 ) -> AgentRuntime:
     resolved_settings = settings or AgentSettings.from_env()
-    store = InMemoryAgentStore()
-    event_store = InMemoryAgentEventStore()
-    event_writer = AgentEventWriter(event_store)
+    resolved_store = store or InMemoryAgentStore()
+    resolved_event_store = event_store or InMemoryAgentEventStore()
+    event_writer = AgentEventWriter(resolved_event_store)
     capability_router = AithruCapabilityRouter(
         adapters=[
-            WorkspaceLocalTool(store),
-            TodoLocalTool(store),
-            ArtifactLocalTool(store),
+            WorkspaceLocalTool(resolved_store),
+            TodoLocalTool(resolved_store),
+            ArtifactLocalTool(resolved_store),
         ],
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )
     resolved_skill_resolver = skill_resolver or EmptySkillResolver()
     runner = AgentWorkerRunner(
-        store=store,
+        store=resolved_store,
         event_writer=event_writer,
         capability_router=capability_router,
         driver=driver or _create_driver(resolved_settings),
@@ -55,8 +57,8 @@ def create_agent_runtime(
     run_queue = InProcessRunQueue()
     worker = AgentWorkerService(runner=runner, queue=run_queue)
     return AgentRuntime(
-        store=store,
-        event_store=event_store,
+        store=resolved_store,
+        event_store=resolved_event_store,
         event_writer=event_writer,
         capability_router=capability_router,
         runner=runner,
