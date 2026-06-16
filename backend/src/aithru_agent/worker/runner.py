@@ -222,6 +222,14 @@ class AgentWorkerRunner:
     ) -> AgentRun:
         pending = self._pending_approvals.get(run_id)
         if pending is None:
+            driver_has_pending_approval = getattr(self._driver, "has_pending_approval", None)
+            if callable(driver_has_pending_approval) and driver_has_pending_approval(run_id, approval_id):
+                return await self._resume_driver_approval(
+                    run_id,
+                    approval_id=approval_id,
+                    decision=decision,
+                    comment=comment,
+                )
             return await self._resume_persisted_approval(
                 run_id,
                 approval_id=approval_id,
@@ -367,6 +375,120 @@ class AgentWorkerRunner:
             pending.message_id,
             pending.final_content,
         )
+
+    async def _resume_driver_approval(
+        self,
+        run_id: str,
+        *,
+        approval_id: str,
+        decision: AgentApprovalDecision | str,
+        comment: str | None,
+    ) -> AgentRun:
+        approval = await self._store.get_approval(approval_id)
+        if approval is None or approval.run_id != run_id:
+            raise AgentError("RUN_NOT_RESUMABLE", f"Run is not waiting for approval: {run_id}")
+        run = await self._store.get_run(run_id)
+        if run is None or run.status != AgentRunStatus.WAITING_APPROVAL:
+            raise AgentError("RUN_NOT_RESUMABLE", f"Run is not waiting for approval: {run_id}")
+
+        resolved = await self._store.resolve_approval(
+            approval_id,
+            decision=decision,
+            comment=comment,
+        )
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=run.thread_id,
+            type="approval.resolved",
+            source={"kind": "approval"},
+            payload={
+                "approval_id": approval_id,
+                "tool_call_id": approval.tool_call_id,
+                "tool_name": approval.tool_name,
+                "decision": _approval_decision_value(resolved.decision or decision),
+                "comment": comment,
+            },
+        )
+
+        if str(decision) == AgentApprovalDecision.REJECTED.value:
+            failed = await self._store.update_run(
+                run_id,
+                status=AgentRunStatus.FAILED,
+                current_approval_id=None,
+                error={"message": "Approval rejected"},
+            )
+            await self._event_writer.write(
+                run_id=run_id,
+                thread_id=run.thread_id,
+                type="tool.denied",
+                source={"kind": "tool"},
+                payload={
+                    "tool_call_id": approval.tool_call_id,
+                    "tool_name": approval.tool_name,
+                    "reason": comment,
+                },
+            )
+            await self._event_writer.write(
+                run_id=run_id,
+                thread_id=run.thread_id,
+                type="run.failed",
+                source={"kind": "harness"},
+                payload={"status": "failed", "error": {"message": "Approval rejected"}},
+            )
+            return failed
+
+        resumed = await self._store.update_run(run_id, status=AgentRunStatus.RUNNING, current_approval_id=None)
+        await self._event_writer.write(
+            run_id=run_id,
+            thread_id=run.thread_id,
+            type="run.resumed",
+            source={"kind": "harness"},
+            payload={"status": "running"},
+        )
+
+        skill = self._skill_resolver.resolve(run.skill_id) if run.skill_id else None
+        context = self._context_builder.build(resumed, resumed.scopes, skill)
+        resume_approval = getattr(self._driver, "resume_approval")
+        try:
+            steps: list[HarnessStep] = await resume_approval(
+                run_id=run_id,
+                approval_id=approval_id,
+                approved=True,
+                deps=HarnessRunDeps(
+                    run=resumed,
+                    run_context=context,
+                    event_writer=self._event_writer,
+                    capability_router=self._capability_router,
+                    store=self._store,
+                    skill=skill,
+                ),
+            )
+        except HarnessRunPaused:
+            paused_run = await self._store.get_run(run_id)
+            if paused_run is None:
+                raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
+            return paused_run
+        except Exception as exc:
+            return await self._fail_run(resumed, run.thread_id, exc)
+
+        final_content: list[str] = []
+        try:
+            for step in steps:
+                if step.type == "message" and step.text is not None:
+                    final_content.append(step.text)
+                    await self._event_writer.write(
+                        run_id=run_id,
+                        thread_id=run.thread_id,
+                        type="message.delta",
+                        source={"kind": "model"},
+                        payload={"message_id": "msg_1", "delta": step.text},
+                    )
+                elif step.type == "finish":
+                    break
+        except Exception as exc:
+            return await self._fail_run(resumed, run.thread_id, exc)
+
+        return await self._complete_run(resumed, run.thread_id, "msg_1", final_content)
 
     async def _resume_persisted_approval(
         self,

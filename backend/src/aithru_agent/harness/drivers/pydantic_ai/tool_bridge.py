@@ -30,20 +30,24 @@ class PydanticAIToolBridge:
         tool_name: str,
         tool_call_id: str,
         tool_input: dict[str, Any] | None = None,
+        already_approved: bool = False,
+        emit_proposed: bool = True,
     ) -> object:
         request = AgentToolCallRequest(
             id=tool_call_id,
             tool_name=tool_name,
             input=tool_input or {},
             requested_by="model",
+            already_approved=already_approved,
         )
-        await self._event_writer.write(
-            run_id=self._run.id,
-            thread_id=self._run.thread_id,
-            type="tool.proposed",
-            source={"kind": "tool"},
-            payload={"tool_call_id": tool_call_id, "tool_name": tool_name, "input": tool_input or {}},
-        )
+        if emit_proposed:
+            await self._event_writer.write(
+                run_id=self._run.id,
+                thread_id=self._run.thread_id,
+                type="tool.proposed",
+                source={"kind": "tool"},
+                payload={"tool_call_id": tool_call_id, "tool_name": tool_name, "input": tool_input or {}},
+            )
         prepared = await self._capability_router.prepare_tool_call(request, self._run_context)
         if prepared.status == "denied":
             await self._event_writer.write(

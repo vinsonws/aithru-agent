@@ -83,6 +83,20 @@ class AithruCapabilityRouter:
             )
         return AgentToolPrepareResult(status="ready", tool_name=request.tool_name)
 
+    async def requires_approval_for_tool(
+        self,
+        tool_name: str,
+        context: AgentRunContext,
+    ) -> bool:
+        descriptor = await self._find_descriptor(tool_name, context)
+        if descriptor is None:
+            return False
+        approval_risks = {
+            *self._policy.require_approval_for_risk,
+            *context.require_approval_for_risk,
+        }
+        return descriptor.risk_level.value in approval_risks
+
     async def execute_tool_call(
         self,
         request: AgentToolCallRequest,

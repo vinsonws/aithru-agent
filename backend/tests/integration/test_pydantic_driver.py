@@ -221,6 +221,41 @@ async def test_pydantic_ai_driver_pauses_when_tool_requires_approval() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pydantic_ai_driver_resumes_model_after_tool_approval() -> None:
+    runtime = create_agent_runtime(
+        driver=PydanticAIHarnessDriver(
+            model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
+        ),
+        policy=ToolPolicy(require_approval_for_risk=["write"]),
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Write a file and then summarize.",
+        scopes=["*"],
+    )
+    approval = (await runtime.store.list_approvals())[0]
+
+    resumed = await runtime.runner.resume_run(
+        run.id,
+        approval_id=approval.id,
+        decision="approved",
+        comment="ok",
+    )
+    written = await runtime.store.read_workspace_file(run.workspace_id, "/a")
+    events = await runtime.event_store.list_by_run(run.id)
+
+    assert resumed.status == AgentRunStatus.COMPLETED
+    assert written.content == "a"
+    tool_completed_index = next(index for index, event in enumerate(events) if event.type == "tool.completed")
+    first_delta_index = next(index for index, event in enumerate(events) if event.type == "message.delta")
+    assert tool_completed_index < first_delta_index
+    assert "".join(event.payload["delta"] for event in events if event.type == "message.delta") == "done"
+    assert next(event for event in events if event.type == "message.completed").payload["content"] == "done"
+
+
+@pytest.mark.asyncio
 async def test_pydantic_ai_driver_loads_skill_memory_entries() -> None:
     driver = RecordingInstructionsPydanticDriver()
     skill = AgentSkill(
