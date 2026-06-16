@@ -4,7 +4,7 @@ from .artifact import AgentArtifact, AgentArtifactType
 from .errors import AgentError, AgentErrorCode
 from .memory import AgentMemoryEntry
 from .message import AgentMessage, AgentMessageRole
-from .run import AgentRun, AgentRunSource, AgentRunStatus
+from .run import AgentRun, AgentRunHarnessOptions, AgentRunSource, AgentRunStatus
 from .skill import (
     AgentApprovalPolicy,
     AgentMemoryPolicy,
@@ -43,6 +43,7 @@ __all__ = [
     "AgentMessage",
     "AgentMessageRole",
     "AgentRun",
+    "AgentRunHarnessOptions",
     "AgentRunSource",
     "AgentRunStatus",
     "AgentSandboxPolicy",

@@ -4,6 +4,7 @@ from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter
 from aithru_agent.domain import (
     AgentApprovalDecision,
     AgentRun,
+    AgentRunHarnessOptions,
     AgentRunSource,
     AgentRunStatus,
     AgentSubagentRunStatus,
@@ -61,6 +62,7 @@ class AgentWorkerRunner:
         actor_user_id: str,
         goal: str,
         scopes: list[str],
+        harness_options: AgentRunHarnessOptions | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:
@@ -69,6 +71,7 @@ class AgentWorkerRunner:
             actor_user_id=actor_user_id,
             goal=goal,
             scopes=scopes,
+            harness_options=harness_options,
             thread_id=thread_id,
             skill_id=skill_id,
         )
@@ -81,6 +84,7 @@ class AgentWorkerRunner:
         actor_user_id: str,
         goal: str,
         scopes: list[str],
+        harness_options: AgentRunHarnessOptions | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:
@@ -96,6 +100,7 @@ class AgentWorkerRunner:
             goal=goal,
             workspace_id=workspace.id,
             scopes=scopes,
+            harness_options=harness_options,
             thread_id=thread_id,
             skill_id=skill_id,
         )

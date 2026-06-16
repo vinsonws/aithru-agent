@@ -281,6 +281,10 @@ type AgentRun = {
   actorUserId: string;
   source: "chat" | "skill" | "api" | "workbench_node" | "delegated_task";
   goal: string;
+  harnessOptions?: {
+    model?: string;
+    instructions?: string;
+  };
   status:
     | "queued"
     | "running"

@@ -234,6 +234,35 @@ async def test_agent_api_binds_run_identity_to_trusted_headers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_persists_run_harness_options() -> None:
+    runtime = create_agent_runtime(driver=file_report_driver())
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = (
+            await client.post(
+                "/api/agent/runs",
+                json={
+                    "org_id": "org_1",
+                    "actor_user_id": "user_1",
+                    "goal": "Use run config",
+                    "harness_options": {
+                        "model": "openai:gpt-4.1-mini",
+                        "instructions": "Answer with terse bullets.",
+                    },
+                },
+            )
+        ).json()
+        fetched = (await client.get(f"/api/agent/runs/{created['id']}")).json()
+
+    assert created["harness_options"] == {
+        "model": "openai:gpt-4.1-mini",
+        "instructions": "Answer with terse bullets.",
+    }
+    assert fetched["harness_options"] == created["harness_options"]
+
+
+@pytest.mark.asyncio
 async def test_agent_api_binds_thread_identity_to_trusted_headers() -> None:
     runtime = create_agent_runtime(
         driver=file_report_driver(),

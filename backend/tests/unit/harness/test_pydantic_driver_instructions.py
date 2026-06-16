@@ -1,4 +1,12 @@
-from aithru_agent.domain import AgentMemoryEntry, AgentMemoryPolicy, AgentSkill
+from aithru_agent.domain import (
+    AgentMemoryEntry,
+    AgentMemoryPolicy,
+    AgentRun,
+    AgentRunHarnessOptions,
+    AgentRunSource,
+    AgentRunStatus,
+    AgentSkill,
+)
 from aithru_agent.harness.drivers.pydantic_ai.driver import PydanticAIHarnessDriver
 
 
@@ -50,3 +58,22 @@ def test_pydantic_driver_adds_memory_entries_to_instructions() -> None:
 
     assert "Memory:" in instructions
     assert "- user:preference.language = Prefers Chinese summaries." in instructions
+
+
+def test_pydantic_driver_adds_run_harness_instructions() -> None:
+    run = AgentRun(
+        id="run_1",
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.API,
+        workspace_id="ws_1",
+        goal="Write a report.",
+        harness_options=AgentRunHarnessOptions(instructions="Use terse bullet points."),
+        status=AgentRunStatus.QUEUED,
+        started_at="2026-06-16T00:00:00Z",
+    )
+    driver = PydanticAIHarnessDriver(instructions="Base instructions.")
+
+    instructions = driver.instructions_for_run(run=run)
+
+    assert instructions == "Base instructions.\n\nRun instructions:\nUse terse bullet points."

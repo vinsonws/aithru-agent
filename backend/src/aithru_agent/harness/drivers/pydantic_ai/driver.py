@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -6,7 +7,7 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter, PartDeltaEvent, TextP
 from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 
-from aithru_agent.domain import AgentMemoryEntry, AgentMessage, AgentSkill, AgentWorkspaceFile
+from aithru_agent.domain import AgentMemoryEntry, AgentMessage, AgentRun, AgentSkill, AgentWorkspaceFile
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness.drivers.pydantic_ai.tool_bridge import PydanticAIToolBridge
 from aithru_agent.harness.engine import HarnessRunDeps, HarnessRunPaused, HarnessStep
@@ -31,9 +32,11 @@ class PydanticAIHarnessDriver:
         self,
         *,
         model: object | str | None = None,
+        model_factory: Callable[[str], object | str] | None = None,
         instructions: str | None = None,
     ) -> None:
         self._model = model
+        self._model_factory = model_factory or _default_model_factory
         self._instructions = instructions or "You are Aithru Agent. Help the user complete the task."
         self._pending_approvals: dict[tuple[str, str], PendingPydanticApproval] = {}
 
@@ -141,9 +144,10 @@ class PydanticAIHarnessDriver:
         workspace_files: list[AgentWorkspaceFile],
     ) -> Agent:
         return Agent(
-            self._model,
+            self._model_for_run(deps.run if deps else None),
             instructions=self.instructions_for_run(
-                deps.skill if deps else None,
+                skill=deps.skill if deps else None,
+                run=deps.run if deps else None,
                 memory_entries=memory_entries,
                 thread_messages=thread_messages,
                 workspace_files=workspace_files,
@@ -151,6 +155,11 @@ class PydanticAIHarnessDriver:
             output_type=[str, DeferredToolRequests],
             tools=tools,
         )
+
+    def _model_for_run(self, run: AgentRun | None) -> object | str | None:
+        if run and run.harness_options and run.harness_options.model:
+            return self._model_factory(run.harness_options.model)
+        return self._model
 
     async def _pause_for_deferred_approval(
         self,
@@ -224,11 +233,14 @@ class PydanticAIHarnessDriver:
         self,
         skill: AgentSkill | None = None,
         *,
+        run: AgentRun | None = None,
         memory_entries: list[AgentMemoryEntry] | None = None,
         thread_messages: list[AgentMessage] | None = None,
         workspace_files: list[AgentWorkspaceFile] | None = None,
     ) -> str:
         sections = [self._instructions]
+        if run and run.harness_options and run.harness_options.instructions:
+            sections.append(f"Run instructions:\n{run.harness_options.instructions}")
         if skill:
             sections.append(f"Skill instructions:\n{skill.instructions}")
         if thread_messages:
@@ -370,3 +382,7 @@ def _memory_scope_id(scope: str, deps: HarnessRunDeps) -> str | None:
             return deps.run.skill_id
         case _:
             return None
+
+
+def _default_model_factory(model: str) -> object | str:
+    return model

@@ -20,6 +20,11 @@ class AgentRunSource(StrEnum):
     DELEGATED_TASK = "delegated_task"
 
 
+class AgentRunHarnessOptions(AithruBaseModel):
+    model: str | None = None
+    instructions: str | None = None
+
+
 class AgentRun(AithruBaseModel):
     id: str
     org_id: str
@@ -30,6 +35,7 @@ class AgentRun(AithruBaseModel):
     workspace_id: str
     goal: str
     scopes: list[str] = []
+    harness_options: AgentRunHarnessOptions | None = None
     status: AgentRunStatus
     started_at: str
     completed_at: str | None = None

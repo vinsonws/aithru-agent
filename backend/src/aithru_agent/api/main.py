@@ -14,6 +14,7 @@ from aithru_agent.domain import (
     AgentMemoryEntry,
     AgentMessageRole,
     AgentRun,
+    AgentRunHarnessOptions,
     AgentRunStatus,
     AgentThread,
     AgentWorkspace,
@@ -40,6 +41,7 @@ class CreateRunRequest(BaseModel):
     org_id: str = "org_1"
     actor_user_id: str = "user_1"
     scopes: list[str] | None = None
+    harness_options: AgentRunHarnessOptions | None = None
     thread_id: str | None = None
     skill_id: str | None = None
     wait_for_completion: bool = False
@@ -223,6 +225,7 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
             "actor_user_id": actor_user_id,
             "goal": body.goal,
             "scopes": scopes,
+            "harness_options": body.harness_options,
             "thread_id": body.thread_id,
             "skill_id": body.skill_id,
         }

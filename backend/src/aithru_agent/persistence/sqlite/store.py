@@ -14,6 +14,7 @@ from aithru_agent.domain import (
     AgentMemoryEntry,
     AgentMessage,
     AgentRun,
+    AgentRunHarnessOptions,
     AgentRunSource,
     AgentRunStatus,
     AgentSubagentRun,
@@ -198,6 +199,7 @@ class SQLiteAgentStore:
         goal: str,
         workspace_id: str,
         scopes: list[str] | None = None,
+        harness_options: AgentRunHarnessOptions | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:
@@ -211,6 +213,7 @@ class SQLiteAgentStore:
             workspace_id=workspace_id,
             goal=goal,
             scopes=scopes or [],
+            harness_options=harness_options,
             status=AgentRunStatus.QUEUED,
             started_at=utc_now(),
         )

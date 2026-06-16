@@ -14,6 +14,7 @@ from aithru_agent.domain import (
     AgentMessage,
     AgentMessageRole,
     AgentRun,
+    AgentRunHarnessOptions,
     AgentRunSource,
     AgentSubagentRun,
     AgentSubagentSpec,
@@ -90,6 +91,7 @@ class AgentStore(Protocol):
         goal: str,
         workspace_id: str,
         scopes: list[str] | None = None,
+        harness_options: AgentRunHarnessOptions | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:

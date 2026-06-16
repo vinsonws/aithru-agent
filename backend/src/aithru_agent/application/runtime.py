@@ -83,15 +83,20 @@ def create_agent_runtime(
 
 def _create_driver(settings: AgentSettings) -> AgentHarnessDriver:
     if settings.driver == "pydantic_ai":
-        model: object | str | None
-        if settings.model == "test":
-            from pydantic_ai.models.test import TestModel
-
-            model = TestModel(call_tools=[], custom_output_text=settings.test_model_output)
-        else:
-            model = settings.model
-        return PydanticAIHarnessDriver(model=model, instructions=settings.instructions)
+        return PydanticAIHarnessDriver(
+            model=_model_from_settings(settings, settings.model),
+            model_factory=lambda model: _model_from_settings(settings, model),
+            instructions=settings.instructions,
+        )
     return ScriptedHarnessDriver([])
+
+
+def _model_from_settings(settings: AgentSettings, model: str | None) -> object | str | None:
+    if model == "test":
+        from pydantic_ai.models.test import TestModel
+
+        return TestModel(call_tools=[], custom_output_text=settings.test_model_output)
+    return model
 
 
 def _create_store(settings: AgentSettings) -> AgentStore:

@@ -7,6 +7,8 @@ from aithru_agent.domain import (
     AgentMemoryEntry,
     AgentMemoryPolicy,
     AgentMessage,
+    AgentRun,
+    AgentRunHarnessOptions,
     AgentRunStatus,
     AgentSkill,
     AgentToolCallRequest,
@@ -91,6 +93,7 @@ class RecordingInstructionsPydanticDriver(PydanticAIHarnessDriver):
         self,
         skill: AgentSkill | None = None,
         *,
+        run: AgentRun | None = None,
         memory_entries: list[AgentMemoryEntry] | None = None,
         thread_messages: list[AgentMessage] | None = None,
         workspace_files: list[AgentWorkspaceFile] | None = None,
@@ -100,6 +103,7 @@ class RecordingInstructionsPydanticDriver(PydanticAIHarnessDriver):
         self.seen_workspace_files = workspace_files
         return super().instructions_for_run(
             skill,
+            run=run,
             memory_entries=memory_entries,
             thread_messages=thread_messages,
             workspace_files=workspace_files,
@@ -114,6 +118,31 @@ async def test_pydantic_ai_driver_streams_text_steps_from_test_model() -> None:
 
     assert [step.type for step in steps] == ["message", "message", "finish"]
     assert "".join(step.text or "" for step in steps) == "done"
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_driver_uses_run_model_override() -> None:
+    def model_factory(model: str):
+        return TestModel(call_tools=[], custom_output_text=f"selected {model}")
+
+    runtime = create_agent_runtime(
+        driver=PydanticAIHarnessDriver(
+            model=TestModel(custom_output_text="default model"),
+            model_factory=model_factory,
+        )
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Use the run model.",
+        scopes=["*"],
+        harness_options=AgentRunHarnessOptions(model="test-run-model"),
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+    completed_message = next(event for event in events if event.type == "message.completed")
+
+    assert completed_message.payload["content"] == "selected test-run-model"
 
 
 @pytest.mark.asyncio

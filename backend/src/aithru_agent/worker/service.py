@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from aithru_agent.domain import AgentRun
+from aithru_agent.domain import AgentRun, AgentRunHarnessOptions
 
 from .queue import InProcessRunQueue
 from .runner import AgentWorkerRunner
@@ -18,6 +18,7 @@ class AgentWorkerService:
         actor_user_id: str,
         goal: str,
         scopes: list[str],
+        harness_options: AgentRunHarnessOptions | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:
@@ -26,6 +27,7 @@ class AgentWorkerService:
             actor_user_id=actor_user_id,
             goal=goal,
             scopes=scopes,
+            harness_options=harness_options,
             thread_id=thread_id,
             skill_id=skill_id,
         )

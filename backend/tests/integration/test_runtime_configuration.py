@@ -30,6 +30,28 @@ async def test_runtime_uses_configured_pydantic_ai_driver_without_injected_drive
 
 
 @pytest.mark.asyncio
+async def test_runtime_resolves_run_model_override_from_settings() -> None:
+    runtime = create_agent_runtime(
+        settings=AgentSettings(
+            driver="pydantic_ai",
+            test_model_output="run model",
+        )
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Return run model output",
+        scopes=["*"],
+        harness_options={"model": "test"},
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+    completed_message = next(event for event in events if event.type == "message.completed")
+
+    assert completed_message.payload["content"] == "run model"
+
+
+@pytest.mark.asyncio
 async def test_runtime_uses_configured_sqlite_persistence(tmp_path) -> None:
     settings = AgentSettings(
         persistence_backend="sqlite",
