@@ -155,11 +155,18 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
         if event.type in {"subagent.completed", "subagent.failed"}:
             subagent_run_id = _payload_value(event, "subagent_run_id", "subagentRunId")
             if subagent_run_id:
+                status = (
+                    "cancelled"
+                    if _payload_value(event, "status") == "cancelled"
+                    else "completed"
+                    if event.type == "subagent.completed"
+                    else "failed"
+                )
                 _finish_span(
                     spans,
                     f"subagent:{subagent_run_id}",
                     event,
-                    "completed" if event.type == "subagent.completed" else "failed",
+                    status,
                 )
             continue
 

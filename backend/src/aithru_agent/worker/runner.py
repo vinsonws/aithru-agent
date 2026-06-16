@@ -618,7 +618,36 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload={"status": "cancelled"},
         )
+        await self._emit_parent_subagent_cancelled(cancelled)
         return cancelled
+
+    async def _emit_parent_subagent_cancelled(self, run: AgentRun) -> None:
+        if run.source != AgentRunSource.DELEGATED_TASK:
+            return
+        subagent_runs = await self._store.list_subagent_runs(child_run_id=run.id)
+        for subagent_run in subagent_runs:
+            cancelled = await self._store.update_subagent_run(
+                subagent_run.id,
+                status=AgentSubagentRunStatus.CANCELLED,
+                error={"message": "Subagent child run cancelled"},
+                completed_at=_event_completed_at_marker(),
+            )
+            parent = await self._store.get_run(cancelled.parent_run_id)
+            await self._event_writer.write(
+                run_id=cancelled.parent_run_id,
+                thread_id=parent.thread_id if parent else None,
+                type="subagent.failed",
+                source={"kind": "subagent", "id": cancelled.id, "name": cancelled.name},
+                payload={
+                    "subagent_run_id": cancelled.id,
+                    "child_run_id": cancelled.child_run_id,
+                    "name": cancelled.name,
+                    "task": cancelled.task,
+                    "spec_key": cancelled.spec_key,
+                    "status": cancelled.status.value,
+                    "error": cancelled.error,
+                },
+            )
 
     async def _execute_tool_step(
         self,

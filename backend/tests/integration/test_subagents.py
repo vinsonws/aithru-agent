@@ -6,6 +6,7 @@ from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentRunStatus, AgentSubagentRunStatus
 from aithru_agent.harness import HarnessRunDeps, HarnessStep
 from aithru_agent.harness.drivers.scripted.driver import ScriptedStep
+from aithru_agent.trace import project_trace_spans
 
 
 class SequencedDriver:
@@ -67,6 +68,47 @@ async def test_subagent_delegate_creates_child_run_and_parent_events() -> None:
     assert completed_child.id == child.id
     assert completed_subagent_runs[0].status == AgentSubagentRunStatus.COMPLETED
     assert "subagent.completed" in [event.type for event in updated_parent_events]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_child_run_updates_parent_subagent_state() -> None:
+    driver = SequencedDriver(
+        [
+            [
+                ScriptedStep.tool(
+                    "subagent.delegate",
+                    {
+                        "name": "researcher",
+                        "task": "Summarize the workspace.",
+                    },
+                ),
+                ScriptedStep.finish(),
+            ],
+            [ScriptedStep.message("This child should not run."), ScriptedStep.finish()],
+        ]
+    )
+    runtime = create_agent_runtime(driver=driver)
+
+    parent = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Delegate research",
+        scopes=["*"],
+    )
+    subagent_run = (await runtime.store.list_subagent_runs(parent_run_id=parent.id))[0]
+
+    child_cancelled = await runtime.runner.cancel_run(subagent_run.child_run_id)
+    updated_subagent_run = (await runtime.store.list_subagent_runs(parent_run_id=parent.id))[0]
+    parent_events = await runtime.event_store.list_by_run(parent.id)
+    parent_event_types = [event.type for event in parent_events]
+    parent_trace = project_trace_spans(parent_events)
+    subagent_span = next(span for span in parent_trace if span.kind == "subagent")
+
+    assert child_cancelled.status == AgentRunStatus.CANCELLED
+    assert updated_subagent_run.status == AgentSubagentRunStatus.CANCELLED
+    assert "subagent.failed" in parent_event_types
+    assert parent_events[-1].payload["status"] == "cancelled"
+    assert subagent_span.status == "cancelled"
 
 
 @pytest.mark.asyncio

@@ -45,6 +45,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Workspace tools enforce skill path policy at execution time.
 - Skill approval policy contributes execution-time approval requirements.
 - Runtime subagent delegation with parent/child run links, events, and trace spans.
+- Delegated child completion, failure, and cancellation are projected back to the parent run.
 - Restricted local Python sandbox execution with stdout/stderr events and trace spans.
 - Pydantic AI prompt context with skill instructions, thread summaries, readable memory, and workspace file summaries.
 - Pydantic AI harness driver with controlled tool bridge.
