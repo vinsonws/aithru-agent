@@ -990,6 +990,40 @@ async def test_agent_api_rejects_run_with_unknown_skill() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_rejects_run_with_skill_from_another_org() -> None:
+    skill = AgentSkill(
+        id="skill_external",
+        org_id="org_2",
+        key="external-skill",
+        name="External Skill",
+        instructions="Belongs to another organization.",
+        allowed_tools=[],
+        allowed_subagents=[],
+        version="0.1.0",
+        status="published",
+    )
+    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([skill]))
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/agent/runs",
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "goal": "Use external skill",
+                "skill_id": "external-skill",
+                "scopes": ["*"],
+            },
+        )
+        runs = (await client.get("/api/agent/runs")).json()
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Skill not found: external-skill"
+    assert runs == []
+
+
+@pytest.mark.asyncio
 async def test_agent_api_rejects_run_with_unknown_thread() -> None:
     runtime = create_agent_runtime()
     app = create_app(runtime)
