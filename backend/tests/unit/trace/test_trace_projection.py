@@ -143,3 +143,20 @@ def test_projects_todo_spans() -> None:
     assert by_id["todo:todo_1"].name == "Read files"
     assert by_id["todo:todo_1"].status == "completed"
     assert by_id["todo:todo_1"].refs == {"todo_id": "todo_1", "status": "done"}
+
+
+def test_projects_message_span() -> None:
+    spans = project_trace_spans(
+        [
+            ev(1, "message.created", {"message_id": "msg_1", "role": "assistant"}),
+            ev(2, "message.delta", {"message_id": "msg_1", "delta": "hello"}),
+            ev(3, "message.completed", {"message_id": "msg_1", "content": "hello"}),
+        ]
+    )
+
+    by_id = {span.id: span for span in spans}
+
+    assert by_id["message:msg_1"].kind == "message"
+    assert by_id["message:msg_1"].name == "assistant"
+    assert by_id["message:msg_1"].status == "completed"
+    assert by_id["message:msg_1"].refs == {"message_id": "msg_1", "role": "assistant"}

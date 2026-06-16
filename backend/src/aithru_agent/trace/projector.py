@@ -38,6 +38,27 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
             )
             continue
 
+        if event.type == "message.created":
+            message_id = _payload_value(event, "message_id", "messageId") or f"{event.sequence}"
+            role = _payload_value(event, "role") or "message"
+            spans[f"message:{message_id}"] = _start_span(
+                event,
+                "message",
+                str(role),
+                refs={"message_id": message_id, "role": role},
+            )
+            continue
+        if event.type in {"message.completed", "message.failed"}:
+            message_id = _payload_value(event, "message_id", "messageId")
+            if message_id:
+                _finish_span(
+                    spans,
+                    f"message:{message_id}",
+                    event,
+                    "completed" if event.type == "message.completed" else "failed",
+                )
+            continue
+
         if event.type == "tool.started":
             tool_call_id = _payload_value(event, "tool_call_id", "toolCallId") or f"{event.sequence}"
             tool_name = _payload_value(event, "tool_name", "toolName") or "tool"

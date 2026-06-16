@@ -56,7 +56,7 @@ Instant spans (workspace, artifact) are created and immediately closed — they 
 | Kind | Description | Duration |
 | --- | --- | --- |
 | `run` | Full agent run lifecycle | Real (created → terminal) |
-| `message` | Single message in a thread | Not yet projected |
+| `message` | Single message in a thread | Real (created → completed/failed) |
 | `todo` | Runtime todo state | Real (created → terminal status) |
 | `model` | LLM call (with potential tool calls) | Real (started → completed/failed) |
 | `tool` | Single tool execution | Real (proposed → completed/failed/denied) |
