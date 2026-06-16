@@ -4,6 +4,7 @@ from pydantic_ai import Agent, RunContext, Tool
 from pydantic_ai.messages import PartDeltaEvent, TextPartDelta
 from pydantic_ai.run import AgentRunResultEvent
 
+from aithru_agent.domain import AgentSkill
 from aithru_agent.harness.drivers.pydantic_ai.tool_bridge import PydanticAIToolBridge
 from aithru_agent.harness.engine import HarnessRunDeps, HarnessStep
 
@@ -22,7 +23,7 @@ class PydanticAIHarnessDriver:
         tools = await self._build_tools(deps) if deps else []
         agent = Agent(
             self._model,
-            instructions=self._instructions,
+            instructions=self.instructions_for_run(deps.skill if deps else None),
             output_type=str,
             tools=tools,
         )
@@ -37,6 +38,11 @@ class PydanticAIHarnessDriver:
         if not steps or steps[-1].type != "finish":
             steps.append(HarnessStep(type="finish"))
         return steps
+
+    def instructions_for_run(self, skill: AgentSkill | None = None) -> str:
+        if not skill:
+            return self._instructions
+        return f"{self._instructions}\n\nSkill instructions:\n{skill.instructions}"
 
     async def _build_tools(self, deps: HarnessRunDeps | None) -> list[Tool]:
         if deps is None:

@@ -2,10 +2,21 @@ import pytest
 
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentSkill
+from aithru_agent.harness.engine import HarnessRunDeps, HarnessStep
 from aithru_agent.harness.drivers.pydantic_ai import PydanticAIHarnessDriver
 from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver, ScriptedStep
 from aithru_agent.skills.resolver import InMemorySkillResolver
 from pydantic_ai.models.test import TestModel
+
+
+class RecordingDriver:
+    def __init__(self) -> None:
+        self.seen_skill_instructions: str | None = None
+
+    async def run(self, goal: str | None = None, deps: HarnessRunDeps | None = None) -> list[HarnessStep]:
+        del goal
+        self.seen_skill_instructions = deps.skill.instructions if deps and deps.skill else None
+        return [HarnessStep(type="finish")]
 
 
 def file_report_skill(allowed_tools: list[str]) -> AgentSkill:
@@ -71,3 +82,22 @@ async def test_pydantic_driver_exposes_only_skill_allowed_tools() -> None:
         for event in events
         if isinstance(event.payload, dict)
     )
+
+
+@pytest.mark.asyncio
+async def test_worker_passes_resolved_skill_to_harness_driver() -> None:
+    driver = RecordingDriver()
+    runtime = create_agent_runtime(
+        driver=driver,
+        skill_resolver=InMemorySkillResolver([file_report_skill(["workspace.list_files"])]),
+    )
+
+    await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Use skill",
+        scopes=["*"],
+        skill_id="file-report",
+    )
+
+    assert driver.seen_skill_instructions == "Only use the allowed file report tools."
