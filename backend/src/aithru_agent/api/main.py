@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from aithru_agent.application import AgentRuntime, create_agent_runtime
 from aithru_agent.domain import AgentApprovalDecision, AgentMessageRole
 from aithru_agent.domain.errors import AgentError
+from aithru_agent.harness import ContextBuilder
 from aithru_agent.stream import format_sse_event
 from aithru_agent.trace import project_trace_spans
 
@@ -44,6 +45,7 @@ class WriteWorkspaceFileRequest(BaseModel):
 def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
     rt = runtime or create_agent_runtime()
     app = FastAPI(title="Aithru Agent Backend")
+    context_builder = ContextBuilder()
 
     @app.get("/api/agent/health")
     async def health() -> dict[str, object]:
@@ -122,6 +124,16 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Run not found")
         events = await rt.event_store.list_by_run(run_id)
         return [span.model_dump(mode="json") for span in project_trace_spans(events)]
+
+    @app.get("/api/agent/runs/{run_id}/tools")
+    async def get_run_tools(run_id: str) -> list[dict[str, Any]]:
+        run = await rt.store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        skill = rt.skill_resolver.resolve(run.skill_id) if run.skill_id else None
+        context = context_builder.build(run, run.scopes, skill)
+        tools = await rt.capability_router.list_tools(context)
+        return [tool.model_dump(mode="json") for tool in tools]
 
     @app.get("/api/agent/runs/{run_id}/stream")
     async def stream_run(run_id: str, after_sequence: int = 0) -> Response:

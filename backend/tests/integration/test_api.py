@@ -151,3 +151,40 @@ async def test_agent_api_lists_and_gets_published_skills() -> None:
     assert by_key["id"] == "skill_1"
     assert by_id["key"] == "file-report"
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
+    skill = AgentSkill(
+        id="skill_1",
+        org_id="org_1",
+        key="file-report",
+        name="File Report",
+        instructions="Only list files.",
+        allowed_tools=["workspace.list_files"],
+        allowed_subagents=[],
+        version="0.1.0",
+        status="published",
+    )
+    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([skill]))
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={
+                    "org_id": "org_1",
+                    "actor_user_id": "user_1",
+                    "goal": "List files",
+                    "scopes": ["*"],
+                    "skill_id": "file-report",
+                },
+            )
+        ).json()
+        tools_response = await client.get(f"/api/agent/runs/{run['id']}/tools")
+        tools = tools_response.json()
+
+    assert tools_response.status_code == 200
+    assert [tool["name"] for tool in tools] == ["workspace.list_files"]
+    assert tools[0]["kind"] == "local_tool"
