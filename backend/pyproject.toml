@@ -16,6 +16,9 @@ dependencies = [
   "uvicorn>=0.35.0",
 ]
 
+[project.scripts]
+aithru-agent-worker = "aithru_agent.worker.cli:main"
+
 [dependency-groups]
 dev = [
   "pytest>=8.4.0",
