@@ -47,18 +47,18 @@ def create_agent_runtime(
     resolved_store = store or _create_store(resolved_settings)
     resolved_event_store = event_store or _create_event_store(resolved_settings)
     event_writer = AgentEventWriter(resolved_event_store)
+    resolved_skill_resolver = skill_resolver or EmptySkillResolver()
     capability_router = AithruCapabilityRouter(
         adapters=[
             WorkspaceLocalTool(resolved_store),
             TodoLocalTool(resolved_store),
             ArtifactLocalTool(resolved_store),
             MemoryLocalTool(resolved_store),
-            SubagentLocalTool(resolved_store, event_writer),
+            SubagentLocalTool(resolved_store, event_writer, resolved_skill_resolver),
             SandboxLocalTool(event_writer),
         ],
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )
-    resolved_skill_resolver = skill_resolver or EmptySkillResolver()
     runner = AgentWorkerRunner(
         store=resolved_store,
         event_writer=event_writer,

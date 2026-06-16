@@ -3,9 +3,10 @@ from httpx import ASGITransport, AsyncClient
 
 from aithru_agent.api.main import create_app
 from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.domain import AgentRunStatus, AgentSubagentRunStatus
+from aithru_agent.domain import AgentRunStatus, AgentSkill, AgentSubagentRunStatus
 from aithru_agent.harness import HarnessRunDeps, HarnessStep
 from aithru_agent.harness.drivers.scripted.driver import ScriptedStep
+from aithru_agent.skills import InMemorySkillResolver
 from aithru_agent.trace import project_trace_spans
 
 
@@ -19,6 +20,20 @@ class SequencedDriver:
         index = min(self._index, len(self._runs) - 1)
         self._index += 1
         return [step.step for step in self._runs[index]]
+
+
+def subagent_skill() -> AgentSkill:
+    return AgentSkill(
+        id="skill_child",
+        org_id="org_1",
+        key="child-researcher",
+        name="Child Researcher",
+        instructions="Handle delegated research tasks.",
+        allowed_tools=[],
+        allowed_subagents=[],
+        version="0.1.0",
+        status="published",
+    )
 
 
 @pytest.mark.asyncio
@@ -166,3 +181,75 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
     assert delegations.status_code == 200
     assert delegations.json()[0]["parent_run_id"] == parent["id"]
     assert delegations.json()[0]["spec_key"] == "researcher"
+
+
+@pytest.mark.asyncio
+async def test_subagent_delegate_rejects_unknown_child_skill() -> None:
+    driver = SequencedDriver(
+        [
+            [
+                ScriptedStep.tool(
+                    "subagent.delegate",
+                    {
+                        "name": "researcher",
+                        "task": "Summarize the workspace.",
+                        "skill_id": "missing-skill",
+                    },
+                ),
+                ScriptedStep.finish(),
+            ]
+        ]
+    )
+    runtime = create_agent_runtime(driver=driver)
+
+    parent = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Delegate research",
+        scopes=["*"],
+    )
+    subagent_runs = await runtime.store.list_subagent_runs(parent_run_id=parent.id)
+    events = await runtime.event_store.list_by_run(parent.id)
+    tool_failed = next(event for event in events if event.type == "tool.failed")
+
+    assert parent.status == AgentRunStatus.FAILED
+    assert subagent_runs == []
+    assert "Skill not found" in tool_failed.payload["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_subagent_delegate_cannot_expand_child_scopes() -> None:
+    driver = SequencedDriver(
+        [
+            [
+                ScriptedStep.tool(
+                    "subagent.delegate",
+                    {
+                        "name": "researcher",
+                        "task": "Summarize the workspace.",
+                        "skill_id": "child-researcher",
+                        "scopes": ["*"],
+                    },
+                ),
+                ScriptedStep.finish(),
+            ]
+        ]
+    )
+    runtime = create_agent_runtime(
+        driver=driver,
+        skill_resolver=InMemorySkillResolver([subagent_skill()]),
+    )
+
+    parent = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Delegate research",
+        scopes=["agent.subagent.write"],
+    )
+    subagent_runs = await runtime.store.list_subagent_runs(parent_run_id=parent.id)
+    events = await runtime.event_store.list_by_run(parent.id)
+    tool_failed = next(event for event in events if event.type == "tool.failed")
+
+    assert parent.status == AgentRunStatus.FAILED
+    assert subagent_runs == []
+    assert "Child scopes must be a subset of parent scopes" in tool_failed.payload["error"]["message"]

@@ -510,7 +510,9 @@ Current runtime subagent support is harness state: `subagent.delegate` creates a
 controlled child `AgentRun` with `source = "delegated_task"`, links it to the
 parent run through `AgentSubagentRun`, and projects `subagent.started`,
 `subagent.completed`, and `subagent.failed` events into the parent stream and
-trace. This is not a WorkflowSpec, graph branch, or Workbench node.
+trace. Delegation validates requested child skills through the skill resolver
+and child run scopes must not exceed parent run scopes. This is not a
+WorkflowSpec, graph branch, or Workbench node.
 
 Current sandbox support is a restricted local `sandbox.run_python` tool. It
 does not expose shell access, imports, file APIs, or network APIs to model code;

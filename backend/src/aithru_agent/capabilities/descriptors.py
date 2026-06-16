@@ -12,6 +12,7 @@ class AgentRunContext(BaseModel):
     skill_id: str | None = None
     scopes: list[str] = []
     allowed_tools: list[str] | None = None
+    allowed_subagents: list[str] | None = None
     workspace_allowed_paths: list[str] | None = None
     require_approval_for_risk: list[str] = []
 
