@@ -40,6 +40,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Queued Agent runs with worker execution.
 - In-memory and SQLite persistence backends.
 - Agent stream events, SSE formatting, and trace projection.
+- Run snapshot inspection with events, trace, todos, approvals, workspace file summaries, artifacts, and subagent runs.
 - Local workspace, todo, artifact, memory, subagent, and sandbox tools behind the capability router.
 - Memory tools emit read/write events and trace spans.
 - Workspace tools enforce skill path policy at execution time.

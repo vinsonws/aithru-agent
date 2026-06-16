@@ -88,6 +88,43 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
 
 
 @pytest.mark.asyncio
+async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
+    runtime = create_agent_runtime(driver=file_report_driver())
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+            )
+        ).json()
+        await runtime.worker.drain()
+        response = await client.get(f"/api/agent/runs/{run['id']}/snapshot")
+
+    snapshot = response.json()
+
+    assert response.status_code == 200
+    assert snapshot["run"]["id"] == run["id"]
+    assert snapshot["run"]["status"] == "completed"
+    assert [event["type"] for event in snapshot["events"]][-1] == "run.completed"
+    assert {span["kind"] for span in snapshot["trace"]} >= {
+        "run",
+        "message",
+        "model",
+        "tool",
+        "todo",
+        "workspace",
+        "artifact",
+    }
+    assert snapshot["todos"][0]["title"] == "Write report"
+    assert snapshot["artifacts"][0]["type"] == "report"
+    assert snapshot["workspace_files"][0]["path"] == "/reports/report.md"
+    assert snapshot["approvals"] == []
+    assert snapshot["subagents"] == []
+
+
+@pytest.mark.asyncio
 async def test_agent_api_resolves_approval_and_resumes_run() -> None:
     runtime = create_agent_runtime(
         driver=file_report_driver(),

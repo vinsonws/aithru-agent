@@ -147,6 +147,40 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         events = await rt.event_store.list_by_run(run_id)
         return [span.model_dump(mode="json") for span in project_trace_spans(events)]
 
+    @app.get("/api/agent/runs/{run_id}/snapshot")
+    async def get_run_snapshot(run_id: str) -> dict[str, Any]:
+        run = await rt.store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        events = await rt.event_store.list_by_run(run_id)
+        approvals = [
+            approval
+            for approval in await rt.store.list_approvals()
+            if approval.run_id == run_id
+        ]
+        return {
+            "run": run.model_dump(mode="json"),
+            "events": [event.model_dump(mode="json") for event in events],
+            "trace": [span.model_dump(mode="json") for span in project_trace_spans(events)],
+            "todos": [
+                todo.model_dump(mode="json")
+                for todo in await rt.store.list_todos(run_id)
+            ],
+            "approvals": [approval.model_dump(mode="json") for approval in approvals],
+            "workspace_files": [
+                file.model_dump(mode="json")
+                for file in await rt.store.list_workspace_files(run.workspace_id)
+            ],
+            "artifacts": [
+                artifact.model_dump(mode="json")
+                for artifact in await rt.store.list_artifacts(run_id=run_id)
+            ],
+            "subagents": [
+                subagent_run.model_dump(mode="json")
+                for subagent_run in await rt.store.list_subagent_runs(parent_run_id=run_id)
+            ],
+        }
+
     @app.get("/api/agent/runs/{run_id}/tools")
     async def get_run_tools(run_id: str) -> list[dict[str, Any]]:
         run = await rt.store.get_run(run_id)
