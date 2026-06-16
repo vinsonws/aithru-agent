@@ -43,7 +43,7 @@ class AppendRunInputRequest(BaseModel):
 
 
 class WriteWorkspaceFileRequest(BaseModel):
-    content: Any
+    content: str
     media_type: str | None = None
 
 

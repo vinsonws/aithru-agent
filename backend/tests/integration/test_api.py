@@ -433,6 +433,26 @@ async def test_agent_api_rejects_run_event_reads_for_unknown_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_validates_workspace_file_content_as_text() -> None:
+    runtime = create_agent_runtime()
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Prepare workspace"},
+            )
+        ).json()
+        response = await client.put(
+            f"/api/agent/workspaces/{run['workspace_id']}/files/data.json",
+            json={"content": {"nested": True}, "media_type": "application/json"},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
     skill = AgentSkill(
         id="skill_1",
