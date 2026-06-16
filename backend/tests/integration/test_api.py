@@ -524,6 +524,120 @@ async def test_agent_api_rejects_workspace_access_outside_trusted_identity() -> 
 
 
 @pytest.mark.asyncio
+async def test_agent_api_binds_memory_to_trusted_identity_headers() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(api_token="secret-token"))
+    app = create_app(runtime)
+    user_a_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_1",
+        "X-Aithru-User-Id": "user_a",
+    }
+    user_b_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_1",
+        "X-Aithru-User-Id": "user_b",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        user_a_memory = (
+            await client.post(
+                "/api/agent/memory",
+                headers=user_a_headers,
+                json={"scope": "user", "key": "preference.language", "value": "Chinese"},
+            )
+        ).json()
+        await client.post(
+            "/api/agent/memory",
+            headers=user_b_headers,
+            json={"scope": "user", "key": "preference.language", "value": "English"},
+        )
+        conflicting_org = await client.post(
+            "/api/agent/memory",
+            headers=user_a_headers,
+            json={"org_id": "org_2", "scope": "user", "key": "bad", "value": "bad"},
+        )
+        conflicting_user_scope = await client.get(
+            "/api/agent/memory",
+            headers=user_a_headers,
+            params={"scope": "user", "scope_id": "user_b"},
+        )
+        user_a_entries = (
+            await client.get(
+                "/api/agent/memory",
+                headers=user_a_headers,
+                params={"scope": "user"},
+            )
+        ).json()
+
+    assert user_a_memory["org_id"] == "org_1"
+    assert user_a_memory["scope_id"] == "user_a"
+    assert conflicting_org.status_code == 403
+    assert conflicting_org.json()["detail"] == "Request identity conflicts with authenticated context"
+    assert conflicting_user_scope.status_code == 403
+    assert conflicting_user_scope.json()["detail"] == "Request identity conflicts with authenticated context"
+    assert [entry["id"] for entry in user_a_entries] == [user_a_memory["id"]]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_binds_subagent_specs_to_trusted_org_header() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(api_token="secret-token"))
+    app = create_app(runtime)
+    org_a_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_a",
+        "X-Aithru-User-Id": "user_a",
+    }
+    org_b_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_b",
+        "X-Aithru-User-Id": "user_b",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        org_a_spec = (
+            await client.post(
+                "/api/agent/subagents",
+                headers=org_a_headers,
+                json={"key": "researcher", "name": "Researcher", "instructions": "Research carefully."},
+            )
+        ).json()
+        await client.post(
+            "/api/agent/subagents",
+            headers=org_b_headers,
+            json={"key": "writer", "name": "Writer", "instructions": "Write clearly."},
+        )
+        conflicting_create = await client.post(
+            "/api/agent/subagents",
+            headers=org_a_headers,
+            json={
+                "org_id": "org_b",
+                "key": "bad",
+                "name": "Bad",
+                "instructions": "Wrong org.",
+            },
+        )
+        conflicting_list = await client.get(
+            "/api/agent/subagents",
+            headers=org_a_headers,
+            params={"org_id": "org_b"},
+        )
+        org_a_specs = (await client.get("/api/agent/subagents", headers=org_a_headers)).json()
+        hidden_spec = await client.get("/api/agent/subagents/writer", headers=org_a_headers)
+        visible_spec = await client.get("/api/agent/subagents/researcher", headers=org_a_headers)
+
+    assert org_a_spec["org_id"] == "org_a"
+    assert conflicting_create.status_code == 403
+    assert conflicting_create.json()["detail"] == "Request identity conflicts with authenticated context"
+    assert conflicting_list.status_code == 403
+    assert conflicting_list.json()["detail"] == "Request identity conflicts with authenticated context"
+    assert [spec["key"] for spec in org_a_specs] == ["researcher"]
+    assert hidden_spec.status_code == 404
+    assert hidden_spec.json()["detail"] == "Subagent spec not found"
+    assert visible_spec.status_code == 200
+    assert visible_spec.json()["id"] == org_a_spec["id"]
+
+
+@pytest.mark.asyncio
 async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
     runtime = create_agent_runtime(driver=file_report_driver())
     app = create_app(runtime)

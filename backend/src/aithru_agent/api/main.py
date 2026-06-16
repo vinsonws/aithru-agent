@@ -10,6 +10,7 @@ from aithru_agent.domain import (
     AgentApproval,
     AgentApprovalDecision,
     AgentArtifact,
+    AgentMemoryEntry,
     AgentMessageRole,
     AgentRun,
     AgentRunStatus,
@@ -395,9 +396,10 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return skill.model_dump(mode="json")
 
     @app.post("/api/agent/subagents", status_code=201)
-    async def create_subagent_spec(body: CreateSubagentSpecRequest) -> dict[str, Any]:
+    async def create_subagent_spec(request: Request, body: CreateSubagentSpecRequest) -> dict[str, Any]:
+        org_id = _identity_value(request, body, "org_id", body.org_id, "x-aithru-org-id")
         spec = await rt.store.create_subagent_spec(
-            org_id=body.org_id,
+            org_id=org_id,
             key=body.key,
             name=body.name,
             instructions=body.instructions,
@@ -406,13 +408,15 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return spec.model_dump(mode="json")
 
     @app.get("/api/agent/subagents")
-    async def list_subagent_specs(org_id: str = "org_1") -> list[dict[str, Any]]:
-        specs = await rt.store.list_subagent_specs(org_id)
+    async def list_subagent_specs(request: Request, org_id: str | None = None) -> list[dict[str, Any]]:
+        resolved_org_id = _identity_query_value(request, org_id, "org_1", "x-aithru-org-id")
+        specs = await rt.store.list_subagent_specs(resolved_org_id)
         return [spec.model_dump(mode="json") for spec in specs]
 
     @app.get("/api/agent/subagents/{key}")
-    async def get_subagent_spec(key: str, org_id: str = "org_1") -> dict[str, Any]:
-        spec = await rt.store.get_subagent_spec(org_id, key)
+    async def get_subagent_spec(request: Request, key: str, org_id: str | None = None) -> dict[str, Any]:
+        resolved_org_id = _identity_query_value(request, org_id, "org_1", "x-aithru-org-id")
+        spec = await rt.store.get_subagent_spec(resolved_org_id, key)
         if not spec:
             raise HTTPException(status_code=404, detail="Subagent spec not found")
         return spec.model_dump(mode="json")
@@ -489,11 +493,13 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return artifact.model_dump(mode="json")
 
     @app.post("/api/agent/memory", status_code=201)
-    async def create_memory_entry(body: CreateMemoryEntryRequest) -> dict[str, Any]:
+    async def create_memory_entry(request: Request, body: CreateMemoryEntryRequest) -> dict[str, Any]:
+        org_id = _identity_value(request, body, "org_id", body.org_id, "x-aithru-org-id")
+        scope_id = _memory_scope_id_for_request(request, body.scope, body.scope_id)
         entry = await rt.store.create_memory_entry(
-            org_id=body.org_id,
+            org_id=org_id,
             scope=body.scope,
-            scope_id=body.scope_id,
+            scope_id=scope_id,
             key=body.key,
             value=body.value,
             owner=body.owner,
@@ -506,17 +512,21 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.get("/api/agent/memory")
     async def list_memory_entries(
-        org_id: str = "org_1",
+        request: Request,
+        org_id: str | None = None,
         scope: str | None = None,
         scope_id: str | None = None,
         query: str | None = None,
     ) -> list[dict[str, Any]]:
+        resolved_org_id = _identity_query_value(request, org_id, "org_1", "x-aithru-org-id")
+        resolved_scope_id = _memory_scope_id_for_request(request, scope, scope_id)
         entries = await rt.store.list_memory_entries(
-            org_id=org_id,
+            org_id=resolved_org_id,
             scope=scope,
-            scope_id=scope_id,
+            scope_id=resolved_scope_id,
             query=query,
         )
+        entries = _filter_memory_entries_for_request(request, entries)
         return [entry.model_dump(mode="json") for entry in entries]
 
     return app
@@ -544,6 +554,45 @@ def _identity_value(
     if field_name in body.model_fields_set and body_value != header_value:
         raise HTTPException(status_code=403, detail="Request identity conflicts with authenticated context")
     return header_value
+
+
+def _identity_query_value(
+    request: Request,
+    query_value: str | None,
+    default_value: str,
+    header_name: str,
+) -> str:
+    header_value = request.headers.get(header_name)
+    if header_value is None:
+        return query_value or default_value
+    if query_value is not None and query_value != header_value:
+        raise HTTPException(status_code=403, detail="Request identity conflicts with authenticated context")
+    return header_value
+
+
+def _memory_scope_id_for_request(request: Request, scope: str | None, scope_id: str | None) -> str | None:
+    if scope != "user":
+        return scope_id
+    trusted_user_id = request.headers.get("x-aithru-user-id")
+    if trusted_user_id is None:
+        return scope_id
+    if scope_id is not None and scope_id != trusted_user_id:
+        raise HTTPException(status_code=403, detail="Request identity conflicts with authenticated context")
+    return trusted_user_id
+
+
+def _filter_memory_entries_for_request(
+    request: Request,
+    entries: list[AgentMemoryEntry],
+) -> list[AgentMemoryEntry]:
+    trusted_user_id = request.headers.get("x-aithru-user-id")
+    if trusted_user_id is None:
+        return entries
+    return [
+        entry
+        for entry in entries
+        if entry.scope != "user" or entry.scope_id == trusted_user_id
+    ]
 
 
 def _thread_visible(request: Request, thread: AgentThread) -> bool:
