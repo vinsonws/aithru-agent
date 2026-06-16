@@ -114,6 +114,7 @@ GET    /api/agent/runs
 GET    /api/agent/runs/{run_id}
 GET    /api/agent/runs/{run_id}/events
 GET    /api/agent/runs/{run_id}/trace
+GET    /api/agent/runs/{run_id}/tools
 GET    /api/agent/runs/{run_id}/stream
 POST   /api/agent/runs/{run_id}/cancel
 GET    /api/agent/approvals
