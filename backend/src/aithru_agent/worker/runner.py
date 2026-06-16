@@ -1,7 +1,14 @@
-from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter
 from dataclasses import dataclass
 
-from aithru_agent.domain import AgentApprovalDecision, AgentRun, AgentRunStatus, AgentToolCallRequest
+from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter
+from aithru_agent.domain import (
+    AgentApprovalDecision,
+    AgentRun,
+    AgentRunSource,
+    AgentRunStatus,
+    AgentSubagentRunStatus,
+    AgentToolCallRequest,
+)
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import (
     AgentHarnessDriver,
@@ -509,6 +516,7 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload={"status": "completed"},
         )
+        await self._emit_parent_subagent_completed(run, content)
         return run
 
     async def _fail_run(
@@ -539,7 +547,64 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload={"status": "failed", "error": error_payload},
         )
+        await self._emit_parent_subagent_failed(failed, error_payload)
         return failed
+
+    async def _emit_parent_subagent_completed(self, run: AgentRun, result: str) -> None:
+        if run.source != AgentRunSource.DELEGATED_TASK:
+            return
+        subagent_runs = await self._store.list_subagent_runs(child_run_id=run.id)
+        for subagent_run in subagent_runs:
+            completed = await self._store.update_subagent_run(
+                subagent_run.id,
+                status=AgentSubagentRunStatus.COMPLETED,
+                result=result,
+                completed_at=_event_completed_at_marker(),
+            )
+            parent = await self._store.get_run(completed.parent_run_id)
+            await self._event_writer.write(
+                run_id=completed.parent_run_id,
+                thread_id=parent.thread_id if parent else None,
+                type="subagent.completed",
+                source={"kind": "subagent", "id": completed.id, "name": completed.name},
+                payload={
+                    "subagent_run_id": completed.id,
+                    "child_run_id": completed.child_run_id,
+                    "name": completed.name,
+                    "task": completed.task,
+                    "spec_key": completed.spec_key,
+                    "status": completed.status.value,
+                    "result": result,
+                },
+            )
+
+    async def _emit_parent_subagent_failed(self, run: AgentRun, error: dict[str, str]) -> None:
+        if run.source != AgentRunSource.DELEGATED_TASK:
+            return
+        subagent_runs = await self._store.list_subagent_runs(child_run_id=run.id)
+        for subagent_run in subagent_runs:
+            failed = await self._store.update_subagent_run(
+                subagent_run.id,
+                status=AgentSubagentRunStatus.FAILED,
+                error=error,
+                completed_at=_event_completed_at_marker(),
+            )
+            parent = await self._store.get_run(failed.parent_run_id)
+            await self._event_writer.write(
+                run_id=failed.parent_run_id,
+                thread_id=parent.thread_id if parent else None,
+                type="subagent.failed",
+                source={"kind": "subagent", "id": failed.id, "name": failed.name},
+                payload={
+                    "subagent_run_id": failed.id,
+                    "child_run_id": failed.child_run_id,
+                    "name": failed.name,
+                    "task": failed.task,
+                    "spec_key": failed.spec_key,
+                    "status": failed.status.value,
+                    "error": error,
+                },
+            )
 
     async def cancel_run(self, run_id: str) -> AgentRun:
         run = await self._store.get_run(run_id)

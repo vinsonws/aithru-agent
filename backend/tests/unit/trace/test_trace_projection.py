@@ -56,3 +56,43 @@ def test_failed_run_marks_open_model_span_failed() -> None:
 
     assert by_id["run:run_1"].status == "failed"
     assert by_id["model:run_1"].status == "failed"
+
+
+def test_projects_subagent_span() -> None:
+    spans = project_trace_spans(
+        [
+            ev(1, "run.created", {"status": "queued"}),
+            ev(
+                2,
+                "subagent.started",
+                {
+                    "subagent_run_id": "subagent_run_1",
+                    "child_run_id": "run_2",
+                    "name": "researcher",
+                },
+                "subagent",
+            ),
+            ev(
+                3,
+                "subagent.completed",
+                {
+                    "subagent_run_id": "subagent_run_1",
+                    "child_run_id": "run_2",
+                    "name": "researcher",
+                    "result": "Done",
+                },
+                "subagent",
+            ),
+            ev(4, "run.completed", {"status": "completed"}),
+        ]
+    )
+
+    by_id = {span.id: span for span in spans}
+
+    assert by_id["subagent:subagent_run_1"].kind == "subagent"
+    assert by_id["subagent:subagent_run_1"].name == "researcher"
+    assert by_id["subagent:subagent_run_1"].status == "completed"
+    assert by_id["subagent:subagent_run_1"].refs == {
+        "subagent_run_id": "subagent_run_1",
+        "child_run_id": "run_2",
+    }

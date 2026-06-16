@@ -13,6 +13,7 @@ from .skill import (
     AgentSkillStatus,
     AgentWorkspacePolicy,
 )
+from .subagent import AgentSubagentRun, AgentSubagentRunStatus, AgentSubagentSpec
 from .thread import AgentThread, AgentThreadStatus
 from .todo import AgentTodo, AgentTodoCreatorType, AgentTodoStatus
 from .tool import (
@@ -47,6 +48,9 @@ __all__ = [
     "AgentSandboxPolicy",
     "AgentSkill",
     "AgentSkillStatus",
+    "AgentSubagentRun",
+    "AgentSubagentRunStatus",
+    "AgentSubagentSpec",
     "AgentThread",
     "AgentThreadStatus",
     "AgentTodo",

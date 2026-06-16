@@ -28,6 +28,7 @@ Agent owns intelligent harness behavior:
 - Workspaces;
 - Artifacts;
 - Memory entries;
+- Subagent delegation;
 - Agent-owned Approvals;
 - replayable Agent stream events;
 - Agent trace projection;
@@ -81,6 +82,7 @@ artifact.create
 artifact.finalize
 memory.search
 memory.remember
+subagent.delegate
 ```
 
 ## Run Locally
@@ -118,6 +120,7 @@ GET    /api/agent/runs/{run_id}
 GET    /api/agent/runs/{run_id}/events
 GET    /api/agent/runs/{run_id}/trace
 GET    /api/agent/runs/{run_id}/tools
+GET    /api/agent/runs/{run_id}/subagents
 GET    /api/agent/runs/{run_id}/stream
 POST   /api/agent/runs/{run_id}/cancel
 GET    /api/agent/approvals
@@ -130,6 +133,9 @@ GET    /api/agent/artifacts
 GET    /api/agent/artifacts/{artifact_id}
 POST   /api/agent/memory
 GET    /api/agent/memory
+POST   /api/agent/subagents
+GET    /api/agent/subagents
+GET    /api/agent/subagents/{key}
 ```
 
 ## Verification

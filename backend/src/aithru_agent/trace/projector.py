@@ -79,6 +79,32 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
                 )
             continue
 
+        if event.type == "subagent.started":
+            subagent_run_id = _payload_value(event, "subagent_run_id", "subagentRunId") or f"{event.sequence}"
+            child_run_id = _payload_value(event, "child_run_id", "childRunId")
+            name = _payload_value(event, "name") or "subagent"
+            refs = {"subagent_run_id": subagent_run_id}
+            if child_run_id:
+                refs["child_run_id"] = child_run_id
+            span_id = f"subagent:{subagent_run_id}"
+            spans[span_id] = _start_span(
+                event,
+                "subagent",
+                str(name),
+                refs=refs,
+            )
+            continue
+        if event.type in {"subagent.completed", "subagent.failed"}:
+            subagent_run_id = _payload_value(event, "subagent_run_id", "subagentRunId")
+            if subagent_run_id:
+                _finish_span(
+                    spans,
+                    f"subagent:{subagent_run_id}",
+                    event,
+                    "completed" if event.type == "subagent.completed" else "failed",
+                )
+            continue
+
         if event.type.startswith("workspace.file."):
             path = _payload_value(event, "path")
             span_id = f"workspace:{event.run_id}:{event.sequence}"

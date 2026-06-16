@@ -10,6 +10,7 @@ AgentTraceSpanKind = Literal[
     "model",
     "tool",
     "approval",
+    "subagent",
     "workspace",
     "artifact",
     "external_run",
@@ -29,4 +30,3 @@ class AgentTraceSpan(AithruBaseModel):
     end_sequence: int | None = None
     ended_at: str | None = None
     refs: dict | None = None
-

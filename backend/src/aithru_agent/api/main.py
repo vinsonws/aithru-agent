@@ -55,6 +55,14 @@ class CreateMemoryEntryRequest(BaseModel):
     retention: str | None = None
 
 
+class CreateSubagentSpecRequest(BaseModel):
+    org_id: str = "org_1"
+    key: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    instructions: str = Field(min_length=1)
+    allowed_tools: list[str] = Field(default_factory=list)
+
+
 def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
     rt = runtime or create_agent_runtime()
     app = FastAPI(title="Aithru Agent Backend")
@@ -148,6 +156,14 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         tools = await rt.capability_router.list_tools(context)
         return [tool.model_dump(mode="json") for tool in tools]
 
+    @app.get("/api/agent/runs/{run_id}/subagents")
+    async def list_run_subagents(run_id: str) -> list[dict[str, Any]]:
+        run = await rt.store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        subagent_runs = await rt.store.list_subagent_runs(parent_run_id=run_id)
+        return [subagent_run.model_dump(mode="json") for subagent_run in subagent_runs]
+
     @app.get("/api/agent/runs/{run_id}/stream")
     async def stream_run(run_id: str, after_sequence: int = 0) -> Response:
         events = await rt.event_store.list_after_sequence(run_id, after_sequence)
@@ -185,6 +201,29 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         if not skill:
             raise HTTPException(status_code=404, detail="Skill not found")
         return skill.model_dump(mode="json")
+
+    @app.post("/api/agent/subagents", status_code=201)
+    async def create_subagent_spec(body: CreateSubagentSpecRequest) -> dict[str, Any]:
+        spec = await rt.store.create_subagent_spec(
+            org_id=body.org_id,
+            key=body.key,
+            name=body.name,
+            instructions=body.instructions,
+            allowed_tools=body.allowed_tools,
+        )
+        return spec.model_dump(mode="json")
+
+    @app.get("/api/agent/subagents")
+    async def list_subagent_specs(org_id: str = "org_1") -> list[dict[str, Any]]:
+        specs = await rt.store.list_subagent_specs(org_id)
+        return [spec.model_dump(mode="json") for spec in specs]
+
+    @app.get("/api/agent/subagents/{key}")
+    async def get_subagent_spec(key: str, org_id: str = "org_1") -> dict[str, Any]:
+        spec = await rt.store.get_subagent_spec(org_id, key)
+        if not spec:
+            raise HTTPException(status_code=404, detail="Subagent spec not found")
+        return spec.model_dump(mode="json")
 
     @app.post("/api/agent/approvals/{approval_id}/resolve")
     async def resolve_approval(approval_id: str, body: ResolveApprovalRequest) -> dict[str, Any]:

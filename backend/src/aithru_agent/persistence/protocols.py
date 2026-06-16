@@ -15,6 +15,8 @@ from aithru_agent.domain import (
     AgentMessageRole,
     AgentRun,
     AgentRunSource,
+    AgentSubagentRun,
+    AgentSubagentSpec,
     AgentThread,
     AgentTodo,
     AgentTodoCreatorType,
@@ -228,6 +230,53 @@ class AgentStore(Protocol):
         scope_id: str | None = None,
         query: str | None = None,
     ) -> list[AgentMemoryEntry]:
+        ...
+
+    async def create_subagent_spec(
+        self,
+        *,
+        org_id: str,
+        key: str,
+        name: str,
+        instructions: str,
+        allowed_tools: list[str] | None = None,
+    ) -> AgentSubagentSpec:
+        ...
+
+    async def get_subagent_spec(self, org_id: str, key: str) -> AgentSubagentSpec | None:
+        ...
+
+    async def list_subagent_specs(self, org_id: str) -> list[AgentSubagentSpec]:
+        ...
+
+    async def create_subagent_run(
+        self,
+        *,
+        org_id: str,
+        parent_run_id: str,
+        child_run_id: str,
+        name: str,
+        task: str,
+        spec_key: str | None = None,
+    ) -> AgentSubagentRun:
+        ...
+
+    async def get_subagent_run(self, subagent_run_id: str) -> AgentSubagentRun | None:
+        ...
+
+    async def list_subagent_runs(
+        self,
+        *,
+        parent_run_id: str | None = None,
+        child_run_id: str | None = None,
+    ) -> list[AgentSubagentRun]:
+        ...
+
+    async def update_subagent_run(
+        self,
+        subagent_run_id: str,
+        **updates: object,
+    ) -> AgentSubagentRun:
         ...
 
 

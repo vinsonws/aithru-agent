@@ -368,7 +368,8 @@ interface AithruCapabilityRouter {
 
 Backend adapters:
 
-- `local_tool` adapters for Agent-owned tools (workspace, artifact);
+- `local_tool` adapters for Agent-owned tools (workspace, todo, artifact,
+  memory, subagent delegation);
 - `workflow_capability` adapters that consume Workflow product capability APIs.
 
 Workflow capabilities may be backed by Core nodes, but the backing details
@@ -490,6 +491,12 @@ Pydantic AI is the default harness driver. It powers model loop mechanics, tool
 calling mechanics, streaming, and structured output, but it does not define
 public Aithru product contracts. Pydantic AI tool calls must enter Aithru's
 capability router through the Aithru tool bridge.
+
+Current runtime subagent support is harness state: `subagent.delegate` creates a
+controlled child `AgentRun` with `source = "delegated_task"`, links it to the
+parent run through `AgentSubagentRun`, and projects `subagent.started`,
+`subagent.completed`, and `subagent.failed` events into the parent stream and
+trace. This is not a WorkflowSpec, graph branch, or Workbench node.
 
 ## Migration direction
 

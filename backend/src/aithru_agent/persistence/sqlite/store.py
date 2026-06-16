@@ -16,6 +16,9 @@ from aithru_agent.domain import (
     AgentRun,
     AgentRunSource,
     AgentRunStatus,
+    AgentSubagentRun,
+    AgentSubagentRunStatus,
+    AgentSubagentSpec,
     AgentThread,
     AgentThreadStatus,
     AgentTodo,
@@ -539,6 +542,95 @@ class SQLiteAgentStore:
                 if needle in entry.key.lower() or needle in entry.value.lower()
             ]
         return entries
+
+    async def create_subagent_spec(
+        self,
+        *,
+        org_id: str,
+        key: str,
+        name: str,
+        instructions: str,
+        allowed_tools: list[str] | None = None,
+    ) -> AgentSubagentSpec:
+        now = utc_now()
+        existing = await self.get_subagent_spec(org_id, key)
+        spec = AgentSubagentSpec(
+            id=existing.id if existing else self._next_id("subagent_spec"),
+            org_id=org_id,
+            key=key,
+            name=name,
+            instructions=instructions,
+            allowed_tools=allowed_tools or [],
+            created_at=existing.created_at if existing else now,
+            updated_at=now,
+        )
+        self._save_doc("subagent_spec", spec.id, spec)
+        return spec
+
+    async def get_subagent_spec(self, org_id: str, key: str) -> AgentSubagentSpec | None:
+        for spec in self._list_docs("subagent_spec", AgentSubagentSpec):
+            if spec.org_id == org_id and spec.key == key:
+                return spec
+        return None
+
+    async def list_subagent_specs(self, org_id: str) -> list[AgentSubagentSpec]:
+        return [
+            spec
+            for spec in self._list_docs("subagent_spec", AgentSubagentSpec)
+            if spec.org_id == org_id
+        ]
+
+    async def create_subagent_run(
+        self,
+        *,
+        org_id: str,
+        parent_run_id: str,
+        child_run_id: str,
+        name: str,
+        task: str,
+        spec_key: str | None = None,
+    ) -> AgentSubagentRun:
+        subagent_run = AgentSubagentRun(
+            id=self._next_id("subagent_run"),
+            org_id=org_id,
+            parent_run_id=parent_run_id,
+            child_run_id=child_run_id,
+            name=name,
+            task=task,
+            spec_key=spec_key,
+            status=AgentSubagentRunStatus.RUNNING,
+            created_at=utc_now(),
+        )
+        self._save_doc("subagent_run", subagent_run.id, subagent_run)
+        return subagent_run
+
+    async def get_subagent_run(self, subagent_run_id: str) -> AgentSubagentRun | None:
+        return self._get_doc("subagent_run", subagent_run_id, AgentSubagentRun)
+
+    async def list_subagent_runs(
+        self,
+        *,
+        parent_run_id: str | None = None,
+        child_run_id: str | None = None,
+    ) -> list[AgentSubagentRun]:
+        runs = self._list_docs("subagent_run", AgentSubagentRun)
+        if parent_run_id is not None:
+            runs = [run for run in runs if run.parent_run_id == parent_run_id]
+        if child_run_id is not None:
+            runs = [run for run in runs if run.child_run_id == child_run_id]
+        return runs
+
+    async def update_subagent_run(
+        self,
+        subagent_run_id: str,
+        **updates: object,
+    ) -> AgentSubagentRun:
+        subagent_run = await self.get_subagent_run(subagent_run_id)
+        if subagent_run is None:
+            raise AgentError("NOT_FOUND", f"Subagent run not found: {subagent_run_id}")
+        updated = subagent_run.model_copy(update=updates)
+        self._save_doc("subagent_run", subagent_run_id, updated)
+        return updated
 
     def _next_id(self, prefix: str) -> str:
         row = self._db.query_one(
