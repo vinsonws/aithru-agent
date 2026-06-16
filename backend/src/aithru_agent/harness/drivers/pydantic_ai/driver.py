@@ -134,26 +134,30 @@ class PydanticAIHarnessDriver:
             store=deps.store,
         )
 
-        def make_tool(tool_name: str, description: str) -> Tool:
+        def make_tool(tool_name: str, description: str, input_schema: dict[str, Any]) -> Tool:
             async def aithru_tool(
                 ctx: RunContext[None],
-                input: dict[str, Any] | None = None,
+                **tool_input: Any,
             ) -> object:
                 tool_call_id = ctx.tool_call_id or f"pydantic:{tool_name}:{ctx.run_step}"
                 return await bridge.call_tool(
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
-                    tool_input=input or {},
+                    tool_input=tool_input,
                 )
 
-            return Tool(
+            return Tool.from_schema(
                 aithru_tool,
                 takes_ctx=True,
                 name=tool_name,
                 description=description,
+                json_schema=input_schema,
             )
 
-        return [make_tool(descriptor.name, descriptor.description) for descriptor in descriptors]
+        return [
+            make_tool(descriptor.name, descriptor.description, descriptor.input_schema)
+            for descriptor in descriptors
+        ]
 
 
 def _workspace_path_allowed(path: str, allowed_paths: list[str]) -> bool:

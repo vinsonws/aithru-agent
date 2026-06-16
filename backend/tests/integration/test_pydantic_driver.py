@@ -52,6 +52,34 @@ class FailingToolAdapter:
         )
 
 
+class SchemaEchoToolAdapter:
+    def list_tools(self) -> list[AgentToolDescriptor]:
+        return [
+            AgentToolDescriptor(
+                name="schema.echo",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="Echo a value generated from the descriptor schema.",
+                input_schema={
+                    "type": "object",
+                    "required": ["value"],
+                    "properties": {"value": {"type": "string"}},
+                },
+                output_schema={"type": "object"},
+                risk_level=AgentToolRiskLevel.SAFE,
+                required_scopes=[],
+                approval_policy="never",
+            )
+        ]
+
+    async def execute(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        del context
+        return AgentToolCallResult(status="completed", output=request.input, redaction="none")
+
+
 class RecordingInstructionsPydanticDriver(PydanticAIHarnessDriver):
     def __init__(self) -> None:
         super().__init__(model=TestModel(custom_output_text="done"))
@@ -109,6 +137,35 @@ async def test_pydantic_ai_driver_routes_model_tool_calls_through_aithru_bridge(
     assert "tool.started" in event_types
     assert "tool.completed" in event_types
     assert event_types[-1] == "run.completed"
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_driver_exposes_descriptor_input_schema_to_model() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    runner = AgentWorkerRunner(
+        store=store,
+        event_writer=writer,
+        capability_router=AithruCapabilityRouter(
+            adapters=[SchemaEchoToolAdapter()],
+            policy=ToolPolicy(require_approval_for_risk=[]),
+        ),
+        driver=PydanticAIHarnessDriver(
+            model=TestModel(call_tools=["schema.echo"], custom_output_text="done")
+        ),
+    )
+
+    run = await runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Call schema echo.",
+        scopes=["*"],
+    )
+    proposed = next(event for event in await event_store.list_by_run(run.id) if event.type == "tool.proposed")
+
+    assert run.status == AgentRunStatus.COMPLETED
+    assert proposed.payload["input"] == {"value": "a"}
 
 
 @pytest.mark.asyncio

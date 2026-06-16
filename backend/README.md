@@ -58,4 +58,5 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Restricted local Python sandbox execution with stdout/stderr events and trace spans.
 - Pydantic AI prompt context with skill instructions, thread summaries, readable memory, and workspace file summaries.
 - Pydantic AI harness driver with controlled tool bridge.
+- Pydantic AI tools expose Aithru descriptor input schemas directly to the model.
 - Approval pause semantics for risky Pydantic AI tool calls.
