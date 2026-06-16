@@ -15,6 +15,7 @@ class AgentSettings:
     model: str | None = None
     instructions: str = "You are Aithru Agent. Use controlled tools only."
     test_model_output: str = "Done."
+    api_token: str | None = None
 
     @classmethod
     def from_env(cls) -> "AgentSettings":
@@ -31,4 +32,5 @@ class AgentSettings:
             model=os.getenv("AITHRU_AGENT_MODEL"),
             instructions=os.getenv("AITHRU_AGENT_INSTRUCTIONS", cls.instructions),
             test_model_output=os.getenv("AITHRU_AGENT_TEST_MODEL_OUTPUT", cls.test_model_output),
+            api_token=os.getenv("AITHRU_AGENT_API_TOKEN"),
         )

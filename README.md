@@ -142,6 +142,9 @@ GET    /api/agent/subagents
 GET    /api/agent/subagents/{key}
 ```
 
+Set `AITHRU_AGENT_API_TOKEN` to require `Authorization: Bearer <token>` on Agent
+API endpoints. Health remains public for readiness checks.
+
 ## Verification
 
 ```bash

@@ -6,6 +6,7 @@ from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import ToolPolicy
 from aithru_agent.domain import AgentSandboxPolicy, AgentSkill
 from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
+from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import InMemorySkillResolver
 
 
@@ -85,6 +86,39 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
     assert files[0]["path"] == "/reports/report.md"
     assert file_content["content"] == "# Report\nDone.\n"
     assert artifacts[0]["type"] == "report"
+
+
+@pytest.mark.asyncio
+async def test_agent_api_requires_bearer_token_when_configured() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        settings=AgentSettings(api_token="secret-token"),
+    )
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        health = await client.get("/api/agent/health")
+        missing = await client.post(
+            "/api/agent/threads",
+            json={"org_id": "org_1", "owner_user_id": "user_1"},
+        )
+        wrong = await client.post(
+            "/api/agent/threads",
+            headers={"Authorization": "Bearer wrong"},
+            json={"org_id": "org_1", "owner_user_id": "user_1"},
+        )
+        authorized = await client.post(
+            "/api/agent/threads",
+            headers={"Authorization": "Bearer secret-token"},
+            json={"org_id": "org_1", "owner_user_id": "user_1"},
+        )
+
+    assert health.status_code == 200
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert missing.json()["detail"] == "Unauthorized"
+    assert wrong.json()["detail"] == "Unauthorized"
+    assert authorized.status_code == 201
 
 
 @pytest.mark.asyncio

@@ -37,6 +37,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 ## Current Capabilities
 
 - FastAPI Agent control plane.
+- Optional Bearer token authentication via `AITHRU_AGENT_API_TOKEN`.
 - Queued Agent runs with worker execution.
 - In-memory and SQLite persistence backends.
 - Agent stream events, SSE formatting, and trace projection.

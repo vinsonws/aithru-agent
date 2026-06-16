@@ -23,6 +23,7 @@ from aithru_agent.worker import AgentWorkerRunner, AgentWorkerService, InProcess
 
 @dataclass
 class AgentRuntime:
+    settings: AgentSettings
     store: AgentStore
     event_store: AgentEventStore
     event_writer: AgentEventWriter
@@ -68,6 +69,7 @@ def create_agent_runtime(
     run_queue = InProcessRunQueue()
     worker = AgentWorkerService(runner=runner, queue=run_queue)
     return AgentRuntime(
+        settings=resolved_settings,
         store=resolved_store,
         event_store=resolved_event_store,
         event_writer=event_writer,
