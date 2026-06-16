@@ -111,6 +111,16 @@ async def test_agent_api_resolves_approval_and_resumes_run() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_validates_create_run_body() -> None:
+    app = create_app(create_agent_runtime(driver=file_report_driver()))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/agent/runs", json={})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_agent_api_lists_and_gets_published_skills() -> None:
     skill = AgentSkill(
         id="skill_1",

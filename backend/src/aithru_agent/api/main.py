@@ -1,12 +1,43 @@
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response
+from pydantic import BaseModel, Field
 
 from aithru_agent.application import AgentRuntime, create_agent_runtime
-from aithru_agent.domain import AgentApprovalDecision
+from aithru_agent.domain import AgentApprovalDecision, AgentMessageRole
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.stream import format_sse_event
 from aithru_agent.trace import project_trace_spans
+
+
+class CreateThreadRequest(BaseModel):
+    org_id: str = "org_1"
+    owner_user_id: str = "user_1"
+    title: str | None = None
+
+
+class AppendMessageRequest(BaseModel):
+    role: AgentMessageRole
+    content: str = Field(min_length=1)
+
+
+class CreateRunRequest(BaseModel):
+    goal: str = Field(min_length=1)
+    org_id: str = "org_1"
+    actor_user_id: str = "user_1"
+    scopes: list[str] = Field(default_factory=lambda: ["*"])
+    thread_id: str | None = None
+    skill_id: str | None = None
+
+
+class ResolveApprovalRequest(BaseModel):
+    decision: AgentApprovalDecision
+    comment: str | None = None
+
+
+class WriteWorkspaceFileRequest(BaseModel):
+    content: Any
+    media_type: str | None = None
 
 
 def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
@@ -18,11 +49,11 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return {"ok": True, "service": "aithru-agent-backend"}
 
     @app.post("/api/agent/threads", status_code=201)
-    async def create_thread(body: dict[str, Any]) -> dict[str, Any]:
+    async def create_thread(body: CreateThreadRequest) -> dict[str, Any]:
         thread = await rt.store.create_thread(
-            org_id=body.get("org_id", "org_1"),
-            owner_user_id=body.get("owner_user_id", "user_1"),
-            title=body.get("title"),
+            org_id=body.org_id,
+            owner_user_id=body.owner_user_id,
+            title=body.title,
         )
         return thread.model_dump(mode="json")
 
@@ -38,11 +69,11 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return thread.model_dump(mode="json")
 
     @app.post("/api/agent/threads/{thread_id}/messages", status_code=201)
-    async def append_message(thread_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def append_message(thread_id: str, body: AppendMessageRequest) -> dict[str, Any]:
         message = await rt.store.append_message(
             thread_id=thread_id,
-            role=body["role"],
-            content=body["content"],
+            role=body.role,
+            content=body.content,
         )
         return message.model_dump(mode="json")
 
@@ -51,14 +82,14 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return [message.model_dump(mode="json") for message in await rt.store.list_messages(thread_id)]
 
     @app.post("/api/agent/runs", status_code=201)
-    async def create_run(body: dict[str, Any]) -> dict[str, Any]:
+    async def create_run(body: CreateRunRequest) -> dict[str, Any]:
         run = await rt.runner.start_run(
-            org_id=body.get("org_id", "org_1"),
-            actor_user_id=body.get("actor_user_id", "user_1"),
-            goal=body["goal"],
-            scopes=body.get("scopes", ["*"]),
-            thread_id=body.get("thread_id"),
-            skill_id=body.get("skill_id"),
+            org_id=body.org_id,
+            actor_user_id=body.actor_user_id,
+            goal=body.goal,
+            scopes=body.scopes,
+            thread_id=body.thread_id,
+            skill_id=body.skill_id,
         )
         latest = await rt.store.get_run(run.id)
         return (latest or run).model_dump(mode="json")
@@ -126,17 +157,16 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return skill.model_dump(mode="json")
 
     @app.post("/api/agent/approvals/{approval_id}/resolve")
-    async def resolve_approval(approval_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def resolve_approval(approval_id: str, body: ResolveApprovalRequest) -> dict[str, Any]:
         approval = await rt.store.get_approval(approval_id)
         if not approval:
             raise HTTPException(status_code=404, detail="Approval not found")
-        decision = AgentApprovalDecision(body["decision"])
         try:
             await rt.runner.resume_run(
                 approval.run_id,
                 approval_id=approval_id,
-                decision=decision,
-                comment=body.get("comment"),
+                decision=body.decision,
+                comment=body.comment,
             )
         except AgentError as err:
             raise HTTPException(status_code=409, detail=err.message) from err
@@ -159,12 +189,12 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return {"path": "/" + path.lstrip("/"), **content.model_dump(mode="json")}
 
     @app.put("/api/agent/workspaces/{workspace_id}/files/{path:path}")
-    async def write_workspace_file(workspace_id: str, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    async def write_workspace_file(workspace_id: str, path: str, body: WriteWorkspaceFileRequest) -> dict[str, Any]:
         file = await rt.store.write_workspace_file(
             workspace_id=workspace_id,
             path=path,
-            content=body["content"],
-            media_type=body.get("media_type"),
+            content=body.content,
+            media_type=body.media_type,
         )
         return file.model_dump(mode="json")
 
