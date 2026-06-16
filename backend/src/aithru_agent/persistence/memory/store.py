@@ -149,6 +149,7 @@ class InMemoryAgentStore:
         source: AgentRunSource | str,
         goal: str,
         workspace_id: str,
+        scopes: list[str] | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:
@@ -161,6 +162,7 @@ class InMemoryAgentStore:
             skill_id=skill_id,
             workspace_id=workspace_id,
             goal=goal,
+            scopes=scopes or [],
             status=AgentRunStatus.QUEUED,
             started_at=utc_now(),
         )

@@ -29,9 +29,9 @@ class AgentRun(AithruBaseModel):
     skill_id: str | None = None
     workspace_id: str
     goal: str
+    scopes: list[str] = []
     status: AgentRunStatus
     started_at: str
     completed_at: str | None = None
     current_approval_id: str | None = None
     error: dict | None = None
-

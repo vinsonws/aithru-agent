@@ -56,6 +56,26 @@ class AgentWorkerRunner:
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:
+        run = await self.create_run(
+            org_id=org_id,
+            actor_user_id=actor_user_id,
+            goal=goal,
+            scopes=scopes,
+            thread_id=thread_id,
+            skill_id=skill_id,
+        )
+        return await self.execute_run(run.id)
+
+    async def create_run(
+        self,
+        *,
+        org_id: str,
+        actor_user_id: str,
+        goal: str,
+        scopes: list[str],
+        thread_id: str | None = None,
+        skill_id: str | None = None,
+    ) -> AgentRun:
         workspace = await self._store.create_workspace(org_id=org_id, thread_id=thread_id)
         run = await self._store.create_run(
             org_id=org_id,
@@ -63,6 +83,7 @@ class AgentWorkerRunner:
             source="api",
             goal=goal,
             workspace_id=workspace.id,
+            scopes=scopes,
             thread_id=thread_id,
             skill_id=skill_id,
         )
@@ -74,7 +95,17 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload={"status": "queued", "workspace_id": workspace.id},
         )
+        return run
+
+    async def execute_run(self, run_id: str) -> AgentRun:
+        run = await self._store.get_run(run_id)
+        if run is None:
+            raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
+        if run.status != AgentRunStatus.QUEUED:
+            raise AgentError("BAD_REQUEST", f"Run is not queued: {run_id}")
+
         run = await self._store.update_run(run.id, status=AgentRunStatus.RUNNING)
+        thread_id = run.thread_id
         await self._event_writer.write(
             run_id=run.id,
             thread_id=thread_id,
@@ -98,8 +129,8 @@ class AgentWorkerRunner:
             payload={},
         )
 
-        skill = self._skill_resolver.resolve(skill_id) if skill_id else None
-        context = self._context_builder.build(run, scopes, skill)
+        skill = self._skill_resolver.resolve(run.skill_id) if run.skill_id else None
+        context = self._context_builder.build(run, run.scopes, skill)
         final_content: list[str] = []
         try:
             steps = await self._driver.run(

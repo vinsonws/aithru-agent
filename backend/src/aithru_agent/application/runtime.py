@@ -9,7 +9,7 @@ from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
-from aithru_agent.worker import AgentWorkerRunner
+from aithru_agent.worker import AgentWorkerRunner, AgentWorkerService, InProcessRunQueue
 
 
 @dataclass
@@ -19,6 +19,8 @@ class AgentRuntime:
     event_writer: AgentEventWriter
     capability_router: AithruCapabilityRouter
     runner: AgentWorkerRunner
+    run_queue: InProcessRunQueue
+    worker: AgentWorkerService
     skill_resolver: AgentSkillResolver
 
 
@@ -49,12 +51,16 @@ def create_agent_runtime(
         driver=driver or _create_driver(resolved_settings),
         skill_resolver=resolved_skill_resolver,
     )
+    run_queue = InProcessRunQueue()
+    worker = AgentWorkerService(runner=runner, queue=run_queue)
     return AgentRuntime(
         store=store,
         event_store=event_store,
         event_writer=event_writer,
         capability_router=capability_router,
         runner=runner,
+        run_queue=run_queue,
+        worker=worker,
         skill_resolver=resolved_skill_resolver,
     )
 
