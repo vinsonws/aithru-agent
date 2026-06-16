@@ -4,9 +4,12 @@ from pydantic_ai import Agent, RunContext, Tool
 from pydantic_ai.messages import PartDeltaEvent, TextPartDelta
 from pydantic_ai.run import AgentRunResultEvent
 
-from aithru_agent.domain import AgentMemoryEntry, AgentSkill
+from aithru_agent.domain import AgentMemoryEntry, AgentSkill, AgentWorkspaceFile
 from aithru_agent.harness.drivers.pydantic_ai.tool_bridge import PydanticAIToolBridge
 from aithru_agent.harness.engine import HarnessRunDeps, HarnessStep
+
+
+MAX_WORKSPACE_FILES_IN_PROMPT = 50
 
 
 class PydanticAIHarnessDriver:
@@ -22,11 +25,13 @@ class PydanticAIHarnessDriver:
     async def run(self, goal: str | None = None, deps: HarnessRunDeps | None = None) -> list[HarnessStep]:
         tools = await self._build_tools(deps) if deps else []
         memory_entries = await self._memory_entries_for_run(deps) if deps else []
+        workspace_files = await self._workspace_files_for_run(deps) if deps else []
         agent = Agent(
             self._model,
             instructions=self.instructions_for_run(
                 deps.skill if deps else None,
                 memory_entries=memory_entries,
+                workspace_files=workspace_files,
             ),
             output_type=str,
             tools=tools,
@@ -48,10 +53,17 @@ class PydanticAIHarnessDriver:
         skill: AgentSkill | None = None,
         *,
         memory_entries: list[AgentMemoryEntry] | None = None,
+        workspace_files: list[AgentWorkspaceFile] | None = None,
     ) -> str:
         sections = [self._instructions]
         if skill:
             sections.append(f"Skill instructions:\n{skill.instructions}")
+        if workspace_files:
+            lines = [
+                f"- {file.path} ({file.media_type or 'unknown'}, {file.size} bytes)"
+                for file in workspace_files
+            ]
+            sections.append("Workspace files:\n" + "\n".join(lines))
         if memory_entries:
             lines = [
                 f"- {entry.scope}:{entry.key} = {entry.value}"
@@ -79,6 +91,19 @@ class PydanticAIHarnessDriver:
                 seen.add(entry.id)
                 entries.append(entry)
         return entries
+
+    async def _workspace_files_for_run(self, deps: HarnessRunDeps) -> list[AgentWorkspaceFile]:
+        skill = deps.skill
+        if skill and skill.workspace_policy and not skill.workspace_policy.read:
+            return []
+        files = await deps.store.list_workspace_files(deps.run.workspace_id)
+        if skill and skill.workspace_policy and skill.workspace_policy.allowed_paths:
+            files = [
+                file
+                for file in files
+                if _workspace_path_allowed(file.path, skill.workspace_policy.allowed_paths)
+            ]
+        return files[:MAX_WORKSPACE_FILES_IN_PROMPT]
 
     async def _build_tools(self, deps: HarnessRunDeps | None) -> list[Tool]:
         if deps is None:
@@ -112,6 +137,10 @@ class PydanticAIHarnessDriver:
             )
 
         return [make_tool(descriptor.name, descriptor.description) for descriptor in descriptors]
+
+
+def _workspace_path_allowed(path: str, allowed_paths: list[str]) -> bool:
+    return any(path == allowed or path.startswith(allowed.rstrip("/") + "/") for allowed in allowed_paths)
 
 
 def _memory_scope_id(scope: str, deps: HarnessRunDeps) -> str | None:

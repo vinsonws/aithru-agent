@@ -3,7 +3,14 @@ from pydantic_ai.models.test import TestModel
 
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import ToolPolicy
-from aithru_agent.domain import AgentMemoryEntry, AgentMemoryPolicy, AgentRunStatus, AgentSkill
+from aithru_agent.domain import (
+    AgentMemoryEntry,
+    AgentMemoryPolicy,
+    AgentRunStatus,
+    AgentSkill,
+    AgentWorkspaceFile,
+    AgentWorkspacePolicy,
+)
 from aithru_agent.harness.drivers.pydantic_ai.driver import PydanticAIHarnessDriver
 from aithru_agent.skills import InMemorySkillResolver
 
@@ -12,15 +19,22 @@ class RecordingInstructionsPydanticDriver(PydanticAIHarnessDriver):
     def __init__(self) -> None:
         super().__init__(model=TestModel(custom_output_text="done"))
         self.seen_memory_entries: list[AgentMemoryEntry] | None = None
+        self.seen_workspace_files: list[AgentWorkspaceFile] | None = None
 
     def instructions_for_run(
         self,
         skill: AgentSkill | None = None,
         *,
         memory_entries: list[AgentMemoryEntry] | None = None,
+        workspace_files: list[AgentWorkspaceFile] | None = None,
     ) -> str:
         self.seen_memory_entries = memory_entries
-        return super().instructions_for_run(skill, memory_entries=memory_entries)
+        self.seen_workspace_files = workspace_files
+        return super().instructions_for_run(
+            skill,
+            memory_entries=memory_entries,
+            workspace_files=workspace_files,
+        )
 
 
 @pytest.mark.asyncio
@@ -115,3 +129,64 @@ async def test_pydantic_ai_driver_loads_skill_memory_entries() -> None:
 
     assert driver.seen_memory_entries is not None
     assert [entry.key for entry in driver.seen_memory_entries] == ["preference.language"]
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_driver_loads_workspace_file_summary() -> None:
+    driver = RecordingInstructionsPydanticDriver()
+    runtime = create_agent_runtime(driver=driver)
+    run = await runtime.runner.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Use workspace files.",
+        scopes=["*"],
+    )
+    await runtime.store.write_workspace_file(
+        workspace_id=run.workspace_id,
+        path="/data/notes.md",
+        content="# Notes",
+        media_type="text/markdown",
+    )
+
+    await runtime.runner.execute_run(run.id)
+
+    assert driver.seen_workspace_files is not None
+    assert [file.path for file in driver.seen_workspace_files] == ["/data/notes.md"]
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_driver_respects_workspace_read_policy_for_file_summary() -> None:
+    driver = RecordingInstructionsPydanticDriver()
+    skill = AgentSkill(
+        id="skill_1",
+        org_id="org_1",
+        key="no-workspace",
+        name="No Workspace",
+        instructions="Do not inspect files.",
+        allowed_tools=[],
+        allowed_subagents=[],
+        workspace_policy=AgentWorkspacePolicy(read=False),
+        version="0.1.0",
+        status="published",
+    )
+    runtime = create_agent_runtime(
+        driver=driver,
+        skill_resolver=InMemorySkillResolver([skill]),
+    )
+    run = await runtime.runner.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Do not use workspace files.",
+        scopes=["*"],
+        skill_id="no-workspace",
+    )
+    await runtime.store.write_workspace_file(
+        workspace_id=run.workspace_id,
+        path="/data/private.md",
+        content="# Private",
+        media_type="text/markdown",
+    )
+
+    await runtime.runner.execute_run(run.id)
+
+    assert driver.seen_workspace_files == []
