@@ -642,6 +642,11 @@ Pydantic AI proposes tool call
 Pydantic AI deferred tools can be used internally to represent pause/resume,
 but the persisted approval object and public API belong to Aithru.
 
+If a local tool returns `failed` or `denied` after execution begins, the bridge
+must emit `tool.failed`/`tool.denied` and surface an Aithru error so the worker
+projects `model.failed` and `run.failed`. Tool failures must not be silently
+converted into successful model context.
+
 ## Event Types For Stage 1
 
 Stage 1 must support these event families:

@@ -2,18 +2,54 @@ import pytest
 from pydantic_ai.models.test import TestModel
 
 from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.capabilities import ToolPolicy
+from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter, ToolPolicy
 from aithru_agent.domain import (
     AgentMemoryEntry,
     AgentMemoryPolicy,
     AgentMessage,
     AgentRunStatus,
     AgentSkill,
+    AgentToolCallRequest,
+    AgentToolCallResult,
+    AgentToolDescriptor,
+    AgentToolKind,
+    AgentToolRiskLevel,
     AgentWorkspaceFile,
     AgentWorkspacePolicy,
 )
 from aithru_agent.harness.drivers.pydantic_ai.driver import PydanticAIHarnessDriver
+from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.skills import InMemorySkillResolver
+from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
+from aithru_agent.worker.runner import AgentWorkerRunner
+
+
+class FailingToolAdapter:
+    def list_tools(self) -> list[AgentToolDescriptor]:
+        return [
+            AgentToolDescriptor(
+                name="fail.now",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="Always fail.",
+                input_schema={"type": "object"},
+                output_schema={"type": "object"},
+                risk_level=AgentToolRiskLevel.SAFE,
+                required_scopes=[],
+                approval_policy="never",
+            )
+        ]
+
+    async def execute(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        del request, context
+        return AgentToolCallResult(
+            status="failed",
+            error={"message": "tool exploded"},
+            redaction="none",
+        )
 
 
 class RecordingInstructionsPydanticDriver(PydanticAIHarnessDriver):
@@ -73,6 +109,36 @@ async def test_pydantic_ai_driver_routes_model_tool_calls_through_aithru_bridge(
     assert "tool.started" in event_types
     assert "tool.completed" in event_types
     assert event_types[-1] == "run.completed"
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_driver_fails_run_when_tool_execution_fails() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    runner = AgentWorkerRunner(
+        store=store,
+        event_writer=writer,
+        capability_router=AithruCapabilityRouter(
+            adapters=[FailingToolAdapter()],
+            policy=ToolPolicy(require_approval_for_risk=[]),
+        ),
+        driver=PydanticAIHarnessDriver(
+            model=TestModel(call_tools=["fail.now"], custom_output_text="done")
+        ),
+    )
+
+    run = await runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Call a failing tool.",
+        scopes=["*"],
+    )
+    event_types = [event.type for event in await event_store.list_by_run(run.id)]
+
+    assert run.status == AgentRunStatus.FAILED
+    assert event_types[-3:] == ["tool.failed", "model.failed", "run.failed"]
+    assert "run.completed" not in event_types
 
 
 @pytest.mark.asyncio

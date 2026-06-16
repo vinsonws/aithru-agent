@@ -2,6 +2,7 @@ from typing import Any
 
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter
 from aithru_agent.domain import AgentRun, AgentRunStatus, AgentToolCallRequest
+from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import HarnessRunPaused
 from aithru_agent.persistence.protocols import AgentStore
 from aithru_agent.stream import AgentEventWriter
@@ -114,6 +115,8 @@ class PydanticAIToolBridge:
                 "error": result.error,
             },
         )
+        if result.status != "completed":
+            raise AgentError("TOOL_FAILED", _tool_result_error_message(result.error))
         return result.output
 
     async def _emit_domain_event(self, tool_call_id: str, tool_name: str, output: object) -> None:
@@ -159,3 +162,10 @@ class PydanticAIToolBridge:
                 source={"kind": "artifact"},
                 payload=output,
             )
+
+
+def _tool_result_error_message(error: dict | None) -> str:
+    if not error:
+        return "Tool failed"
+    message = error.get("message")
+    return str(message) if message else "Tool failed"
