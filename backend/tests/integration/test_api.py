@@ -233,6 +233,128 @@ async def test_agent_api_binds_thread_identity_to_trusted_headers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_filters_threads_by_trusted_identity_headers() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        settings=AgentSettings(api_token="secret-token"),
+    )
+    app = create_app(runtime)
+    user_a_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_a",
+        "X-Aithru-User-Id": "user_a",
+    }
+    user_b_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_b",
+        "X-Aithru-User-Id": "user_b",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        user_a_thread = (
+            await client.post("/api/agent/threads", headers=user_a_headers, json={"title": "User A"})
+        ).json()
+        user_b_thread = (
+            await client.post("/api/agent/threads", headers=user_b_headers, json={"title": "User B"})
+        ).json()
+        user_a_threads = (await client.get("/api/agent/threads", headers=user_a_headers)).json()
+        hidden_thread = await client.get(f"/api/agent/threads/{user_b_thread['id']}", headers=user_a_headers)
+        hidden_messages = await client.get(
+            f"/api/agent/threads/{user_b_thread['id']}/messages",
+            headers=user_a_headers,
+        )
+        hidden_append = await client.post(
+            f"/api/agent/threads/{user_b_thread['id']}/messages",
+            headers=user_a_headers,
+            json={"role": "user", "content": "should not write"},
+        )
+        visible_thread = await client.get(f"/api/agent/threads/{user_a_thread['id']}", headers=user_a_headers)
+
+    assert [thread["id"] for thread in user_a_threads] == [user_a_thread["id"]]
+    assert hidden_thread.status_code == 404
+    assert hidden_thread.json()["detail"] == "Thread not found"
+    assert hidden_messages.status_code == 404
+    assert hidden_messages.json()["detail"] == "Thread not found"
+    assert hidden_append.status_code == 404
+    assert hidden_append.json()["detail"] == "Thread not found"
+    assert visible_thread.status_code == 200
+    assert visible_thread.json()["id"] == user_a_thread["id"]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_filters_runs_by_trusted_identity_headers() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        settings=AgentSettings(api_token="secret-token"),
+    )
+    app = create_app(runtime)
+    user_a_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_a",
+        "X-Aithru-User-Id": "user_a",
+    }
+    user_b_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_b",
+        "X-Aithru-User-Id": "user_b",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        user_a_run = (
+            await client.post("/api/agent/runs", headers=user_a_headers, json={"goal": "User A"})
+        ).json()
+        user_b_run = (
+            await client.post("/api/agent/runs", headers=user_b_headers, json={"goal": "User B"})
+        ).json()
+        user_a_runs = (await client.get("/api/agent/runs", headers=user_a_headers)).json()
+        hidden_run = await client.get(f"/api/agent/runs/{user_b_run['id']}", headers=user_a_headers)
+        hidden_events = await client.get(f"/api/agent/runs/{user_b_run['id']}/events", headers=user_a_headers)
+        visible_run = await client.get(f"/api/agent/runs/{user_a_run['id']}", headers=user_a_headers)
+
+    assert [run["id"] for run in user_a_runs] == [user_a_run["id"]]
+    assert hidden_run.status_code == 404
+    assert hidden_run.json()["detail"] == "Run not found"
+    assert hidden_events.status_code == 404
+    assert hidden_events.json()["detail"] == "Run not found"
+    assert visible_run.status_code == 200
+    assert visible_run.json()["id"] == user_a_run["id"]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_rejects_run_with_thread_outside_trusted_identity() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        settings=AgentSettings(api_token="secret-token"),
+    )
+    app = create_app(runtime)
+    user_a_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_a",
+        "X-Aithru-User-Id": "user_a",
+    }
+    user_b_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_b",
+        "X-Aithru-User-Id": "user_b",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        user_b_thread = (
+            await client.post("/api/agent/threads", headers=user_b_headers, json={"title": "User B"})
+        ).json()
+        response = await client.post(
+            "/api/agent/runs",
+            headers=user_a_headers,
+            json={"thread_id": user_b_thread["id"], "goal": "Attach elsewhere"},
+        )
+        runs = (await client.get("/api/agent/runs", headers=user_a_headers)).json()
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Thread not found"
+    assert runs == []
+
+
+@pytest.mark.asyncio
 async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
     runtime = create_agent_runtime(driver=file_report_driver())
     app = create_app(runtime)

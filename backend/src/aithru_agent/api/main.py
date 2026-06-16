@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from aithru_agent.application import AgentRuntime, create_agent_runtime
-from aithru_agent.domain import AgentApprovalDecision, AgentMessageRole, AgentRunStatus
+from aithru_agent.domain import AgentApprovalDecision, AgentMessageRole, AgentRun, AgentRunStatus, AgentThread
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import ContextBuilder
 from aithru_agent.stream import format_sse_event
@@ -90,6 +90,18 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         if not workspace:
             raise HTTPException(status_code=404, detail="Workspace not found")
 
+    async def require_thread_for_request(request: Request, thread_id: str) -> AgentThread:
+        thread = await rt.store.get_thread(thread_id)
+        if not thread or not _thread_visible(request, thread):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        return thread
+
+    async def require_run_for_request(request: Request, run_id: str) -> AgentRun:
+        run = await rt.store.get_run(run_id)
+        if not run or not _run_visible(request, run):
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run
+
     @app.get("/api/agent/health")
     async def health() -> dict[str, object]:
         return {"ok": True, "service": "aithru-agent-backend"}
@@ -112,21 +124,21 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return thread.model_dump(mode="json")
 
     @app.get("/api/agent/threads")
-    async def list_threads() -> list[dict[str, Any]]:
-        return [thread.model_dump(mode="json") for thread in await rt.store.list_threads()]
+    async def list_threads(request: Request) -> list[dict[str, Any]]:
+        return [
+            thread.model_dump(mode="json")
+            for thread in await rt.store.list_threads()
+            if _thread_visible(request, thread)
+        ]
 
     @app.get("/api/agent/threads/{thread_id}")
-    async def get_thread(thread_id: str) -> dict[str, Any]:
-        thread = await rt.store.get_thread(thread_id)
-        if not thread:
-            raise HTTPException(status_code=404, detail="Thread not found")
+    async def get_thread(request: Request, thread_id: str) -> dict[str, Any]:
+        thread = await require_thread_for_request(request, thread_id)
         return thread.model_dump(mode="json")
 
     @app.post("/api/agent/threads/{thread_id}/messages", status_code=201)
-    async def append_message(thread_id: str, body: AppendMessageRequest) -> dict[str, Any]:
-        thread = await rt.store.get_thread(thread_id)
-        if not thread:
-            raise HTTPException(status_code=404, detail="Thread not found")
+    async def append_message(request: Request, thread_id: str, body: AppendMessageRequest) -> dict[str, Any]:
+        await require_thread_for_request(request, thread_id)
         message = await rt.store.append_message(
             thread_id=thread_id,
             role=body.role,
@@ -135,10 +147,8 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return message.model_dump(mode="json")
 
     @app.get("/api/agent/threads/{thread_id}/messages")
-    async def list_messages(thread_id: str) -> list[dict[str, Any]]:
-        thread = await rt.store.get_thread(thread_id)
-        if not thread:
-            raise HTTPException(status_code=404, detail="Thread not found")
+    async def list_messages(request: Request, thread_id: str) -> list[dict[str, Any]]:
+        await require_thread_for_request(request, thread_id)
         return [message.model_dump(mode="json") for message in await rt.store.list_messages(thread_id)]
 
     @app.post("/api/agent/runs", status_code=201)
@@ -154,6 +164,12 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
             body.actor_user_id,
             "x-aithru-user-id",
         )
+        if body.thread_id:
+            thread = await rt.store.get_thread(body.thread_id)
+            if not thread:
+                raise HTTPException(status_code=404, detail=f"Thread not found: {body.thread_id}")
+            if not _thread_visible(request, thread):
+                raise HTTPException(status_code=404, detail="Thread not found")
         run_kwargs = {
             "org_id": org_id,
             "actor_user_id": actor_user_id,
@@ -174,37 +190,33 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return run.model_dump(mode="json")
 
     @app.get("/api/agent/runs")
-    async def list_runs() -> list[dict[str, Any]]:
-        return [run.model_dump(mode="json") for run in await rt.store.list_runs()]
+    async def list_runs(request: Request) -> list[dict[str, Any]]:
+        return [
+            run.model_dump(mode="json")
+            for run in await rt.store.list_runs()
+            if _run_visible(request, run)
+        ]
 
     @app.get("/api/agent/runs/{run_id}")
-    async def get_run(run_id: str) -> dict[str, Any]:
-        run = await rt.store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+    async def get_run(request: Request, run_id: str) -> dict[str, Any]:
+        run = await require_run_for_request(request, run_id)
         return run.model_dump(mode="json")
 
     @app.get("/api/agent/runs/{run_id}/events")
-    async def get_run_events(run_id: str, after_sequence: int = 0) -> list[dict[str, Any]]:
-        run = await rt.store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+    async def get_run_events(request: Request, run_id: str, after_sequence: int = 0) -> list[dict[str, Any]]:
+        await require_run_for_request(request, run_id)
         events = await rt.event_store.list_after_sequence(run_id, after_sequence)
         return [event.model_dump(mode="json") for event in events]
 
     @app.get("/api/agent/runs/{run_id}/trace")
-    async def get_run_trace(run_id: str) -> list[dict[str, Any]]:
-        run = await rt.store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+    async def get_run_trace(request: Request, run_id: str) -> list[dict[str, Any]]:
+        await require_run_for_request(request, run_id)
         events = await rt.event_store.list_by_run(run_id)
         return [span.model_dump(mode="json") for span in project_trace_spans(events)]
 
     @app.get("/api/agent/runs/{run_id}/snapshot")
-    async def get_run_snapshot(run_id: str) -> dict[str, Any]:
-        run = await rt.store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+    async def get_run_snapshot(request: Request, run_id: str) -> dict[str, Any]:
+        run = await require_run_for_request(request, run_id)
         events = await rt.event_store.list_by_run(run_id)
         approvals = [
             approval
@@ -235,28 +247,22 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         }
 
     @app.get("/api/agent/runs/{run_id}/tools")
-    async def get_run_tools(run_id: str) -> list[dict[str, Any]]:
-        run = await rt.store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+    async def get_run_tools(request: Request, run_id: str) -> list[dict[str, Any]]:
+        run = await require_run_for_request(request, run_id)
         skill = rt.skill_resolver.resolve(run.skill_id) if run.skill_id else None
         context = context_builder.build(run, run.scopes, skill)
         tools = await rt.capability_router.list_tools(context)
         return [tool.model_dump(mode="json") for tool in tools]
 
     @app.get("/api/agent/runs/{run_id}/subagents")
-    async def list_run_subagents(run_id: str) -> list[dict[str, Any]]:
-        run = await rt.store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+    async def list_run_subagents(request: Request, run_id: str) -> list[dict[str, Any]]:
+        await require_run_for_request(request, run_id)
         subagent_runs = await rt.store.list_subagent_runs(parent_run_id=run_id)
         return [subagent_run.model_dump(mode="json") for subagent_run in subagent_runs]
 
     @app.get("/api/agent/runs/{run_id}/stream")
-    async def stream_run(run_id: str, after_sequence: int = 0) -> Response:
-        run = await rt.store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+    async def stream_run(request: Request, run_id: str, after_sequence: int = 0) -> Response:
+        await require_run_for_request(request, run_id)
         events = await rt.event_store.list_after_sequence(run_id, after_sequence)
         return Response(
             "".join(format_sse_event(event) for event in events),
@@ -264,10 +270,8 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         )
 
     @app.post("/api/agent/runs/{run_id}/input", status_code=201)
-    async def append_run_input(run_id: str, body: AppendRunInputRequest) -> dict[str, Any]:
-        run = await rt.store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+    async def append_run_input(request: Request, run_id: str, body: AppendRunInputRequest) -> dict[str, Any]:
+        run = await require_run_for_request(request, run_id)
         if run.status in {AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELLED}:
             raise HTTPException(status_code=409, detail="Run is not accepting input")
         if not run.thread_id:
@@ -295,7 +299,8 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return message.model_dump(mode="json")
 
     @app.post("/api/agent/runs/{run_id}/cancel")
-    async def cancel_run(run_id: str) -> dict[str, Any]:
+    async def cancel_run(request: Request, run_id: str) -> dict[str, Any]:
+        await require_run_for_request(request, run_id)
         try:
             run = await rt.runner.cancel_run(run_id)
         except AgentError as err:
@@ -303,10 +308,8 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return run.model_dump(mode="json")
 
     @app.post("/api/agent/runs/{run_id}/resume")
-    async def resume_run(run_id: str, body: ResolveApprovalRequest) -> dict[str, Any]:
-        run = await rt.store.get_run(run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+    async def resume_run(request: Request, run_id: str, body: ResolveApprovalRequest) -> dict[str, Any]:
+        run = await require_run_for_request(request, run_id)
         approval_id = body.approval_id or run.current_approval_id
         if not approval_id:
             raise HTTPException(status_code=409, detail="Run is not waiting for approval")
@@ -489,3 +492,23 @@ def _identity_value(
     if field_name in body.model_fields_set and body_value != header_value:
         raise HTTPException(status_code=403, detail="Request identity conflicts with authenticated context")
     return header_value
+
+
+def _thread_visible(request: Request, thread: AgentThread) -> bool:
+    org_id = request.headers.get("x-aithru-org-id")
+    user_id = request.headers.get("x-aithru-user-id")
+    if org_id is not None and thread.org_id != org_id:
+        return False
+    if user_id is not None and thread.owner_user_id != user_id:
+        return False
+    return True
+
+
+def _run_visible(request: Request, run: AgentRun) -> bool:
+    org_id = request.headers.get("x-aithru-org-id")
+    user_id = request.headers.get("x-aithru-user-id")
+    if org_id is not None and run.org_id != org_id:
+        return False
+    if user_id is not None and run.actor_user_id != user_id:
+        return False
+    return True
