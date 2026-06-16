@@ -148,7 +148,8 @@ API endpoints. Health remains public for readiness checks. Set
 inherits those scopes when no scopes are provided and rejects scope escalation.
 When present, `X-Aithru-Org-Id` and `X-Aithru-User-Id` are treated as the
 authenticated platform identity for thread and run creation. Thread and run
-read APIs are filtered to that trusted identity when those headers are present.
+read APIs, plus associated approvals, artifacts, and workspaces, are filtered to
+that trusted identity when those headers are present.
 
 ## Verification
 

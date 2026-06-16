@@ -6,7 +6,16 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from aithru_agent.application import AgentRuntime, create_agent_runtime
-from aithru_agent.domain import AgentApprovalDecision, AgentMessageRole, AgentRun, AgentRunStatus, AgentThread
+from aithru_agent.domain import (
+    AgentApproval,
+    AgentApprovalDecision,
+    AgentArtifact,
+    AgentMessageRole,
+    AgentRun,
+    AgentRunStatus,
+    AgentThread,
+    AgentWorkspace,
+)
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import ContextBuilder
 from aithru_agent.stream import format_sse_event
@@ -85,10 +94,11 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
                 return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         return await call_next(request)
 
-    async def require_workspace(workspace_id: str) -> None:
+    async def require_workspace_for_request(request: Request, workspace_id: str) -> AgentWorkspace:
         workspace = await rt.store.get_workspace(workspace_id)
-        if not workspace:
+        if not workspace or not await workspace_visible(request, workspace):
             raise HTTPException(status_code=404, detail="Workspace not found")
+        return workspace
 
     async def require_thread_for_request(request: Request, thread_id: str) -> AgentThread:
         thread = await rt.store.get_thread(thread_id)
@@ -101,6 +111,42 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         if not run or not _run_visible(request, run):
             raise HTTPException(status_code=404, detail="Run not found")
         return run
+
+    async def workspace_visible(request: Request, workspace: AgentWorkspace) -> bool:
+        if not _org_visible(request, workspace.org_id):
+            return False
+        if workspace.run_id:
+            run = await rt.store.get_run(workspace.run_id)
+            return run is not None and _run_visible(request, run)
+        if workspace.thread_id:
+            thread = await rt.store.get_thread(workspace.thread_id)
+            return thread is not None and _thread_visible(request, thread)
+        return True
+
+    async def approval_visible(request: Request, approval: AgentApproval) -> bool:
+        run = await rt.store.get_run(approval.run_id)
+        return run is not None and _run_visible(request, run)
+
+    async def require_approval_for_request(request: Request, approval_id: str) -> AgentApproval:
+        approval = await rt.store.get_approval(approval_id)
+        if not approval or not await approval_visible(request, approval):
+            raise HTTPException(status_code=404, detail="Approval not found")
+        return approval
+
+    async def artifact_visible(request: Request, artifact: AgentArtifact) -> bool:
+        if not _org_visible(request, artifact.org_id):
+            return False
+        if artifact.run_id:
+            run = await rt.store.get_run(artifact.run_id)
+            return run is not None and _run_visible(request, run)
+        workspace = await rt.store.get_workspace(artifact.workspace_id)
+        return workspace is not None and await workspace_visible(request, workspace)
+
+    async def require_artifact_for_request(request: Request, artifact_id: str) -> AgentArtifact:
+        artifact = await rt.store.get_artifact(artifact_id)
+        if not artifact or not await artifact_visible(request, artifact):
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        return artifact
 
     @app.get("/api/agent/health")
     async def health() -> dict[str, object]:
@@ -325,14 +371,16 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return resumed.model_dump(mode="json")
 
     @app.get("/api/agent/approvals")
-    async def list_approvals() -> list[dict[str, Any]]:
-        return [approval.model_dump(mode="json") for approval in await rt.store.list_approvals()]
+    async def list_approvals(request: Request) -> list[dict[str, Any]]:
+        approvals = []
+        for approval in await rt.store.list_approvals():
+            if await approval_visible(request, approval):
+                approvals.append(approval.model_dump(mode="json"))
+        return approvals
 
     @app.get("/api/agent/approvals/{approval_id}")
-    async def get_approval(approval_id: str) -> dict[str, Any]:
-        approval = await rt.store.get_approval(approval_id)
-        if not approval:
-            raise HTTPException(status_code=404, detail="Approval not found")
+    async def get_approval(request: Request, approval_id: str) -> dict[str, Any]:
+        approval = await require_approval_for_request(request, approval_id)
         return approval.model_dump(mode="json")
 
     @app.get("/api/agent/skills")
@@ -370,10 +418,8 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return spec.model_dump(mode="json")
 
     @app.post("/api/agent/approvals/{approval_id}/resolve")
-    async def resolve_approval(approval_id: str, body: ResolveApprovalRequest) -> dict[str, Any]:
-        approval = await rt.store.get_approval(approval_id)
-        if not approval:
-            raise HTTPException(status_code=404, detail="Approval not found")
+    async def resolve_approval(request: Request, approval_id: str, body: ResolveApprovalRequest) -> dict[str, Any]:
+        approval = await require_approval_for_request(request, approval_id)
         try:
             await rt.runner.resume_run(
                 approval.run_id,
@@ -387,16 +433,16 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return resolved.model_dump(mode="json")
 
     @app.get("/api/agent/workspaces/{workspace_id}/files")
-    async def list_workspace_files(workspace_id: str) -> list[dict[str, Any]]:
-        await require_workspace(workspace_id)
+    async def list_workspace_files(request: Request, workspace_id: str) -> list[dict[str, Any]]:
+        await require_workspace_for_request(request, workspace_id)
         return [
             file.model_dump(mode="json")
             for file in await rt.store.list_workspace_files(workspace_id)
         ]
 
     @app.get("/api/agent/workspaces/{workspace_id}/files/{path:path}")
-    async def read_workspace_file(workspace_id: str, path: str) -> dict[str, Any]:
-        await require_workspace(workspace_id)
+    async def read_workspace_file(request: Request, workspace_id: str, path: str) -> dict[str, Any]:
+        await require_workspace_for_request(request, workspace_id)
         try:
             content = await rt.store.read_workspace_file(workspace_id, path)
         except AgentError as err:
@@ -404,8 +450,13 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return {"path": "/" + path.lstrip("/"), **content.model_dump(mode="json")}
 
     @app.put("/api/agent/workspaces/{workspace_id}/files/{path:path}")
-    async def write_workspace_file(workspace_id: str, path: str, body: WriteWorkspaceFileRequest) -> dict[str, Any]:
-        await require_workspace(workspace_id)
+    async def write_workspace_file(
+        request: Request,
+        workspace_id: str,
+        path: str,
+        body: WriteWorkspaceFileRequest,
+    ) -> dict[str, Any]:
+        await require_workspace_for_request(request, workspace_id)
         file = await rt.store.write_workspace_file(
             workspace_id=workspace_id,
             path=path,
@@ -415,25 +466,26 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return file.model_dump(mode="json")
 
     @app.delete("/api/agent/workspaces/{workspace_id}/files/{path:path}")
-    async def delete_workspace_file(workspace_id: str, path: str) -> dict[str, str]:
-        await require_workspace(workspace_id)
+    async def delete_workspace_file(request: Request, workspace_id: str, path: str) -> dict[str, str]:
+        await require_workspace_for_request(request, workspace_id)
         try:
             return await rt.store.delete_workspace_file(workspace_id, path)
         except AgentError as err:
             raise HTTPException(status_code=404, detail=err.message) from err
 
     @app.get("/api/agent/artifacts")
-    async def list_artifacts(run_id: str | None = None) -> list[dict[str, Any]]:
-        return [
-            artifact.model_dump(mode="json")
-            for artifact in await rt.store.list_artifacts(run_id=run_id)
-        ]
+    async def list_artifacts(request: Request, run_id: str | None = None) -> list[dict[str, Any]]:
+        if run_id is not None:
+            await require_run_for_request(request, run_id)
+        artifacts = []
+        for artifact in await rt.store.list_artifacts(run_id=run_id):
+            if await artifact_visible(request, artifact):
+                artifacts.append(artifact.model_dump(mode="json"))
+        return artifacts
 
     @app.get("/api/agent/artifacts/{artifact_id}")
-    async def get_artifact(artifact_id: str) -> dict[str, Any]:
-        artifact = await rt.store.get_artifact(artifact_id)
-        if not artifact:
-            raise HTTPException(status_code=404, detail="Artifact not found")
+    async def get_artifact(request: Request, artifact_id: str) -> dict[str, Any]:
+        artifact = await require_artifact_for_request(request, artifact_id)
         return artifact.model_dump(mode="json")
 
     @app.post("/api/agent/memory", status_code=201)
@@ -495,9 +547,8 @@ def _identity_value(
 
 
 def _thread_visible(request: Request, thread: AgentThread) -> bool:
-    org_id = request.headers.get("x-aithru-org-id")
     user_id = request.headers.get("x-aithru-user-id")
-    if org_id is not None and thread.org_id != org_id:
+    if not _org_visible(request, thread.org_id):
         return False
     if user_id is not None and thread.owner_user_id != user_id:
         return False
@@ -505,10 +556,14 @@ def _thread_visible(request: Request, thread: AgentThread) -> bool:
 
 
 def _run_visible(request: Request, run: AgentRun) -> bool:
-    org_id = request.headers.get("x-aithru-org-id")
     user_id = request.headers.get("x-aithru-user-id")
-    if org_id is not None and run.org_id != org_id:
+    if not _org_visible(request, run.org_id):
         return False
     if user_id is not None and run.actor_user_id != user_id:
         return False
     return True
+
+
+def _org_visible(request: Request, org_id: str) -> bool:
+    trusted_org_id = request.headers.get("x-aithru-org-id")
+    return trusted_org_id is None or org_id == trusted_org_id

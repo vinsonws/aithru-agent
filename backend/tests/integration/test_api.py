@@ -355,6 +355,175 @@ async def test_agent_api_rejects_run_with_thread_outside_trusted_identity() -> N
 
 
 @pytest.mark.asyncio
+async def test_agent_api_filters_approvals_by_trusted_run_identity() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        policy=ToolPolicy(require_approval_for_risk=["write"]),
+        settings=AgentSettings(api_token="secret-token"),
+    )
+    app = create_app(runtime)
+    user_a_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_a",
+        "X-Aithru-User-Id": "user_a",
+    }
+    user_b_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_b",
+        "X-Aithru-User-Id": "user_b",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        user_a_run = (
+            await client.post("/api/agent/runs", headers=user_a_headers, json={"goal": "User A"})
+        ).json()
+        user_b_run = (
+            await client.post("/api/agent/runs", headers=user_b_headers, json={"goal": "User B"})
+        ).json()
+        await runtime.worker.drain()
+        user_a_run = (await client.get(f"/api/agent/runs/{user_a_run['id']}", headers=user_a_headers)).json()
+        user_b_run = (await client.get(f"/api/agent/runs/{user_b_run['id']}", headers=user_b_headers)).json()
+        user_a_approvals = (await client.get("/api/agent/approvals", headers=user_a_headers)).json()
+        visible_approval = await client.get(
+            f"/api/agent/approvals/{user_a_run['current_approval_id']}",
+            headers=user_a_headers,
+        )
+        hidden_approval = await client.get(
+            f"/api/agent/approvals/{user_b_run['current_approval_id']}",
+            headers=user_a_headers,
+        )
+        hidden_resolve = await client.post(
+            f"/api/agent/approvals/{user_b_run['current_approval_id']}/resolve",
+            headers=user_a_headers,
+            json={"decision": "approved"},
+        )
+
+    assert [approval["id"] for approval in user_a_approvals] == [user_a_run["current_approval_id"]]
+    assert visible_approval.status_code == 200
+    assert visible_approval.json()["id"] == user_a_run["current_approval_id"]
+    assert hidden_approval.status_code == 404
+    assert hidden_approval.json()["detail"] == "Approval not found"
+    assert hidden_resolve.status_code == 404
+    assert hidden_resolve.json()["detail"] == "Approval not found"
+
+
+@pytest.mark.asyncio
+async def test_agent_api_filters_artifacts_by_trusted_run_identity() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        settings=AgentSettings(api_token="secret-token"),
+    )
+    app = create_app(runtime)
+    user_a_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_a",
+        "X-Aithru-User-Id": "user_a",
+    }
+    user_b_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_b",
+        "X-Aithru-User-Id": "user_b",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        user_a_run = (
+            await client.post("/api/agent/runs", headers=user_a_headers, json={"goal": "User A"})
+        ).json()
+        user_b_run = (
+            await client.post("/api/agent/runs", headers=user_b_headers, json={"goal": "User B"})
+        ).json()
+        await runtime.worker.drain()
+        user_a_artifacts = (await client.get("/api/agent/artifacts", headers=user_a_headers)).json()
+        user_b_artifacts = (
+            await client.get(
+                "/api/agent/artifacts",
+                headers=user_b_headers,
+                params={"run_id": user_b_run["id"]},
+            )
+        ).json()
+        hidden_artifact = await client.get(
+            f"/api/agent/artifacts/{user_b_artifacts[0]['id']}",
+            headers=user_a_headers,
+        )
+        hidden_run_artifacts = await client.get(
+            "/api/agent/artifacts",
+            headers=user_a_headers,
+            params={"run_id": user_b_run["id"]},
+        )
+        visible_artifact = await client.get(
+            f"/api/agent/artifacts/{user_a_artifacts[0]['id']}",
+            headers=user_a_headers,
+        )
+
+    assert [artifact["run_id"] for artifact in user_a_artifacts] == [user_a_run["id"]]
+    assert hidden_artifact.status_code == 404
+    assert hidden_artifact.json()["detail"] == "Artifact not found"
+    assert hidden_run_artifacts.status_code == 404
+    assert hidden_run_artifacts.json()["detail"] == "Run not found"
+    assert visible_artifact.status_code == 200
+    assert visible_artifact.json()["id"] == user_a_artifacts[0]["id"]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_rejects_workspace_access_outside_trusted_identity() -> None:
+    runtime = create_agent_runtime(
+        driver=file_report_driver(),
+        settings=AgentSettings(api_token="secret-token"),
+    )
+    app = create_app(runtime)
+    user_a_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_a",
+        "X-Aithru-User-Id": "user_a",
+    }
+    user_b_headers = {
+        "Authorization": "Bearer secret-token",
+        "X-Aithru-Org-Id": "org_b",
+        "X-Aithru-User-Id": "user_b",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        user_a_run = (
+            await client.post("/api/agent/runs", headers=user_a_headers, json={"goal": "User A"})
+        ).json()
+        user_b_run = (
+            await client.post("/api/agent/runs", headers=user_b_headers, json={"goal": "User B"})
+        ).json()
+        await runtime.worker.drain()
+        visible_files = await client.get(
+            f"/api/agent/workspaces/{user_a_run['workspace_id']}/files",
+            headers=user_a_headers,
+        )
+        hidden_files = await client.get(
+            f"/api/agent/workspaces/{user_b_run['workspace_id']}/files",
+            headers=user_a_headers,
+        )
+        hidden_read = await client.get(
+            f"/api/agent/workspaces/{user_b_run['workspace_id']}/files/reports/report.md",
+            headers=user_a_headers,
+        )
+        hidden_write = await client.put(
+            f"/api/agent/workspaces/{user_b_run['workspace_id']}/files/notes.md",
+            headers=user_a_headers,
+            json={"content": "nope", "media_type": "text/plain"},
+        )
+        hidden_delete = await client.delete(
+            f"/api/agent/workspaces/{user_b_run['workspace_id']}/files/reports/report.md",
+            headers=user_a_headers,
+        )
+
+    assert visible_files.status_code == 200
+    assert hidden_files.status_code == 404
+    assert hidden_files.json()["detail"] == "Workspace not found"
+    assert hidden_read.status_code == 404
+    assert hidden_read.json()["detail"] == "Workspace not found"
+    assert hidden_write.status_code == 404
+    assert hidden_write.json()["detail"] == "Workspace not found"
+    assert hidden_delete.status_code == 404
+    assert hidden_delete.json()["detail"] == "Workspace not found"
+
+
+@pytest.mark.asyncio
 async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
     runtime = create_agent_runtime(driver=file_report_driver())
     app = create_app(runtime)
