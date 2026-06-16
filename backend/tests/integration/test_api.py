@@ -1202,6 +1202,28 @@ async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_rejects_run_tools_for_unresolvable_run_skill() -> None:
+    runtime = create_agent_runtime()
+    app = create_app(runtime)
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    run = await runtime.store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Inspect tools with missing skill",
+        workspace_id=workspace.id,
+        scopes=["*"],
+        skill_id="missing-skill",
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/api/agent/runs/{run.id}/tools")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Skill not found: missing-skill"
+
+
+@pytest.mark.asyncio
 async def test_agent_api_hides_sandbox_tools_when_skill_disables_sandbox() -> None:
     skill = AgentSkill(
         id="skill_1",

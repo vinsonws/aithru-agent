@@ -152,6 +152,14 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Artifact not found")
         return artifact
 
+    def resolve_run_skill_for_request(run: AgentRun):
+        if not run.skill_id:
+            return None
+        skill = rt.skill_resolver.resolve(run.skill_id)
+        if not skill or skill.org_id != run.org_id:
+            raise HTTPException(status_code=409, detail=f"Skill not found: {run.skill_id}")
+        return skill
+
     @app.get("/api/agent/health")
     async def health() -> dict[str, object]:
         return {"ok": True, "service": "aithru-agent-backend"}
@@ -300,7 +308,7 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
     @app.get("/api/agent/runs/{run_id}/tools")
     async def get_run_tools(request: Request, run_id: str) -> list[dict[str, Any]]:
         run = await require_run_for_request(request, run_id)
-        skill = rt.skill_resolver.resolve(run.skill_id) if run.skill_id else None
+        skill = resolve_run_skill_for_request(run)
         context = context_builder.build(run, run.scopes, skill)
         tools = await rt.capability_router.list_tools(context)
         return [tool.model_dump(mode="json") for tool in tools]
