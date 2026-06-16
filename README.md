@@ -144,6 +144,8 @@ GET    /api/agent/subagents/{key}
 
 Run streams replay existing events by default. Add `follow=true` to wait for new
 SSE events until the run reaches a terminal state or the stream timeout expires.
+Completed runs expose `result.content`, `result.artifact_ids`, and message
+references on the run record and in the `run.completed` event payload.
 `POST /api/agent/runs` accepts optional `harness_options.model` and
 `harness_options.instructions` fields for per-run model selection and extra
 run instructions. These are Aithru run options, not Pydantic AI public objects.

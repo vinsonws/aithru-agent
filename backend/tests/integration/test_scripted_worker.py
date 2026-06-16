@@ -63,8 +63,12 @@ async def test_scripted_worker_executes_tools_writes_events_and_completes_run() 
     event_types = [event.type for event in events]
 
     assert stored_run.status == AgentRunStatus.COMPLETED
+    assert stored_run.result is not None
+    assert stored_run.result.content == "I will inspect the workspace.\nReport complete."
     assert file.content == "# Report\nDone.\n"
-    assert await store.list_artifacts(run_id=run.id)
+    artifacts = await store.list_artifacts(run_id=run.id)
+    assert artifacts
+    assert stored_run.result.artifact_ids == [artifacts[0].id]
     assert event_types == [
         "run.created",
         "run.started",
@@ -88,6 +92,7 @@ async def test_scripted_worker_executes_tools_writes_events_and_completes_run() 
         "message.completed",
         "run.completed",
     ]
+    assert events[-1].payload["result"] == stored_run.result.model_dump(mode="json")
 
 
 @pytest.mark.asyncio

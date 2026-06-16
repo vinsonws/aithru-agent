@@ -45,6 +45,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Run stream follow mode waits for new SSE events until terminal run state or timeout.
 - Event writer redaction for common sensitive payload keys before replay or SSE output.
 - Run snapshot inspection with events, trace, todos, approvals, workspace file summaries, artifacts, and subagent runs.
+- Completed runs store a result summary with final content, artifact ids, and message references.
 - Runtime user input for active threaded runs through persisted messages and stream events.
 - Completed assistant replies are persisted back to their Agent Thread for future run context.
 - Local workspace, todo, artifact, memory, subagent, and sandbox tools behind the capability router.

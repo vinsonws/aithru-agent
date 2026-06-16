@@ -5,6 +5,7 @@ from aithru_agent.domain import (
     AgentApprovalDecision,
     AgentRun,
     AgentRunHarnessOptions,
+    AgentRunResult,
     AgentRunSource,
     AgentRunStatus,
     AgentSubagentRunStatus,
@@ -662,17 +663,25 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload=message_payload,
         )
+        artifacts = await self._store.list_artifacts(run_id=run.id)
+        result = AgentRunResult(
+            content=content or None,
+            artifact_ids=[artifact.id for artifact in artifacts],
+            message_id=message_id,
+            thread_message_id=persisted_message_id,
+        )
         run = await self._store.update_run(
             run.id,
             status=AgentRunStatus.COMPLETED,
             completed_at=_event_completed_at_marker(),
+            result=result,
         )
         await self._event_writer.write(
             run_id=run.id,
             thread_id=thread_id,
             type="run.completed",
             source={"kind": "harness"},
-            payload={"status": "completed"},
+            payload={"status": "completed", "result": result.model_dump(mode="json")},
         )
         await self._emit_parent_subagent_completed(run, content)
         return run

@@ -293,6 +293,12 @@ type AgentRun = {
     | "failed"
     | "cancelled";
   workspaceId: string;
+  result?: {
+    content?: string;
+    artifactIds: string[];
+    messageId?: string;
+    threadMessageId?: string;
+  };
   startedAt: string;
   completedAt?: string;
 };

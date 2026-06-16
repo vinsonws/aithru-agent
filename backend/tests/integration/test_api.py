@@ -81,7 +81,9 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
     assert message_response.status_code == 201
     assert run_response.status_code == 201
     assert run_detail["status"] == "completed"
+    assert run_detail["result"]["content"] == "I will write the report.\n"
     assert [event["type"] for event in events][-1] == "run.completed"
+    assert events[-1]["payload"]["result"]["artifact_ids"] == [artifacts[0]["id"]]
     assert {span["kind"] for span in trace} >= {"run", "model", "tool", "workspace", "artifact"}
     assert next(span for span in trace if span["kind"] == "run")["status"] == "completed"
     assert "event: run.completed" in stream.text

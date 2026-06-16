@@ -25,6 +25,13 @@ class AgentRunHarnessOptions(AithruBaseModel):
     instructions: str | None = None
 
 
+class AgentRunResult(AithruBaseModel):
+    content: str | None = None
+    artifact_ids: list[str] = []
+    message_id: str | None = None
+    thread_message_id: str | None = None
+
+
 class AgentRun(AithruBaseModel):
     id: str
     org_id: str
@@ -40,4 +47,5 @@ class AgentRun(AithruBaseModel):
     started_at: str
     completed_at: str | None = None
     current_approval_id: str | None = None
+    result: AgentRunResult | None = None
     error: dict | None = None
