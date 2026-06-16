@@ -79,6 +79,43 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
                 )
             continue
 
+        if event.type == "todo.created":
+            todo_id = _payload_value(event, "todo_id", "todoId", "id") or f"{event.sequence}"
+            title = _payload_value(event, "title") or "todo"
+            status = _payload_value(event, "status")
+            spans[f"todo:{todo_id}"] = _start_span(
+                event,
+                "todo",
+                str(title),
+                refs={"todo_id": todo_id, "status": status} if status else {"todo_id": todo_id},
+            )
+            if status in {"done", "blocked", "cancelled"}:
+                _finish_span(spans, f"todo:{todo_id}", event, _todo_span_status(status))
+            continue
+        if event.type in {"todo.updated", "todo.completed", "todo.blocked", "todo.cancelled"}:
+            todo_id = _payload_value(event, "todo_id", "todoId", "id")
+            if todo_id:
+                span_id = f"todo:{todo_id}"
+                existing = spans.get(span_id)
+                status_value = _payload_value(event, "status") or _todo_status_from_event_type(event.type)
+                if existing:
+                    spans[span_id] = existing.model_copy(
+                        update={
+                            "name": str(_payload_value(event, "title") or existing.name),
+                            "refs": {"todo_id": todo_id, "status": status_value},
+                        }
+                    )
+                else:
+                    spans[span_id] = _start_span(
+                        event,
+                        "todo",
+                        str(_payload_value(event, "title") or "todo"),
+                        refs={"todo_id": todo_id, "status": status_value},
+                    )
+                if status_value in {"done", "blocked", "cancelled"}:
+                    _finish_span(spans, span_id, event, _todo_span_status(status_value))
+            continue
+
         if event.type == "subagent.started":
             subagent_run_id = _payload_value(event, "subagent_run_id", "subagentRunId") or f"{event.sequence}"
             child_run_id = _payload_value(event, "child_run_id", "childRunId")
@@ -232,3 +269,27 @@ def _payload_value(event: AgentStreamEvent, *keys: str) -> object | None:
         if key in event.payload:
             return event.payload[key]
     return None
+
+
+def _todo_status_from_event_type(event_type: str) -> str | None:
+    match event_type:
+        case "todo.completed":
+            return "done"
+        case "todo.blocked":
+            return "blocked"
+        case "todo.cancelled":
+            return "cancelled"
+        case _:
+            return None
+
+
+def _todo_span_status(status: object) -> AgentTraceSpanStatus:
+    match status:
+        case "done":
+            return "completed"
+        case "cancelled":
+            return "cancelled"
+        case "blocked":
+            return "failed"
+        case _:
+            return "running"

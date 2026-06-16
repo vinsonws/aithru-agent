@@ -117,3 +117,29 @@ def test_projects_memory_spans() -> None:
     assert [span.status for span in memory_spans] == ["completed", "completed"]
     assert memory_spans[0].refs == {"operation": "write", "memory_scope": "user"}
     assert memory_spans[1].refs == {"operation": "read", "count": 1}
+
+
+def test_projects_todo_spans() -> None:
+    spans = project_trace_spans(
+        [
+            ev(
+                1,
+                "todo.created",
+                {"id": "todo_1", "title": "Read files", "status": "running"},
+                "harness",
+            ),
+            ev(
+                2,
+                "todo.updated",
+                {"id": "todo_1", "title": "Read files", "status": "done"},
+                "harness",
+            ),
+        ]
+    )
+
+    by_id = {span.id: span for span in spans}
+
+    assert by_id["todo:todo_1"].kind == "todo"
+    assert by_id["todo:todo_1"].name == "Read files"
+    assert by_id["todo:todo_1"].status == "completed"
+    assert by_id["todo:todo_1"].refs == {"todo_id": "todo_1", "status": "done"}
