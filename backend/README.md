@@ -55,6 +55,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - HTTP workspace writes validate text content before entering persistence.
 - Run event and stream reads validate run references before replay.
 - Memory tools emit read/write events and trace spans.
+- Memory tools bind user/thread/workspace/organization/skill scope ids to the current run context.
 - Workspace tools enforce skill path policy at execution time.
 - Skill approval policy contributes execution-time approval requirements.
 - Runtime subagent delegation with parent/child run links, events, and trace spans.

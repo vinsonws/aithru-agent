@@ -222,3 +222,136 @@ async def test_memory_tools_remember_and_search_entries() -> None:
     assert remember.output["scope_id"] == "user_1"
     assert search.status == "completed"
     assert [entry["key"] for entry in search.output["entries"]] == ["project.style"]
+
+
+@pytest.mark.asyncio
+async def test_memory_search_cannot_read_another_user_scope() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.read"])
+    router = make_router(store)
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="user",
+        scope_id="other_user",
+        key="private.preference",
+        value="Do not reveal.",
+    )
+
+    search = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.search",
+            input={"scope": "user", "scope_id": "other_user"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert search.status == "denied"
+    assert search.error["message"] == "Memory scope_id is outside the current run context: user"
+
+
+@pytest.mark.asyncio
+async def test_memory_search_without_scope_only_reads_current_context_scopes() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.read"])
+    router = make_router(store)
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="user",
+        scope_id=context.actor_user_id,
+        key="current.preference",
+        value="Visible current memory.",
+    )
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="user",
+        scope_id="other_user",
+        key="other.preference",
+        value="Visible other memory.",
+    )
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="workspace",
+        scope_id=context.workspace_id,
+        key="workspace.note",
+        value="Visible workspace memory.",
+    )
+
+    search = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.search",
+            input={"query": "Visible"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert search.status == "completed"
+    assert [entry["key"] for entry in search.output["entries"]] == [
+        "current.preference",
+        "workspace.note",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_memory_remember_cannot_write_another_user_scope() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.write"])
+    router = make_router(store)
+
+    remember = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.remember",
+            input={
+                "scope": "user",
+                "scope_id": "other_user",
+                "key": "private.preference",
+                "value": "Wrong user.",
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+    entries = await store.list_memory_entries(org_id=context.org_id, scope="user")
+
+    assert remember.status == "denied"
+    assert remember.error["message"] == "Memory scope_id is outside the current run context: user"
+    assert entries == []
+
+
+@pytest.mark.asyncio
+async def test_memory_tools_reject_unknown_scope() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.read", "agent.memory.write"])
+    router = make_router(store)
+
+    search = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.search",
+            input={"scope": "global"},
+            requested_by="model",
+        ),
+        context,
+    )
+    remember = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_2",
+            tool_name="memory.remember",
+            input={"scope": "global", "key": "x", "value": "y"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert search.status == "denied"
+    assert search.error["message"] == "Unsupported memory scope: global"
+    assert remember.status == "denied"
+    assert remember.error["message"] == "Unsupported memory scope: global"
