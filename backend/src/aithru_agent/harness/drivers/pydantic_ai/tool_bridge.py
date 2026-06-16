@@ -170,6 +170,28 @@ class PydanticAIToolBridge:
                 source={"kind": "artifact"},
                 payload=output,
             )
+        elif tool_name == "memory.search":
+            entries = output.get("entries") if isinstance(output.get("entries"), list) else []
+            await self._event_writer.write(
+                run_id=self._run.id,
+                thread_id=self._run.thread_id,
+                type="memory.read",
+                source={"kind": "memory"},
+                payload={"operation": "read", "count": len(entries)},
+            )
+        elif tool_name == "memory.remember":
+            await self._event_writer.write(
+                run_id=self._run.id,
+                thread_id=self._run.thread_id,
+                type="memory.written",
+                source={"kind": "memory"},
+                payload={
+                    "operation": "write",
+                    "memory_id": output.get("id"),
+                    "memory_scope": output.get("scope"),
+                    "key": output.get("key"),
+                },
+            )
 
 
 def _tool_result_error_message(error: dict | None) -> str:

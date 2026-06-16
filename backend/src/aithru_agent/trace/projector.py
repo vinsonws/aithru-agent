@@ -150,6 +150,30 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
             )
             _finish_span(spans, span_id, event, "completed")
 
+        if event.type in {"memory.read", "memory.written", "memory.skipped"}:
+            span_id = f"memory:{event.run_id}:{event.sequence}"
+            refs = {
+                key: value
+                for key, value in {
+                    "operation": _payload_value(event, "operation"),
+                    "memory_scope": _payload_value(event, "memory_scope", "memoryScope", "scope"),
+                    "count": _payload_value(event, "count"),
+                }.items()
+                if value is not None
+            }
+            spans[span_id] = _start_span(
+                event,
+                "memory",
+                event.type,
+                refs=refs or None,
+            )
+            _finish_span(
+                spans,
+                span_id,
+                event,
+                "failed" if event.type == "memory.skipped" else "completed",
+            )
+
     return list(spans.values())
 
 

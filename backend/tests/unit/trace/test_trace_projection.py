@@ -96,3 +96,24 @@ def test_projects_subagent_span() -> None:
         "subagent_run_id": "subagent_run_1",
         "child_run_id": "run_2",
     }
+
+
+def test_projects_memory_spans() -> None:
+    spans = project_trace_spans(
+        [
+            ev(1, "run.created", {"status": "queued"}),
+            ev(
+                2,
+                "memory.written",
+                {"operation": "write", "memory_scope": "user", "memory_id": "memory_1"},
+                "memory",
+            ),
+            ev(3, "memory.read", {"operation": "read", "count": 1}, "memory"),
+        ]
+    )
+
+    memory_spans = [span for span in spans if span.kind == "memory"]
+
+    assert [span.status for span in memory_spans] == ["completed", "completed"]
+    assert memory_spans[0].refs == {"operation": "write", "memory_scope": "user"}
+    assert memory_spans[1].refs == {"operation": "read", "count": 1}

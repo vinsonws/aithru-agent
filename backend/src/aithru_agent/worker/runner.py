@@ -811,6 +811,28 @@ class AgentWorkerRunner:
                 source={"kind": "artifact"},
                 payload=output,
             )
+        elif tool_name == "memory.search":
+            entries = output.get("entries") if isinstance(output.get("entries"), list) else []
+            await self._event_writer.write(
+                run_id=run.id,
+                thread_id=run.thread_id,
+                type="memory.read",
+                source={"kind": "memory"},
+                payload={"operation": "read", "count": len(entries)},
+            )
+        elif tool_name == "memory.remember":
+            await self._event_writer.write(
+                run_id=run.id,
+                thread_id=run.thread_id,
+                type="memory.written",
+                source={"kind": "memory"},
+                payload={
+                    "operation": "write",
+                    "memory_id": output.get("id"),
+                    "memory_scope": output.get("scope"),
+                    "key": output.get("key"),
+                },
+            )
 
 
 def _event_completed_at_marker() -> str:
