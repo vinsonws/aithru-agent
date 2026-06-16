@@ -3,7 +3,13 @@ from dataclasses import dataclass
 
 from aithru_agent.domain import AgentApprovalDecision, AgentRun, AgentRunStatus, AgentToolCallRequest
 from aithru_agent.domain.errors import AgentError
-from aithru_agent.harness import AgentHarnessDriver, ContextBuilder, HarnessStep, HarnessToolCall
+from aithru_agent.harness import (
+    AgentHarnessDriver,
+    ContextBuilder,
+    HarnessRunDeps,
+    HarnessStep,
+    HarnessToolCall,
+)
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.stream import AgentEventWriter
 
@@ -91,7 +97,15 @@ class AgentWorkerRunner:
 
         context = self._context_builder.build(run, scopes)
         final_content: list[str] = []
-        steps = await self._driver.run(run.goal)
+        steps = await self._driver.run(
+            run.goal,
+            HarnessRunDeps(
+                run=run,
+                run_context=context,
+                event_writer=self._event_writer,
+                capability_router=self._capability_router,
+            ),
+        )
         for index, step in enumerate(steps):
             if step.type == "message" and step.text is not None:
                 final_content.append(step.text)

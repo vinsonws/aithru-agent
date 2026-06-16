@@ -1,8 +1,11 @@
-from pydantic_ai import Agent
+from typing import Any
+
+from pydantic_ai import Agent, RunContext, Tool
 from pydantic_ai.messages import PartDeltaEvent, TextPartDelta
 from pydantic_ai.run import AgentRunResultEvent
 
-from aithru_agent.harness.engine import HarnessStep
+from aithru_agent.harness.drivers.pydantic_ai.tool_bridge import PydanticAIToolBridge
+from aithru_agent.harness.engine import HarnessRunDeps, HarnessStep
 
 
 class PydanticAIHarnessDriver:
@@ -15,11 +18,13 @@ class PydanticAIHarnessDriver:
         self._model = model
         self._instructions = instructions or "You are Aithru Agent. Help the user complete the task."
 
-    async def run(self, goal: str | None = None) -> list[HarnessStep]:
+    async def run(self, goal: str | None = None, deps: HarnessRunDeps | None = None) -> list[HarnessStep]:
+        tools = await self._build_tools(deps) if deps else []
         agent = Agent(
             self._model,
             instructions=self._instructions,
             output_type=str,
+            tools=tools,
         )
         steps: list[HarnessStep] = []
         async with agent.run_stream_events(goal or "") as stream:
@@ -32,3 +37,35 @@ class PydanticAIHarnessDriver:
         if not steps or steps[-1].type != "finish":
             steps.append(HarnessStep(type="finish"))
         return steps
+
+    async def _build_tools(self, deps: HarnessRunDeps | None) -> list[Tool]:
+        if deps is None:
+            return []
+        descriptors = await deps.capability_router.list_tools(deps.run_context)
+        bridge = PydanticAIToolBridge(
+            run=deps.run,
+            run_context=deps.run_context,
+            event_writer=deps.event_writer,
+            capability_router=deps.capability_router,
+        )
+
+        def make_tool(tool_name: str, description: str) -> Tool:
+            async def aithru_tool(
+                ctx: RunContext[None],
+                input: dict[str, Any] | None = None,
+            ) -> object:
+                tool_call_id = ctx.tool_call_id or f"pydantic:{tool_name}:{ctx.run_step}"
+                return await bridge.call_tool(
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    tool_input=input or {},
+                )
+
+            return Tool(
+                aithru_tool,
+                takes_ctx=True,
+                name=tool_name,
+                description=description,
+            )
+
+        return [make_tool(descriptor.name, descriptor.description) for descriptor in descriptors]

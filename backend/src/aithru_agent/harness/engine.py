@@ -15,6 +15,14 @@ class HarnessStep:
     tool_call: HarnessToolCall | None = None
 
 
+@dataclass(frozen=True)
+class HarnessRunDeps:
+    run: Any
+    run_context: Any
+    event_writer: Any
+    capability_router: Any
+
+
 class AgentHarnessDriver(Protocol):
-    async def run(self, goal: str | None = None) -> list[HarnessStep]:
+    async def run(self, goal: str | None = None, deps: HarnessRunDeps | None = None) -> list[HarnessStep]:
         ...
