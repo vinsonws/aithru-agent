@@ -59,6 +59,10 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
             },
         )
         run = run_response.json()
+
+        assert run["status"] == "queued"
+        await runtime.worker.drain()
+
         run_detail = (await client.get(f"/api/agent/runs/{run['id']}")).json()
         events = (await client.get(f"/api/agent/runs/{run['id']}/events")).json()
         trace = (await client.get(f"/api/agent/runs/{run['id']}/trace")).json()
@@ -97,6 +101,7 @@ async def test_agent_api_resolves_approval_and_resumes_run() -> None:
             json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
         )
         run = run_response.json()
+        await runtime.worker.drain()
         approvals = (await client.get("/api/agent/approvals")).json()
         resolved = await client.post(
             f"/api/agent/approvals/{approvals[0]['id']}/resolve",
@@ -104,7 +109,7 @@ async def test_agent_api_resolves_approval_and_resumes_run() -> None:
         )
         run_detail = (await client.get(f"/api/agent/runs/{run['id']}")).json()
 
-    assert run["status"] == "waiting_approval"
+    assert run["status"] == "queued"
     assert approvals[0]["status"] == "pending"
     assert resolved.status_code == 200
     assert run_detail["status"] == "completed"

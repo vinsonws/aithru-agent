@@ -28,6 +28,7 @@ class CreateRunRequest(BaseModel):
     scopes: list[str] = Field(default_factory=lambda: ["*"])
     thread_id: str | None = None
     skill_id: str | None = None
+    wait_for_completion: bool = False
 
 
 class ResolveApprovalRequest(BaseModel):
@@ -83,16 +84,20 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.post("/api/agent/runs", status_code=201)
     async def create_run(body: CreateRunRequest) -> dict[str, Any]:
-        run = await rt.runner.start_run(
-            org_id=body.org_id,
-            actor_user_id=body.actor_user_id,
-            goal=body.goal,
-            scopes=body.scopes,
-            thread_id=body.thread_id,
-            skill_id=body.skill_id,
-        )
-        latest = await rt.store.get_run(run.id)
-        return (latest or run).model_dump(mode="json")
+        run_kwargs = {
+            "org_id": body.org_id,
+            "actor_user_id": body.actor_user_id,
+            "goal": body.goal,
+            "scopes": body.scopes,
+            "thread_id": body.thread_id,
+            "skill_id": body.skill_id,
+        }
+        if body.wait_for_completion:
+            run = await rt.runner.start_run(**run_kwargs)
+            latest = await rt.store.get_run(run.id)
+            return (latest or run).model_dump(mode="json")
+        run = await rt.worker.submit_run(**run_kwargs)
+        return run.model_dump(mode="json")
 
     @app.get("/api/agent/runs")
     async def list_runs() -> list[dict[str, Any]]:
