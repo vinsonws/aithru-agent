@@ -27,6 +27,7 @@ Agent owns intelligent harness behavior:
 - controlled Agent Tools;
 - Workspaces;
 - Artifacts;
+- Memory entries;
 - Agent-owned Approvals;
 - replayable Agent stream events;
 - Agent trace projection;
@@ -78,6 +79,8 @@ todo.create
 todo.update
 artifact.create
 artifact.finalize
+memory.search
+memory.remember
 ```
 
 ## Run Locally
@@ -125,6 +128,8 @@ PUT    /api/agent/workspaces/{workspace_id}/files/{path}
 DELETE /api/agent/workspaces/{workspace_id}/files/{path}
 GET    /api/agent/artifacts
 GET    /api/agent/artifacts/{artifact_id}
+POST   /api/agent/memory
+GET    /api/agent/memory
 ```
 
 ## Verification

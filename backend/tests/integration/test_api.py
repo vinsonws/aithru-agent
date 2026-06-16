@@ -188,3 +188,33 @@ async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
     assert tools_response.status_code == 200
     assert [tool["name"] for tool in tools] == ["workspace.list_files"]
     assert tools[0]["kind"] == "local_tool"
+
+
+@pytest.mark.asyncio
+async def test_agent_api_creates_and_lists_memory_entries() -> None:
+    runtime = create_agent_runtime()
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created_response = await client.post(
+            "/api/agent/memory",
+            json={
+                "org_id": "org_1",
+                "scope": "user",
+                "scope_id": "user_1",
+                "key": "preference.language",
+                "value": "Prefers Chinese summaries.",
+            },
+        )
+        listed = (
+            await client.get(
+                "/api/agent/memory",
+                params={"org_id": "org_1", "scope": "user", "query": "Chinese"},
+            )
+        ).json()
+
+    created = created_response.json()
+
+    assert created_response.status_code == 201
+    assert created["key"] == "preference.language"
+    assert [entry["id"] for entry in listed] == [created["id"]]

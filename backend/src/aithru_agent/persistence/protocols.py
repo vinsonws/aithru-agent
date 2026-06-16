@@ -10,6 +10,7 @@ from aithru_agent.domain import (
     AgentApprovalDecision,
     AgentApprovalStatus,
     AgentArtifact,
+    AgentMemoryEntry,
     AgentMessage,
     AgentMessageRole,
     AgentRun,
@@ -201,6 +202,32 @@ class AgentStore(Protocol):
         ...
 
     async def finalize_artifact(self, artifact_id: str) -> AgentArtifact:
+        ...
+
+    async def create_memory_entry(
+        self,
+        *,
+        org_id: str,
+        scope: str,
+        key: str,
+        value: str,
+        scope_id: str | None = None,
+        owner: str | None = None,
+        source: str | None = None,
+        confidence: float | None = None,
+        visibility: str | None = None,
+        retention: str | None = None,
+    ) -> AgentMemoryEntry:
+        ...
+
+    async def list_memory_entries(
+        self,
+        *,
+        org_id: str,
+        scope: str | None = None,
+        scope_id: str | None = None,
+        query: str | None = None,
+    ) -> list[AgentMemoryEntry]:
         ...
 
 

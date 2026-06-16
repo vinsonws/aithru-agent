@@ -7,6 +7,7 @@ from aithru_agent.domain import (
     AgentApprovalDecision,
     AgentApprovalStatus,
     AgentArtifact,
+    AgentMemoryEntry,
     AgentMessage,
     AgentRun,
     AgentRunSource,
@@ -65,6 +66,7 @@ class InMemoryAgentStore:
         self._workspaces: dict[str, AgentWorkspace] = {}
         self._workspace_files: dict[tuple[str, str], tuple[AgentWorkspaceFile, WorkspaceFileContent]] = {}
         self._artifacts: dict[str, AgentArtifact] = {}
+        self._memory_entries: dict[str, AgentMemoryEntry] = {}
 
     async def create_thread(
         self,
@@ -395,3 +397,58 @@ class InMemoryAgentStore:
         finalized = artifact.model_copy(update={"finalized_at": utc_now()})
         self._artifacts[artifact_id] = finalized
         return finalized
+
+    async def create_memory_entry(
+        self,
+        *,
+        org_id: str,
+        scope: str,
+        key: str,
+        value: str,
+        scope_id: str | None = None,
+        owner: str | None = None,
+        source: str | None = None,
+        confidence: float | None = None,
+        visibility: str | None = None,
+        retention: str | None = None,
+    ) -> AgentMemoryEntry:
+        now = utc_now()
+        entry = AgentMemoryEntry(
+            id=self._ids.next("memory"),
+            org_id=org_id,
+            scope=scope,
+            scope_id=scope_id,
+            key=key,
+            value=value,
+            owner=owner,
+            source=source,
+            confidence=confidence,
+            visibility=visibility,
+            retention=retention,
+            created_at=now,
+            updated_at=now,
+        )
+        self._memory_entries[entry.id] = entry
+        return entry
+
+    async def list_memory_entries(
+        self,
+        *,
+        org_id: str,
+        scope: str | None = None,
+        scope_id: str | None = None,
+        query: str | None = None,
+    ) -> list[AgentMemoryEntry]:
+        entries = [entry for entry in self._memory_entries.values() if entry.org_id == org_id]
+        if scope is not None:
+            entries = [entry for entry in entries if entry.scope == scope]
+        if scope_id is not None:
+            entries = [entry for entry in entries if entry.scope_id == scope_id]
+        if query:
+            needle = query.lower()
+            entries = [
+                entry
+                for entry in entries
+                if needle in entry.key.lower() or needle in entry.value.lower()
+            ]
+        return entries

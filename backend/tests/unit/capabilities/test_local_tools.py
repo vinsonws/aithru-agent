@@ -7,6 +7,7 @@ from aithru_agent.capabilities import (
 )
 from aithru_agent.capabilities.local_tools import (
     ArtifactLocalTool,
+    MemoryLocalTool,
     TodoLocalTool,
     WorkspaceLocalTool,
 )
@@ -43,6 +44,7 @@ def make_router(store: InMemoryAgentStore, policy: ToolPolicy | None = None) -> 
             WorkspaceLocalTool(store),
             TodoLocalTool(store),
             ArtifactLocalTool(store),
+            MemoryLocalTool(store),
         ],
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )
@@ -61,6 +63,20 @@ async def test_router_lists_local_tools_with_risk_and_scopes() -> None:
     assert by_name["workspace.write_file"].risk_level == "write"
     assert by_name["todo.create"].required_scopes == ["agent.todo.write"]
     assert by_name["artifact.create"].required_scopes == ["agent.artifact.write"]
+
+
+@pytest.mark.asyncio
+async def test_router_lists_only_tools_allowed_by_run_scopes() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes = ["agent.workspace.read"]
+    router = make_router(store)
+
+    tool_names = [tool.name for tool in await router.list_tools(context)]
+
+    assert "workspace.read_file" in tool_names
+    assert "workspace.write_file" not in tool_names
+    assert "memory.search" not in tool_names
 
 
 @pytest.mark.asyncio
@@ -154,3 +170,36 @@ async def test_todo_and_artifact_tools_return_normalized_results() -> None:
     assert artifact_result.status == "completed"
     assert artifact_result.output["type"] == "report"
     assert artifact_result.output["uri"] == "/reports/report.md"
+
+
+@pytest.mark.asyncio
+async def test_memory_tools_remember_and_search_entries() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.read", "agent.memory.write"])
+    router = make_router(store)
+
+    remember = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.remember",
+            input={"key": "project.style", "value": "Use concise Chinese summaries.", "scope": "user"},
+            requested_by="model",
+        ),
+        context,
+    )
+    search = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_2",
+            tool_name="memory.search",
+            input={"query": "Chinese", "scope": "user"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert remember.status == "completed"
+    assert remember.output["key"] == "project.style"
+    assert remember.output["scope_id"] == "user_1"
+    assert search.status == "completed"
+    assert [entry["key"] for entry in search.output["entries"]] == ["project.style"]

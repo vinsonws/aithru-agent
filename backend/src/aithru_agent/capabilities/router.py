@@ -35,6 +35,11 @@ class AithruCapabilityRouter:
         tools: list[AgentToolDescriptor] = []
         for adapter in self._adapters:
             tools.extend(adapter.list_tools())
+        tools = [
+            tool
+            for tool in tools
+            if all(scope in context.scopes or "*" in context.scopes for scope in tool.required_scopes)
+        ]
         if context.allowed_tools is not None:
             allowed = set(context.allowed_tools)
             tools = [tool for tool in tools if tool.name in allowed]

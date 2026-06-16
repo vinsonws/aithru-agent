@@ -42,6 +42,19 @@ class WriteWorkspaceFileRequest(BaseModel):
     media_type: str | None = None
 
 
+class CreateMemoryEntryRequest(BaseModel):
+    org_id: str = "org_1"
+    scope: str
+    key: str = Field(min_length=1)
+    value: str = Field(min_length=1)
+    scope_id: str | None = None
+    owner: str | None = None
+    source: str | None = None
+    confidence: float | None = None
+    visibility: str | None = None
+    retention: str | None = None
+
+
 def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
     rt = runtime or create_agent_runtime()
     app = FastAPI(title="Aithru Agent Backend")
@@ -235,6 +248,37 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         if not artifact:
             raise HTTPException(status_code=404, detail="Artifact not found")
         return artifact.model_dump(mode="json")
+
+    @app.post("/api/agent/memory", status_code=201)
+    async def create_memory_entry(body: CreateMemoryEntryRequest) -> dict[str, Any]:
+        entry = await rt.store.create_memory_entry(
+            org_id=body.org_id,
+            scope=body.scope,
+            scope_id=body.scope_id,
+            key=body.key,
+            value=body.value,
+            owner=body.owner,
+            source=body.source,
+            confidence=body.confidence,
+            visibility=body.visibility,
+            retention=body.retention,
+        )
+        return entry.model_dump(mode="json")
+
+    @app.get("/api/agent/memory")
+    async def list_memory_entries(
+        org_id: str = "org_1",
+        scope: str | None = None,
+        scope_id: str | None = None,
+        query: str | None = None,
+    ) -> list[dict[str, Any]]:
+        entries = await rt.store.list_memory_entries(
+            org_id=org_id,
+            scope=scope,
+            scope_id=scope_id,
+            query=query,
+        )
+        return [entry.model_dump(mode="json") for entry in entries]
 
     return app
 

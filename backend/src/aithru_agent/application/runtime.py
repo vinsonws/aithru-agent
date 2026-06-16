@@ -1,7 +1,12 @@
 from dataclasses import dataclass
 
 from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
-from aithru_agent.capabilities.local_tools import ArtifactLocalTool, TodoLocalTool, WorkspaceLocalTool
+from aithru_agent.capabilities.local_tools import (
+    ArtifactLocalTool,
+    MemoryLocalTool,
+    TodoLocalTool,
+    WorkspaceLocalTool,
+)
 from aithru_agent.harness import AgentHarnessDriver
 from aithru_agent.harness.drivers.pydantic_ai import PydanticAIHarnessDriver
 from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver
@@ -44,6 +49,7 @@ def create_agent_runtime(
             WorkspaceLocalTool(resolved_store),
             TodoLocalTool(resolved_store),
             ArtifactLocalTool(resolved_store),
+            MemoryLocalTool(resolved_store),
         ],
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )

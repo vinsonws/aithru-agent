@@ -86,3 +86,33 @@ async def test_memory_store_manages_workspace_files_and_artifacts() -> None:
     deleted = await store.delete_workspace_file(workspace.id, "/reports/report.md")
     assert deleted == {"path": "/reports/report.md"}
     assert await store.list_workspace_files(workspace.id) == []
+
+
+@pytest.mark.asyncio
+async def test_memory_store_manages_agent_memory_entries() -> None:
+    store = InMemoryAgentStore()
+
+    entry = await store.create_memory_entry(
+        org_id="org_1",
+        scope="user",
+        scope_id="user_1",
+        key="preference.language",
+        value="Prefers Chinese summaries.",
+        owner="user_1",
+        source="agent",
+        visibility="private",
+    )
+    unrelated = await store.create_memory_entry(
+        org_id="org_2",
+        scope="user",
+        scope_id="user_2",
+        key="preference.language",
+        value="Prefers English summaries.",
+    )
+
+    matches = await store.list_memory_entries(org_id="org_1", query="Chinese")
+    scoped = await store.list_memory_entries(org_id="org_1", scope="user", scope_id="user_1")
+
+    assert matches == [entry]
+    assert scoped == [entry]
+    assert unrelated not in matches
