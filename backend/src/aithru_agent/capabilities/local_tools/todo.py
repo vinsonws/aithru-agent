@@ -7,13 +7,13 @@ from aithru_agent.domain import (
     AgentToolKind,
     AgentToolRiskLevel,
 )
-from aithru_agent.persistence.memory.store import InMemoryAgentStore
+from aithru_agent.persistence.protocols import AgentStore
 
 from ..descriptors import AgentRunContext
 
 
 class TodoLocalTool:
-    def __init__(self, store: InMemoryAgentStore) -> None:
+    def __init__(self, store: AgentStore) -> None:
         self._store = store
 
     def list_tools(self) -> list[AgentToolDescriptor]:
@@ -75,4 +75,3 @@ def _input_dict(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError("Tool input must be an object")
     return value
-

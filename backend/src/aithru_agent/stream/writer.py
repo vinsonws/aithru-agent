@@ -1,12 +1,14 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .events import AgentStreamEvent, AgentStreamRedaction, AgentStreamSource, AgentStreamVisibility
-from .store import InMemoryAgentEventStore
+
+if TYPE_CHECKING:
+    from aithru_agent.persistence.protocols import AgentEventStore
 
 
 class AgentEventWriter:
-    def __init__(self, store: InMemoryAgentEventStore) -> None:
+    def __init__(self, store: "AgentEventStore") -> None:
         self._store = store
 
     async def write(
@@ -37,4 +39,3 @@ class AgentEventWriter:
         )
         await self._store.append(event)
         return event
-

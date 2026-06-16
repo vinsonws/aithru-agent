@@ -10,7 +10,7 @@ from aithru_agent.harness import (
     HarnessStep,
     HarnessToolCall,
 )
-from aithru_agent.persistence.memory.store import InMemoryAgentStore
+from aithru_agent.persistence.protocols import AgentStore
 from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
 from aithru_agent.stream import AgentEventWriter
 
@@ -31,7 +31,7 @@ class AgentWorkerRunner:
     def __init__(
         self,
         *,
-        store: InMemoryAgentStore,
+        store: AgentStore,
         event_writer: AgentEventWriter,
         capability_router: AithruCapabilityRouter,
         driver: AgentHarnessDriver,

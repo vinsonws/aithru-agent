@@ -6,6 +6,7 @@ from aithru_agent.harness import AgentHarnessDriver
 from aithru_agent.harness.drivers.pydantic_ai import PydanticAIHarnessDriver
 from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver
 from aithru_agent.persistence.memory import InMemoryAgentStore
+from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
@@ -14,8 +15,8 @@ from aithru_agent.worker import AgentWorkerRunner, AgentWorkerService, InProcess
 
 @dataclass
 class AgentRuntime:
-    store: InMemoryAgentStore
-    event_store: InMemoryAgentEventStore
+    store: AgentStore
+    event_store: AgentEventStore
     event_writer: AgentEventWriter
     capability_router: AithruCapabilityRouter
     runner: AgentWorkerRunner
