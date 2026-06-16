@@ -1,28 +1,40 @@
 # AGENTS.md
 
-This file gives coding agents working in `vinsonws/aithru-agent` the repository rules.
+This file gives coding agents working in `vinsonws/aithru-agent` the repository
+rules.
 
 Read this before changing code or docs.
 
-## Repository direction
+## Repository Direction
 
-`aithru-agent` is being redesigned as an Aithru-native AI harness.
+`aithru-agent` is a Python-first Aithru-native AI harness backend.
 
 Target direction:
 
 ```txt
-Aithru Agent = platform-hosted AI harness for skills, tools, workspace files, subagents, controlled execution, approvals, artifacts, memory, and traceable intelligent work.
+Aithru Agent = platform-hosted AI harness for skills, tools, workspace files,
+controlled execution, approvals, artifacts, memory, subagents, and traceable
+intelligent work.
 ```
 
-The existing engine-based packages remain useful primitives, but they are not the final product architecture.
+The active backend is:
 
-Primary design doc:
+```txt
+backend/
+  FastAPI control plane
+  Pydantic AI harness driver
+  Aithru capability router
+  Agent stream / trace / workspace / artifact / approval model
+```
+
+Primary design docs:
 
 ```txt
 docs/00-agent-harness-design.md
+docs/superpowers/specs/2026-06-16-python-pydantic-ai-agent-backend-design.md
 ```
 
-## Hard boundaries
+## Hard Boundaries
 
 Aithru has one formal workflow system:
 
@@ -30,7 +42,8 @@ Aithru has one formal workflow system:
 WorkflowSpec in Aithru Core, surfaced by Aithru Workbench.
 ```
 
-Agent runtime todos, plans, subagents, workspace operations, and tool-call sequences are harness state, not workflow definitions.
+Agent runtime todos, plans, subagents, workspace operations, and tool-call
+sequences are harness state, not workflow definitions.
 
 Do not add:
 
@@ -41,72 +54,67 @@ Do not add:
 - persisted AgentPlan-as-workflow definitions;
 - drag-and-drop node/edge editing for Agent plans.
 
-## Capability boundary
+## Capability Boundary
 
 Models may propose tool calls. They must not execute real actions directly.
 
 All real actions must pass through an Aithru capability boundary:
 
 ```txt
-model proposal
-  -> Agent Harness
-  -> skill/tool policy
-  -> Aithru Capability Router or AgentHost
-  -> platform/core/workbench permission and approval boundary
-  -> concrete executor
-  -> trace/artifact/redaction
+model / Pydantic AI
+  -> Aithru Tool Bridge
+  -> Aithru Capability Router
+  -> policy / scope / approval boundary
+  -> concrete local tool or future Workflow Capability API
+  -> event / trace / artifact / redaction
 ```
 
-Do not expose unrestricted local system access, browser automation, external network calls, database access, Workbench internals, platform credentials, or service tokens to model code.
+Do not expose unrestricted local system access, browser automation, external
+network calls, database access, Workbench internals, platform credentials, or
+service tokens to model code.
 
-## Dependency direction
+## Dependency Direction
 
 Keep dependency direction clear:
 
 ```txt
-Agent may depend on Core public contracts.
+Agent may call Core/Workbench only through explicit APIs or capability tools.
 Core must not depend on Agent packages.
 Workbench may call Agent through explicit node/API boundaries.
-Agent may call Workbench through explicit API/tool boundaries.
 ```
 
-## Package ownership
+Pydantic AI is an implementation detail under `backend/src/aithru_agent/harness`.
+Pydantic AI types must not become public Aithru API contracts.
 
-Current packages:
+## Backend Ownership
+
+Current backend modules:
 
 ```txt
-packages/
-  agent-core/             shared harness contracts and types
-  agent-stream/           AgentStreamEvent protocol and in-memory implementations
-  agent-skills/           Skill manifest parsing, validation, and conversion
-  agent-workspace/        AgentWorkspaceProvider interface and InMemoryWorkspaceProvider
-  agent-tools/            AithruCapabilityRouter, StaticCapabilityRouter, tool adapters
-  agent-harness/          NativeHarnessEngine, ScriptedModelPort, AgentModelPort
-  agent-trace/            AgentTraceSpan model and Event → Trace projection
+backend/src/aithru_agent/
+  api/              FastAPI routes
+  application/      runtime assembly
+  capabilities/     tool descriptors, policy, router, local tools
+  domain/           Agent product contracts
+  harness/          scripted and Pydantic AI drivers
+  persistence/      stage-1 in-memory store
+  stream/           AgentStreamEvent writer/store/SSE
+  trace/            event-to-span projection
+  worker/           Agent run execution
 ```
 
 Package meanings:
 
-- `agent-core`: Pure TypeScript contract types. No runtime dependencies. No Node-only APIs.
-- `agent-stream`: Event protocol envelope, InMemoryEventStore, EventBus, EventWriter, SSE format helper.
-- `agent-skills`: Skill manifest definitions, parsing, validation, and AgentSkill conversion.
-- `agent-workspace`: Workspace provider abstractions. InMemoryWorkspaceProvider for test/dev.
-- `agent-tools`: Capability Router interface and implementation. Tool adapters for workspace, search, etc.
-- `agent-harness`: Harness engine with NativeHarnessEngine. ScriptedModelPort for testing without real LLM.
-- `agent-trace`: Trace span model and event-to-span projection for observability.
+- `domain`: pure product contracts. No FastAPI, Pydantic AI, provider SDK, or
+  database dependency.
+- `stream`: canonical event log and SSE formatting.
+- `trace`: projection from Agent events to spans.
+- `capabilities`: every real tool action enters here.
+- `harness`: driver abstraction plus scripted and Pydantic AI drivers.
+- `worker`: run execution, pause/resume, cancellation.
+- `api`: HTTP control plane only.
 
-Future target packages may include:
-
-```txt
-agent-subagents
-agent-sandbox
-agent-memory
-node-agent
-```
-
-Do not create these packages casually. If adding them, update docs and README first.
-
-## Naming rules
+## Naming Rules
 
 Prefer these product names:
 
@@ -131,9 +139,7 @@ Avoid these labels unless referring to a real Aithru Core `WorkflowSpec`:
 - sub-workflow
 - save AgentPlan as workflow
 
-If a feature becomes a reusable, user-editable, versioned graph, it belongs in Workbench/Core, not Agent.
-
-## Tool and controlled execution rules
+## Tool And Controlled Execution Rules
 
 Tool calls must be policy-aware and traceable.
 
@@ -142,112 +148,44 @@ When adding tool-related code:
 - define risk level;
 - define required scopes;
 - validate allowed tools from skill/run policy;
-- route through `AgentHost.callTool` or the future capability router;
+- route through the Aithru capability router;
 - preserve event order;
 - produce inspectable trace events;
 - redact sensitive inputs and outputs where needed;
 - require approval for risky operations;
 - avoid logging tokens, secrets, credentials, or raw sensitive payloads.
 
-Controlled code or data processing environments must be explicit:
+## Frontend Rules
 
-- keep implementation optional and behind an interface;
-- treat file writes, external network access, process execution, and package installation as risky operations;
-- make approval and audit requirements visible in contracts and tests.
+Agent frontend, when added, should be a Platform hosted app, not a standalone
+global shell. It must not become a workflow graph editor.
 
-## Workbench integration rules
-
-Workbench may call Agent as a formal workflow node.
-
-Recommended future direction:
-
-```txt
-agent.skill
-agent.task
-```
-
-The Workbench graph remains the formal workflow. Agent owns only the intelligent harness behavior inside the node.
-
-Agent may call Workflow product capabilities and workflows as tools:
-
-```txt
-workflow.invokeCapability
-```
-
-```txt
-workbench.runWorkflow
-```
-
-Agent must not import Workbench internals, schedule workflow graphs, execute raw
-workflow nodes directly, or redefine workflow run persistence. Deterministic
-actions such as `http_download` should be exposed by the Workflow product as
-curated capabilities and invoked through CapabilityRun APIs.
-
-Agent may generate `WorkflowSpec` draft artifacts, but Workbench must validate, save, version, and run them.
-
-## Frontend rules
-
-Agent frontend should be a Platform hosted app, not a standalone global shell.
-
-It should focus on:
-
-```txt
-Chat
-Skills
-Workspace
-Runs
-Artifacts
-Approvals
-Tools
-Memory
-Settings
-```
-
-It must not become a workflow graph editor.
-
-If building UI:
-
-- use the Aithru frontend constraints from `aithru-docs`;
-- preserve Platform hosted app boundaries;
-- do not duplicate platform org/user/app switcher chrome;
-- show mock vs real execution clearly;
-- show permission, approval, and recovery states explicitly;
-- never persist secrets in browser storage.
-
-## Documentation rules
+## Documentation Rules
 
 When changing design or boundaries:
 
 1. Update `docs/00-agent-harness-design.md`.
 2. Update `README.md` if repository positioning changes.
-3. Update package READMEs if package-level ownership changes.
-4. Update examples only after the design is clear.
-5. Avoid code changes that imply a new architecture without docs.
+3. Update backend README/API docs if backend ownership changes.
+4. Avoid code changes that imply a new architecture without docs.
 
-## Verification commands
+## Verification Commands
 
-Run these before finishing meaningful code changes:
-
-```bash
-pnpm typecheck
-pnpm build
-pnpm test
-```
-
-When changing examples or runtime behavior, also run the harness example:
+Run these before finishing meaningful backend changes:
 
 ```bash
-pnpm example:harness-basic
+cd backend
+uv run pytest
+uv run python examples/file_report_agent.py
 ```
 
-## Pre-merge checklist
+## Pre-Merge Checklist
 
 - [ ] The change reinforces Agent as an AI harness, not a workflow editor.
-- [ ] Skills remain reusable agent capabilities, not DAGs.
 - [ ] Todos/runtime plans remain runtime state, not workflow definitions.
 - [ ] Models do not execute tools directly.
-- [ ] Real tools and controlled execution are capability-boundary controlled.
-- [ ] Workbench integration uses explicit node/API/tool boundaries.
+- [ ] Real tools are capability-boundary controlled.
+- [ ] Workbench integration uses explicit API/tool boundaries.
 - [ ] Core does not depend on Agent.
 - [ ] Sensitive values are not logged or persisted insecurely.
-- [ ] Typecheck/build/tests pass or failures are documented honestly.
+- [ ] Backend tests and file report example pass, or failures are documented.

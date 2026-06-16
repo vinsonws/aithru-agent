@@ -469,39 +469,37 @@ Download WorkflowSpec JSON
 
 Only Workbench validates, saves, versions, and runs formal workflows.
 
-## Package direction
+## Backend direction
 
-Target package direction:
+The active implementation direction is Python-first:
 
 ```txt
-packages/
-  agent-core/            shared harness contracts
-  agent-harness/         main DeepAgents-like harness
-  agent-skills/          skill loading, validation, prompt composition
-  agent-workspace/       workspace and artifact APIs
-  agent-tools/           capability router and adapters
-  agent-subagents/       subagent delegation contracts
-  agent-sandbox/         sandbox/interpreter interfaces
-  agent-memory/          memory provider contracts
-  agent-model-*/         model adapters
-  node-agent/            Workbench/Core workflow node integration
-
-apps/
-  agent-server/          Platform subsystem backend
-  agent-web/             Platform hosted app frontend
+backend/
+  api/              FastAPI control plane
+  application/      runtime assembly and use-case services
+  capabilities/     capability router, policy, local tools, future Workflow capabilities
+  domain/           Agent product contracts
+  harness/          scripted and Pydantic AI harness drivers
+  persistence/      store interfaces and implementations
+  stream/           AgentStreamEvent writer/store/SSE
+  trace/            event-to-span projection
+  worker/           Agent run execution, pause/resume, cancellation
 ```
 
-Existing `agent-runtime` engines may remain as compatibility primitives and testable implementation pieces, but they should no longer define the product architecture.
+Pydantic AI is the default harness driver. It powers model loop mechanics, tool
+calling mechanics, streaming, and structured output, but it does not define
+public Aithru product contracts. Pydantic AI tool calls must enter Aithru's
+capability router through the Aithru tool bridge.
 
 ## Migration direction
 
-1. Keep current primitives working.
-2. Introduce harness-level contracts in `agent-core` or a new `agent-harness` package.
-3. Introduce Skill, Thread, Workspace, Todo, Tool, Subagent, and Memory contracts.
-4. Implement a minimal native harness over existing model adapters.
-5. Add a capability router that can bridge current `AgentHost.callTool` to Aithru policy boundaries.
-6. Evolve `node-agent` from engine-specific nodes to skill/harness invocation nodes.
-7. Add Platform hosted `agent-server` and `agent-web` when product integration begins.
+1. Keep Agent as a Python backend with Aithru-owned contracts.
+2. Use FastAPI for the control plane.
+3. Use Pydantic AI as the default real harness driver.
+4. Keep a scripted driver for deterministic tests.
+5. Route every real action through the Aithru capability router.
+6. Add Workflow Capability HTTP integration only through explicit tools.
+7. Add Platform hosted UI only after the backend run/event/tool loop is stable.
 
 ## Verification checklist
 
