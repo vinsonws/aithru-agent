@@ -6,6 +6,7 @@ from aithru_agent.application import AgentRuntime, create_agent_runtime
 from aithru_agent.domain import AgentApprovalDecision
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.stream import format_sse_event
+from aithru_agent.trace import project_trace_spans
 
 
 def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
@@ -77,6 +78,14 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
     async def get_run_events(run_id: str, after_sequence: int = 0) -> list[dict[str, Any]]:
         events = await rt.event_store.list_after_sequence(run_id, after_sequence)
         return [event.model_dump(mode="json") for event in events]
+
+    @app.get("/api/agent/runs/{run_id}/trace")
+    async def get_run_trace(run_id: str) -> list[dict[str, Any]]:
+        run = await rt.store.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        events = await rt.event_store.list_by_run(run_id)
+        return [span.model_dump(mode="json") for span in project_trace_spans(events)]
 
     @app.get("/api/agent/runs/{run_id}/stream")
     async def stream_run(run_id: str, after_sequence: int = 0) -> Response:

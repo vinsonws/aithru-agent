@@ -61,6 +61,7 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
         run = run_response.json()
         run_detail = (await client.get(f"/api/agent/runs/{run['id']}")).json()
         events = (await client.get(f"/api/agent/runs/{run['id']}/events")).json()
+        trace = (await client.get(f"/api/agent/runs/{run['id']}/trace")).json()
         stream = await client.get(f"/api/agent/runs/{run['id']}/stream")
         files = (await client.get(f"/api/agent/workspaces/{run['workspace_id']}/files")).json()
         file_content = (
@@ -74,6 +75,8 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
     assert run_response.status_code == 201
     assert run_detail["status"] == "completed"
     assert [event["type"] for event in events][-1] == "run.completed"
+    assert {span["kind"] for span in trace} >= {"run", "model", "tool", "workspace", "artifact"}
+    assert next(span for span in trace if span["kind"] == "run")["status"] == "completed"
     assert "event: run.completed" in stream.text
     assert files[0]["path"] == "/reports/report.md"
     assert file_content["content"] == "# Report\nDone.\n"
