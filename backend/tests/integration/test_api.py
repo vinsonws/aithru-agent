@@ -4,7 +4,9 @@ from httpx import ASGITransport, AsyncClient
 from aithru_agent.api.main import create_app
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import ToolPolicy
+from aithru_agent.domain import AgentSkill
 from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
+from aithru_agent.skills import InMemorySkillResolver
 
 
 def file_report_driver() -> ScriptedHarnessDriver:
@@ -103,3 +105,31 @@ async def test_agent_api_resolves_approval_and_resumes_run() -> None:
     assert approvals[0]["status"] == "pending"
     assert resolved.status_code == 200
     assert run_detail["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_agent_api_lists_and_gets_published_skills() -> None:
+    skill = AgentSkill(
+        id="skill_1",
+        org_id="org_1",
+        key="file-report",
+        name="File Report",
+        instructions="Read files and write a report.",
+        allowed_tools=["workspace.read_file"],
+        allowed_subagents=[],
+        version="0.1.0",
+        status="published",
+    )
+    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([skill]))
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        skills = (await client.get("/api/agent/skills")).json()
+        by_key = (await client.get("/api/agent/skills/file-report")).json()
+        by_id = (await client.get("/api/agent/skills/skill_1")).json()
+        missing = await client.get("/api/agent/skills/missing")
+
+    assert skills == [skill.model_dump(mode="json")]
+    assert by_key["id"] == "skill_1"
+    assert by_id["key"] == "file-report"
+    assert missing.status_code == 404

@@ -7,11 +7,17 @@ class AgentSkillResolver(Protocol):
     def resolve(self, skill_id_or_key: str) -> AgentSkill | None:
         ...
 
+    def list_skills(self) -> list[AgentSkill]:
+        ...
+
 
 class EmptySkillResolver:
     def resolve(self, skill_id_or_key: str) -> AgentSkill | None:
         del skill_id_or_key
         return None
+
+    def list_skills(self) -> list[AgentSkill]:
+        return []
 
 
 class InMemorySkillResolver:
@@ -22,3 +28,5 @@ class InMemorySkillResolver:
     def resolve(self, skill_id_or_key: str) -> AgentSkill | None:
         return self._by_id.get(skill_id_or_key) or self._by_key.get(skill_id_or_key)
 
+    def list_skills(self) -> list[AgentSkill]:
+        return list(self._by_id.values())

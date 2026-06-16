@@ -105,6 +105,17 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Approval not found")
         return approval.model_dump(mode="json")
 
+    @app.get("/api/agent/skills")
+    async def list_skills() -> list[dict[str, Any]]:
+        return [skill.model_dump(mode="json") for skill in rt.skill_resolver.list_skills()]
+
+    @app.get("/api/agent/skills/{skill_id_or_key}")
+    async def get_skill(skill_id_or_key: str) -> dict[str, Any]:
+        skill = rt.skill_resolver.resolve(skill_id_or_key)
+        if not skill:
+            raise HTTPException(status_code=404, detail="Skill not found")
+        return skill.model_dump(mode="json")
+
     @app.post("/api/agent/approvals/{approval_id}/resolve")
     async def resolve_approval(approval_id: str, body: dict[str, Any]) -> dict[str, Any]:
         approval = await rt.store.get_approval(approval_id)
@@ -173,4 +184,3 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
 
 app = create_app()
-
