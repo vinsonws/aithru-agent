@@ -60,6 +60,9 @@ skills/
 - Skills may be loaded on-demand by the Harness Kernel
 - Context loading should be progressive to avoid context window bloat
 - Activation may trigger middleware hooks (workspace, memory, event logging)
+- The allowed tools list is an upper bound; workspace, memory, sandbox,
+  approval, and subagent policy can further narrow the tools exposed to a run
+- Sandbox tools require an explicit enabled sandbox policy
 
 ## Observability
 

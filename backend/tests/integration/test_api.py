@@ -4,7 +4,7 @@ from httpx import ASGITransport, AsyncClient
 from aithru_agent.api.main import create_app
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import ToolPolicy
-from aithru_agent.domain import AgentSkill
+from aithru_agent.domain import AgentSandboxPolicy, AgentSkill
 from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
 from aithru_agent.skills import InMemorySkillResolver
 
@@ -188,6 +188,42 @@ async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
     assert tools_response.status_code == 200
     assert [tool["name"] for tool in tools] == ["workspace.list_files"]
     assert tools[0]["kind"] == "local_tool"
+
+
+@pytest.mark.asyncio
+async def test_agent_api_hides_sandbox_tools_when_skill_disables_sandbox() -> None:
+    skill = AgentSkill(
+        id="skill_1",
+        org_id="org_1",
+        key="no-sandbox",
+        name="No Sandbox",
+        instructions="Do not execute code.",
+        allowed_tools=["sandbox.run_python"],
+        allowed_subagents=[],
+        sandbox_policy=AgentSandboxPolicy(enabled=False),
+        version="0.1.0",
+        status="published",
+    )
+    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([skill]))
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        run = (
+            await client.post(
+                "/api/agent/runs",
+                json={
+                    "org_id": "org_1",
+                    "actor_user_id": "user_1",
+                    "goal": "Try code.",
+                    "scopes": ["*"],
+                    "skill_id": "no-sandbox",
+                },
+            )
+        ).json()
+        tools_response = await client.get(f"/api/agent/runs/{run['id']}/tools")
+
+    assert tools_response.status_code == 200
+    assert [tool["name"] for tool in tools_response.json()] == []
 
 
 @pytest.mark.asyncio

@@ -147,6 +147,10 @@ A skill contains:
 
 A skill is not a workflow graph. It may be invoked from Chat, API, delegated work, or a Workbench `agent.*` node.
 
+`allowedTools` is an upper bound. Workspace, memory, sandbox, approval, and
+subagent policies can further remove tools from a run's available catalog.
+Sandbox tools are unavailable unless the skill explicitly enables sandbox use.
+
 ### Workspace
 
 Workspace is the harness file/context surface.
