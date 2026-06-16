@@ -7,6 +7,7 @@ from aithru_agent.harness.drivers.pydantic_ai import PydanticAIHarnessDriver
 from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
+from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
 from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
@@ -35,8 +36,8 @@ def create_agent_runtime(
     skill_resolver: AgentSkillResolver | None = None,
 ) -> AgentRuntime:
     resolved_settings = settings or AgentSettings.from_env()
-    resolved_store = store or InMemoryAgentStore()
-    resolved_event_store = event_store or InMemoryAgentEventStore()
+    resolved_store = store or _create_store(resolved_settings)
+    resolved_event_store = event_store or _create_event_store(resolved_settings)
     event_writer = AgentEventWriter(resolved_event_store)
     capability_router = AithruCapabilityRouter(
         adapters=[
@@ -79,3 +80,15 @@ def _create_driver(settings: AgentSettings) -> AgentHarnessDriver:
             model = settings.model
         return PydanticAIHarnessDriver(model=model, instructions=settings.instructions)
     return ScriptedHarnessDriver([])
+
+
+def _create_store(settings: AgentSettings) -> AgentStore:
+    if settings.persistence_backend == "sqlite":
+        return SQLiteAgentStore(settings.sqlite_path)
+    return InMemoryAgentStore()
+
+
+def _create_event_store(settings: AgentSettings) -> AgentEventStore:
+    if settings.persistence_backend == "sqlite":
+        return SQLiteAgentEventStore(settings.sqlite_path)
+    return InMemoryAgentEventStore()
