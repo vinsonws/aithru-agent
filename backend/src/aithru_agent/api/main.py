@@ -120,11 +120,15 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
             "thread_id": body.thread_id,
             "skill_id": body.skill_id,
         }
-        if body.wait_for_completion:
-            run = await rt.runner.start_run(**run_kwargs)
-            latest = await rt.store.get_run(run.id)
-            return (latest or run).model_dump(mode="json")
-        run = await rt.worker.submit_run(**run_kwargs)
+        try:
+            if body.wait_for_completion:
+                run = await rt.runner.start_run(**run_kwargs)
+                latest = await rt.store.get_run(run.id)
+                return (latest or run).model_dump(mode="json")
+            run = await rt.worker.submit_run(**run_kwargs)
+        except AgentError as err:
+            status_code = 404 if err.code in {"NOT_FOUND", "SKILL_NOT_FOUND"} else 409
+            raise HTTPException(status_code=status_code, detail=err.message) from err
         return run.model_dump(mode="json")
 
     @app.get("/api/agent/runs")

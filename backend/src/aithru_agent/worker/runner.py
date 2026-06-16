@@ -84,6 +84,8 @@ class AgentWorkerRunner:
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:
+        if skill_id and self._skill_resolver.resolve(skill_id) is None:
+            raise AgentError("SKILL_NOT_FOUND", f"Skill not found: {skill_id}")
         workspace = await self._store.create_workspace(org_id=org_id, thread_id=thread_id)
         run = await self._store.create_run(
             org_id=org_id,

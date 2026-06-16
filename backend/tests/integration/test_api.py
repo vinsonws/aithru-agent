@@ -330,6 +330,29 @@ async def test_agent_api_lists_and_gets_published_skills() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_rejects_run_with_unknown_skill() -> None:
+    runtime = create_agent_runtime()
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/agent/runs",
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "goal": "Use missing skill",
+                "skill_id": "missing-skill",
+                "scopes": ["*"],
+            },
+        )
+        runs = (await client.get("/api/agent/runs")).json()
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Skill not found: missing-skill"
+    assert runs == []
+
+
+@pytest.mark.asyncio
 async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
     skill = AgentSkill(
         id="skill_1",
