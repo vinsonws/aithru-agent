@@ -11,6 +11,7 @@ from aithru_agent.harness import (
     HarnessToolCall,
 )
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
+from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
 from aithru_agent.stream import AgentEventWriter
 
 
@@ -34,11 +35,13 @@ class AgentWorkerRunner:
         event_writer: AgentEventWriter,
         capability_router: AithruCapabilityRouter,
         driver: AgentHarnessDriver,
+        skill_resolver: AgentSkillResolver | None = None,
     ) -> None:
         self._store = store
         self._event_writer = event_writer
         self._capability_router = capability_router
         self._driver = driver
+        self._skill_resolver = skill_resolver or EmptySkillResolver()
         self._context_builder = ContextBuilder()
         self._tool_counter = 0
         self._pending_approvals: dict[str, PendingToolApproval] = {}
@@ -95,7 +98,8 @@ class AgentWorkerRunner:
             payload={},
         )
 
-        context = self._context_builder.build(run, scopes)
+        skill = self._skill_resolver.resolve(skill_id) if skill_id else None
+        context = self._context_builder.build(run, scopes, skill)
         final_content: list[str] = []
         steps = await self._driver.run(
             run.goal,
@@ -104,6 +108,7 @@ class AgentWorkerRunner:
                 run_context=context,
                 event_writer=self._event_writer,
                 capability_router=self._capability_router,
+                skill=skill,
             ),
         )
         for index, step in enumerate(steps):

@@ -1,9 +1,9 @@
 from aithru_agent.capabilities import AgentRunContext
-from aithru_agent.domain import AgentRun
+from aithru_agent.domain import AgentRun, AgentSkill
 
 
 class ContextBuilder:
-    def build(self, run: AgentRun, scopes: list[str]) -> AgentRunContext:
+    def build(self, run: AgentRun, scopes: list[str], skill: AgentSkill | None = None) -> AgentRunContext:
         return AgentRunContext(
             run_id=run.id,
             org_id=run.org_id,
@@ -12,5 +12,5 @@ class ContextBuilder:
             thread_id=run.thread_id,
             skill_id=run.skill_id,
             scopes=scopes,
+            allowed_tools=skill.allowed_tools if skill else None,
         )
-

@@ -7,6 +7,7 @@ from aithru_agent.harness.drivers.pydantic_ai import PydanticAIHarnessDriver
 from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.settings import AgentSettings
+from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 from aithru_agent.worker import AgentWorkerRunner
 
@@ -18,6 +19,7 @@ class AgentRuntime:
     event_writer: AgentEventWriter
     capability_router: AithruCapabilityRouter
     runner: AgentWorkerRunner
+    skill_resolver: AgentSkillResolver
 
 
 def create_agent_runtime(
@@ -25,6 +27,7 @@ def create_agent_runtime(
     driver: AgentHarnessDriver | None = None,
     policy: ToolPolicy | None = None,
     settings: AgentSettings | None = None,
+    skill_resolver: AgentSkillResolver | None = None,
 ) -> AgentRuntime:
     resolved_settings = settings or AgentSettings.from_env()
     store = InMemoryAgentStore()
@@ -38,11 +41,13 @@ def create_agent_runtime(
         ],
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )
+    resolved_skill_resolver = skill_resolver or EmptySkillResolver()
     runner = AgentWorkerRunner(
         store=store,
         event_writer=event_writer,
         capability_router=capability_router,
         driver=driver or _create_driver(resolved_settings),
+        skill_resolver=resolved_skill_resolver,
     )
     return AgentRuntime(
         store=store,
@@ -50,6 +55,7 @@ def create_agent_runtime(
         event_writer=event_writer,
         capability_router=capability_router,
         runner=runner,
+        skill_resolver=resolved_skill_resolver,
     )
 
 

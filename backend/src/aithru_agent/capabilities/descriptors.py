@@ -11,6 +11,7 @@ class AgentRunContext(BaseModel):
     thread_id: str | None = None
     skill_id: str | None = None
     scopes: list[str] = []
+    allowed_tools: list[str] | None = None
 
 
 class ToolPolicy(BaseModel):
@@ -22,4 +23,3 @@ class AgentToolPrepareResult(BaseModel):
     tool_name: str
     reason: str | None = None
     output: object | None = None
-

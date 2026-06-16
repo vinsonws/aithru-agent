@@ -32,10 +32,12 @@ class AithruCapabilityRouter:
         self._policy = policy or ToolPolicy()
 
     async def list_tools(self, context: AgentRunContext) -> list[AgentToolDescriptor]:
-        del context
         tools: list[AgentToolDescriptor] = []
         for adapter in self._adapters:
             tools.extend(adapter.list_tools())
+        if context.allowed_tools is not None:
+            allowed = set(context.allowed_tools)
+            tools = [tool for tool in tools if tool.name in allowed]
         return tools
 
     async def prepare_tool_call(
@@ -118,4 +120,3 @@ class AithruCapabilityRouter:
             if any(tool.name == tool_name for tool in adapter.list_tools()):
                 return adapter
         return None
-

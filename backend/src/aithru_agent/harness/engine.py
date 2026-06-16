@@ -21,6 +21,7 @@ class HarnessRunDeps:
     run_context: Any
     event_writer: Any
     capability_router: Any
+    skill: Any = None
 
 
 class AgentHarnessDriver(Protocol):
