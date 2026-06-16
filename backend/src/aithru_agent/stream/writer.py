@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from .events import AgentStreamEvent, AgentStreamRedaction, AgentStreamSource, AgentStreamVisibility
+from .redaction import combine_redaction, redact_stream_payload
 
 if TYPE_CHECKING:
     from aithru_agent.persistence.protocols import AgentEventStore
@@ -24,6 +25,7 @@ class AgentEventWriter:
         summary: str | None = None,
     ) -> AgentStreamEvent:
         sequence = await self._store.next_sequence(run_id)
+        safe_payload, detected_redaction = redact_stream_payload(payload)
         event = AgentStreamEvent(
             id=f"{run_id}:{sequence}",
             run_id=run_id,
@@ -33,9 +35,9 @@ class AgentEventWriter:
             type=type,
             source=source,
             visibility=visibility,
-            redaction=redaction,
+            redaction=combine_redaction(redaction, detected_redaction),
             summary=summary,
-            payload=payload,
+            payload=safe_payload,
         )
         await self._store.append(event)
         return event

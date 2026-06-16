@@ -3,11 +3,48 @@ import pytest
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter, ToolPolicy
 from aithru_agent.capabilities.local_tools import ArtifactLocalTool, TodoLocalTool, WorkspaceLocalTool
-from aithru_agent.domain import AgentRunStatus
+from aithru_agent.domain import (
+    AgentRunStatus,
+    AgentToolCallRequest,
+    AgentToolCallResult,
+    AgentToolDescriptor,
+)
 from aithru_agent.harness import HarnessRunPaused
 from aithru_agent.harness.drivers.pydantic_ai.tool_bridge import PydanticAIToolBridge
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
+
+
+class SecretEchoTool:
+    def list_tools(self) -> list[AgentToolDescriptor]:
+        return [
+            AgentToolDescriptor(
+                name="secret.echo",
+                kind="local_tool",
+                description="Echo sensitive fields for redaction testing.",
+                input_schema={"type": "object"},
+                output_schema={"type": "object"},
+                risk_level="safe",
+                required_scopes=[],
+                approval_policy="never",
+            )
+        ]
+
+    async def execute(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        input_data = request.input if isinstance(request.input, dict) else {}
+        return AgentToolCallResult(
+            status="completed",
+            output={
+                "token": input_data.get("token"),
+                "nested": {"password": "pw_123"},
+                "safe": "visible",
+            },
+            redaction="none",
+        )
 
 
 @pytest.mark.asyncio
@@ -62,6 +99,61 @@ async def test_pydantic_tool_bridge_calls_capability_router_and_emits_events() -
         "workspace.file.read",
         "tool.completed",
     ]
+
+
+@pytest.mark.asyncio
+async def test_pydantic_tool_bridge_redacts_sensitive_stream_payload_fields() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Use secret",
+        workspace_id=workspace.id,
+    )
+    context = AgentRunContext(
+        run_id=run.id,
+        org_id="org_1",
+        actor_user_id="user_1",
+        workspace_id=workspace.id,
+        scopes=["*"],
+    )
+    bridge = PydanticAIToolBridge(
+        run=run,
+        run_context=context,
+        event_writer=writer,
+        capability_router=AithruCapabilityRouter(
+            adapters=[SecretEchoTool()],
+            policy=ToolPolicy(require_approval_for_risk=[]),
+        ),
+        store=store,
+    )
+
+    result = await bridge.call_tool(
+        tool_name="secret.echo",
+        tool_call_id="tc_secret",
+        tool_input={"token": "tok_123", "safe": "visible"},
+    )
+    events = await event_store.list_by_run(run.id)
+    proposed = next(event for event in events if event.type == "tool.proposed")
+    completed = next(event for event in events if event.type == "tool.completed")
+
+    assert result == {
+        "token": "tok_123",
+        "nested": {"password": "pw_123"},
+        "safe": "visible",
+    }
+    assert proposed.payload["input"] == {"token": "[REDACTED]", "safe": "visible"}
+    assert proposed.redaction == "partial"
+    assert completed.payload["output"] == {
+        "token": "[REDACTED]",
+        "nested": {"password": "[REDACTED]"},
+        "safe": "visible",
+    }
+    assert completed.redaction == "partial"
 
 
 @pytest.mark.asyncio
