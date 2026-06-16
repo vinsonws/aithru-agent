@@ -74,3 +74,28 @@ async def test_worker_service_rejects_run_thread_from_another_org() -> None:
     assert exc.value.code == "NOT_FOUND"
     assert exc.value.message == f"Thread not found: {thread.id}"
     assert runs == []
+
+
+@pytest.mark.asyncio
+async def test_worker_service_rejects_run_thread_owned_by_another_user() -> None:
+    runtime = create_agent_runtime(driver=report_driver())
+    thread = await runtime.store.create_thread(
+        org_id="org_1",
+        owner_user_id="user_2",
+        title="Other user",
+    )
+
+    with pytest.raises(AgentError) as exc:
+        await runtime.worker.submit_run(
+            org_id="org_1",
+            actor_user_id="user_1",
+            goal="Attach to another user's thread",
+            scopes=["*"],
+            thread_id=thread.id,
+        )
+
+    runs = await runtime.store.list_runs()
+
+    assert exc.value.code == "NOT_FOUND"
+    assert exc.value.message == f"Thread not found: {thread.id}"
+    assert runs == []

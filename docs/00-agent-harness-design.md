@@ -173,7 +173,7 @@ Workspace operations must be policy-gated and traceable.
 
 Runs represent intelligent execution, not formal workflow execution.
 When a run is attached to a thread, the run and thread must share the same
-organization boundary.
+organization and owner boundary.
 
 A run should show:
 
