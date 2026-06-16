@@ -83,6 +83,7 @@ artifact.finalize
 memory.search
 memory.remember
 subagent.delegate
+sandbox.run_python
 ```
 
 ## Run Locally

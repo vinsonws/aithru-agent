@@ -62,8 +62,8 @@ Instant spans (workspace, artifact) are created and immediately closed — they 
 | `approval` | Approval gate pause | Real (requested → resolved) |
 | `workspace` | File create/update/delete | Instant (point event) |
 | `artifact` | Artifact creation | Instant (point event) |
-| `subagent` | Subagent run (future) | Future |
-| `sandbox` | Sandbox execution (future) | Future |
+| `subagent` | Subagent run | Real (started → completed/failed) |
+| `sandbox` | Sandbox execution | Real (started → completed/failed) |
 | `memory` | Memory read/write (future) | Future |
 
 ## Redaction Rules

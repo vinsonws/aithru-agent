@@ -40,7 +40,8 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Queued Agent runs with worker execution.
 - In-memory and SQLite persistence backends.
 - Agent stream events, SSE formatting, and trace projection.
-- Local workspace, todo, artifact, memory, and subagent tools behind the capability router.
+- Local workspace, todo, artifact, memory, subagent, and sandbox tools behind the capability router.
 - Runtime subagent delegation with parent/child run links, events, and trace spans.
+- Restricted local Python sandbox execution with stdout/stderr events and trace spans.
 - Pydantic AI harness driver with controlled tool bridge.
 - Approval pause semantics for risky Pydantic AI tool calls.

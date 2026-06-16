@@ -4,6 +4,7 @@ from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
 from aithru_agent.capabilities.local_tools import (
     ArtifactLocalTool,
     MemoryLocalTool,
+    SandboxLocalTool,
     SubagentLocalTool,
     TodoLocalTool,
     WorkspaceLocalTool,
@@ -52,6 +53,7 @@ def create_agent_runtime(
             ArtifactLocalTool(resolved_store),
             MemoryLocalTool(resolved_store),
             SubagentLocalTool(resolved_store, event_writer),
+            SandboxLocalTool(event_writer),
         ],
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )

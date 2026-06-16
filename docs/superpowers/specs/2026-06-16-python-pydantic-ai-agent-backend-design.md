@@ -105,9 +105,8 @@ Stage 1 will not implement:
 - Workbench `WorkflowSpec` authoring or scheduling;
 - a workflow graph editor;
 - browser UI;
-- subagents;
-- sandbox execution;
-- long-term memory;
+- production-grade sandbox isolation beyond the restricted local provider;
+- hosted long-term memory beyond the stage-1 memory store;
 - MCP integration;
 - external Workflow Capability HTTP integration;
 - distributed queue infrastructure as a hard dependency;
@@ -539,6 +538,7 @@ artifact.finalize
 memory.search
 memory.remember
 subagent.delegate
+sandbox.run_python
 ```
 
 Tool rules:

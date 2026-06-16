@@ -42,8 +42,8 @@ The actual execution capability must depend on Aithru-controlled capability boun
 
 - Agent-owned local tools (workspace operations, artifact creation);
 - Workflow product capabilities consumed through `CapabilityRun` APIs.
-- Future sandbox, memory, or MCP behavior through Agent-owned harness
-  interfaces or additional Workflow product capabilities.
+- Sandbox, memory, or MCP behavior through Agent-owned harness interfaces or
+  additional Workflow product capabilities.
 
 Workflow capabilities may be backed by Core nodes, but the backing details
 belong to the Workflow product. Agent consumes the curated capability API and
@@ -369,11 +369,11 @@ interface AithruCapabilityRouter {
 Backend adapters:
 
 - `local_tool` adapters for Agent-owned tools (workspace, todo, artifact,
-  memory, subagent delegation);
+  memory, subagent delegation, restricted sandbox execution);
 - `workflow_capability` adapters that consume Workflow product capability APIs.
 
 Workflow capabilities may be backed by Core nodes, but the backing details
-belong to the Workflow product. Future sandbox, memory, or MCP behavior must
+belong to the Workflow product. Additional sandbox, memory, or MCP behavior must
 enter Agent through either Agent-owned local harness interfaces or Workflow
 product capabilities - they are not top-level `AgentToolKind` values.
 
@@ -497,6 +497,12 @@ controlled child `AgentRun` with `source = "delegated_task"`, links it to the
 parent run through `AgentSubagentRun`, and projects `subagent.started`,
 `subagent.completed`, and `subagent.failed` events into the parent stream and
 trace. This is not a WorkflowSpec, graph branch, or Workbench node.
+
+Current sandbox support is a restricted local `sandbox.run_python` tool. It
+does not expose shell access, imports, file APIs, or network APIs to model code;
+input enters through the tool payload, and stdout/stderr plus completion/failure
+are emitted as `sandbox.*` events and trace spans. Production-grade isolation
+can later replace the local provider behind the same capability boundary.
 
 ## Migration direction
 

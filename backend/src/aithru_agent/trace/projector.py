@@ -105,6 +105,28 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
                 )
             continue
 
+        if event.type == "sandbox.started":
+            sandbox_run_id = _payload_value(event, "sandbox_run_id", "sandboxRunId") or f"{event.sequence}"
+            language = _payload_value(event, "language") or "sandbox"
+            span_id = f"sandbox:{sandbox_run_id}"
+            spans[span_id] = _start_span(
+                event,
+                "sandbox",
+                str(language),
+                refs={"language": language},
+            )
+            continue
+        if event.type in {"sandbox.completed", "sandbox.failed"}:
+            sandbox_run_id = _payload_value(event, "sandbox_run_id", "sandboxRunId")
+            if sandbox_run_id:
+                _finish_span(
+                    spans,
+                    f"sandbox:{sandbox_run_id}",
+                    event,
+                    "completed" if event.type == "sandbox.completed" else "failed",
+                )
+            continue
+
         if event.type.startswith("workspace.file."):
             path = _payload_value(event, "path")
             span_id = f"workspace:{event.run_id}:{event.sequence}"
