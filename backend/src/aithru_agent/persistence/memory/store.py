@@ -183,6 +183,20 @@ class InMemoryAgentStore:
         self._runs[run_id] = updated
         return updated
 
+    async def claim_run(self, run_id: str) -> AgentRun | None:
+        run = self._runs.get(run_id)
+        if run is None or run.status != AgentRunStatus.QUEUED:
+            return None
+        updated = run.model_copy(update={"status": AgentRunStatus.RUNNING})
+        self._runs[run_id] = updated
+        return updated
+
+    async def claim_next_queued_run(self) -> AgentRun | None:
+        for run in self._runs.values():
+            if run.status == AgentRunStatus.QUEUED:
+                return await self.claim_run(run.id)
+        return None
+
     async def create_todo(
         self,
         *,

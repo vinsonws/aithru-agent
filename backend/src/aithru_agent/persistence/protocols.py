@@ -101,6 +101,12 @@ class AgentStore(Protocol):
     async def update_run(self, run_id: str, **updates: object) -> AgentRun:
         ...
 
+    async def claim_run(self, run_id: str) -> AgentRun | None:
+        ...
+
+    async def claim_next_queued_run(self) -> AgentRun | None:
+        ...
+
     async def create_todo(
         self,
         *,

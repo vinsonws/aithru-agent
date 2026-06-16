@@ -115,3 +115,37 @@ async def test_worker_discovers_queued_sqlite_runs_across_runtime_instances(tmp_
     assert completed is not None
     assert completed.id == queued.id
     assert completed.status == AgentRunStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_sqlite_workers_claim_queued_runs_once_across_runtime_instances(tmp_path: Path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    api_runtime = create_agent_runtime(
+        store=SQLiteAgentStore(db_path),
+        event_store=SQLiteAgentEventStore(db_path),
+        driver=ScriptedHarnessDriver([]),
+    )
+    queued = await api_runtime.worker.submit_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Claim once",
+        scopes=["*"],
+    )
+    worker_one = create_agent_runtime(
+        store=SQLiteAgentStore(db_path),
+        event_store=SQLiteAgentEventStore(db_path),
+        driver=ScriptedHarnessDriver([ScriptedStep.finish()]),
+    )
+    worker_two = create_agent_runtime(
+        store=SQLiteAgentStore(db_path),
+        event_store=SQLiteAgentEventStore(db_path),
+        driver=ScriptedHarnessDriver([ScriptedStep.finish()]),
+    )
+
+    claimed_one = await worker_one.runner.claim_next_queued_run()
+    claimed_two = await worker_two.runner.claim_next_queued_run()
+
+    assert claimed_one is not None
+    assert claimed_one.id == queued.id
+    assert claimed_one.status == AgentRunStatus.RUNNING
+    assert claimed_two is None

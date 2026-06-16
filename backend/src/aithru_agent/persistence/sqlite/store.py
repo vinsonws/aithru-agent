@@ -227,6 +227,12 @@ class SQLiteAgentStore:
         self._save_doc("run", run_id, updated)
         return updated
 
+    async def claim_run(self, run_id: str) -> AgentRun | None:
+        return self._claim_queued_run(run_id=run_id)
+
+    async def claim_next_queued_run(self) -> AgentRun | None:
+        return self._claim_queued_run(run_id=None)
+
     async def create_todo(
         self,
         *,
@@ -525,6 +531,53 @@ class SQLiteAgentStore:
             (kind,),
         )
         return [model_type.model_validate_json(row["payload"]) for row in rows]
+
+    def _claim_queued_run(self, *, run_id: str | None) -> AgentRun | None:
+        conn = self._db._conn
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            rows = (
+                [conn.execute(
+                    """
+                    SELECT id, payload
+                    FROM agent_documents
+                    WHERE kind = ? AND id = ?
+                    """,
+                    ("run", run_id),
+                ).fetchone()]
+                if run_id is not None
+                else conn.execute(
+                    """
+                    SELECT id, payload
+                    FROM agent_documents
+                    WHERE kind = ?
+                    ORDER BY id
+                    """,
+                    ("run",),
+                ).fetchall()
+            )
+            for row in rows:
+                if row is None:
+                    continue
+                run = AgentRun.model_validate_json(row["payload"])
+                if run.status != AgentRunStatus.QUEUED:
+                    continue
+                claimed = run.model_copy(update={"status": AgentRunStatus.RUNNING})
+                conn.execute(
+                    """
+                    UPDATE agent_documents
+                    SET payload = ?
+                    WHERE kind = ? AND id = ?
+                    """,
+                    (claimed.model_dump_json(), "run", run.id),
+                )
+                conn.commit()
+                return claimed
+            conn.commit()
+            return None
+        except Exception:
+            conn.rollback()
+            raise
 
 
 class SQLiteAgentEventStore:

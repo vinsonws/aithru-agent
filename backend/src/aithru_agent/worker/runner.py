@@ -99,13 +99,21 @@ class AgentWorkerRunner:
         return run
 
     async def execute_run(self, run_id: str) -> AgentRun:
+        claimed = await self._store.claim_run(run_id)
+        if claimed is None:
+            existing = await self._store.get_run(run_id)
+            if existing is None:
+                raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
+            raise AgentError("BAD_REQUEST", f"Run is not queued: {run_id}")
+        return await self.execute_claimed_run(claimed.id)
+
+    async def execute_claimed_run(self, run_id: str) -> AgentRun:
         run = await self._store.get_run(run_id)
         if run is None:
             raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
-        if run.status != AgentRunStatus.QUEUED:
-            raise AgentError("BAD_REQUEST", f"Run is not queued: {run_id}")
+        if run.status != AgentRunStatus.RUNNING:
+            raise AgentError("BAD_REQUEST", f"Run is not claimed: {run_id}")
 
-        run = await self._store.update_run(run.id, status=AgentRunStatus.RUNNING)
         thread_id = run.thread_id
         await self._event_writer.write(
             run_id=run.id,
@@ -186,6 +194,12 @@ class AgentWorkerRunner:
             if run.status == AgentRunStatus.QUEUED:
                 return run
         return None
+
+    async def claim_run(self, run_id: str) -> AgentRun | None:
+        return await self._store.claim_run(run_id)
+
+    async def claim_next_queued_run(self) -> AgentRun | None:
+        return await self._store.claim_next_queued_run()
 
     async def resume_run(
         self,
