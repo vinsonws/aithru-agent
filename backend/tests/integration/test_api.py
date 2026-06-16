@@ -353,6 +353,47 @@ async def test_agent_api_rejects_run_with_unknown_skill() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_rejects_run_with_unknown_thread() -> None:
+    runtime = create_agent_runtime()
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/agent/runs",
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "thread_id": "missing-thread",
+                "goal": "Use missing thread",
+                "scopes": ["*"],
+            },
+        )
+        runs = (await client.get("/api/agent/runs")).json()
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Thread not found: missing-thread"
+    assert runs == []
+
+
+@pytest.mark.asyncio
+async def test_agent_api_rejects_messages_for_unknown_thread() -> None:
+    runtime = create_agent_runtime()
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/agent/threads/missing-thread/messages",
+            json={"role": "user", "content": "hello"},
+        )
+        listed = await client.get("/api/agent/threads/missing-thread/messages")
+
+    assert created.status_code == 404
+    assert created.json()["detail"] == "Thread not found"
+    assert listed.status_code == 404
+    assert listed.json()["detail"] == "Thread not found"
+
+
+@pytest.mark.asyncio
 async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
     skill = AgentSkill(
         id="skill_1",

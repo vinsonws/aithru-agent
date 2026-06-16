@@ -99,6 +99,9 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.post("/api/agent/threads/{thread_id}/messages", status_code=201)
     async def append_message(thread_id: str, body: AppendMessageRequest) -> dict[str, Any]:
+        thread = await rt.store.get_thread(thread_id)
+        if not thread:
+            raise HTTPException(status_code=404, detail="Thread not found")
         message = await rt.store.append_message(
             thread_id=thread_id,
             role=body.role,
@@ -108,6 +111,9 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.get("/api/agent/threads/{thread_id}/messages")
     async def list_messages(thread_id: str) -> list[dict[str, Any]]:
+        thread = await rt.store.get_thread(thread_id)
+        if not thread:
+            raise HTTPException(status_code=404, detail="Thread not found")
         return [message.model_dump(mode="json") for message in await rt.store.list_messages(thread_id)]
 
     @app.post("/api/agent/runs", status_code=201)
