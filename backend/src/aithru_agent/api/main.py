@@ -73,6 +73,11 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
     app = FastAPI(title="Aithru Agent Backend")
     context_builder = ContextBuilder()
 
+    async def require_workspace(workspace_id: str) -> None:
+        workspace = await rt.store.get_workspace(workspace_id)
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
     @app.get("/api/agent/health")
     async def health() -> dict[str, object]:
         return {"ok": True, "service": "aithru-agent-backend"}
@@ -343,6 +348,7 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.get("/api/agent/workspaces/{workspace_id}/files")
     async def list_workspace_files(workspace_id: str) -> list[dict[str, Any]]:
+        await require_workspace(workspace_id)
         return [
             file.model_dump(mode="json")
             for file in await rt.store.list_workspace_files(workspace_id)
@@ -350,6 +356,7 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.get("/api/agent/workspaces/{workspace_id}/files/{path:path}")
     async def read_workspace_file(workspace_id: str, path: str) -> dict[str, Any]:
+        await require_workspace(workspace_id)
         try:
             content = await rt.store.read_workspace_file(workspace_id, path)
         except AgentError as err:
@@ -358,6 +365,7 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.put("/api/agent/workspaces/{workspace_id}/files/{path:path}")
     async def write_workspace_file(workspace_id: str, path: str, body: WriteWorkspaceFileRequest) -> dict[str, Any]:
+        await require_workspace(workspace_id)
         file = await rt.store.write_workspace_file(
             workspace_id=workspace_id,
             path=path,
@@ -368,6 +376,7 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
 
     @app.delete("/api/agent/workspaces/{workspace_id}/files/{path:path}")
     async def delete_workspace_file(workspace_id: str, path: str) -> dict[str, str]:
+        await require_workspace(workspace_id)
         try:
             return await rt.store.delete_workspace_file(workspace_id, path)
         except AgentError as err:

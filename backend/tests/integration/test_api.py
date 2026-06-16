@@ -394,6 +394,30 @@ async def test_agent_api_rejects_messages_for_unknown_thread() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_rejects_file_operations_for_unknown_workspace() -> None:
+    runtime = create_agent_runtime()
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        listed = await client.get("/api/agent/workspaces/missing-workspace/files")
+        read = await client.get("/api/agent/workspaces/missing-workspace/files/notes.md")
+        written = await client.put(
+            "/api/agent/workspaces/missing-workspace/files/notes.md",
+            json={"content": "hello", "media_type": "text/plain"},
+        )
+        deleted = await client.delete("/api/agent/workspaces/missing-workspace/files/notes.md")
+
+    assert listed.status_code == 404
+    assert read.status_code == 404
+    assert written.status_code == 404
+    assert deleted.status_code == 404
+    assert listed.json()["detail"] == "Workspace not found"
+    assert read.json()["detail"] == "Workspace not found"
+    assert written.json()["detail"] == "Workspace not found"
+    assert deleted.json()["detail"] == "Workspace not found"
+
+
+@pytest.mark.asyncio
 async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
     skill = AgentSkill(
         id="skill_1",

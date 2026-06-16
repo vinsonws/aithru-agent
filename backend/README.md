@@ -47,6 +47,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 - Local workspace, todo, artifact, memory, subagent, and sandbox tools behind the capability router.
 - Unknown run skills are rejected before run creation so missing policy cannot fall back to unrestricted execution.
 - Run and message APIs validate Agent Thread references before writing related state.
+- Workspace file APIs validate workspace references before reading or writing files.
 - Memory tools emit read/write events and trace spans.
 - Workspace tools enforce skill path policy at execution time.
 - Skill approval policy contributes execution-time approval requirements.
