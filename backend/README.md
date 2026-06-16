@@ -38,7 +38,7 @@ uv run aithru-agent-worker --once --sqlite-path .aithru/agent.sqlite
 
 - FastAPI Agent control plane.
 - Optional Bearer token authentication via `AITHRU_AGENT_API_TOKEN`, with run scope limits from `AITHRU_AGENT_API_SCOPES`.
-- Trusted `X-Aithru-Org-Id` and `X-Aithru-User-Id` headers bind identity and filter run, memory, and subagent resources.
+- Trusted `X-Aithru-Org-Id` and `X-Aithru-User-Id` headers bind identity and filter run, memory, skill, and subagent resources.
 - Queued Agent runs with worker execution.
 - In-memory and SQLite persistence backends.
 - Agent stream events, SSE formatting, and trace projection.

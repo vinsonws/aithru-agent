@@ -407,13 +407,17 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
         return approval.model_dump(mode="json")
 
     @app.get("/api/agent/skills")
-    async def list_skills() -> list[dict[str, Any]]:
-        return [skill.model_dump(mode="json") for skill in rt.skill_resolver.list_skills()]
+    async def list_skills(request: Request) -> list[dict[str, Any]]:
+        return [
+            skill.model_dump(mode="json")
+            for skill in rt.skill_resolver.list_skills()
+            if _org_visible(request, skill.org_id)
+        ]
 
     @app.get("/api/agent/skills/{skill_id_or_key}")
-    async def get_skill(skill_id_or_key: str) -> dict[str, Any]:
+    async def get_skill(request: Request, skill_id_or_key: str) -> dict[str, Any]:
         skill = rt.skill_resolver.resolve(skill_id_or_key)
-        if not skill:
+        if not skill or not _org_visible(request, skill.org_id):
             raise HTTPException(status_code=404, detail="Skill not found")
         return skill.model_dump(mode="json")
 

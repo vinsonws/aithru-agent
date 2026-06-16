@@ -967,6 +967,47 @@ async def test_agent_api_lists_and_gets_published_skills() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_filters_skills_by_authenticated_org() -> None:
+    org_skill = AgentSkill(
+        id="skill_1",
+        org_id="org_1",
+        key="file-report",
+        name="File Report",
+        instructions="Read files and write a report.",
+        allowed_tools=["workspace.read_file"],
+        allowed_subagents=[],
+        version="0.1.0",
+        status="published",
+    )
+    external_skill = AgentSkill(
+        id="skill_2",
+        org_id="org_2",
+        key="external-report",
+        name="External Report",
+        instructions="Belongs to another organization.",
+        allowed_tools=["workspace.read_file"],
+        allowed_subagents=[],
+        version="0.1.0",
+        status="published",
+    )
+    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([org_skill, external_skill]))
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        headers = {"X-Aithru-Org-Id": "org_1"}
+        skills = (await client.get("/api/agent/skills", headers=headers)).json()
+        own_by_key = await client.get("/api/agent/skills/file-report", headers=headers)
+        external_by_key = await client.get("/api/agent/skills/external-report", headers=headers)
+        external_by_id = await client.get("/api/agent/skills/skill_2", headers=headers)
+
+    assert skills == [org_skill.model_dump(mode="json")]
+    assert own_by_key.status_code == 200
+    assert own_by_key.json()["id"] == "skill_1"
+    assert external_by_key.status_code == 404
+    assert external_by_id.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_agent_api_rejects_run_with_unknown_skill() -> None:
     runtime = create_agent_runtime()
     app = create_app(runtime)
