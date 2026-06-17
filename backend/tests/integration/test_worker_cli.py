@@ -10,7 +10,7 @@ from aithru_agent.worker.cli import main as worker_main
 
 def test_worker_cli_processes_persisted_queued_run(tmp_path: Path, capsys) -> None:
     db_path = tmp_path / "agent.sqlite"
-    settings = AgentSettings(persistence_backend="sqlite", sqlite_path=str(db_path))
+    settings = AgentSettings(model="test", persistence_backend="sqlite", sqlite_path=str(db_path))
 
     async def seed_run() -> str:
         runtime = create_agent_runtime(settings=settings)
