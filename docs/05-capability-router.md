@@ -261,9 +261,9 @@ Workflow capabilities may be backed by Core nodes, but the backing details
 belong to the Workflow product. Agent consumes the curated capability API and
 stores linked external run references.
 
-Future sandbox, memory, or MCP adapters must enter Agent through either
-Agent-owned local harness interfaces or Workflow product capabilities. They are
-not top-level `AgentToolKind` values in the simplified Agent contract.
+Sandbox, memory, or MCP adapters must enter Agent through either Agent-owned
+local harness interfaces or Workflow product capabilities. They are not
+top-level `AgentToolKind` values in the simplified Agent contract.
 
 ## Policy checks
 
@@ -423,7 +423,7 @@ Sources:
 - skill-provided tools;
 - Workflow capability catalog;
 - Workbench workflows exposed as workflow capabilities;
-- sandbox, memory, MCP providers through future local or capability interfaces.
+- sandbox, memory, MCP providers through local or capability interfaces.
 
 `listTools(context)` should return only tools available under current actor/org/skill/runtime context.
 

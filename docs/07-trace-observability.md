@@ -56,15 +56,16 @@ Instant spans (workspace, artifact) are created and immediately closed — they 
 | Kind | Description | Duration |
 | --- | --- | --- |
 | `run` | Full agent run lifecycle | Real (created → terminal) |
-| `message` | Single message in a thread | Not yet projected |
+| `message` | Single message in a thread | Real (created → completed/failed) |
+| `todo` | Runtime todo state | Real (created → terminal status) |
 | `model` | LLM call (with potential tool calls) | Real (started → completed/failed) |
 | `tool` | Single tool execution | Real (proposed → completed/failed/denied) |
 | `approval` | Approval gate pause | Real (requested → resolved) |
 | `workspace` | File create/update/delete | Instant (point event) |
 | `artifact` | Artifact creation | Instant (point event) |
-| `subagent` | Subagent run (future) | Future |
-| `sandbox` | Sandbox execution (future) | Future |
-| `memory` | Memory read/write (future) | Future |
+| `subagent` | Subagent run | Real (started → completed/failed) |
+| `sandbox` | Sandbox execution | Real (started → completed/failed) |
+| `memory` | Memory read/write | Instant (point event) |
 
 ## Redaction Rules
 

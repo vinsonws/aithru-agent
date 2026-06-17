@@ -105,9 +105,8 @@ Stage 1 will not implement:
 - Workbench `WorkflowSpec` authoring or scheduling;
 - a workflow graph editor;
 - browser UI;
-- subagents;
-- sandbox execution;
-- long-term memory;
+- production-grade sandbox isolation beyond the restricted local provider;
+- hosted long-term memory beyond the stage-1 memory store;
 - MCP integration;
 - external Workflow Capability HTTP integration;
 - distributed queue infrastructure as a hard dependency;
@@ -337,6 +336,8 @@ Responsibilities:
 
 - define the Aithru harness driver interface;
 - build model context;
+- inject bounded thread message summaries;
+- inject bounded workspace file summaries when workspace read policy allows;
 - call Pydantic AI through the `pydantic_ai` driver;
 - map Pydantic AI output/events into Aithru events;
 - expose a scripted driver for deterministic tests.
@@ -496,8 +497,14 @@ POST   /api/agent/runs
 GET    /api/agent/runs
 GET    /api/agent/runs/{run_id}
 GET    /api/agent/runs/{run_id}/events
+GET    /api/agent/runs/{run_id}/trace
+GET    /api/agent/runs/{run_id}/snapshot
+GET    /api/agent/runs/{run_id}/tools
+GET    /api/agent/runs/{run_id}/subagents
 GET    /api/agent/runs/{run_id}/stream
+POST   /api/agent/runs/{run_id}/input
 POST   /api/agent/runs/{run_id}/cancel
+POST   /api/agent/runs/{run_id}/resume
 
 GET    /api/agent/approvals
 GET    /api/agent/approvals/{approval_id}
@@ -510,6 +517,13 @@ DELETE /api/agent/workspaces/{workspace_id}/files/{path:path}
 
 GET    /api/agent/artifacts
 GET    /api/agent/artifacts/{artifact_id}
+
+POST   /api/agent/memory
+GET    /api/agent/memory
+
+POST   /api/agent/subagents
+GET    /api/agent/subagents
+GET    /api/agent/subagents/{key}
 ```
 
 ## Local Tools For Stage 1
@@ -526,6 +540,10 @@ todo.create
 todo.update
 artifact.create
 artifact.finalize
+memory.search
+memory.remember
+subagent.delegate
+sandbox.run_python
 ```
 
 Tool rules:
@@ -627,6 +645,11 @@ Pydantic AI proposes tool call
 Pydantic AI deferred tools can be used internally to represent pause/resume,
 but the persisted approval object and public API belong to Aithru.
 
+If a local tool returns `failed` or `denied` after execution begins, the bridge
+must emit `tool.failed`/`tool.denied` and surface an Aithru error so the worker
+projects `model.failed` and `run.failed`. Tool failures must not be silently
+converted into successful model context.
+
 ## Event Types For Stage 1
 
 Stage 1 must support these event families:
@@ -652,6 +675,7 @@ todo.blocked
 todo.cancelled
 
 model.started
+model.usage
 model.completed
 model.failed
 

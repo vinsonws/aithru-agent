@@ -42,8 +42,8 @@ The actual execution capability must depend on Aithru-controlled capability boun
 
 - Agent-owned local tools (workspace operations, artifact creation);
 - Workflow product capabilities consumed through `CapabilityRun` APIs.
-- Future sandbox, memory, or MCP behavior through Agent-owned harness
-  interfaces or additional Workflow product capabilities.
+- Sandbox, memory, or MCP behavior through Agent-owned harness interfaces or
+  additional Workflow product capabilities.
 
 Workflow capabilities may be backed by Core nodes, but the backing details
 belong to the Workflow product. Agent consumes the curated capability API and
@@ -146,6 +146,12 @@ A skill contains:
 - artifact expectations.
 
 A skill is not a workflow graph. It may be invoked from Chat, API, delegated work, or a Workbench `agent.*` node.
+Skill APIs, run creation, and run execution must resolve skills inside the
+current organization boundary.
+
+`allowedTools` is an upper bound. Workspace, memory, sandbox, approval, and
+subagent policies can further remove tools from a run's available catalog.
+Sandbox tools are unavailable unless the skill explicitly enables sandbox use.
 
 ### Workspace
 
@@ -167,6 +173,8 @@ Workspace operations must be policy-gated and traceable.
 ### Runs
 
 Runs represent intelligent execution, not formal workflow execution.
+When a run is attached to a thread, the run and thread must share the same
+organization and owner boundary.
 
 A run should show:
 
@@ -277,6 +285,10 @@ type AgentRun = {
   actorUserId: string;
   source: "chat" | "skill" | "api" | "workbench_node" | "delegated_task";
   goal: string;
+  harnessOptions?: {
+    model?: string;
+    instructions?: string;
+  };
   status:
     | "queued"
     | "running"
@@ -285,6 +297,12 @@ type AgentRun = {
     | "failed"
     | "cancelled";
   workspaceId: string;
+  result?: {
+    content?: string;
+    artifactIds: string[];
+    messageId?: string;
+    threadMessageId?: string;
+  };
   startedAt: string;
   completedAt?: string;
 };
@@ -368,11 +386,12 @@ interface AithruCapabilityRouter {
 
 Backend adapters:
 
-- `local_tool` adapters for Agent-owned tools (workspace, artifact);
+- `local_tool` adapters for Agent-owned tools (workspace, todo, artifact,
+  memory, subagent delegation, restricted sandbox execution);
 - `workflow_capability` adapters that consume Workflow product capability APIs.
 
 Workflow capabilities may be backed by Core nodes, but the backing details
-belong to the Workflow product. Future sandbox, memory, or MCP behavior must
+belong to the Workflow product. Additional sandbox, memory, or MCP behavior must
 enter Agent through either Agent-owned local harness interfaces or Workflow
 product capabilities - they are not top-level `AgentToolKind` values.
 
@@ -469,39 +488,51 @@ Download WorkflowSpec JSON
 
 Only Workbench validates, saves, versions, and runs formal workflows.
 
-## Package direction
+## Backend direction
 
-Target package direction:
+The active implementation direction is Python-first:
 
 ```txt
-packages/
-  agent-core/            shared harness contracts
-  agent-harness/         main DeepAgents-like harness
-  agent-skills/          skill loading, validation, prompt composition
-  agent-workspace/       workspace and artifact APIs
-  agent-tools/           capability router and adapters
-  agent-subagents/       subagent delegation contracts
-  agent-sandbox/         sandbox/interpreter interfaces
-  agent-memory/          memory provider contracts
-  agent-model-*/         model adapters
-  node-agent/            Workbench/Core workflow node integration
-
-apps/
-  agent-server/          Platform subsystem backend
-  agent-web/             Platform hosted app frontend
+backend/
+  api/              FastAPI control plane
+  application/      runtime assembly and use-case services
+  capabilities/     capability router, policy, local tools, future Workflow capabilities
+  domain/           Agent product contracts
+  harness/          scripted and Pydantic AI harness drivers
+  persistence/      store interfaces and implementations
+  stream/           AgentStreamEvent writer/store/SSE
+  trace/            event-to-span projection
+  worker/           Agent run execution, pause/resume, cancellation
 ```
 
-Existing `agent-runtime` engines may remain as compatibility primitives and testable implementation pieces, but they should no longer define the product architecture.
+Pydantic AI is the default harness driver. It powers model loop mechanics, tool
+calling mechanics, streaming, and structured output, but it does not define
+public Aithru product contracts. Pydantic AI tool calls must enter Aithru's
+capability router through the Aithru tool bridge.
+
+Current runtime subagent support is harness state: `subagent.delegate` creates a
+controlled child `AgentRun` with `source = "delegated_task"`, links it to the
+parent run through `AgentSubagentRun`, and projects `subagent.started`,
+`subagent.completed`, and `subagent.failed` events into the parent stream and
+trace. Delegation validates requested child skills through the skill resolver
+and child run scopes must not exceed parent run scopes. This is not a
+WorkflowSpec, graph branch, or Workbench node.
+
+Current sandbox support is a restricted local `sandbox.run_python` tool. It
+does not expose shell access, imports, file APIs, or network APIs to model code;
+input enters through the tool payload, and stdout/stderr plus completion/failure
+are emitted as `sandbox.*` events and trace spans. Production-grade isolation
+can later replace the local provider behind the same capability boundary.
 
 ## Migration direction
 
-1. Keep current primitives working.
-2. Introduce harness-level contracts in `agent-core` or a new `agent-harness` package.
-3. Introduce Skill, Thread, Workspace, Todo, Tool, Subagent, and Memory contracts.
-4. Implement a minimal native harness over existing model adapters.
-5. Add a capability router that can bridge current `AgentHost.callTool` to Aithru policy boundaries.
-6. Evolve `node-agent` from engine-specific nodes to skill/harness invocation nodes.
-7. Add Platform hosted `agent-server` and `agent-web` when product integration begins.
+1. Keep Agent as a Python backend with Aithru-owned contracts.
+2. Use FastAPI for the control plane.
+3. Use Pydantic AI as the default real harness driver.
+4. Keep a scripted driver for deterministic tests.
+5. Route every real action through the Aithru capability router.
+6. Add Workflow Capability HTTP integration only through explicit tools.
+7. Add Platform hosted UI only after the backend run/event/tool loop is stable.
 
 ## Verification checklist
 

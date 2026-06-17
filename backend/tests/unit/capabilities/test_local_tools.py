@@ -1,0 +1,429 @@
+import pytest
+
+from aithru_agent.capabilities import (
+    AgentRunContext,
+    AithruCapabilityRouter,
+    ToolPolicy,
+)
+from aithru_agent.capabilities.local_tools import (
+    ArtifactLocalTool,
+    MemoryLocalTool,
+    TodoLocalTool,
+    WorkspaceLocalTool,
+)
+from aithru_agent.domain import AgentToolCallRequest
+from aithru_agent.persistence.memory.store import InMemoryAgentStore
+
+
+async def make_context(store: InMemoryAgentStore) -> AgentRunContext:
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Do work",
+        workspace_id=workspace.id,
+    )
+    return AgentRunContext(
+        run_id=run.id,
+        org_id="org_1",
+        actor_user_id="user_1",
+        workspace_id=workspace.id,
+        scopes=[
+            "agent.workspace.read",
+            "agent.workspace.write",
+            "agent.todo.write",
+            "agent.artifact.write",
+        ],
+    )
+
+
+def make_router(store: InMemoryAgentStore, policy: ToolPolicy | None = None) -> AithruCapabilityRouter:
+    return AithruCapabilityRouter(
+        adapters=[
+            WorkspaceLocalTool(store),
+            TodoLocalTool(store),
+            ArtifactLocalTool(store),
+            MemoryLocalTool(store),
+        ],
+        policy=policy or ToolPolicy(require_approval_for_risk=[]),
+    )
+
+
+def test_local_tool_input_schemas_define_required_properties() -> None:
+    store = InMemoryAgentStore()
+    descriptors = [
+        descriptor
+        for adapter in [
+            WorkspaceLocalTool(store),
+            TodoLocalTool(store),
+            ArtifactLocalTool(store),
+            MemoryLocalTool(store),
+        ]
+        for descriptor in adapter.list_tools()
+    ]
+
+    for descriptor in descriptors:
+        required = set(descriptor.input_schema.get("required") or [])
+        properties = set((descriptor.input_schema.get("properties") or {}).keys())
+        assert required <= properties, descriptor.name
+
+
+@pytest.mark.asyncio
+async def test_router_lists_local_tools_with_risk_and_scopes() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+
+    tools = await router.list_tools(context)
+    by_name = {tool.name: tool for tool in tools}
+
+    assert by_name["workspace.read_file"].risk_level == "read"
+    assert by_name["workspace.write_file"].risk_level == "write"
+    assert by_name["todo.create"].required_scopes == ["agent.todo.write"]
+    assert by_name["artifact.create"].required_scopes == ["agent.artifact.write"]
+
+
+@pytest.mark.asyncio
+async def test_router_lists_only_tools_allowed_by_run_scopes() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes = ["agent.workspace.read"]
+    router = make_router(store)
+
+    tool_names = [tool.name for tool in await router.list_tools(context)]
+
+    assert "workspace.read_file" in tool_names
+    assert "workspace.write_file" not in tool_names
+    assert "memory.search" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_workspace_tool_calls_execute_through_router() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+
+    write = AgentToolCallRequest(
+        id="toolcall_1",
+        tool_name="workspace.write_file",
+        input={"path": "/notes.md", "content": "# Notes", "media_type": "text/markdown"},
+        requested_by="model",
+    )
+    prepared = await router.prepare_tool_call(write, context)
+    result = await router.execute_tool_call(write, context)
+    read = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_2",
+            tool_name="workspace.read_file",
+            input={"path": "/notes.md"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert prepared.status == "ready"
+    assert result.status == "completed"
+    assert result.output["path"] == "/notes.md"
+    assert read.output == {"path": "/notes.md", "content": "# Notes", "media_type": "text/markdown"}
+
+
+@pytest.mark.asyncio
+async def test_write_tool_waits_for_approval_when_policy_requires_write_approval() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store, ToolPolicy(require_approval_for_risk=["write"]))
+
+    request = AgentToolCallRequest(
+        id="toolcall_1",
+        tool_name="workspace.write_file",
+        input={"path": "/notes.md", "content": "# Notes"},
+        requested_by="model",
+    )
+
+    prepared = await router.prepare_tool_call(request, context)
+    denied_execution = await router.execute_tool_call(request, context)
+    approved_execution = await router.execute_tool_call(
+        request.model_copy(update={"already_approved": True, "requested_by": "harness"}),
+        context,
+    )
+
+    assert prepared.status == "waiting_approval"
+    assert denied_execution.status == "waiting_approval"
+    assert approved_execution.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_todo_and_artifact_tools_return_normalized_results() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+
+    todo_result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="todo.create",
+            input={"title": "Read files", "status": "running"},
+            requested_by="model",
+        ),
+        context,
+    )
+    artifact_result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_2",
+            tool_name="artifact.create",
+            input={
+                "type": "report",
+                "name": "Report",
+                "uri": "/reports/report.md",
+                "content": {"summary": "done"},
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert todo_result.status == "completed"
+    assert todo_result.output["title"] == "Read files"
+    assert todo_result.output["status"] == "running"
+    assert artifact_result.status == "completed"
+    assert artifact_result.output["type"] == "report"
+    assert artifact_result.output["uri"] == "/reports/report.md"
+
+
+@pytest.mark.asyncio
+async def test_todo_update_cannot_modify_another_run_todo() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    other_workspace = await store.create_workspace(org_id=context.org_id)
+    other_run = await store.create_run(
+        org_id=context.org_id,
+        actor_user_id=context.actor_user_id,
+        source="api",
+        goal="Other run",
+        workspace_id=other_workspace.id,
+    )
+    other_todo = await store.create_todo(
+        run_id=other_run.id,
+        title="Other task",
+        status="pending",
+    )
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="todo.update",
+            input={"todo_id": other_todo.id, "status": "done"},
+            requested_by="model",
+        ),
+        context,
+    )
+    other_todos = await store.list_todos(other_run.id)
+
+    assert result.status == "denied"
+    assert result.error["message"] == f"Todo is outside current run: {other_todo.id}"
+    assert other_todos[0].status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_artifact_finalize_cannot_modify_another_run_artifact() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    other_workspace = await store.create_workspace(org_id=context.org_id)
+    other_run = await store.create_run(
+        org_id=context.org_id,
+        actor_user_id=context.actor_user_id,
+        source="api",
+        goal="Other run",
+        workspace_id=other_workspace.id,
+    )
+    other_artifact = await store.create_artifact(
+        org_id=context.org_id,
+        workspace_id=other_workspace.id,
+        run_id=other_run.id,
+        type="report",
+        name="Other report",
+    )
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="artifact.finalize",
+            input={"artifact_id": other_artifact.id},
+            requested_by="model",
+        ),
+        context,
+    )
+    persisted = await store.get_artifact(other_artifact.id)
+
+    assert result.status == "denied"
+    assert result.error["message"] == f"Artifact is outside current run: {other_artifact.id}"
+    assert persisted.finalized_at is None
+
+
+@pytest.mark.asyncio
+async def test_memory_tools_remember_and_search_entries() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.read", "agent.memory.write"])
+    router = make_router(store)
+
+    remember = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.remember",
+            input={"key": "project.style", "value": "Use concise Chinese summaries.", "scope": "user"},
+            requested_by="model",
+        ),
+        context,
+    )
+    search = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_2",
+            tool_name="memory.search",
+            input={"query": "Chinese", "scope": "user"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert remember.status == "completed"
+    assert remember.output["key"] == "project.style"
+    assert remember.output["scope_id"] == "user_1"
+    assert search.status == "completed"
+    assert [entry["key"] for entry in search.output["entries"]] == ["project.style"]
+
+
+@pytest.mark.asyncio
+async def test_memory_search_cannot_read_another_user_scope() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.read"])
+    router = make_router(store)
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="user",
+        scope_id="other_user",
+        key="private.preference",
+        value="Do not reveal.",
+    )
+
+    search = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.search",
+            input={"scope": "user", "scope_id": "other_user"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert search.status == "denied"
+    assert search.error["message"] == "Memory scope_id is outside the current run context: user"
+
+
+@pytest.mark.asyncio
+async def test_memory_search_without_scope_only_reads_current_context_scopes() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.read"])
+    router = make_router(store)
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="user",
+        scope_id=context.actor_user_id,
+        key="current.preference",
+        value="Visible current memory.",
+    )
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="user",
+        scope_id="other_user",
+        key="other.preference",
+        value="Visible other memory.",
+    )
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="workspace",
+        scope_id=context.workspace_id,
+        key="workspace.note",
+        value="Visible workspace memory.",
+    )
+
+    search = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.search",
+            input={"query": "Visible"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert search.status == "completed"
+    assert [entry["key"] for entry in search.output["entries"]] == [
+        "current.preference",
+        "workspace.note",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_memory_remember_cannot_write_another_user_scope() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.write"])
+    router = make_router(store)
+
+    remember = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.remember",
+            input={
+                "scope": "user",
+                "scope_id": "other_user",
+                "key": "private.preference",
+                "value": "Wrong user.",
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+    entries = await store.list_memory_entries(org_id=context.org_id, scope="user")
+
+    assert remember.status == "denied"
+    assert remember.error["message"] == "Memory scope_id is outside the current run context: user"
+    assert entries == []
+
+
+@pytest.mark.asyncio
+async def test_memory_tools_reject_unknown_scope() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.read", "agent.memory.write"])
+    router = make_router(store)
+
+    search = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.search",
+            input={"scope": "global"},
+            requested_by="model",
+        ),
+        context,
+    )
+    remember = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_2",
+            tool_name="memory.remember",
+            input={"scope": "global", "key": "x", "value": "y"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert search.status == "denied"
+    assert search.error["message"] == "Unsupported memory scope: global"
+    assert remember.status == "denied"
+    assert remember.error["message"] == "Unsupported memory scope: global"

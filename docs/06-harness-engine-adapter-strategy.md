@@ -236,9 +236,9 @@ Rules:
 
 ## Candidate frameworks
 
-### NativeHarnessEngine
+### ScriptedHarnessDriver
 
-Aithru's minimal native implementation.
+Aithru's deterministic test driver.
 
 Purpose:
 
@@ -250,21 +250,51 @@ Purpose:
 
 Should support at minimum:
 
-- skill loading;
-- context building;
 - message streaming;
-- todo updates;
 - tool proposal normalization;
-- capability router calls;
+- capability router calls through the worker;
 - workspace write/read;
 - artifact creation;
 - structured events.
 
-Native engine does not need to become a full DeerFlow replacement unless other options fail.
+The scripted driver is not the production intelligence layer.
+
+### PydanticAIHarnessDriver
+
+Pydantic AI is the default Python harness driver.
+
+Why use it:
+
+- Python-native agent framework;
+- commercially friendly permissive license;
+- model-provider flexibility;
+- strong Pydantic validation and structured output;
+- streaming events;
+- tool calling;
+- approval-compatible deferred tool patterns;
+- OpenTelemetry-compatible observability.
+
+Risks:
+
+- Pydantic AI internal graph concepts must not become Aithru product concepts;
+- Pydantic AI tools must not directly execute filesystem, network, database,
+  shell, browser, Workbench, Core, or Platform operations;
+- Pydantic AI native streams must be adapted to `AgentStreamEvent`;
+- hosted observability integrations must remain optional.
+
+Expected use:
+
+```txt
+Pydantic AI
+  -> PydanticAIHarnessDriver
+  -> Aithru Tool Bridge
+  -> Aithru CapabilityRouter
+  -> Aithru AgentStreamEvent
+```
 
 ### MastraHarnessEngine
 
-Mastra is the primary TypeScript-first candidate.
+Mastra is no longer the default backend candidate.
 
 Why evaluate it:
 
@@ -320,34 +350,6 @@ LangGraph state machine
 
 Do not expose LangGraph nodes/edges as Aithru Agent product objects.
 
-### PydanticAI worker
-
-PydanticAI is a strong Python candidate for specialized workers, not the default TypeScript harness.
-
-Best fit:
-
-- Python data-analysis agents;
-- structured output validation;
-- tool-heavy Python workflows;
-- eval-heavy experiments;
-- specialized skill backend;
-- sandbox-adjacent processing.
-
-Risks:
-
-- Python main service complicates Platform hosted app integration;
-- cross-language stream and tool adapters add complexity;
-- Aithru Core/Workbench integration is more natural from TypeScript first.
-
-Expected use:
-
-```txt
-Aithru Agent Harness
-  -> tool/subagent/worker call
-  -> PydanticAI worker
-  -> normalized AgentStreamEvent / Artifact / ToolResult
-```
-
 ### AgentScope worker
 
 AgentScope is a candidate for multi-agent research, subagent patterns, evaluation, and tracing references.
@@ -398,11 +400,12 @@ Aithru AgentStreamEvent
 Default route:
 
 ```txt
-1. Implement Aithru contracts and NativeHarnessEngine skeleton.
-2. Build MastraHarnessEngine PoC.
-3. Build LangGraphHarnessEngine PoC only if durable execution/resume requires it.
-4. Treat PydanticAI and AgentScope as worker/subagent candidates.
-5. Keep AI SDK as UI stream adapter, not harness engine.
+1. Implement Python Aithru backend contracts.
+2. Keep ScriptedHarnessDriver for deterministic tests.
+3. Use PydanticAIHarnessDriver as the default real harness driver.
+4. Build LangGraph adapter only if durable graph-style execution becomes necessary.
+5. Treat AgentScope or other frameworks as optional specialized workers.
+6. Keep AI SDK as UI stream adapter, not backend harness engine.
 ```
 
 ## PoC validation criteria
@@ -512,15 +515,15 @@ Avoid:
 
 Implement or finalize:
 
-- `agent-core` contracts;
-- `agent-stream` protocol;
-- `agent-skills` package spec;
-- `agent-workspace` provider;
-- `agent-tools` capability router.
+- Python `domain` contracts;
+- `stream` protocol;
+- workspace and artifact stores;
+- capability router;
+- local tools.
 
-### Step 2: NativeHarnessEngine skeleton
+### Step 2: Scripted driver skeleton
 
-Implement a minimal native engine to prove:
+Implement a deterministic scripted driver to prove:
 
 - run creation;
 - message streaming;
@@ -530,19 +533,20 @@ Implement a minimal native engine to prove:
 - artifact creation;
 - event replay.
 
-### Step 3: Mastra PoC
+### Step 3: Pydantic AI driver
 
 Build a focused adapter proving:
 
-- Aithru Skill -> Mastra agent config;
-- Mastra tool call -> Aithru CapabilityRouter;
-- Mastra stream -> Aithru AgentStreamEvent;
-- Aithru WorkspaceProvider integration;
+- Pydantic AI model loop can run under the Aithru worker;
+- Pydantic AI events map to Aithru event intents;
+- Pydantic AI tool calls go through Aithru Tool Bridge and CapabilityRouter;
+- Aithru workspace/artifact integration remains source-of-truth;
 - no bypass of Aithru policy.
 
 ### Step 4: LangGraph PoC if needed
 
-Only if durable execution/resume is not satisfied by native/Mastra approach.
+Only if durable execution/resume is not satisfied by the Python worker and
+Pydantic AI approach.
 
 Prove:
 

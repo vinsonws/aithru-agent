@@ -1,6 +1,16 @@
 # Complete Harness Architecture
 
-Status: target architecture
+Status: superseded implementation draft
+
+This document preserves an earlier package-oriented target architecture. The
+current implementation is Python-first under `backend/`, using FastAPI,
+Pydantic AI, Aithru capability routing, Agent stream events, and trace
+projection.
+
+For current implementation guidance, use:
+
+- `docs/ARCHITECTURE.md`
+- `docs/superpowers/specs/2026-06-16-python-pydantic-ai-agent-backend-design.md`
 
 This document defines the complete Aithru Agent Harness architecture. It should be read before implementation work begins.
 
