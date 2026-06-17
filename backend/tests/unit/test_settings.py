@@ -1,4 +1,19 @@
+import pytest
+
 from aithru_agent.settings import AgentSettings
+
+
+def test_default_driver_is_pydantic_ai() -> None:
+    settings = AgentSettings()
+
+    assert settings.driver == "pydantic_ai"
+
+
+def test_scripted_driver_env_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AITHRU_AGENT_DRIVER", "scripted")
+
+    with pytest.raises(ValueError, match="scripted driver has been removed"):
+        AgentSettings.from_env()
 
 
 def test_settings_load_driver_model_and_instructions_from_env(monkeypatch) -> None:

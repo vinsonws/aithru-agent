@@ -3,13 +3,13 @@ from dataclasses import dataclass, field
 from typing import Literal, cast
 
 
-AgentDriverKind = Literal["scripted", "pydantic_ai"]
+AgentDriverKind = Literal["pydantic_ai"]
 AgentPersistenceBackend = Literal["memory", "sqlite"]
 
 
 @dataclass(frozen=True)
 class AgentSettings:
-    driver: AgentDriverKind = "scripted"
+    driver: AgentDriverKind = "pydantic_ai"
     persistence_backend: AgentPersistenceBackend = "memory"
     sqlite_path: str = ".aithru/agent.sqlite"
     model: str | None = None
@@ -21,7 +21,12 @@ class AgentSettings:
     @classmethod
     def from_env(cls) -> "AgentSettings":
         driver = os.getenv("AITHRU_AGENT_DRIVER", cls.driver)
-        if driver not in {"scripted", "pydantic_ai"}:
+        if driver == "scripted":
+            raise ValueError(
+                "The scripted driver has been removed; use AITHRU_AGENT_MODEL=test "
+                "for deterministic tests"
+            )
+        if driver != "pydantic_ai":
             raise ValueError(f"Unsupported AITHRU_AGENT_DRIVER: {driver}")
         persistence_backend = os.getenv("AITHRU_AGENT_PERSISTENCE_BACKEND", cls.persistence_backend)
         if persistence_backend not in {"memory", "sqlite"}:
