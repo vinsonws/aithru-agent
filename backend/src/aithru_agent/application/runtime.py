@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 
+from pydantic_ai.models.test import TestModel
+
+from aithru_agent.agent import AgentRuntime as NativeAgentRuntime
 from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
 from aithru_agent.capabilities.local_tools import (
     ArtifactLocalTool,
@@ -9,9 +12,6 @@ from aithru_agent.capabilities.local_tools import (
     TodoLocalTool,
     WorkspaceLocalTool,
 )
-from aithru_agent.harness import AgentHarnessDriver
-from aithru_agent.harness.drivers.pydantic_ai import PydanticAIHarnessDriver
-from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
@@ -22,7 +22,7 @@ from aithru_agent.worker import AgentWorkerRunner, AgentWorkerService, InProcess
 
 
 @dataclass
-class AgentRuntime:
+class AgentApplication:
     settings: AgentSettings
     store: AgentStore
     event_store: AgentEventStore
@@ -32,17 +32,21 @@ class AgentRuntime:
     run_queue: InProcessRunQueue
     worker: AgentWorkerService
     skill_resolver: AgentSkillResolver
+    agent_runtime: NativeAgentRuntime
 
 
-def create_agent_runtime(
+AgentRuntime = AgentApplication
+
+
+def create_agent_application(
     *,
     store: AgentStore | None = None,
     event_store: AgentEventStore | None = None,
-    driver: AgentHarnessDriver | None = None,
+    agent_runtime: NativeAgentRuntime | None = None,
     policy: ToolPolicy | None = None,
     settings: AgentSettings | None = None,
     skill_resolver: AgentSkillResolver | None = None,
-) -> AgentRuntime:
+) -> AgentApplication:
     resolved_settings = settings or AgentSettings.from_env()
     resolved_store = store or _create_store(resolved_settings)
     resolved_event_store = event_store or _create_event_store(resolved_settings)
@@ -59,16 +63,17 @@ def create_agent_runtime(
         ],
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )
+    resolved_agent_runtime = agent_runtime or _create_native_agent_runtime(resolved_settings)
     runner = AgentWorkerRunner(
         store=resolved_store,
         event_writer=event_writer,
         capability_router=capability_router,
-        driver=driver or _create_driver(resolved_settings),
+        agent_runtime=resolved_agent_runtime,
         skill_resolver=resolved_skill_resolver,
     )
     run_queue = InProcessRunQueue()
     worker = AgentWorkerService(runner=runner, queue=run_queue)
-    return AgentRuntime(
+    return AgentApplication(
         settings=resolved_settings,
         store=resolved_store,
         event_store=resolved_event_store,
@@ -78,25 +83,36 @@ def create_agent_runtime(
         run_queue=run_queue,
         worker=worker,
         skill_resolver=resolved_skill_resolver,
+        agent_runtime=resolved_agent_runtime,
     )
 
 
-def _create_driver(settings: AgentSettings) -> AgentHarnessDriver:
-    if settings.driver == "pydantic_ai":
-        return PydanticAIHarnessDriver(
-            model=_model_from_settings(settings, settings.model),
-            model_factory=lambda model: _model_from_settings(settings, model),
-            instructions=settings.instructions,
+create_agent_runtime = create_agent_application
+
+
+def _create_native_agent_runtime(settings: AgentSettings) -> NativeAgentRuntime:
+    if settings.model == "test":
+        model: object | str = TestModel(
+            call_tools=[],
+            custom_output_text=settings.test_model_output,
         )
-    return ScriptedHarnessDriver([])
+    elif settings.model:
+        model = settings.model
+    else:
+        raise ValueError(
+            "AITHRU_AGENT_MODEL is required for the Pydantic AI runtime. "
+            "Use AITHRU_AGENT_MODEL=test only for tests or local deterministic development."
+        )
 
-
-def _model_from_settings(settings: AgentSettings, model: str | None) -> object | str | None:
-    if model == "test":
-        from pydantic_ai.models.test import TestModel
-
-        return TestModel(call_tools=[], custom_output_text=settings.test_model_output)
-    return model
+    return NativeAgentRuntime(
+        model=model,
+        model_factory=lambda model_name: (
+            TestModel(call_tools=[], custom_output_text=settings.test_model_output)
+            if model_name == "test"
+            else model_name
+        ),
+        instructions=settings.instructions,
+    )
 
 
 def _create_store(settings: AgentSettings) -> AgentStore:
