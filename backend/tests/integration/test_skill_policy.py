@@ -1,22 +1,22 @@
 import pytest
-
-from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.domain import AgentApprovalPolicy, AgentRunStatus, AgentSkill
-from aithru_agent.harness.engine import HarnessRunDeps, HarnessStep
-from aithru_agent.harness.drivers.pydantic_ai import PydanticAIHarnessDriver
-from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver, ScriptedStep
-from aithru_agent.skills.resolver import InMemorySkillResolver
 from pydantic_ai.models.test import TestModel
 
+from aithru_agent.agent import AgentRuntime, AgentRuntimeResult
+from aithru_agent.application.runtime import create_agent_runtime
+from aithru_agent.domain import AgentApprovalPolicy, AgentRunStatus, AgentSkill
+from aithru_agent.skills.resolver import InMemorySkillResolver
+from tests.utils.step_runtime import Step, StepAgentRuntime
 
-class RecordingDriver:
+
+class RecordingRuntime(AgentRuntime):
     def __init__(self) -> None:
+        super().__init__()
         self.seen_skill_instructions: str | None = None
 
-    async def run(self, goal: str | None = None, deps: HarnessRunDeps | None = None) -> list[HarnessStep]:
+    async def run(self, goal, deps):  # type: ignore[no-untyped-def]
         del goal
-        self.seen_skill_instructions = deps.skill.instructions if deps and deps.skill else None
-        return [HarnessStep(type="finish")]
+        self.seen_skill_instructions = deps.skill.instructions if deps.skill else None
+        return AgentRuntimeResult(content="")
 
 
 def file_report_skill(allowed_tools: list[str]) -> AgentSkill:
@@ -51,10 +51,10 @@ def write_approval_skill() -> AgentSkill:
 @pytest.mark.asyncio
 async def test_worker_denies_scripted_tool_not_allowed_by_skill() -> None:
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool("workspace.write_file", {"path": "/x.md", "content": "x"}),
-                ScriptedStep.finish(),
+                Step.tool("workspace.write_file", {"path": "/x.md", "content": "x"}),
+                Step.finish(),
             ]
         ),
         skill_resolver=InMemorySkillResolver([file_report_skill(["workspace.read_file"])]),
@@ -76,11 +76,8 @@ async def test_worker_denies_scripted_tool_not_allowed_by_skill() -> None:
 @pytest.mark.asyncio
 async def test_worker_uses_skill_approval_policy_for_risky_tools() -> None:
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
-            [
-                ScriptedStep.tool("workspace.write_file", {"path": "/x.md", "content": "x"}),
-                ScriptedStep.finish(),
-            ]
+        agent_runtime=AgentRuntime(
+            model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
         ),
         skill_resolver=InMemorySkillResolver([write_approval_skill()]),
     )
@@ -104,7 +101,7 @@ async def test_worker_uses_skill_approval_policy_for_risky_tools() -> None:
 @pytest.mark.asyncio
 async def test_pydantic_driver_exposes_only_skill_allowed_tools() -> None:
     runtime = create_agent_runtime(
-        driver=PydanticAIHarnessDriver(
+        agent_runtime=AgentRuntime(
             model=TestModel(call_tools=["workspace.list_files"], custom_output_text="done")
         ),
         skill_resolver=InMemorySkillResolver([file_report_skill(["workspace.list_files"])]),
@@ -129,9 +126,9 @@ async def test_pydantic_driver_exposes_only_skill_allowed_tools() -> None:
 
 @pytest.mark.asyncio
 async def test_worker_passes_resolved_skill_to_harness_driver() -> None:
-    driver = RecordingDriver()
+    driver = RecordingRuntime()
     runtime = create_agent_runtime(
-        driver=driver,
+        agent_runtime=driver,
         skill_resolver=InMemorySkillResolver([file_report_skill(["workspace.list_files"])]),
     )
 
@@ -149,10 +146,10 @@ async def test_worker_passes_resolved_skill_to_harness_driver() -> None:
 @pytest.mark.asyncio
 async def test_worker_fails_queued_run_with_unresolvable_skill_before_tools_execute() -> None:
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool("workspace.write_file", {"path": "/x.md", "content": "x"}),
-                ScriptedStep.finish(),
+                Step.tool("workspace.write_file", {"path": "/x.md", "content": "x"}),
+                Step.finish(),
             ]
         )
     )

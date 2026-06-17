@@ -2,7 +2,6 @@ import pytest
 
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentRunStatus
-from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
 from aithru_agent.settings import AgentSettings
 
 
@@ -34,6 +33,7 @@ async def test_runtime_resolves_run_model_override_from_settings() -> None:
     runtime = create_agent_runtime(
         settings=AgentSettings(
             driver="pydantic_ai",
+            model="test",
             test_model_output="run model",
         )
     )
@@ -54,13 +54,11 @@ async def test_runtime_resolves_run_model_override_from_settings() -> None:
 @pytest.mark.asyncio
 async def test_runtime_uses_configured_sqlite_persistence(tmp_path) -> None:
     settings = AgentSettings(
+        model="test",
         persistence_backend="sqlite",
         sqlite_path=str(tmp_path / "agent.sqlite"),
     )
-    runtime = create_agent_runtime(
-        settings=settings,
-        driver=ScriptedHarnessDriver([ScriptedStep.finish()]),
-    )
+    runtime = create_agent_runtime(settings=settings)
 
     queued = await runtime.worker.submit_run(
         org_id="org_1",
@@ -70,7 +68,7 @@ async def test_runtime_uses_configured_sqlite_persistence(tmp_path) -> None:
     )
     await runtime.worker.drain()
 
-    reopened = create_agent_runtime(settings=settings, driver=ScriptedHarnessDriver([]))
+    reopened = create_agent_runtime(settings=settings)
     persisted = await reopened.store.get_run(queued.id)
     events = await reopened.event_store.list_by_run(queued.id)
 

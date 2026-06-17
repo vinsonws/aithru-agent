@@ -3,25 +3,25 @@ import pytest
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentRunStatus
 from aithru_agent.domain.errors import AgentError
-from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
+from tests.utils.step_runtime import Step, StepAgentRuntime
 
 
-def report_driver() -> ScriptedHarnessDriver:
-    return ScriptedHarnessDriver(
+def report_driver() -> StepAgentRuntime:
+    return StepAgentRuntime(
         [
-            ScriptedStep.message("Writing.\n"),
-            ScriptedStep.tool(
+            Step.message("Writing.\n"),
+            Step.tool(
                 "workspace.write_file",
                 {"path": "/reports/report.md", "content": "# Report\n", "media_type": "text/markdown"},
             ),
-            ScriptedStep.finish(),
+            Step.finish(),
         ]
     )
 
 
 @pytest.mark.asyncio
 async def test_worker_service_queues_run_until_work_once_executes_it() -> None:
-    runtime = create_agent_runtime(driver=report_driver())
+    runtime = create_agent_runtime(agent_runtime=report_driver())
 
     queued = await runtime.worker.submit_run(
         org_id="org_1",
@@ -53,7 +53,7 @@ async def test_worker_service_queues_run_until_work_once_executes_it() -> None:
 
 @pytest.mark.asyncio
 async def test_worker_service_rejects_run_thread_from_another_org() -> None:
-    runtime = create_agent_runtime(driver=report_driver())
+    runtime = create_agent_runtime(agent_runtime=report_driver())
     thread = await runtime.store.create_thread(
         org_id="org_2",
         owner_user_id="user_1",
@@ -78,7 +78,7 @@ async def test_worker_service_rejects_run_thread_from_another_org() -> None:
 
 @pytest.mark.asyncio
 async def test_worker_service_rejects_run_thread_owned_by_another_user() -> None:
-    runtime = create_agent_runtime(driver=report_driver())
+    runtime = create_agent_runtime(agent_runtime=report_driver())
     thread = await runtime.store.create_thread(
         org_id="org_1",
         owner_user_id="user_2",

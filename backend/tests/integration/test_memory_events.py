@@ -2,16 +2,16 @@ import pytest
 
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentRunStatus
-from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
+from tests.utils.step_runtime import Step, StepAgentRuntime
 from aithru_agent.trace import project_trace_spans
 
 
 @pytest.mark.asyncio
 async def test_memory_tools_emit_events_and_trace() -> None:
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "memory.remember",
                     {
                         "scope": "user",
@@ -19,8 +19,8 @@ async def test_memory_tools_emit_events_and_trace() -> None:
                         "value": "Chinese",
                     },
                 ),
-                ScriptedStep.tool("memory.search", {"query": "Chinese"}),
-                ScriptedStep.finish(),
+                Step.tool("memory.search", {"query": "Chinese"}),
+                Step.finish(),
             ]
         )
     )

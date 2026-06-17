@@ -1,5 +1,8 @@
 import pytest
+from pydantic_ai.models.test import TestModel
 
+from aithru_agent.agent import AgentRuntime, PydanticAgentDeps
+from aithru_agent.agent.tools import PydanticAIToolBridge
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter, ToolPolicy
 from aithru_agent.capabilities.local_tools import ArtifactLocalTool, TodoLocalTool, WorkspaceLocalTool
@@ -9,10 +12,17 @@ from aithru_agent.domain import (
     AgentToolCallResult,
     AgentToolDescriptor,
 )
-from aithru_agent.harness import HarnessRunPaused
-from aithru_agent.harness.drivers.pydantic_ai.tool_bridge import PydanticAIToolBridge
+from aithru_agent.domain.errors import AgentError
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
+from aithru_agent.settings import AgentSettings
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
+
+
+class ToolContext:
+    def __init__(self, tool_call_id: str, *, approved: bool = False) -> None:
+        self.tool_call_id = tool_call_id
+        self.run_step = 0
+        self.tool_call_approved = approved
 
 
 class SecretEchoTool:
@@ -78,16 +88,18 @@ async def test_pydantic_tool_bridge_calls_capability_router_and_emits_events() -
         policy=ToolPolicy(require_approval_for_risk=[]),
     )
     bridge = PydanticAIToolBridge(
-        run=run,
-        run_context=context,
-        event_writer=writer,
-        capability_router=router,
-        store=store,
+        deps=PydanticAgentDeps(
+            run=run,
+            run_context=context,
+            event_writer=writer,
+            capability_router=router,
+            store=store,
+        ),
     )
 
     result = await bridge.call_tool(
+        ToolContext("tc_1"),
         tool_name="workspace.read_file",
-        tool_call_id="tc_1",
         tool_input={"path": "/notes.md"},
     )
     events = await event_store.list_by_run(run.id)
@@ -122,19 +134,21 @@ async def test_pydantic_tool_bridge_redacts_sensitive_stream_payload_fields() ->
         scopes=["*"],
     )
     bridge = PydanticAIToolBridge(
-        run=run,
-        run_context=context,
-        event_writer=writer,
-        capability_router=AithruCapabilityRouter(
-            adapters=[SecretEchoTool()],
-            policy=ToolPolicy(require_approval_for_risk=[]),
+        deps=PydanticAgentDeps(
+            run=run,
+            run_context=context,
+            event_writer=writer,
+            capability_router=AithruCapabilityRouter(
+                adapters=[SecretEchoTool()],
+                policy=ToolPolicy(require_approval_for_risk=[]),
+            ),
+            store=store,
         ),
-        store=store,
     )
 
     result = await bridge.call_tool(
+        ToolContext("tc_secret"),
         tool_name="secret.echo",
-        tool_call_id="tc_secret",
         tool_input={"token": "tok_123", "safe": "visible"},
     )
     events = await event_store.list_by_run(run.id)
@@ -157,7 +171,7 @@ async def test_pydantic_tool_bridge_redacts_sensitive_stream_payload_fields() ->
 
 
 @pytest.mark.asyncio
-async def test_pydantic_tool_bridge_records_approval_and_pauses_run() -> None:
+async def test_pydantic_tool_bridge_rejects_non_deferred_approval_required_tool() -> None:
     store = InMemoryAgentStore()
     event_store = InMemoryAgentEventStore()
     writer = AgentEventWriter(event_store)
@@ -181,17 +195,19 @@ async def test_pydantic_tool_bridge_records_approval_and_pauses_run() -> None:
         policy=ToolPolicy(require_approval_for_risk=["write"]),
     )
     bridge = PydanticAIToolBridge(
-        run=run,
-        run_context=context,
-        event_writer=writer,
-        capability_router=router,
-        store=store,
+        deps=PydanticAgentDeps(
+            run=run,
+            run_context=context,
+            event_writer=writer,
+            capability_router=router,
+            store=store,
+        ),
     )
 
-    with pytest.raises(HarnessRunPaused):
+    with pytest.raises(AgentError) as exc_info:
         await bridge.call_tool(
+            ToolContext("tc_approval"),
             tool_name="workspace.write_file",
-            tool_call_id="tc_approval",
             tool_input={"path": "/notes.md", "content": "hello"},
         )
     paused_run = await store.get_run(run.id)
@@ -199,48 +215,31 @@ async def test_pydantic_tool_bridge_records_approval_and_pauses_run() -> None:
     events = await event_store.list_by_run(run.id)
 
     assert paused_run is not None
-    assert paused_run.status == AgentRunStatus.WAITING_APPROVAL
-    assert paused_run.current_approval_id == approvals[0].id
+    assert paused_run.status != AgentRunStatus.WAITING_APPROVAL
+    assert approvals == []
+    assert exc_info.value.code == "TOOL_APPROVAL_NOT_DEFERRED"
     assert [event.type for event in events] == [
         "tool.proposed",
-        "approval.requested",
-        "run.paused",
+        "tool.failed",
     ]
 
 
 @pytest.mark.asyncio
 async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
-    runtime = create_agent_runtime(policy=ToolPolicy(require_approval_for_risk=["write"]))
-    workspace = await runtime.store.create_workspace(org_id="org_1")
-    run = await runtime.store.create_run(
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        goal="Write file",
-        workspace_id=workspace.id,
-        scopes=["*"],
-    )
-    context = AgentRunContext(
-        run_id=run.id,
-        org_id="org_1",
-        actor_user_id="user_1",
-        workspace_id=workspace.id,
-        scopes=["*"],
-    )
-    bridge = PydanticAIToolBridge(
-        run=run,
-        run_context=context,
-        event_writer=runtime.event_writer,
-        capability_router=runtime.capability_router,
-        store=runtime.store,
+    runtime = create_agent_runtime(
+        settings=AgentSettings(model="test"),
+        agent_runtime=AgentRuntime(
+            model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
+        ),
+        policy=ToolPolicy(require_approval_for_risk=["write"]),
     )
 
-    with pytest.raises(HarnessRunPaused):
-        await bridge.call_tool(
-            tool_name="workspace.write_file",
-            tool_call_id="tc_resume",
-            tool_input={"path": "/notes.md", "content": "hello"},
-        )
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Write file",
+        scopes=["*"],
+    )
     approval = (await runtime.store.list_approvals())[0]
 
     resumed = await runtime.runner.resume_run(
@@ -249,17 +248,20 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
         decision="approved",
         comment="ok",
     )
-    file = await runtime.store.read_workspace_file(workspace.id, "/notes.md")
+    file = await runtime.store.read_workspace_file(run.workspace_id, "/a")
     events = await runtime.event_store.list_by_run(run.id)
 
     assert resumed.status == AgentRunStatus.COMPLETED
-    assert file.content == "hello"
-    assert [event.type for event in events][-8:] == [
+    assert file.content == "a"
+    assert [event.type for event in events][-11:] == [
         "approval.resolved",
         "run.resumed",
         "tool.started",
         "workspace.file.created",
         "tool.completed",
+        "message.delta",
+        "message.delta",
+        "model.usage",
         "model.completed",
         "message.completed",
         "run.completed",

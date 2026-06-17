@@ -1,25 +1,25 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from aithru_agent.agent import AgentRuntime
 from aithru_agent.api.main import create_app
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentRunStatus, AgentSkill, AgentSubagentRunStatus
-from aithru_agent.harness import HarnessRunDeps, HarnessStep
-from aithru_agent.harness.drivers.scripted.driver import ScriptedStep
 from aithru_agent.skills import InMemorySkillResolver
 from aithru_agent.trace import project_trace_spans
+from tests.utils.step_runtime import Step, StepAgentRuntime
 
 
-class SequencedDriver:
-    def __init__(self, runs: list[list[ScriptedStep]]) -> None:
+class SequencedRuntime(AgentRuntime):
+    def __init__(self, runs: list[list[Step]]) -> None:
+        super().__init__()
         self._runs = runs
         self._index = 0
 
-    async def run(self, goal: str | None = None, deps: HarnessRunDeps | None = None) -> list[HarnessStep]:
-        del goal, deps
+    async def run(self, goal, deps):  # type: ignore[no-untyped-def]
         index = min(self._index, len(self._runs) - 1)
         self._index += 1
-        return [step.step for step in self._runs[index]]
+        return await StepAgentRuntime(self._runs[index]).run(goal, deps)
 
 
 def subagent_skill() -> AgentSkill:
@@ -38,22 +38,22 @@ def subagent_skill() -> AgentSkill:
 
 @pytest.mark.asyncio
 async def test_subagent_delegate_creates_child_run_and_parent_events() -> None:
-    driver = SequencedDriver(
+    driver = SequencedRuntime(
         [
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "subagent.delegate",
                     {
                         "name": "researcher",
                         "task": "Summarize the workspace.",
                     },
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ],
-            [ScriptedStep.message("Subtask done."), ScriptedStep.finish()],
+            [Step.message("Subtask done."), Step.finish()],
         ]
     )
-    runtime = create_agent_runtime(driver=driver)
+    runtime = create_agent_runtime(agent_runtime=driver)
 
     parent = await runtime.runner.start_run(
         org_id="org_1",
@@ -87,22 +87,22 @@ async def test_subagent_delegate_creates_child_run_and_parent_events() -> None:
 
 @pytest.mark.asyncio
 async def test_cancelled_child_run_updates_parent_subagent_state() -> None:
-    driver = SequencedDriver(
+    driver = SequencedRuntime(
         [
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "subagent.delegate",
                     {
                         "name": "researcher",
                         "task": "Summarize the workspace.",
                     },
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ],
-            [ScriptedStep.message("This child should not run."), ScriptedStep.finish()],
+            [Step.message("This child should not run."), Step.finish()],
         ]
     )
-    runtime = create_agent_runtime(driver=driver)
+    runtime = create_agent_runtime(agent_runtime=driver)
 
     parent = await runtime.runner.start_run(
         org_id="org_1",
@@ -128,10 +128,10 @@ async def test_cancelled_child_run_updates_parent_subagent_state() -> None:
 
 @pytest.mark.asyncio
 async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
-    driver = SequencedDriver(
+    driver = SequencedRuntime(
         [
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "subagent.delegate",
                     {
                         "name": "researcher",
@@ -139,11 +139,11 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
                         "spec_key": "researcher",
                     },
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ]
         ]
     )
-    runtime = create_agent_runtime(driver=driver)
+    runtime = create_agent_runtime(agent_runtime=driver)
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -185,10 +185,10 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
 
 @pytest.mark.asyncio
 async def test_subagent_delegate_rejects_unknown_child_skill() -> None:
-    driver = SequencedDriver(
+    driver = SequencedRuntime(
         [
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "subagent.delegate",
                     {
                         "name": "researcher",
@@ -196,11 +196,11 @@ async def test_subagent_delegate_rejects_unknown_child_skill() -> None:
                         "skill_id": "missing-skill",
                     },
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ]
         ]
     )
-    runtime = create_agent_runtime(driver=driver)
+    runtime = create_agent_runtime(agent_runtime=driver)
 
     parent = await runtime.runner.start_run(
         org_id="org_1",
@@ -219,10 +219,10 @@ async def test_subagent_delegate_rejects_unknown_child_skill() -> None:
 
 @pytest.mark.asyncio
 async def test_subagent_delegate_cannot_expand_child_scopes() -> None:
-    driver = SequencedDriver(
+    driver = SequencedRuntime(
         [
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "subagent.delegate",
                     {
                         "name": "researcher",
@@ -231,12 +231,12 @@ async def test_subagent_delegate_cannot_expand_child_scopes() -> None:
                         "scopes": ["*"],
                     },
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ]
         ]
     )
     runtime = create_agent_runtime(
-        driver=driver,
+        agent_runtime=driver,
         skill_resolver=InMemorySkillResolver([subagent_skill()]),
     )
 

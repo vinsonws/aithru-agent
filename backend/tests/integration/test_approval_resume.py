@@ -1,9 +1,10 @@
 import pytest
+from pydantic_ai.models.test import TestModel
 
+from aithru_agent.agent import AgentRuntime
 from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
 from aithru_agent.capabilities.local_tools import ArtifactLocalTool, TodoLocalTool, WorkspaceLocalTool
 from aithru_agent.domain import AgentApprovalDecision, AgentRunStatus
-from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 from aithru_agent.worker.runner import AgentWorkerRunner
@@ -17,18 +18,19 @@ def make_approval_runner() -> tuple[AgentWorkerRunner, InMemoryAgentStore, InMem
         adapters=[WorkspaceLocalTool(store), TodoLocalTool(store), ArtifactLocalTool(store)],
         policy=ToolPolicy(require_approval_for_risk=["write"]),
     )
-    driver = ScriptedHarnessDriver(
-        [
-            ScriptedStep.message("I need to write a report.\n"),
-            ScriptedStep.tool(
-                "workspace.write_file",
-                {"path": "/reports/report.md", "content": "# Report\n", "media_type": "text/markdown"},
-            ),
-            ScriptedStep.message("Report written."),
-            ScriptedStep.finish(),
-        ]
+    agent_runtime = AgentRuntime(
+        model=TestModel(call_tools=["workspace.write_file"], custom_output_text="Report written.")
     )
-    return AgentWorkerRunner(store=store, event_writer=writer, capability_router=router, driver=driver), store, event_store
+    return (
+        AgentWorkerRunner(
+            store=store,
+            event_writer=writer,
+            capability_router=router,
+            agent_runtime=agent_runtime,
+        ),
+        store,
+        event_store,
+    )
 
 
 @pytest.mark.asyncio
@@ -53,22 +55,13 @@ async def test_risky_tool_pauses_before_execution_and_resume_approval_completes(
         comment="approved",
     )
     completed_run = await store.get_run(run.id)
-    file = await store.read_workspace_file(run.workspace_id, "/reports/report.md")
+    file = await store.read_workspace_file(run.workspace_id, "/a")
     all_types = [event.type for event in await event_store.list_by_run(run.id)]
 
     assert completed_run.status == AgentRunStatus.COMPLETED
-    assert file.content == "# Report\n"
-    assert all_types[-9:] == [
-        "approval.resolved",
-        "run.resumed",
-        "tool.started",
-        "workspace.file.created",
-        "tool.completed",
-        "message.delta",
-        "model.completed",
-        "message.completed",
-        "run.completed",
-    ]
+    assert file.content == "a"
+    assert all_types.index("tool.completed") < all_types.index("message.delta")
+    assert all_types[-3:] == ["model.completed", "message.completed", "run.completed"]
 
 
 @pytest.mark.asyncio

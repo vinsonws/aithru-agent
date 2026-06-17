@@ -1,13 +1,14 @@
 import pytest
 from pydantic_ai.models.test import TestModel
 
+from aithru_agent.agent import AgentRuntime
+from aithru_agent.agent.instructions import InstructionBuilder
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter, ToolPolicy
 from aithru_agent.domain import (
     AgentMemoryEntry,
     AgentMemoryPolicy,
     AgentMessage,
-    AgentRun,
     AgentRunHarnessOptions,
     AgentRunStatus,
     AgentSkill,
@@ -19,8 +20,8 @@ from aithru_agent.domain import (
     AgentWorkspaceFile,
     AgentWorkspacePolicy,
 )
-from aithru_agent.harness.drivers.pydantic_ai.driver import PydanticAIHarnessDriver
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
+from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import InMemorySkillResolver
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 from aithru_agent.worker.runner import AgentWorkerRunner
@@ -82,49 +83,59 @@ class SchemaEchoToolAdapter:
         return AgentToolCallResult(status="completed", output=request.input, redaction="none")
 
 
-class RecordingInstructionsPydanticDriver(PydanticAIHarnessDriver):
+class RecordingInstructionsAgentRuntime(AgentRuntime):
     def __init__(self) -> None:
-        super().__init__(model=TestModel(custom_output_text="done"))
+        super().__init__(model=TestModel(call_tools=[], custom_output_text="done"))
         self.seen_memory_entries: list[AgentMemoryEntry] | None = None
         self.seen_thread_messages: list[AgentMessage] | None = None
         self.seen_workspace_files: list[AgentWorkspaceFile] | None = None
 
-    def instructions_for_run(
-        self,
-        skill: AgentSkill | None = None,
-        *,
-        run: AgentRun | None = None,
-        memory_entries: list[AgentMemoryEntry] | None = None,
-        thread_messages: list[AgentMessage] | None = None,
-        workspace_files: list[AgentWorkspaceFile] | None = None,
-    ) -> str:
-        self.seen_memory_entries = memory_entries
-        self.seen_thread_messages = thread_messages
-        self.seen_workspace_files = workspace_files
-        return super().instructions_for_run(
-            skill,
-            run=run,
-            memory_entries=memory_entries,
-            thread_messages=thread_messages,
-            workspace_files=workspace_files,
-        )
+    async def build_agent(self, deps):  # type: ignore[no-untyped-def]
+        builder = InstructionBuilder(self.instructions)
+        self.seen_memory_entries = await builder._memory_entries_for_run(deps)
+        self.seen_thread_messages = await builder._thread_messages_for_run(deps)
+        self.seen_workspace_files = await builder._workspace_files_for_run(deps)
+        return await super().build_agent(deps)
 
 
-@pytest.mark.asyncio
-async def test_pydantic_ai_driver_streams_text_steps_from_test_model() -> None:
-    driver = PydanticAIHarnessDriver(model=TestModel(custom_output_text="done"))
-
-    steps = await driver.run("Say done")
-
-    assert [step.type for step in steps] == ["message", "message", "finish"]
-    assert "".join(step.text or "" for step in steps) == "done"
-
-
-@pytest.mark.asyncio
-async def test_pydantic_ai_driver_emits_model_usage_event() -> None:
-    runtime = create_agent_runtime(
-        driver=PydanticAIHarnessDriver(model=TestModel(call_tools=[], custom_output_text="done"))
+def _runtime(
+    *,
+    agent_runtime: AgentRuntime | None = None,
+    policy: ToolPolicy | None = None,
+    skill_resolver=None,
+    store=None,
+    event_store=None,
+):
+    return create_agent_runtime(
+        settings=AgentSettings(model="test"),
+        store=store,
+        event_store=event_store,
+        agent_runtime=agent_runtime or AgentRuntime(model=TestModel(call_tools=[], custom_output_text="done")),
+        policy=policy,
+        skill_resolver=skill_resolver,
     )
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_runtime_streams_text_from_test_model() -> None:
+    runtime = _runtime(agent_runtime=AgentRuntime(model=TestModel(call_tools=[], custom_output_text="done")))
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Say done",
+        scopes=["*"],
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+
+    assert run.status == AgentRunStatus.COMPLETED
+    assert "".join(event.payload["delta"] for event in events if event.type == "message.delta") == "done"
+    assert next(event for event in events if event.type == "message.completed").payload["content"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_runtime_emits_model_usage_event() -> None:
+    runtime = _runtime(agent_runtime=AgentRuntime(model=TestModel(call_tools=[], custom_output_text="done")))
 
     run = await runtime.runner.start_run(
         org_id="org_1",
@@ -143,13 +154,13 @@ async def test_pydantic_ai_driver_emits_model_usage_event() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_uses_run_model_override() -> None:
+async def test_pydantic_ai_runtime_uses_run_model_override() -> None:
     def model_factory(model: str):
         return TestModel(call_tools=[], custom_output_text=f"selected {model}")
 
-    runtime = create_agent_runtime(
-        driver=PydanticAIHarnessDriver(
-            model=TestModel(custom_output_text="default model"),
+    runtime = _runtime(
+        agent_runtime=AgentRuntime(
+            model=TestModel(call_tools=[], custom_output_text="default model"),
             model_factory=model_factory,
         )
     )
@@ -168,9 +179,9 @@ async def test_pydantic_ai_driver_uses_run_model_override() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_routes_model_tool_calls_through_aithru_bridge() -> None:
-    runtime = create_agent_runtime(
-        driver=PydanticAIHarnessDriver(
+async def test_pydantic_ai_runtime_routes_model_tool_calls_through_aithru_bridge() -> None:
+    runtime = _runtime(
+        agent_runtime=AgentRuntime(
             model=TestModel(call_tools=["workspace.list_files"], custom_output_text="done")
         )
     )
@@ -191,7 +202,7 @@ async def test_pydantic_ai_driver_routes_model_tool_calls_through_aithru_bridge(
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_exposes_descriptor_input_schema_to_model() -> None:
+async def test_pydantic_ai_runtime_exposes_descriptor_input_schema_to_model() -> None:
     store = InMemoryAgentStore()
     event_store = InMemoryAgentEventStore()
     writer = AgentEventWriter(event_store)
@@ -202,7 +213,7 @@ async def test_pydantic_ai_driver_exposes_descriptor_input_schema_to_model() -> 
             adapters=[SchemaEchoToolAdapter()],
             policy=ToolPolicy(require_approval_for_risk=[]),
         ),
-        driver=PydanticAIHarnessDriver(
+        agent_runtime=AgentRuntime(
             model=TestModel(call_tools=["schema.echo"], custom_output_text="done")
         ),
     )
@@ -220,7 +231,7 @@ async def test_pydantic_ai_driver_exposes_descriptor_input_schema_to_model() -> 
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_fails_run_when_tool_execution_fails() -> None:
+async def test_pydantic_ai_runtime_fails_run_when_tool_execution_fails() -> None:
     store = InMemoryAgentStore()
     event_store = InMemoryAgentEventStore()
     writer = AgentEventWriter(event_store)
@@ -231,7 +242,7 @@ async def test_pydantic_ai_driver_fails_run_when_tool_execution_fails() -> None:
             adapters=[FailingToolAdapter()],
             policy=ToolPolicy(require_approval_for_risk=[]),
         ),
-        driver=PydanticAIHarnessDriver(
+        agent_runtime=AgentRuntime(
             model=TestModel(call_tools=["fail.now"], custom_output_text="done")
         ),
     )
@@ -250,9 +261,9 @@ async def test_pydantic_ai_driver_fails_run_when_tool_execution_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_pauses_when_tool_requires_approval() -> None:
-    runtime = create_agent_runtime(
-        driver=PydanticAIHarnessDriver(
+async def test_pydantic_ai_runtime_pauses_when_tool_requires_approval() -> None:
+    runtime = _runtime(
+        agent_runtime=AgentRuntime(
             model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
         ),
         policy=ToolPolicy(require_approval_for_risk=["write"]),
@@ -272,9 +283,9 @@ async def test_pydantic_ai_driver_pauses_when_tool_requires_approval() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_resumes_model_after_tool_approval() -> None:
-    runtime = create_agent_runtime(
-        driver=PydanticAIHarnessDriver(
+async def test_pydantic_ai_runtime_resumes_model_after_tool_approval() -> None:
+    runtime = _runtime(
+        agent_runtime=AgentRuntime(
             model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
         ),
         policy=ToolPolicy(require_approval_for_risk=["write"]),
@@ -307,9 +318,9 @@ async def test_pydantic_ai_driver_resumes_model_after_tool_approval() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_resumes_model_after_worker_restart() -> None:
-    runtime = create_agent_runtime(
-        driver=PydanticAIHarnessDriver(
+async def test_pydantic_ai_runtime_resumes_model_after_worker_restart() -> None:
+    runtime = _runtime(
+        agent_runtime=AgentRuntime(
             model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
         ),
         policy=ToolPolicy(require_approval_for_risk=["write"]),
@@ -321,10 +332,10 @@ async def test_pydantic_ai_driver_resumes_model_after_worker_restart() -> None:
         scopes=["*"],
     )
     approval = (await runtime.store.list_approvals())[0]
-    restarted_runtime = create_agent_runtime(
+    restarted_runtime = _runtime(
         store=runtime.store,
         event_store=runtime.event_store,
-        driver=PydanticAIHarnessDriver(
+        agent_runtime=AgentRuntime(
             model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
         ),
         policy=ToolPolicy(require_approval_for_risk=["write"]),
@@ -345,8 +356,8 @@ async def test_pydantic_ai_driver_resumes_model_after_worker_restart() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_loads_skill_memory_entries() -> None:
-    driver = RecordingInstructionsPydanticDriver()
+async def test_pydantic_ai_runtime_loads_skill_memory_entries() -> None:
+    agent_runtime = RecordingInstructionsAgentRuntime()
     skill = AgentSkill(
         id="skill_1",
         org_id="org_1",
@@ -359,8 +370,8 @@ async def test_pydantic_ai_driver_loads_skill_memory_entries() -> None:
         version="0.1.0",
         status="published",
     )
-    runtime = create_agent_runtime(
-        driver=driver,
+    runtime = _runtime(
+        agent_runtime=agent_runtime,
         skill_resolver=InMemorySkillResolver([skill]),
     )
     await runtime.store.create_memory_entry(
@@ -379,14 +390,14 @@ async def test_pydantic_ai_driver_loads_skill_memory_entries() -> None:
         skill_id="memory-skill",
     )
 
-    assert driver.seen_memory_entries is not None
-    assert [entry.key for entry in driver.seen_memory_entries] == ["preference.language"]
+    assert agent_runtime.seen_memory_entries is not None
+    assert [entry.key for entry in agent_runtime.seen_memory_entries] == ["preference.language"]
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_loads_workspace_file_summary() -> None:
-    driver = RecordingInstructionsPydanticDriver()
-    runtime = create_agent_runtime(driver=driver)
+async def test_pydantic_ai_runtime_loads_workspace_file_summary() -> None:
+    agent_runtime = RecordingInstructionsAgentRuntime()
+    runtime = _runtime(agent_runtime=agent_runtime)
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
@@ -402,13 +413,13 @@ async def test_pydantic_ai_driver_loads_workspace_file_summary() -> None:
 
     await runtime.runner.execute_run(run.id)
 
-    assert driver.seen_workspace_files is not None
-    assert [file.path for file in driver.seen_workspace_files] == ["/data/notes.md"]
+    assert agent_runtime.seen_workspace_files is not None
+    assert [file.path for file in agent_runtime.seen_workspace_files] == ["/data/notes.md"]
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_respects_workspace_read_policy_for_file_summary() -> None:
-    driver = RecordingInstructionsPydanticDriver()
+async def test_pydantic_ai_runtime_respects_workspace_read_policy_for_file_summary() -> None:
+    agent_runtime = RecordingInstructionsAgentRuntime()
     skill = AgentSkill(
         id="skill_1",
         org_id="org_1",
@@ -421,8 +432,8 @@ async def test_pydantic_ai_driver_respects_workspace_read_policy_for_file_summar
         version="0.1.0",
         status="published",
     )
-    runtime = create_agent_runtime(
-        driver=driver,
+    runtime = _runtime(
+        agent_runtime=agent_runtime,
         skill_resolver=InMemorySkillResolver([skill]),
     )
     run = await runtime.runner.create_run(
@@ -441,13 +452,13 @@ async def test_pydantic_ai_driver_respects_workspace_read_policy_for_file_summar
 
     await runtime.runner.execute_run(run.id)
 
-    assert driver.seen_workspace_files == []
+    assert agent_runtime.seen_workspace_files == []
 
 
 @pytest.mark.asyncio
-async def test_pydantic_ai_driver_loads_thread_message_summary() -> None:
-    driver = RecordingInstructionsPydanticDriver()
-    runtime = create_agent_runtime(driver=driver)
+async def test_pydantic_ai_runtime_loads_thread_message_summary() -> None:
+    agent_runtime = RecordingInstructionsAgentRuntime()
+    runtime = _runtime(agent_runtime=agent_runtime)
     thread = await runtime.store.create_thread(
         org_id="org_1",
         owner_user_id="user_1",
@@ -468,7 +479,7 @@ async def test_pydantic_ai_driver_loads_thread_message_summary() -> None:
 
     await runtime.runner.execute_run(run.id)
 
-    assert driver.seen_thread_messages is not None
-    assert [message.content for message in driver.seen_thread_messages] == [
+    assert agent_runtime.seen_thread_messages is not None
+    assert [message.content for message in agent_runtime.seen_thread_messages] == [
         "Remember that reports should be concise."
     ]

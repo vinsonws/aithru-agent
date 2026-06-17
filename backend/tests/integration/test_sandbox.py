@@ -2,16 +2,16 @@ import pytest
 
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentRunStatus
-from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
+from tests.utils.step_runtime import Step, StepAgentRuntime
 from aithru_agent.trace import project_trace_spans
 
 
 @pytest.mark.asyncio
 async def test_sandbox_run_python_emits_events_and_trace() -> None:
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "sandbox.run_python",
                     {
                         "code": "print('rows', len(input_data['rows']))\nresult = sum(input_data['rows'])",
@@ -19,7 +19,7 @@ async def test_sandbox_run_python_emits_events_and_trace() -> None:
                         "timeout_ms": 1000,
                     },
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ]
         )
     )
@@ -49,13 +49,13 @@ async def test_sandbox_run_python_emits_events_and_trace() -> None:
 @pytest.mark.asyncio
 async def test_sandbox_run_python_rejects_imports() -> None:
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "sandbox.run_python",
                     {"code": "import os\nresult = os.listdir('/')"},
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ]
         )
     )

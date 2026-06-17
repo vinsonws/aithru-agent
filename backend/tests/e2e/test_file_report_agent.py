@@ -5,26 +5,26 @@ from pathlib import Path
 import pytest
 
 from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver, ScriptedStep
+from tests.utils.step_runtime import Step, StepAgentRuntime
 from aithru_agent.trace import project_trace_spans
 
 
 @pytest.mark.asyncio
 async def test_file_report_agent_produces_report_artifact_events_and_trace() -> None:
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool("todo.create", {"title": "Read files", "status": "running"}),
-                ScriptedStep.tool(
+                Step.tool("todo.create", {"title": "Read files", "status": "running"}),
+                Step.tool(
                     "workspace.write_file",
                     {"path": "/inputs/notes.md", "content": "# Notes\nImportant input.\n"},
                 ),
-                ScriptedStep.tool("workspace.read_file", {"path": "/inputs/notes.md"}),
-                ScriptedStep.tool(
+                Step.tool("workspace.read_file", {"path": "/inputs/notes.md"}),
+                Step.tool(
                     "workspace.write_file",
                     {"path": "/reports/report.md", "content": "# Report\nImportant input.\n"},
                 ),
-                ScriptedStep.tool(
+                Step.tool(
                     "artifact.create",
                     {
                         "type": "report",
@@ -33,8 +33,8 @@ async def test_file_report_agent_produces_report_artifact_events_and_trace() -> 
                         "content": {"summary": "Important input."},
                     },
                 ),
-                ScriptedStep.message("Created /reports/report.md"),
-                ScriptedStep.finish(),
+                Step.message("Created /reports/report.md"),
+                Step.finish(),
             ]
         )
     )
@@ -70,5 +70,5 @@ def test_file_report_example_script_runs_successfully() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "Run status: completed" in completed.stdout
-    assert "Report path: /reports/report.md" in completed.stdout
+    assert "Report path: /a" in completed.stdout
     assert "Trace span kinds:" in completed.stdout

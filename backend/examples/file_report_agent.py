@@ -1,37 +1,27 @@
 import asyncio
 
+from pydantic_ai.models.test import TestModel
+
+from aithru_agent.agent import AgentRuntime
 from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver, ScriptedStep
+from aithru_agent.settings import AgentSettings
 from aithru_agent.trace import project_trace_spans
 
 
 async def main() -> None:
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
-            [
-                ScriptedStep.tool("todo.create", {"title": "Read files", "status": "running"}),
-                ScriptedStep.tool(
+        settings=AgentSettings(model="test"),
+        agent_runtime=AgentRuntime(
+            model=TestModel(
+                call_tools=[
+                    "todo.create",
                     "workspace.write_file",
-                    {"path": "/inputs/notes.md", "content": "# Notes\nImportant input.\n"},
-                ),
-                ScriptedStep.tool("workspace.read_file", {"path": "/inputs/notes.md"}),
-                ScriptedStep.tool(
-                    "workspace.write_file",
-                    {"path": "/reports/report.md", "content": "# Report\nImportant input.\n"},
-                ),
-                ScriptedStep.tool(
+                    "workspace.read_file",
                     "artifact.create",
-                    {
-                        "type": "report",
-                        "name": "Workspace Report",
-                        "uri": "/reports/report.md",
-                        "content": {"summary": "Important input."},
-                    },
-                ),
-                ScriptedStep.message("Created /reports/report.md"),
-                ScriptedStep.finish(),
-            ]
-        )
+                ],
+                custom_output_text="Created report.",
+            )
+        ),
     )
 
     run = await runtime.runner.start_run(
@@ -43,10 +33,12 @@ async def main() -> None:
     events = await runtime.event_store.list_by_run(run.id)
     spans = project_trace_spans(events)
     artifacts = await runtime.store.list_artifacts(run_id=run.id)
+    files = await runtime.store.list_workspace_files(run.workspace_id)
+    report_path = files[0].path if files else "<none>"
 
     print(f"Run id: {run.id}")
     print(f"Run status: {run.status.value}")
-    print("Report path: /reports/report.md")
+    print(f"Report path: {report_path}")
     print(f"Artifacts: {', '.join(artifact.name for artifact in artifacts)}")
     print(f"Events: {len(events)}")
     print(f"Trace span kinds: {', '.join(sorted({span.kind for span in spans}))}")

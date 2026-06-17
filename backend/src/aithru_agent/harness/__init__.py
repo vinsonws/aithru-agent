@@ -1,11 +1,7 @@
-from .context_builder import ContextBuilder
-from .engine import AgentHarnessDriver, HarnessRunDeps, HarnessRunPaused, HarnessStep, HarnessToolCall
+"""Harness utilities that remain outside the native Pydantic AI runtime."""
+
+from aithru_agent.harness.context_builder import ContextBuilder
 
 __all__ = [
-    "AgentHarnessDriver",
     "ContextBuilder",
-    "HarnessRunDeps",
-    "HarnessRunPaused",
-    "HarnessStep",
-    "HarnessToolCall",
 ]

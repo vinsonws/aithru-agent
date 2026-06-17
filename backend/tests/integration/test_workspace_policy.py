@@ -3,7 +3,7 @@ import pytest
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentRunStatus, AgentSkill, AgentWorkspacePolicy
 from aithru_agent.domain.errors import AgentError
-from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
+from tests.utils.step_runtime import Step, StepAgentRuntime
 from aithru_agent.skills import InMemorySkillResolver
 
 
@@ -22,13 +22,13 @@ async def test_workspace_tool_rejects_paths_outside_skill_allowed_paths() -> Non
         status="published",
     )
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "workspace.write_file",
                     {"path": "/secret.txt", "content": "nope"},
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ]
         ),
         skill_resolver=InMemorySkillResolver([skill]),
@@ -65,13 +65,13 @@ async def test_workspace_tool_allows_paths_inside_skill_allowed_paths() -> None:
         status="published",
     )
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "workspace.write_file",
                     {"path": "/allowed/report.md", "content": "ok"},
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ]
         ),
         skill_resolver=InMemorySkillResolver([skill]),

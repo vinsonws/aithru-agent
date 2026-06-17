@@ -192,12 +192,11 @@ class AgentRuntime:
         )
 
     def _model_for_run(self, run: AgentRun | None) -> object:
-        configured_model = self.model
         if run and run.harness_options and run.harness_options.model:
-            configured_model = run.harness_options.model
-        if configured_model == "test":
+            return self.model_factory(run.harness_options.model)
+        if self.model == "test":
             return self.model_factory("test")
-        return configured_model
+        return self.model
 
     async def _pause_for_deferred_approval(
         self,

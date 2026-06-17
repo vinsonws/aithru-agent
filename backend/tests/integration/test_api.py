@@ -1,27 +1,29 @@
 import asyncio
 
 import pytest
+from pydantic_ai.models.test import TestModel
 from httpx import ASGITransport, AsyncClient
 
+from aithru_agent.agent import AgentRuntime
 from aithru_agent.api.main import create_app
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import ToolPolicy
 from aithru_agent.domain import AgentSandboxPolicy, AgentSkill
-from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
+from tests.utils.step_runtime import Step, StepAgentRuntime
 from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import InMemorySkillResolver
 
 
-def file_report_driver() -> ScriptedHarnessDriver:
-    return ScriptedHarnessDriver(
+def file_report_driver() -> StepAgentRuntime:
+    return StepAgentRuntime(
         [
-            ScriptedStep.message("I will write the report.\n"),
-            ScriptedStep.tool("todo.create", {"title": "Write report", "status": "running"}),
-            ScriptedStep.tool(
+            Step.message("I will write the report.\n"),
+            Step.tool("todo.create", {"title": "Write report", "status": "running"}),
+            Step.tool(
                 "workspace.write_file",
                 {"path": "/reports/report.md", "content": "# Report\nDone.\n", "media_type": "text/markdown"},
             ),
-            ScriptedStep.tool(
+            Step.tool(
                 "artifact.create",
                 {
                     "type": "report",
@@ -30,14 +32,20 @@ def file_report_driver() -> ScriptedHarnessDriver:
                     "content": {"path": "/reports/report.md"},
                 },
             ),
-            ScriptedStep.finish(),
+            Step.finish(),
         ]
+    )
+
+
+def approval_report_runtime() -> AgentRuntime:
+    return AgentRuntime(
+        model=TestModel(call_tools=["workspace.write_file"], custom_output_text="Report written.")
     )
 
 
 @pytest.mark.asyncio
 async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() -> None:
-    runtime = create_agent_runtime(driver=file_report_driver())
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -94,7 +102,7 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
 
 @pytest.mark.asyncio
 async def test_agent_api_follow_stream_waits_for_new_run_events() -> None:
-    runtime = create_agent_runtime(driver=file_report_driver())
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -128,8 +136,8 @@ async def test_agent_api_follow_stream_waits_for_new_run_events() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_requires_bearer_token_when_configured() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
-        settings=AgentSettings(api_token="secret-token"),
+        agent_runtime=file_report_driver(),
+        settings=AgentSettings(model="test", api_token="secret-token"),
     )
     app = create_app(runtime)
 
@@ -161,7 +169,7 @@ async def test_agent_api_requires_bearer_token_when_configured() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_binds_run_scopes_to_configured_token_scopes() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
+        agent_runtime=file_report_driver(),
         settings=AgentSettings(
             api_token="secret-token",
             api_scopes=["agent.workspace.read"],
@@ -200,8 +208,8 @@ async def test_agent_api_binds_run_scopes_to_configured_token_scopes() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_binds_run_identity_to_trusted_headers() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
-        settings=AgentSettings(api_token="secret-token"),
+        agent_runtime=file_report_driver(),
+        settings=AgentSettings(model="test", api_token="secret-token"),
     )
     app = create_app(runtime)
     headers = {
@@ -237,7 +245,7 @@ async def test_agent_api_binds_run_identity_to_trusted_headers() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_persists_run_harness_options() -> None:
-    runtime = create_agent_runtime(driver=file_report_driver())
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -267,8 +275,8 @@ async def test_agent_api_persists_run_harness_options() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_binds_thread_identity_to_trusted_headers() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
-        settings=AgentSettings(api_token="secret-token"),
+        agent_runtime=file_report_driver(),
+        settings=AgentSettings(model="test", api_token="secret-token"),
     )
     app = create_app(runtime)
     headers = {
@@ -301,8 +309,8 @@ async def test_agent_api_binds_thread_identity_to_trusted_headers() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_filters_threads_by_trusted_identity_headers() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
-        settings=AgentSettings(api_token="secret-token"),
+        agent_runtime=file_report_driver(),
+        settings=AgentSettings(model="test", api_token="secret-token"),
     )
     app = create_app(runtime)
     user_a_headers = {
@@ -350,8 +358,8 @@ async def test_agent_api_filters_threads_by_trusted_identity_headers() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_filters_runs_by_trusted_identity_headers() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
-        settings=AgentSettings(api_token="secret-token"),
+        agent_runtime=file_report_driver(),
+        settings=AgentSettings(model="test", api_token="secret-token"),
     )
     app = create_app(runtime)
     user_a_headers = {
@@ -389,8 +397,8 @@ async def test_agent_api_filters_runs_by_trusted_identity_headers() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_rejects_run_with_thread_outside_trusted_identity() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
-        settings=AgentSettings(api_token="secret-token"),
+        agent_runtime=file_report_driver(),
+        settings=AgentSettings(model="test", api_token="secret-token"),
     )
     app = create_app(runtime)
     user_a_headers = {
@@ -423,9 +431,9 @@ async def test_agent_api_rejects_run_with_thread_outside_trusted_identity() -> N
 @pytest.mark.asyncio
 async def test_agent_api_filters_approvals_by_trusted_run_identity() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
+        agent_runtime=approval_report_runtime(),
         policy=ToolPolicy(require_approval_for_risk=["write"]),
-        settings=AgentSettings(api_token="secret-token"),
+        settings=AgentSettings(model="test", api_token="secret-token"),
     )
     app = create_app(runtime)
     user_a_headers = {
@@ -476,8 +484,8 @@ async def test_agent_api_filters_approvals_by_trusted_run_identity() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_filters_artifacts_by_trusted_run_identity() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
-        settings=AgentSettings(api_token="secret-token"),
+        agent_runtime=file_report_driver(),
+        settings=AgentSettings(model="test", api_token="secret-token"),
     )
     app = create_app(runtime)
     user_a_headers = {
@@ -533,8 +541,8 @@ async def test_agent_api_filters_artifacts_by_trusted_run_identity() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_rejects_workspace_access_outside_trusted_identity() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
-        settings=AgentSettings(api_token="secret-token"),
+        agent_runtime=file_report_driver(),
+        settings=AgentSettings(model="test", api_token="secret-token"),
     )
     app = create_app(runtime)
     user_a_headers = {
@@ -591,7 +599,7 @@ async def test_agent_api_rejects_workspace_access_outside_trusted_identity() -> 
 
 @pytest.mark.asyncio
 async def test_agent_api_binds_memory_to_trusted_identity_headers() -> None:
-    runtime = create_agent_runtime(settings=AgentSettings(api_token="secret-token"))
+    runtime = create_agent_runtime(settings=AgentSettings(model="test", api_token="secret-token"))
     app = create_app(runtime)
     user_a_headers = {
         "Authorization": "Bearer secret-token",
@@ -646,7 +654,7 @@ async def test_agent_api_binds_memory_to_trusted_identity_headers() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_binds_subagent_specs_to_trusted_org_header() -> None:
-    runtime = create_agent_runtime(settings=AgentSettings(api_token="secret-token"))
+    runtime = create_agent_runtime(settings=AgentSettings(model="test", api_token="secret-token"))
     app = create_app(runtime)
     org_a_headers = {
         "Authorization": "Bearer secret-token",
@@ -705,7 +713,7 @@ async def test_agent_api_binds_subagent_specs_to_trusted_org_header() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
-    runtime = create_agent_runtime(driver=file_report_driver())
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -742,7 +750,7 @@ async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_persists_completed_assistant_message_to_thread() -> None:
-    runtime = create_agent_runtime(driver=file_report_driver())
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -782,7 +790,7 @@ async def test_agent_api_persists_completed_assistant_message_to_thread() -> Non
 @pytest.mark.asyncio
 async def test_agent_api_resolves_approval_and_resumes_run() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
+        agent_runtime=approval_report_runtime(),
         policy=ToolPolicy(require_approval_for_risk=["write"]),
     )
     app = create_app(runtime)
@@ -810,7 +818,7 @@ async def test_agent_api_resolves_approval_and_resumes_run() -> None:
 @pytest.mark.asyncio
 async def test_agent_api_run_resume_uses_current_approval() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
+        agent_runtime=approval_report_runtime(),
         policy=ToolPolicy(require_approval_for_risk=["write"]),
     )
     app = create_app(runtime)
@@ -839,7 +847,7 @@ async def test_agent_api_run_resume_uses_current_approval() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_run_resume_rejects_run_without_current_approval() -> None:
-    runtime = create_agent_runtime(driver=file_report_driver())
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -860,7 +868,7 @@ async def test_agent_api_run_resume_rejects_run_without_current_approval() -> No
 @pytest.mark.asyncio
 async def test_agent_api_accepts_user_input_for_paused_thread_run() -> None:
     runtime = create_agent_runtime(
-        driver=file_report_driver(),
+        agent_runtime=approval_report_runtime(),
         policy=ToolPolicy(require_approval_for_risk=["write"]),
     )
     app = create_app(runtime)
@@ -909,7 +917,7 @@ async def test_agent_api_accepts_user_input_for_paused_thread_run() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_rejects_cancelling_completed_run() -> None:
-    runtime = create_agent_runtime(driver=file_report_driver())
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -930,7 +938,7 @@ async def test_agent_api_rejects_cancelling_completed_run() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_validates_create_run_body() -> None:
-    app = create_app(create_agent_runtime(driver=file_report_driver()))
+    app = create_app(create_agent_runtime(agent_runtime=file_report_driver()))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/api/agent/runs", json={})
@@ -951,7 +959,7 @@ async def test_agent_api_lists_and_gets_published_skills() -> None:
         version="0.1.0",
         status="published",
     )
-    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([skill]))
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([skill]))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -990,7 +998,7 @@ async def test_agent_api_filters_skills_by_authenticated_org() -> None:
         version="0.1.0",
         status="published",
     )
-    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([org_skill, external_skill]))
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([org_skill, external_skill]))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1009,7 +1017,7 @@ async def test_agent_api_filters_skills_by_authenticated_org() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_rejects_run_with_unknown_skill() -> None:
-    runtime = create_agent_runtime()
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1043,7 +1051,7 @@ async def test_agent_api_rejects_run_with_skill_from_another_org() -> None:
         version="0.1.0",
         status="published",
     )
-    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([skill]))
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([skill]))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1066,7 +1074,7 @@ async def test_agent_api_rejects_run_with_skill_from_another_org() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_rejects_run_with_unknown_thread() -> None:
-    runtime = create_agent_runtime()
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1089,7 +1097,7 @@ async def test_agent_api_rejects_run_with_unknown_thread() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_rejects_messages_for_unknown_thread() -> None:
-    runtime = create_agent_runtime()
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1107,7 +1115,7 @@ async def test_agent_api_rejects_messages_for_unknown_thread() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_rejects_file_operations_for_unknown_workspace() -> None:
-    runtime = create_agent_runtime()
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1131,7 +1139,7 @@ async def test_agent_api_rejects_file_operations_for_unknown_workspace() -> None
 
 @pytest.mark.asyncio
 async def test_agent_api_rejects_run_event_reads_for_unknown_run() -> None:
-    runtime = create_agent_runtime()
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1146,7 +1154,7 @@ async def test_agent_api_rejects_run_event_reads_for_unknown_run() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_validates_workspace_file_content_as_text() -> None:
-    runtime = create_agent_runtime()
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1177,7 +1185,7 @@ async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
         version="0.1.0",
         status="published",
     )
-    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([skill]))
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([skill]))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1203,7 +1211,7 @@ async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
 
 @pytest.mark.asyncio
 async def test_agent_api_rejects_run_tools_for_unresolvable_run_skill() -> None:
-    runtime = create_agent_runtime()
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
     workspace = await runtime.store.create_workspace(org_id="org_1")
     run = await runtime.store.create_run(
@@ -1237,7 +1245,7 @@ async def test_agent_api_hides_sandbox_tools_when_skill_disables_sandbox() -> No
         version="0.1.0",
         status="published",
     )
-    runtime = create_agent_runtime(skill_resolver=InMemorySkillResolver([skill]))
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([skill]))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1261,7 +1269,7 @@ async def test_agent_api_hides_sandbox_tools_when_skill_disables_sandbox() -> No
 
 @pytest.mark.asyncio
 async def test_agent_api_creates_and_lists_memory_entries() -> None:
-    runtime = create_agent_runtime()
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

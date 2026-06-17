@@ -4,7 +4,7 @@ import pytest
 
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentRunStatus
-from aithru_agent.harness.drivers.scripted.driver import ScriptedHarnessDriver, ScriptedStep
+from tests.utils.step_runtime import Step, StepAgentRuntime
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
 from aithru_agent.stream import AgentEventWriter
 
@@ -68,13 +68,13 @@ async def test_runtime_can_execute_worker_runs_on_sqlite_store(tmp_path: Path) -
     runtime = create_agent_runtime(
         store=SQLiteAgentStore(db_path),
         event_store=SQLiteAgentEventStore(db_path),
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool(
+                Step.tool(
                     "workspace.write_file",
                     {"path": "/reports/report.md", "content": "# Report\n"},
                 ),
-                ScriptedStep.finish(),
+                Step.finish(),
             ]
         ),
     )
@@ -105,7 +105,7 @@ async def test_worker_discovers_queued_sqlite_runs_across_runtime_instances(tmp_
     api_runtime = create_agent_runtime(
         store=SQLiteAgentStore(db_path),
         event_store=SQLiteAgentEventStore(db_path),
-        driver=ScriptedHarnessDriver([]),
+        agent_runtime=StepAgentRuntime([]),
     )
     queued = await api_runtime.worker.submit_run(
         org_id="org_1",
@@ -117,7 +117,7 @@ async def test_worker_discovers_queued_sqlite_runs_across_runtime_instances(tmp_
     worker_runtime = create_agent_runtime(
         store=SQLiteAgentStore(db_path),
         event_store=SQLiteAgentEventStore(db_path),
-        driver=ScriptedHarnessDriver([ScriptedStep.finish()]),
+        agent_runtime=StepAgentRuntime([Step.finish()]),
     )
     completed = await worker_runtime.worker.work_once()
 
@@ -132,7 +132,7 @@ async def test_sqlite_workers_claim_queued_runs_once_across_runtime_instances(tm
     api_runtime = create_agent_runtime(
         store=SQLiteAgentStore(db_path),
         event_store=SQLiteAgentEventStore(db_path),
-        driver=ScriptedHarnessDriver([]),
+        agent_runtime=StepAgentRuntime([]),
     )
     queued = await api_runtime.worker.submit_run(
         org_id="org_1",
@@ -143,12 +143,12 @@ async def test_sqlite_workers_claim_queued_runs_once_across_runtime_instances(tm
     worker_one = create_agent_runtime(
         store=SQLiteAgentStore(db_path),
         event_store=SQLiteAgentEventStore(db_path),
-        driver=ScriptedHarnessDriver([ScriptedStep.finish()]),
+        agent_runtime=StepAgentRuntime([Step.finish()]),
     )
     worker_two = create_agent_runtime(
         store=SQLiteAgentStore(db_path),
         event_store=SQLiteAgentEventStore(db_path),
-        driver=ScriptedHarnessDriver([ScriptedStep.finish()]),
+        agent_runtime=StepAgentRuntime([Step.finish()]),
     )
 
     claimed_one = await worker_one.runner.claim_next_queued_run()

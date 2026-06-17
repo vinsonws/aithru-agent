@@ -1,20 +1,20 @@
 import pytest
 
+from aithru_agent.agent import AgentRuntime
 from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.harness.engine import HarnessRunDeps, HarnessStep
-from aithru_agent.harness.drivers.scripted import ScriptedHarnessDriver, ScriptedStep
 from aithru_agent.domain import AgentRunStatus
+from tests.utils.step_runtime import Step, StepAgentRuntime
 
 
-class FailingDriver:
-    async def run(self, goal: str | None = None, deps: HarnessRunDeps | None = None) -> list[HarnessStep]:
+class FailingRuntime(AgentRuntime):
+    async def run(self, goal, deps):  # type: ignore[no-untyped-def]
         del goal, deps
         raise RuntimeError("model exploded")
 
 
 @pytest.mark.asyncio
 async def test_worker_records_model_failure_as_run_failure() -> None:
-    runtime = create_agent_runtime(driver=FailingDriver())
+    runtime = create_agent_runtime(agent_runtime=FailingRuntime())
 
     run = await runtime.runner.start_run(
         org_id="org_1",
@@ -33,10 +33,10 @@ async def test_worker_records_model_failure_as_run_failure() -> None:
 @pytest.mark.asyncio
 async def test_worker_records_tool_failure_before_run_failure() -> None:
     runtime = create_agent_runtime(
-        driver=ScriptedHarnessDriver(
+        agent_runtime=StepAgentRuntime(
             [
-                ScriptedStep.tool("workspace.read_file", {"path": "/missing.md"}),
-                ScriptedStep.finish(),
+                Step.tool("workspace.read_file", {"path": "/missing.md"}),
+                Step.finish(),
             ]
         )
     )

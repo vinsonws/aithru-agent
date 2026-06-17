@@ -88,7 +88,23 @@ class PydanticAIToolBridge:
             source={"kind": "tool"},
             payload={"tool_call_id": tool_call_id, "tool_name": tool_name},
         )
-        result = await self._capability_router.execute_tool_call(request, self._run_context)
+        try:
+            result = await self._capability_router.execute_tool_call(request, self._run_context)
+        except Exception as exc:
+            await self._event_writer.write(
+                run_id=self._run.id,
+                thread_id=self._run.thread_id,
+                type="tool.failed",
+                source={"kind": "tool"},
+                payload={
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "status": "failed",
+                    "output": None,
+                    "error": _error_payload(exc),
+                },
+            )
+            raise
         await self._emit_domain_event(tool_call_id, tool_name, result.output)
         await self._event_writer.write(
             run_id=self._run.id,
@@ -187,3 +203,9 @@ def _tool_result_error_message(error: dict | None) -> str:
         return "Tool failed"
     message = error.get("message")
     return str(message) if message else "Tool failed"
+
+
+def _error_payload(error: Exception) -> dict[str, str]:
+    if isinstance(error, AgentError):
+        return {"code": error.code, "message": error.message}
+    return {"message": str(error)}
