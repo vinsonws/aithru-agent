@@ -11,9 +11,10 @@ from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 
 from aithru_agent.agent.deps import PydanticAgentDeps
 from aithru_agent.agent.instructions import InstructionBuilder
+from aithru_agent.agent.skills import ProgressiveSkill, SkillActivator, SkillRegistry
 from aithru_agent.agent.tools.bridge import PydanticAIToolBridge
 from aithru_agent.agent.tools.descriptors import build_pydantic_tools
-from aithru_agent.domain import AgentRun, AgentRunStatus
+from aithru_agent.domain import AgentRun, AgentRunStatus, AgentToolDescriptor
 from aithru_agent.domain.errors import AgentError
 
 
@@ -42,6 +43,7 @@ class AgentRuntime:
     model: str | object = "test"
     instructions: str = "You are Aithru Agent. Help the user complete the task."
     model_factory: Callable[[str], str | object] = field(default_factory=lambda: _default_model_factory)
+    skill_registry: SkillRegistry | None = None
     _pending_approvals: dict[tuple[str, str], PendingApprovalState] = field(default_factory=dict)
 
     async def build_agent(
@@ -50,6 +52,8 @@ class AgentRuntime:
     ) -> Agent[PydanticAgentDeps, str | DeferredToolRequests]:
         """Build a Pydantic AI agent configured for this run."""
         descriptors = await deps.capability_router.list_tools(deps.run_context)
+        active_skills = await self._activate_progressive_skills(deps)
+        descriptors = self._apply_progressive_skill_tool_policy(descriptors, active_skills)
         tool_specs = [
             (
                 descriptor,
@@ -65,6 +69,11 @@ class AgentRuntime:
 
         instruction_builder = InstructionBuilder(self.instructions)
         system_prompt = await instruction_builder.build(deps)
+        if self.skill_registry and active_skills:
+            system_prompt = SkillActivator(self.skill_registry).inject_skill_context(
+                system_prompt,
+                active_skills,
+            )
 
         return Agent[PydanticAgentDeps, str | DeferredToolRequests](
             self._model_for_run(deps.run),
@@ -73,6 +82,59 @@ class AgentRuntime:
             output_type=str | DeferredToolRequests,
             tools=tools,
         )
+
+    async def _activate_progressive_skills(self, deps: PydanticAgentDeps) -> list[ProgressiveSkill]:
+        if self.skill_registry is None:
+            return []
+        activator = SkillActivator(self.skill_registry)
+        matches = activator.detect_skills_for_goal(
+            deps.run.goal,
+            skill_id_hint=deps.run.skill_id,
+        )
+        active: list[ProgressiveSkill] = []
+        for match in matches:
+            skill = self.skill_registry.get_skill(match.skill_name)
+            if skill is None:
+                continue
+            active.append(skill)
+            await deps.event_writer.write(
+                run_id=deps.run.id,
+                thread_id=deps.run.thread_id,
+                type="skill.activated",
+                source={"kind": "harness"},
+                visibility="debug",
+                payload={
+                    "skill_name": match.skill_name,
+                    "confidence": match.confidence,
+                    "matched_trigger": match.matched_trigger,
+                },
+            )
+        return active
+
+    def _apply_progressive_skill_tool_policy(
+        self,
+        descriptors: list[AgentToolDescriptor],
+        skills: list[ProgressiveSkill],
+    ) -> list[AgentToolDescriptor]:
+        if not skills:
+            return descriptors
+        allowed_sets = [
+            set(skill.allowed_tools)
+            for skill in skills
+            if skill.allowed_tools is not None
+        ]
+        denied = {
+            tool
+            for skill in skills
+            for tool in (skill.denied_tools or [])
+        }
+        filtered = descriptors
+        if allowed_sets:
+            allowed = set().union(*allowed_sets)
+            filtered = [descriptor for descriptor in filtered if descriptor.name in allowed]
+        if denied:
+            filtered = [descriptor for descriptor in filtered if descriptor.name not in denied]
+        return filtered
 
     async def run(
         self,
