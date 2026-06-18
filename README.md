@@ -29,6 +29,7 @@ Agent owns intelligent harness behavior:
 - Artifacts;
 - Memory entries;
 - Subagent delegation;
+- Subagent `task(...)` child-run join semantics;
 - Agent-owned Approvals;
 - replayable Agent stream events;
 - Agent trace projection;
@@ -53,9 +54,17 @@ backend/
     worker/           queued Agent run execution and worker CLI
 ```
 
-Pydantic AI powers the default real harness path, but it does not define public
-Aithru product contracts. Pydantic AI events, tool calls, and model output are
-adapted into Aithru-owned events and tool boundaries.
+Pydantic AI powers the default real harness path, and `pydantic-ai-harness` is
+available as an internal capability composition dependency for the platform
+refactor. The backend now assembles runtime tools through an internal Aithru
+capability/toolset package, but neither dependency defines public Aithru product
+contracts. Pydantic AI events, tool calls, and model output are adapted into
+Aithru-owned events and tool boundaries.
+
+Agent Skills are Aithru product packages. The backend supports `SKILL.md`
+packages under `skills/{public,custom}/skill-name/` with enabled state and
+allowed/denied tool policy; active skill instructions enter the runtime through
+an internal capability-style path, while real tool access remains router-bound.
 
 ## Capability Boundary
 
@@ -77,6 +86,7 @@ workspace.list_files
 workspace.read_file
 workspace.write_file
 workspace.delete_file
+task
 todo.create
 todo.update
 artifact.create
@@ -111,6 +121,21 @@ uv run aithru-agent-worker --once
 Primary stage-1 endpoints:
 
 ```txt
+GET    /api/health
+POST   /api/threads
+GET    /api/threads
+POST   /api/threads/{thread_id}/messages
+GET    /api/threads/{thread_id}/messages
+POST   /api/threads/{thread_id}/runs
+POST   /api/threads/{thread_id}/runs/stream
+GET    /api/threads/{thread_id}/runs
+GET    /api/threads/{thread_id}/runs/{run_id}
+GET    /api/threads/{thread_id}/runs/{run_id}/stream
+GET    /api/threads/{thread_id}/runs/{run_id}/join
+POST   /api/threads/{thread_id}/runs/{run_id}/cancel
+POST   /api/runs/stream
+POST   /api/runs/wait
+
 GET    /api/agent/health
 POST   /api/agent/threads
 GET    /api/agent/threads
@@ -142,6 +167,9 @@ POST   /api/agent/subagents
 GET    /api/agent/subagents
 GET    /api/agent/subagents/{key}
 ```
+
+The `/api/agent/...` routes remain available as compatibility aliases while new
+thread/run APIs settle.
 
 Run streams replay existing events by default. Add `follow=true` to wait for new
 SSE events until the run reaches a terminal state or the stream timeout expires.

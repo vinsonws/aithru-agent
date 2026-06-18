@@ -157,6 +157,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-ai" },
+    { name = "pydantic-ai-harness" },
     { name = "uvicorn" },
 ]
 
@@ -172,6 +173,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "pydantic", specifier = ">=2.11.0" },
     { name = "pydantic-ai", specifier = ">=0.8.0" },
+    { name = "pydantic-ai-harness", specifier = ">=0.3.0" },
     { name = "uvicorn", specifier = ">=0.35.0" },
 ]
 
@@ -1981,6 +1983,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/17/71/7132293bc7ce791d8f3ee7f56b696b216a104bb30a08113f7b3db30a0c9a/pydantic_ai-1.107.0.tar.gz", hash = "sha256:254496d18451b2750a4dddc2591c6c42f25dd223d02ca4252812ab06e75f1044", size = 18414, upload-time = "2026-06-10T14:53:08.678Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/65/38/db37ab59fced191a75babbbbe99470e512c91fe730b27d113e3280fdbe44/pydantic_ai-1.107.0-py3-none-any.whl", hash = "sha256:e031880b44ad7ce3836b2f6aa8ce2a0bd733cdb0b89a34adba647e96ddcba788", size = 7588, upload-time = "2026-06-10T14:53:00.57Z" },
+]
+
+[[package]]
+name = "pydantic-ai-harness"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic-ai-slim" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e4/ae/95ada09e80a7cf71a1a87fb2f824450387b324ddcf68a0dc7c54550c8d3e/pydantic_ai_harness-0.3.0.tar.gz", hash = "sha256:3a803c2569a3346830443ee7a646b0c2267659d2265ada560c12430cd16d2ffe", size = 536553, upload-time = "2026-05-13T19:23:08.975Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/08/6c3872d654ef40b0dde64bd839e857fc08f930386b583c369b7a07df27ef/pydantic_ai_harness-0.3.0-py3-none-any.whl", hash = "sha256:b3d363ce3bdadba89e6e3378c66a44ce77808a8fa959429d5d7bc07bea8c854f", size = 25497, upload-time = "2026-05-13T19:23:07.356Z" },
 ]
 
 [[package]]

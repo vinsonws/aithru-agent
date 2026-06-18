@@ -189,7 +189,7 @@ class InMemoryAgentStore:
         run = self._runs.get(run_id)
         if not run:
             raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
-        updated = run.model_copy(update=updates)
+        updated = AgentRun.model_validate({**run.model_dump(mode="python"), **updates})
         self._runs[run_id] = updated
         return updated
 

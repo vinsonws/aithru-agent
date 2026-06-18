@@ -7,6 +7,7 @@ class AgentRunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
+    WAITING_SUBAGENT = "waiting_subagent"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

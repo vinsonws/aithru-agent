@@ -230,7 +230,7 @@ class SQLiteAgentStore:
         run = await self.get_run(run_id)
         if run is None:
             raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
-        updated = run.model_copy(update=updates)
+        updated = AgentRun.model_validate({**run.model_dump(mode="python"), **updates})
         self._save_doc("run", run_id, updated)
         return updated
 

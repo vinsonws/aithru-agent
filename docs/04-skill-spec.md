@@ -16,15 +16,22 @@ Skills are first-class product objects, not engine configurations or workflow no
 
 ```txt
 skills/
-  skill_key/
-    skill.yaml        # metadata, version, owner, description
-    instructions.md   # instructions and guidance
-    when-to-use.md    # guidance for invocation
-    examples/         # optional input/output examples
-    templates/        # optional prompt templates or file templates
-    rubrics/          # optional scoring/evaluation guidelines
-    resources/        # optional supplementary resources
+  public/
+    skill_key/
+      SKILL.md        # frontmatter plus instructions and policy sections
+      resources/      # optional supplementary resources
+      scripts/        # optional support scripts
+      examples/       # optional input/output examples
+  custom/
+    skill_key/
+      SKILL.md
+      resources/
+      scripts/
+      examples/
 ```
+
+The stage-1 backend still supports legacy `skill.json` manifests while new
+packages converge on `SKILL.md`.
 
 ## Skill Metadata
 
@@ -33,6 +40,7 @@ skills/
 - `description`: brief description
 - `version`: semantic version
 - `status`: draft | published | deprecated
+- `enabled`: true | false
 - `owner`: org/user
 - `permissions`: org/app scoped grants
 
@@ -42,7 +50,7 @@ skills/
 - MemoryPolicy: scope, visibility, retention, authz
 - SandboxPolicy: allowed commands, resources, timeouts, network policy
 - ApprovalPolicy: never | on_risk | always
-- ToolPolicy: allowed tools, risk levels, required scopes
+- ToolPolicy: allowed tools, denied tools, risk levels, required scopes
 
 ## Input/Output Schema
 
@@ -53,6 +61,7 @@ skills/
 
 - Skills can be versioned independently
 - Only published skills can be invoked in AgentRun
+- Disabled skills are not resolved for execution even when published
 - Draft skills can be used for testing but not Workbench nodes
 
 ## Skill Activation
@@ -62,9 +71,13 @@ skills/
 - Activation may trigger middleware hooks (workspace, memory, event logging)
 - The allowed tools list is an upper bound; workspace, memory, sandbox,
   approval, and subagent policy can further narrow the tools exposed to a run
+- Denied tools are removed from the run catalog even when they appear in the
+  allowed list
 - Sandbox tools require an explicit enabled sandbox policy
 - Workspace `allowedPaths` is enforced by workspace tools at execution time
 - Approval policy contributes required risk approvals to the capability router
+- Active skill instructions are injected through an internal capability-style
+  runtime path; Pydantic AI and harness types are not part of the skill contract
 
 ## Observability
 
@@ -81,9 +94,11 @@ skills/
 
 ## Minimal implementation
 
-- YAML or JSON manifest
+- `SKILL.md` package or legacy JSON manifest
 - Instructions and optional examples
 - Allowed tools list
+- Denied tools list
+- Enabled and publication state
 - Version and status
 - Basic policy fields (workspace, memory, sandbox, approval)
 - Hook for skill activation middleware

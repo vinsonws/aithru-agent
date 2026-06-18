@@ -13,6 +13,7 @@ dependencies = [
   "httpx>=0.28.0",
   "pydantic>=2.11.0",
   "pydantic-ai>=0.8.0",
+  "pydantic-ai-harness>=0.3.0",
   "uvicorn>=0.35.0",
 ]
 
