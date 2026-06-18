@@ -52,13 +52,14 @@ def create_agent_application(
     resolved_event_store = event_store or _create_event_store(resolved_settings)
     event_writer = AgentEventWriter(resolved_event_store)
     resolved_skill_resolver = skill_resolver or EmptySkillResolver()
+    subagent_tool = SubagentLocalTool(resolved_store, event_writer, resolved_skill_resolver)
     capability_router = AithruCapabilityRouter(
         adapters=[
             WorkspaceLocalTool(resolved_store),
             TodoLocalTool(resolved_store),
             ArtifactLocalTool(resolved_store),
             MemoryLocalTool(resolved_store),
-            SubagentLocalTool(resolved_store, event_writer, resolved_skill_resolver),
+            subagent_tool,
             SandboxLocalTool(event_writer),
         ],
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
@@ -71,6 +72,7 @@ def create_agent_application(
         agent_runtime=resolved_agent_runtime,
         skill_resolver=resolved_skill_resolver,
     )
+    subagent_tool.set_task_runner(runner.execute_child_run_for_task)
     run_queue = InProcessRunQueue()
     worker = AgentWorkerService(runner=runner, queue=run_queue)
     return AgentApplication(

@@ -135,7 +135,9 @@ A skill contains:
 
 - instructions;
 - when-to-use description;
+- enabled/disabled state;
 - allowed tools;
+- denied tools;
 - allowed subagents;
 - model/profile preferences;
 - workspace policy;
@@ -149,8 +151,9 @@ A skill is not a workflow graph. It may be invoked from Chat, API, delegated wor
 Skill APIs, run creation, and run execution must resolve skills inside the
 current organization boundary.
 
-`allowedTools` is an upper bound. Workspace, memory, sandbox, approval, and
-subagent policies can further remove tools from a run's available catalog.
+`allowedTools` is an upper bound. `deniedTools`, workspace, memory, sandbox,
+approval, and subagent policies can further remove tools from a run's available
+catalog.
 Sandbox tools are unavailable unless the skill explicitly enables sandbox use.
 
 ### Workspace
@@ -261,7 +264,9 @@ type AgentSkill = {
   description?: string;
   instructions: string;
   whenToUse?: string;
+  enabled: boolean;
   allowedTools: string[];
+  deniedTools: string[];
   allowedSubagents?: string[];
   memoryPolicy?: AgentMemoryPolicy;
   workspacePolicy?: AgentWorkspacePolicy;
@@ -293,6 +298,7 @@ type AgentRun = {
     | "queued"
     | "running"
     | "waiting_approval"
+    | "waiting_subagent"
     | "completed"
     | "failed"
     | "cancelled";
@@ -510,6 +516,29 @@ calling mechanics, streaming, and structured output, but it does not define
 public Aithru product contracts. Pydantic AI tool calls must enter Aithru's
 capability router through the Aithru tool bridge.
 
+Platform refactor Phase 1 adds `pydantic-ai-harness` as an internal backend
+dependency for future Pydantic-native capability composition. The dependency is
+not a public Aithru API surface: Pydantic AI and harness types must stay out of
+`domain`, API schemas, and public contracts. The current compatibility probe
+locks the Pydantic AI APIs used by Aithru runtime assembly, deferred approvals,
+schema tools, and persisted message history while keeping runtime behavior
+unchanged.
+
+Platform refactor Phase 2 introduces an internal
+`aithru_agent.agent.capabilities` package. `AithruToolset` converts Aithru
+`AgentToolDescriptor` entries into Pydantic AI tools, and
+`AithruBoundaryCapability` contributes that toolset plus boundary metadata and
+approval enforcement hooks. Concrete tool execution still delegates to the
+existing `PydanticAIToolBridge`, so real actions continue through
+`AithruCapabilityRouter`.
+
+Platform refactor Phase 3 moves `AgentRuntime.build_agent()` onto capability
+assembly: the runtime now provides an `AithruBoundaryCapability` with an
+`AithruToolset` instead of passing raw Pydantic function tools directly.
+`AgentRuntime.run()` and approval resume still own event streaming, model
+deltas, usage projection, deferred approval persistence, and final result
+mapping as Aithru harness state.
+
 Current runtime subagent support is harness state: `subagent.delegate` creates a
 controlled child `AgentRun` with `source = "delegated_task"`, links it to the
 parent run through `AgentSubagentRun`, and projects `subagent.started`,
@@ -517,6 +546,36 @@ parent run through `AgentSubagentRun`, and projects `subagent.started`,
 trace. Delegation validates requested child skills through the skill resolver
 and child run scopes must not exceed parent run scopes. This is not a
 WorkflowSpec, graph branch, or Workbench node.
+
+Platform refactor Phase 4 adds model-facing `task(description, prompt,
+subagent_type)` semantics on top of the same platform child-run model. The
+`task` tool is an Aithru local tool exposed through the capability router; it
+creates a visible child `AgentRun`, links an `AgentSubagentRun`, marks the
+parent run `waiting_subagent` during the inline MVP join, executes the child
+run, resumes the parent, and returns the child result to the parent model.
+`subagent.delegate` remains the queued fire-and-observe delegation path.
+
+Platform refactor Phase 5 upgrades skills into Aithru-owned packages. The
+backend can load `skills/{public,custom}/skill-name/SKILL.md` packages with
+optional `resources/`, `scripts/`, and `examples/` folders while retaining
+legacy `skill.json` manifests. `AgentSkill` now carries enabled state plus
+allowed and denied tool policy. Published and enabled skills can inject
+instructions through an internal `SkillInstructionCapability`; concrete tool
+availability is still narrowed by the Aithru capability router and run context.
+
+Platform refactor Phase 6 splits the FastAPI control plane into route groups
+under `backend/src/aithru_agent/api/routes/`. `api/main.py` is now only the app
+factory, token middleware, dependency setup, and router registrar. New
+LangGraph-like Aithru endpoints live under `/api/threads` and `/api/runs` for
+thread-scoped run creation, run stream joining, run joining, and cancellation.
+The legacy `/api/agent/...` routes remain registered as compatibility aliases
+during the transition.
+
+Platform refactor Phase 7 hardens the stage-1 run queue and join semantics
+without adding production leases or retry infrastructure. The in-process queue
+deduplicates pending run ids, `AgentWorkerRunner.join_run()` owns waiting for
+terminal run state, approval/subagent resume paths have explicit runner hooks,
+and memory/SQLite stores validate run status updates back into the domain enum.
 
 Current sandbox support is a restricted local `sandbox.run_python` tool. It
 does not expose shell access, imports, file APIs, or network APIs to model code;

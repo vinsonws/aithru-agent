@@ -45,7 +45,8 @@ The Capability Router must not:
 
 ```txt
 model proposes tool call
-  -> Harness normalizes request
+  -> Pydantic AI runtime emits a model tool call
+  -> Aithru Tool Bridge normalizes request
   -> Skill policy check
   -> Actor/platform authz check
   -> Approval gateway if required
@@ -394,6 +395,40 @@ tool.failed
 ```
 
 Workspace/artifact/sandbox events may be emitted between `tool.started` and `tool.completed`.
+
+## Current backend alignment
+
+The stage-1 backend uses Pydantic AI and `pydantic-ai-harness` only as internal
+runtime/capability composition details. Public Aithru contracts remain
+`AgentRun`, `AgentToolDescriptor`, `AgentRunContext`, `AgentStreamEvent`,
+artifacts, approvals, workspaces, memory, and subagents.
+
+Current execution path:
+
+```txt
+model / Pydantic AI
+  -> AithruBoundaryCapability / AithruToolset
+  -> PydanticAIToolBridge
+  -> AithruCapabilityRouter
+  -> local tool adapter or future Workflow Capability API
+  -> AgentStreamEvent / trace / artifact / workspace state
+```
+
+`AithruBoundaryCapability` and `AithruToolset` may mark, filter, and prepare
+Pydantic AI tool definitions. They do not execute concrete actions. Concrete
+workspace, artifact, memory, sandbox, approval, and subagent operations remain
+inside local Aithru adapters behind `AithruCapabilityRouter`.
+
+Skill package policy is applied before tools are exposed: `allowed_tools` is an
+upper bound, `denied_tools` removes tools explicitly, and workspace, memory,
+sandbox, approval, and subagent policy can further narrow availability. Sandbox
+execution is only available through the `sandbox.run_python` local tool and only
+when the active skill/run context exposes that tool.
+
+The model-facing `task(description, prompt, subagent_type)` tool is also a local
+tool adapter behind the router. It creates Aithru child `AgentRun` state and
+`AgentSubagentRun` links, then joins the child result through worker semantics;
+it is not a workflow graph or `WorkflowSpec` branch.
 
 ## Redaction
 

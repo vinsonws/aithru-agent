@@ -9,11 +9,16 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter, PartDeltaEvent, TextP
 from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 
+from aithru_agent.agent.capabilities import (
+    AithruBoundaryCapability,
+    AithruToolset,
+    SkillInstructionCapability,
+    SubagentTaskCapability,
+)
 from aithru_agent.agent.deps import PydanticAgentDeps
 from aithru_agent.agent.instructions import InstructionBuilder
 from aithru_agent.agent.skills import ProgressiveSkill, SkillActivator, SkillRegistry
 from aithru_agent.agent.tools.bridge import PydanticAIToolBridge
-from aithru_agent.agent.tools.descriptors import build_pydantic_tools
 from aithru_agent.domain import AgentRun, AgentRunStatus, AgentToolDescriptor
 from aithru_agent.domain.errors import AgentError
 
@@ -65,7 +70,18 @@ class AgentRuntime:
             for descriptor in descriptors
         ]
         bridge = PydanticAIToolBridge(deps=deps)
-        tools = build_pydantic_tools(tool_specs, bridge.call_tool)
+        capabilities = [
+            AithruBoundaryCapability(
+                toolset=AithruToolset(
+                    tool_specs=tool_specs,
+                    tool_callback=bridge.call_tool,
+                ),
+            )
+        ]
+        if deps.skill is not None:
+            capabilities.append(SkillInstructionCapability([deps.skill]))
+        if any(descriptor.name == "task" for descriptor, _ in tool_specs):
+            capabilities.append(SubagentTaskCapability())
 
         instruction_builder = InstructionBuilder(self.instructions)
         system_prompt = await instruction_builder.build(deps)
@@ -80,7 +96,7 @@ class AgentRuntime:
             deps_type=PydanticAgentDeps,
             instructions=system_prompt,
             output_type=str | DeferredToolRequests,
-            tools=tools,
+            capabilities=capabilities,
         )
 
     async def _activate_progressive_skills(self, deps: PydanticAgentDeps) -> list[ProgressiveSkill]:

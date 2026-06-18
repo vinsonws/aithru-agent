@@ -29,6 +29,9 @@ class ContextBuilder:
 
 def _allowed_tools_for_skill(skill: AgentSkill) -> list[str]:
     tools = list(skill.allowed_tools)
+    if skill.denied_tools:
+        denied = set(skill.denied_tools)
+        tools = [tool for tool in tools if tool not in denied]
     if not (skill.sandbox_policy and skill.sandbox_policy.enabled):
         tools = [tool for tool in tools if not tool.startswith("sandbox.")]
     if skill.memory_policy:
@@ -50,5 +53,5 @@ def _allowed_tools_for_skill(skill: AgentSkill) -> list[str]:
                 if tool not in {"workspace.write_file", "workspace.delete_file"}
             ]
     if not skill.allowed_subagents:
-        tools = [tool for tool in tools if tool != "subagent.delegate"]
+        tools = [tool for tool in tools if tool not in {"subagent.delegate", "task"}]
     return tools

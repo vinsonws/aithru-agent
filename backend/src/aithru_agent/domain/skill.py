@@ -42,7 +42,9 @@ class AgentSkill(AithruBaseModel):
     description: str | None = None
     instructions: str
     when_to_use: str | None = None
+    enabled: bool = True
     allowed_tools: list[str]
+    denied_tools: list[str] = []
     allowed_subagents: list[str]
     workspace_policy: AgentWorkspacePolicy | None = None
     memory_policy: AgentMemoryPolicy | None = None

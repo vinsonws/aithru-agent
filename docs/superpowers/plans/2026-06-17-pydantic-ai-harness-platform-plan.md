@@ -121,6 +121,21 @@ uv run python examples/file_report_agent.py
 - File report example passes.
 - No public API behavior changes.
 
+**Status (2026-06-17): Complete.**
+
+- Added `pydantic-ai-harness>=0.3.0` to backend dependencies and lock file.
+- Kept locked `pydantic-ai` and `pydantic-ai-slim` at `1.107.0`; no upgrade was required.
+- Added `backend/tests/unit/agent/test_pydantic_ai_harness_compatibility.py` to prove the harness package is importable and the current Aithru runtime APIs still exist:
+  - `Agent.run_stream_events`;
+  - `DeferredToolResults`;
+  - `Tool.from_schema`;
+  - `tool.requires_approval`;
+  - `ModelMessagesTypeAdapter`.
+- Kept behavior unchanged and did not expose Pydantic AI or harness types through domain/API/public contracts.
+- Verification passed:
+  - `uv run pytest`: 131 passed.
+  - `uv run python examples/file_report_agent.py`: run completed with 26 events and artifact `a`.
+
 ## Phase 2: Add Aithru Capability Package
 
 **Purpose:** Introduce Pydantic-native capability composition without changing platform semantics.
@@ -167,6 +182,24 @@ uv run pytest tests/agent/test_boundary_capability.py tests/agent/test_aithru_to
 - Tool execution still goes through `AithruCapabilityRouter`.
 - Approval-required tools do not execute unless approved/deferred.
 
+**Status (2026-06-17): Complete.**
+
+- Added internal capability package under `backend/src/aithru_agent/agent/capabilities/`:
+  - `AithruBoundaryCapability`;
+  - `AithruToolset`;
+  - boundary metadata helpers;
+  - approval enforcement helpers.
+- `AithruToolset` exposes `AgentToolDescriptor` entries as Pydantic AI tools and delegates concrete execution to `PydanticAIToolBridge`.
+- `AithruBoundaryCapability` contributes the Aithru toolset, marks tool definitions as capability-router-bound, and raises Pydantic AI `ApprovalRequired` for unapproved approval-required tool calls.
+- Added tests:
+  - `backend/tests/agent/test_boundary_capability.py`;
+  - `backend/tests/agent/test_aithru_toolset.py`.
+- Boundary scan found no Pydantic AI or harness imports in `backend/src/aithru_agent/domain` or `backend/src/aithru_agent/api`.
+- Verification passed:
+  - `uv run pytest tests/agent/test_boundary_capability.py tests/agent/test_aithru_toolset.py`: 6 passed.
+  - `uv run pytest`: 137 passed.
+  - `uv run python examples/file_report_agent.py`: run completed with 26 events and artifact `a`.
+
 ## Phase 3: Refactor AgentRuntime Assembly
 
 **Purpose:** Make `AgentRuntime` assemble capabilities instead of manually owning all harness behavior.
@@ -206,6 +239,18 @@ uv run pytest
 - Existing agent behavior remains intact.
 - New capability assembly path is covered.
 - `scripted` or adapter-era driver assumptions are not reintroduced.
+
+**Status (2026-06-17): Complete.**
+
+- Refactored `AgentRuntime.build_agent()` to assemble tools through `AithruBoundaryCapability(AithruToolset(...))` instead of direct raw Pydantic function tools.
+- Kept `AgentRuntime.run()` and approval resume responsible for `run_stream_events`, message deltas, usage events, deferred approval persistence, and final output mapping.
+- Added `backend/tests/agent/test_runtime_capability_assembly.py` to prove runtime assembly includes the Aithru boundary capability/toolset and no direct function tools.
+- Regression verification covered streaming, tool bridge execution, deferred approvals, and approval resume.
+- Verification passed:
+  - `uv run pytest tests/agent/test_runtime_capability_assembly.py`: 1 passed.
+  - `uv run pytest tests/agent/test_runtime_capability_assembly.py tests/integration/test_pydantic_driver.py tests/integration/test_pydantic_tool_bridge.py tests/integration/test_approval_resume.py`: 21 passed.
+  - `uv run pytest`: 138 passed.
+  - `uv run python examples/file_report_agent.py`: run completed with 26 events and artifact `a`.
 
 ## Phase 4: Platform Child Run Subagent Tool
 
@@ -262,6 +307,27 @@ uv run pytest tests/agent/test_subagent_task_tool.py tests/worker/test_child_run
 - Parent receives child result and can continue.
 - Parent events include subagent lifecycle events.
 
+**Status (2026-06-18): Complete.**
+
+- Added model-facing `task(description, prompt, subagent_type)` as an Aithru local tool exposed through `AithruCapabilityRouter`.
+- Added internal `SubagentTaskCapability` instructions for Pydantic capability assembly; it does not execute real actions directly.
+- Added `waiting_subagent` run status.
+- Added inline MVP child-run join via `AgentWorkerRunner.execute_child_run_for_task()`:
+  - parent run emits `run.paused` with `waiting_subagent`;
+  - child `AgentRun` is created with `source=delegated_task`;
+  - child run is executed inline;
+  - parent receives `subagent.completed`;
+  - parent emits `run.resumed` and receives the child result as the task tool result.
+- Kept `subagent.delegate` as the existing queued delegation path.
+- Added tests:
+  - `backend/tests/agent/test_subagent_task_tool.py`;
+  - `backend/tests/worker/test_child_run_join.py`.
+- Verification passed:
+  - `uv run pytest tests/agent/test_subagent_task_tool.py tests/worker/test_child_run_join.py`: 2 passed.
+  - `uv run pytest tests/integration/test_subagents.py tests/agent/test_subagent_task_tool.py tests/worker/test_child_run_join.py`: 7 passed.
+  - `uv run pytest`: 140 passed.
+  - `uv run python examples/file_report_agent.py`: run completed with 26 events and artifact `a`.
+
 ## Phase 5: Full Skill Package Support
 
 **Purpose:** Treat skills as harness-native progressive capability packages.
@@ -314,6 +380,27 @@ uv run pytest tests/skills/test_skill_package_loader.py tests/agent/test_skill_c
 - A skill package can be loaded from disk.
 - Active skill instructions affect the run.
 - Tool policy is enforced by Aithru router/capability filtering.
+
+**Implementation status (2026-06-18):**
+
+- Added `AgentSkill.enabled` and `AgentSkill.denied_tools` as Aithru-owned
+  product policy fields.
+- `FileSkillLoader` now supports legacy `skill.json` manifests and
+  `skills/{public,custom}/skill-name/SKILL.md` packages with frontmatter,
+  instructions, policy sections, version, status, and enabled state.
+- `InMemorySkillResolver` resolves only published and enabled skills.
+- Added internal `SkillInstructionCapability` for active skill instruction
+  injection during runtime capability assembly.
+- `ContextBuilder` removes denied tools before exposing the run tool catalog to
+  the Aithru capability router.
+- Verification so far:
+  - `uv run pytest tests/skills/test_skill_package_loader.py tests/agent/test_skill_capability.py`: 5 passed.
+  - `uv run pytest tests/unit/skills/test_loader.py tests/unit/agent/test_progressive_skills.py tests/unit/agent/test_instructions.py tests/integration/test_skill_policy.py`: 12 passed.
+  - `uv run pytest`: 145 passed.
+  - `uv run python examples/file_report_agent.py`: run completed with 26 events and artifact `a`.
+  - Public boundary scan for Pydantic AI / harness capability symbols under
+    `backend/src/aithru_agent/domain` and `backend/src/aithru_agent/api`: no
+    matches.
 
 ## Phase 6: LangGraph-Like API Route Split
 
@@ -378,6 +465,29 @@ uv run pytest tests/api
 - New route groups pass tests.
 - Existing `/api/agent/...` behavior remains compatible.
 
+**Implementation status (2026-06-18):**
+
+- Split the monolithic FastAPI control plane into `api/dependencies.py` and
+  route groups under `api/routes/`.
+- `api/main.py` now creates the app, installs token middleware, attaches shared
+  API dependencies, and registers routers.
+- Added route groups for health, threads, messages, runs, events, approvals,
+  workspaces, artifacts, skills, memory, and subagents.
+- Added new `/api/threads/...`, `/api/runs/...`, `/api/runs/stream`, and
+  `/api/runs/wait` paths while preserving existing `/api/agent/...`
+  compatibility aliases.
+- Added `GET .../join` for waiting on terminal run state and returning the final
+  run record.
+- Verification so far:
+  - `uv run pytest tests/api`: 2 passed.
+  - `uv run pytest tests/integration/test_api.py`: 36 passed.
+  - `uv run pytest`: 147 passed.
+  - `uv run python examples/file_report_agent.py`: run completed with 26 events and artifact `a`.
+  - Public boundary scan for Pydantic AI / harness capability symbols under
+    `backend/src/aithru_agent/domain` and `backend/src/aithru_agent/api`: no
+    matches.
+  - `git diff --check`: no whitespace errors; only Windows line-ending warnings.
+
 ## Phase 7: Minimal Worker And Queue Hardening For New Semantics
 
 **Purpose:** Support stream/join/cancel and child-run join without attempting full production queue infrastructure.
@@ -426,6 +536,25 @@ uv run pytest tests/worker tests/persistence
 - Child-run join works in the MVP path.
 - API can join or stream a run by id.
 
+**Implementation status (2026-06-18):**
+
+- Added queue hardening so `InProcessRunQueue` deduplicates pending run ids.
+- Added `AgentWorkerRunner.join_run()` for waiting on terminal run state.
+- Added explicit runner hooks for approval and subagent resume paths:
+  `resume_after_approval` and `resume_after_subagent`.
+- API join helpers now delegate to `AgentWorkerRunner.join_run()`.
+- Memory and SQLite stores validate `update_run` payloads back into
+  `AgentRun`, keeping string status updates normalized to `AgentRunStatus`.
+- Verification so far:
+  - `uv run pytest tests/worker tests/persistence`: 5 passed.
+  - `uv run pytest tests/api tests/worker tests/persistence`: 7 passed.
+  - `uv run pytest`: 151 passed.
+  - `uv run python examples/file_report_agent.py`: run completed with 26 events and artifact `a`.
+  - Public boundary scan for Pydantic AI / harness capability symbols under
+    `backend/src/aithru_agent/domain` and `backend/src/aithru_agent/api`: no
+    matches.
+  - `git diff --check`: no whitespace errors; only Windows line-ending warnings.
+
 ## Phase 8: Docs And Migration Notes
 
 **Purpose:** Make the new architecture explicit so future agents do not reintroduce harness adapters or bypass the capability boundary.
@@ -464,6 +593,38 @@ uv run python examples/file_report_agent.py
 
 - Docs match the implemented architecture.
 - Tests and example pass.
+
+**Implementation status (2026-06-18):**
+
+- Updated `docs/00-agent-harness-design.md` with the Phase 1-7 architecture:
+  internal capability composition, child-run task semantics, skill package
+  support, route groups, and queue/join hardening.
+- Updated `docs/04-skill-spec.md` to document `SKILL.md` packages,
+  enabled/disabled state, allowed/denied tools, and capability-style
+  instruction injection.
+- Updated `docs/05-capability-router.md` to document the current
+  `AithruBoundaryCapability` / `AithruToolset` / `PydanticAIToolBridge` /
+  `AithruCapabilityRouter` path and reaffirm that concrete actions remain
+  router-bound.
+- Updated `README.md` and `backend/README.md` with the new API route shape,
+  skill packages, subagent task joins, and queue/join semantics.
+- Boundary audit so far:
+  - Public domain/API search for Pydantic AI and pydantic-ai-harness symbols:
+    no matches.
+  - Real action search confirms Pydantic AI tool execution enters
+    `PydanticAIToolBridge`, which calls `AithruCapabilityRouter.execute_tool_call`.
+  - Sandbox subprocess execution remains confined to the `sandbox.run_python`
+    local tool adapter.
+- Verification:
+  - `uv run pytest`: 151 passed.
+  - `uv run python examples/file_report_agent.py`: run completed with 26 events and artifact `a`.
+  - Public boundary scan for Pydantic AI / harness capability symbols under
+    `backend/src/aithru_agent/domain` and `backend/src/aithru_agent/api`: no
+    matches.
+  - Real-action scan: Pydantic AI tool calls route through
+    `PydanticAIToolBridge` and `AithruCapabilityRouter.execute_tool_call`;
+    subprocess execution appears only in the `sandbox.run_python` local tool.
+  - `git diff --check`: no whitespace errors; only Windows line-ending warnings.
 
 ## Recommended PR Breakdown
 

@@ -1,3 +1,5 @@
+import asyncio
+
 from aithru_agent.agent import AgentRuntime, PydanticAgentDeps, RunPausedForApproval
 from aithru_agent.agent.runtime import (
     PYDANTIC_APPROVAL_LEGACY_METADATA_HISTORY,
@@ -166,6 +168,76 @@ class AgentWorkerRunner:
             raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
         return run
 
+    async def execute_child_run_for_task(self, child_run_id: str, subagent_run_id: str) -> str:
+        subagent_run = await self._store.get_subagent_run(subagent_run_id)
+        if subagent_run is None or subagent_run.child_run_id != child_run_id:
+            raise AgentError("NOT_FOUND", f"Subagent run not found: {subagent_run_id}")
+        parent = await self._store.get_run(subagent_run.parent_run_id)
+        if parent is None:
+            raise AgentError("NOT_FOUND", f"Parent run not found: {subagent_run.parent_run_id}")
+
+        await self._store.update_run(parent.id, status=AgentRunStatus.WAITING_SUBAGENT)
+        await self._event_writer.write(
+            run_id=parent.id,
+            thread_id=parent.thread_id,
+            type="run.paused",
+            source={"kind": "harness"},
+            payload={
+                "status": "waiting_subagent",
+                "subagent_run_id": subagent_run.id,
+                "child_run_id": child_run_id,
+            },
+        )
+        child = await self.execute_run(child_run_id)
+        await self.resume_after_subagent(
+            parent.id,
+            subagent_run_id=subagent_run.id,
+            child_run_id=child_run_id,
+        )
+        if child.status != AgentRunStatus.COMPLETED or child.result is None or child.result.content is None:
+            raise AgentError("SUBAGENT_FAILED", "Subagent child run did not complete")
+        return child.result.content
+
+    async def join_run(
+        self,
+        run_id: str,
+        *,
+        timeout_seconds: float = 30.0,
+        poll_interval_seconds: float = 0.05,
+    ) -> AgentRun:
+        interval = max(0.01, poll_interval_seconds)
+        deadline = asyncio.get_running_loop().time() + max(0.0, timeout_seconds)
+        while True:
+            run = await self._store.get_run(run_id)
+            if run is None:
+                raise AgentError("NOT_FOUND", f"Run not found: {run_id}")
+            if run.status in _TERMINAL_RUN_STATUSES:
+                return run
+            if asyncio.get_running_loop().time() >= deadline:
+                raise AgentError("RUN_JOIN_TIMEOUT", f"Run did not finish before timeout: {run_id}")
+            await asyncio.sleep(interval)
+
+    async def resume_after_subagent(
+        self,
+        parent_run_id: str,
+        *,
+        subagent_run_id: str,
+        child_run_id: str,
+    ) -> AgentRun:
+        parent = await self._store.update_run(parent_run_id, status=AgentRunStatus.RUNNING)
+        await self._event_writer.write(
+            run_id=parent.id,
+            thread_id=parent.thread_id,
+            type="run.resumed",
+            source={"kind": "harness"},
+            payload={
+                "status": "running",
+                "subagent_run_id": subagent_run_id,
+                "child_run_id": child_run_id,
+            },
+        )
+        return parent
+
     def _resolve_run_skill(
         self,
         *,
@@ -192,6 +264,21 @@ class AgentWorkerRunner:
         return await self._store.claim_next_queued_run()
 
     async def resume_run(
+        self,
+        run_id: str,
+        *,
+        approval_id: str,
+        decision: AgentApprovalDecision | str,
+        comment: str | None = None,
+    ) -> AgentRun:
+        return await self.resume_after_approval(
+            run_id,
+            approval_id=approval_id,
+            decision=decision,
+            comment=comment,
+        )
+
+    async def resume_after_approval(
         self,
         run_id: str,
         *,
