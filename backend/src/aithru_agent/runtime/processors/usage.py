@@ -47,7 +47,13 @@ async def build_run_tree_usage_snapshot(
         direct = await build_run_usage_summary(run, event_store)
         child_summaries: list[AgentRunUsageSummary] = []
         subagents = await store.list_subagent_runs(parent_run_id=run.id)
+        seen_child_run_ids: set[str] = set()
         for subagent in sorted(subagents, key=lambda item: item.id):
+            if subagent.child_run_id in seen_child_run_ids:
+                continue
+            seen_child_run_ids.add(subagent.child_run_id)
+            if subagent.child_run_id in visiting or subagent.child_run_id in summaries_by_id:
+                continue
             child = runs_by_id.get(subagent.child_run_id) or await store.get_run(
                 subagent.child_run_id
             )

@@ -114,6 +114,127 @@ async def test_subagent_child_run_usage_rolls_up_into_root_descendant_counters()
 
 
 @pytest.mark.asyncio
+async def test_duplicate_subagent_links_count_child_usage_once() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    root = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.API,
+        goal="Root task",
+        workspace_id=workspace.id,
+    )
+    child = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.DELEGATED_TASK,
+        goal="Child task",
+        workspace_id=workspace.id,
+    )
+    for name in ["Researcher", "Researcher duplicate"]:
+        await store.create_subagent_run(
+            org_id="org_1",
+            parent_run_id=root.id,
+            child_run_id=child.id,
+            name=name,
+            task="Research",
+        )
+    await writer.write(
+        run_id=root.id,
+        thread_id=root.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 1, "total_tokens": 6},
+    )
+    await writer.write(
+        run_id=child.id,
+        thread_id=child.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 2, "total_tokens": 14},
+    )
+
+    snapshot = await build_run_tree_usage_snapshot(root, store, event_store)
+    root_summary = next(summary for summary in snapshot.runs if summary.run_id == root.id)
+
+    assert [summary.run_id for summary in snapshot.runs] == [root.id, child.id]
+    assert root_summary.descendant_requests == 2
+    assert root_summary.descendant_total_tokens == 14
+    assert root_summary.total_requests == 3
+    assert root_summary.total_tokens == 20
+    assert snapshot.total_requests == 3
+    assert snapshot.total_tokens == 20
+
+
+@pytest.mark.asyncio
+async def test_cyclic_subagent_links_do_not_count_ancestor_usage() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    root = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.API,
+        goal="Root task",
+        workspace_id=workspace.id,
+    )
+    child = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.DELEGATED_TASK,
+        goal="Child task",
+        workspace_id=workspace.id,
+    )
+    await store.create_subagent_run(
+        org_id="org_1",
+        parent_run_id=root.id,
+        child_run_id=child.id,
+        name="Researcher",
+        task="Research",
+    )
+    await store.create_subagent_run(
+        org_id="org_1",
+        parent_run_id=child.id,
+        child_run_id=root.id,
+        name="Back edge",
+        task="Cycle",
+    )
+    await writer.write(
+        run_id=root.id,
+        thread_id=root.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 1, "total_tokens": 6},
+    )
+    await writer.write(
+        run_id=child.id,
+        thread_id=child.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 2, "total_tokens": 14},
+    )
+
+    snapshot = await build_run_tree_usage_snapshot(root, store, event_store)
+    root_summary = next(summary for summary in snapshot.runs if summary.run_id == root.id)
+    child_summary = next(summary for summary in snapshot.runs if summary.run_id == child.id)
+
+    assert [summary.run_id for summary in snapshot.runs] == [root.id, child.id]
+    assert child_summary.descendant_requests == 0
+    assert child_summary.descendant_total_tokens == 0
+    assert child_summary.total_requests == 2
+    assert child_summary.total_tokens == 14
+    assert root_summary.descendant_requests == 2
+    assert root_summary.descendant_total_tokens == 14
+    assert root_summary.total_requests == 3
+    assert root_summary.total_tokens == 20
+    assert snapshot.total_requests == 3
+    assert snapshot.total_tokens == 20
+
+
+@pytest.mark.asyncio
 async def test_tree_budget_status_chooses_worst_status() -> None:
     store = InMemoryAgentStore()
     event_store = InMemoryAgentEventStore()
