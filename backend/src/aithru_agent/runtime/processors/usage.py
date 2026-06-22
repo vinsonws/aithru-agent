@@ -8,6 +8,13 @@ from aithru_agent.domain import (
 )
 from aithru_agent.domain.usage import aggregate_model_usage_payloads, evaluate_budget_status
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
+from aithru_agent.stream.events import AgentStreamEvent
+
+
+LINEAGE_CHILD_EVENT_TYPES = {
+    "operator_action.follow_up.created",
+    "research.continuation.created",
+}
 
 
 async def build_run_usage_summary(
@@ -47,16 +54,21 @@ async def build_run_tree_usage_snapshot(
         direct = await build_run_usage_summary(run, event_store)
         child_summaries: list[AgentRunUsageSummary] = []
         subagents = await store.list_subagent_runs(parent_run_id=run.id)
+        child_run_ids = [
+            subagent.child_run_id
+            for subagent in sorted(subagents, key=lambda item: item.id)
+        ]
+        child_run_ids.extend(
+            _lineage_child_run_ids(await event_store.list_by_run(run.id))
+        )
         seen_child_run_ids: set[str] = set()
-        for subagent in sorted(subagents, key=lambda item: item.id):
-            if subagent.child_run_id in seen_child_run_ids:
+        for child_run_id in child_run_ids:
+            if child_run_id in seen_child_run_ids:
                 continue
-            seen_child_run_ids.add(subagent.child_run_id)
-            if subagent.child_run_id in visiting or subagent.child_run_id in summaries_by_id:
+            seen_child_run_ids.add(child_run_id)
+            if child_run_id in visiting or child_run_id in summaries_by_id:
                 continue
-            child = runs_by_id.get(subagent.child_run_id) or await store.get_run(
-                subagent.child_run_id
-            )
+            child = runs_by_id.get(child_run_id) or await store.get_run(child_run_id)
             if child is None:
                 continue
             runs_by_id[child.id] = child
@@ -107,6 +119,17 @@ def _with_descendant_usage(
             "warnings": warnings,
         }
     )
+
+
+def _lineage_child_run_ids(events: list[AgentStreamEvent]) -> list[str]:
+    child_run_ids: list[str] = []
+    for event in events:
+        if event.type not in LINEAGE_CHILD_EVENT_TYPES or not isinstance(event.payload, dict):
+            continue
+        child_run_id = event.payload.get("child_run_id")
+        if isinstance(child_run_id, str) and child_run_id:
+            child_run_ids.append(child_run_id)
+    return child_run_ids
 
 
 def _worst_budget_status(

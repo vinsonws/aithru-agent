@@ -169,6 +169,179 @@ async def test_duplicate_subagent_links_count_child_usage_once() -> None:
 
 
 @pytest.mark.asyncio
+async def test_research_continuation_event_rolls_child_usage_into_tree() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    root = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.API,
+        goal="Root task",
+        workspace_id=workspace.id,
+    )
+    child = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.API,
+        goal="Continuation task",
+        workspace_id=workspace.id,
+    )
+    await writer.write(
+        run_id=root.id,
+        thread_id=root.thread_id,
+        type="research.continuation.created",
+        source={"kind": "harness"},
+        payload={"source_run_id": root.id, "child_run_id": child.id},
+    )
+    await writer.write(
+        run_id=root.id,
+        thread_id=root.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 1, "total_tokens": 6},
+    )
+    await writer.write(
+        run_id=child.id,
+        thread_id=child.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 2, "total_tokens": 14},
+    )
+
+    snapshot = await build_run_tree_usage_snapshot(root, store, event_store)
+    root_summary = next(summary for summary in snapshot.runs if summary.run_id == root.id)
+
+    assert [summary.run_id for summary in snapshot.runs] == [root.id, child.id]
+    assert root_summary.descendant_requests == 2
+    assert root_summary.descendant_total_tokens == 14
+    assert root_summary.total_requests == 3
+    assert root_summary.total_tokens == 20
+    assert snapshot.total_requests == 3
+    assert snapshot.total_tokens == 20
+
+
+@pytest.mark.asyncio
+async def test_operator_follow_up_event_rolls_child_usage_into_tree() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    root = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.API,
+        goal="Root task",
+        workspace_id=workspace.id,
+    )
+    child = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.API,
+        goal="Follow-up task",
+        workspace_id=workspace.id,
+    )
+    await writer.write(
+        run_id=root.id,
+        thread_id=root.thread_id,
+        type="operator_action.follow_up.created",
+        source={"kind": "harness"},
+        payload={"source_run_id": root.id, "child_run_id": child.id},
+    )
+    await writer.write(
+        run_id=root.id,
+        thread_id=root.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 1, "total_tokens": 6},
+    )
+    await writer.write(
+        run_id=child.id,
+        thread_id=child.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 2, "total_tokens": 14},
+    )
+
+    snapshot = await build_run_tree_usage_snapshot(root, store, event_store)
+    root_summary = next(summary for summary in snapshot.runs if summary.run_id == root.id)
+
+    assert [summary.run_id for summary in snapshot.runs] == [root.id, child.id]
+    assert root_summary.descendant_requests == 2
+    assert root_summary.descendant_total_tokens == 14
+    assert root_summary.total_requests == 3
+    assert root_summary.total_tokens == 20
+    assert snapshot.total_requests == 3
+    assert snapshot.total_tokens == 20
+
+
+@pytest.mark.asyncio
+async def test_duplicate_event_and_subagent_child_refs_count_once() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    root = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.API,
+        goal="Root task",
+        workspace_id=workspace.id,
+    )
+    child = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.DELEGATED_TASK,
+        goal="Child task",
+        workspace_id=workspace.id,
+    )
+    await store.create_subagent_run(
+        org_id="org_1",
+        parent_run_id=root.id,
+        child_run_id=child.id,
+        name="Researcher",
+        task="Research",
+    )
+    for event_type in [
+        "operator_action.follow_up.created",
+        "research.continuation.created",
+    ]:
+        await writer.write(
+            run_id=root.id,
+            thread_id=root.thread_id,
+            type=event_type,
+            source={"kind": "harness"},
+            payload={"source_run_id": root.id, "child_run_id": child.id},
+        )
+    await writer.write(
+        run_id=root.id,
+        thread_id=root.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 1, "total_tokens": 6},
+    )
+    await writer.write(
+        run_id=child.id,
+        thread_id=child.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 2, "total_tokens": 14},
+    )
+
+    snapshot = await build_run_tree_usage_snapshot(root, store, event_store)
+    root_summary = next(summary for summary in snapshot.runs if summary.run_id == root.id)
+
+    assert [summary.run_id for summary in snapshot.runs] == [root.id, child.id]
+    assert root_summary.descendant_requests == 2
+    assert root_summary.descendant_total_tokens == 14
+    assert root_summary.total_requests == 3
+    assert root_summary.total_tokens == 20
+    assert snapshot.total_requests == 3
+    assert snapshot.total_tokens == 20
+
+
+@pytest.mark.asyncio
 async def test_cyclic_subagent_links_do_not_count_ancestor_usage() -> None:
     store = InMemoryAgentStore()
     event_store = InMemoryAgentEventStore()
