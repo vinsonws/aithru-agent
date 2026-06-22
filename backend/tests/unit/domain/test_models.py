@@ -61,6 +61,7 @@ from aithru_agent.domain import (
     AgentWorkspaceImageAttachment,
     AgentWorkspaceImageViewResult,
     MAX_WORKSPACE_IMAGE_BYTES,
+    validate_workspace_image_size,
     WorkbenchWorkflowDraft,
 )
 
@@ -250,6 +251,7 @@ def test_workspace_image_contracts_validate_media_and_size() -> None:
     assert view_result.content_base64 == "QUJDRA=="
     assert options.model_capabilities is not None
     assert options.model_capabilities.vision is True
+    assert validate_workspace_image_size(1) == 1
 
     with pytest.raises(ValidationError, match="supported image"):
         AgentWorkspaceImageAttachment(
@@ -267,6 +269,24 @@ def test_workspace_image_contracts_validate_media_and_size() -> None:
             media_type="image/png",
             size=MAX_WORKSPACE_IMAGE_BYTES + 1,
         )
+    with pytest.raises(ValidationError, match="greater than 0"):
+        AgentWorkspaceImageAttachment(
+            kind="workspace_image",
+            workspace_id="ws_1",
+            path="/uploads/blank.png",
+            media_type="image/png",
+            size=0,
+        )
+    with pytest.raises(ValidationError, match="greater than 0"):
+        AgentWorkspaceImageViewResult(
+            workspace_id="ws_1",
+            path="/uploads/blank.png",
+            media_type="image/png",
+            size=0,
+            content_base64="AA==",
+        )
+    with pytest.raises(ValueError, match="greater than 0"):
+        validate_workspace_image_size(0)
     with pytest.raises(ValidationError, match="workspace file"):
         AgentWorkspaceImageAttachment(
             kind="workspace_image",

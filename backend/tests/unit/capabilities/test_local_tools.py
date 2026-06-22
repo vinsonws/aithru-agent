@@ -286,6 +286,12 @@ async def test_workspace_view_image_tool_denies_invalid_or_disallowed_files() ->
     )
     await store.write_workspace_file(
         workspace_id=context.workspace_id,
+        path="/uploads/blank.png",
+        content=b"",
+        media_type="image/png",
+    )
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
         path="/private/chart.png",
         content=b"image",
         media_type="image/png",
@@ -305,6 +311,15 @@ async def test_workspace_view_image_tool_denies_invalid_or_disallowed_files() ->
             id="toolcall_oversized",
             tool_name="workspace.view_image",
             input={"path": "/uploads/large.png"},
+            requested_by="model",
+        ),
+        context,
+    )
+    blank = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_blank",
+            tool_name="workspace.view_image",
+            input={"path": "/uploads/blank.png"},
             requested_by="model",
         ),
         context,
@@ -332,6 +347,8 @@ async def test_workspace_view_image_tool_denies_invalid_or_disallowed_files() ->
     assert "Unsupported image media type" in non_image.error["message"]
     assert oversized.status == "denied"
     assert "maximum image size" in oversized.error["message"]
+    assert blank.status == "denied"
+    assert "greater than 0" in blank.error["message"]
     assert missing.status == "denied"
     assert "Workspace file not found" in missing.error["message"]
     assert outside_policy.status == "denied"

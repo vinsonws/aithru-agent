@@ -12,6 +12,7 @@ from aithru_agent.domain import (
     AgentToolKind,
     AgentToolRiskLevel,
     apply_workspace_text_patch,
+    normalize_workspace_image_path,
     workspace_image_content_base64,
 )
 from aithru_agent.domain.errors import AgentError
@@ -137,18 +138,26 @@ class WorkspaceLocalTool:
                     "media_type": content.media_type,
                 }
             case "workspace.view_image":
-                denied = _deny_if_path_outside_policy(input_data["path"], context)
+                try:
+                    image_path = normalize_workspace_image_path(str(input_data["path"]))
+                except ValueError as err:
+                    return AgentToolCallResult(
+                        status="denied",
+                        error={"message": str(err)},
+                        redaction="none",
+                    )
+                denied = _deny_if_path_outside_policy(image_path, context)
                 if denied:
                     return denied
                 try:
                     file = await _workspace_file(
                         self._store,
                         workspace_id=context.workspace_id,
-                        path=str(input_data["path"]),
+                        path=image_path,
                     )
                     content = await self._store.read_workspace_file(
                         context.workspace_id,
-                        str(input_data["path"]),
+                        image_path,
                     )
                     output = AgentWorkspaceImageViewResult(
                         workspace_id=context.workspace_id,

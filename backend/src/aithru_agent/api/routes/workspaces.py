@@ -28,6 +28,7 @@ from aithru_agent.domain import (
     AgentWorkspaceTextPatchRequest,
     AgentWorkspaceUploadResult,
     apply_workspace_text_patch,
+    normalize_workspace_image_path,
     workspace_image_content_base64,
 )
 from aithru_agent.domain.errors import AgentError
@@ -157,8 +158,9 @@ async def view_workspace_image(
 ) -> AgentWorkspaceImageViewResult:
     await deps.require_workspace(request, workspace_id)
     try:
-        file = await _workspace_file_metadata(deps, workspace_id=workspace_id, path=path)
-        content = await deps.runtime.store.read_workspace_file(workspace_id, path)
+        normalized_path = normalize_workspace_image_path(path)
+        file = await _workspace_file_metadata(deps, workspace_id=workspace_id, path=normalized_path)
+        content = await deps.runtime.store.read_workspace_file(workspace_id, normalized_path)
         return AgentWorkspaceImageViewResult(
             workspace_id=workspace_id,
             path=file.path,
@@ -171,6 +173,8 @@ async def view_workspace_image(
         raise HTTPException(status_code=404, detail=err.message) from err
     except ValidationError as err:
         raise _workspace_image_http_error(err) from err
+    except ValueError as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
 
 
 @router.post(

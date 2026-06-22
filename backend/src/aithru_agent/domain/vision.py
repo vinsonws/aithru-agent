@@ -21,7 +21,7 @@ class AgentWorkspaceImageAttachment(AithruBaseModel):
     workspace_id: str = Field(min_length=1)
     path: str = Field(min_length=1)
     media_type: str = Field(min_length=1)
-    size: int = Field(ge=0)
+    size: int = Field(gt=0)
     content_hash: str | None = None
 
     @field_validator("workspace_id", "content_hash")
@@ -57,7 +57,7 @@ class AgentWorkspaceImageViewResult(AithruBaseModel):
     workspace_id: str = Field(min_length=1)
     path: str = Field(min_length=1)
     media_type: str = Field(min_length=1)
-    size: int = Field(ge=0)
+    size: int = Field(gt=0)
     content_hash: str | None = None
     content_encoding: AgentWorkspaceImageContentEncoding = "base64"
     content_base64: str = Field(min_length=1)
@@ -111,6 +111,8 @@ def validate_workspace_image_media_type(value: str | None) -> str:
 
 
 def validate_workspace_image_size(size: int) -> int:
+    if size <= 0:
+        raise ValueError("Workspace image size must be greater than 0 bytes")
     if size > MAX_WORKSPACE_IMAGE_BYTES:
         raise ValueError(
             "Workspace image exceeds maximum image size "
@@ -141,4 +143,3 @@ def normalize_workspace_image_path(value: str) -> str:
 def workspace_image_content_base64(content: str | bytes) -> str:
     raw = content if isinstance(content, bytes) else content.encode("utf-8")
     return base64.b64encode(raw).decode("ascii")
-

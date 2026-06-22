@@ -68,6 +68,15 @@ async def _validated_image_attachments(
         workspace = await deps.require_workspace(request, attachment.workspace_id)
         if workspace.org_id != thread.org_id:
             raise HTTPException(status_code=404, detail="Workspace not found")
+        if workspace.thread_id is not None:
+            if workspace.thread_id != thread.id:
+                raise HTTPException(status_code=404, detail="Workspace not found")
+        elif workspace.run_id is not None:
+            run = await deps.require_run(request, workspace.run_id)
+            if run.thread_id != thread.id:
+                raise HTTPException(status_code=404, detail="Workspace not found")
+        else:
+            raise HTTPException(status_code=404, detail="Workspace not found")
         try:
             file = await _workspace_file_metadata(
                 deps,
