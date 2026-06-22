@@ -28,7 +28,7 @@ router = APIRouter()
 
 class ExternalToolSecretInput(BaseModel):
     secret_ref: str | None = None
-    write_only_value: str | None = Field(
+    write_only_value: object | None = Field(
         default=None,
         description="Reserved for a future capability-bound secret store.",
         json_schema_extra={"writeOnly": True},
@@ -39,7 +39,7 @@ class ExternalToolSecretInput(BaseModel):
         if self.secret_ref is not None and self.write_only_value is not None:
             raise ExternalToolConfigError("provide either secret_ref or write_only_value, not both")
         if self.write_only_value is not None:
-            if not self.write_only_value.strip():
+            if isinstance(self.write_only_value, str) and not self.write_only_value.strip():
                 raise ExternalToolConfigError("write_only_value cannot be blank")
             raise ExternalToolConfigError(
                 "write_only_value requires a configured secret store; provide secret_ref"

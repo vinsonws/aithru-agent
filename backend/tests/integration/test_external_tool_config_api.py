@@ -170,10 +170,22 @@ async def test_external_tool_config_api_rejects_raw_or_unsupported_secret_inputs
             headers={"X-Aithru-Org-Id": "org_1"},
         )
 
+        write_only_object_payload = mcp_config_payload(key="writeonlyobject")
+        write_only_object_payload["mcp"]["endpoint"]["auth_secret"] = {
+            "write_only_value": {"token": "super-secret-object-token"}
+        }
+        write_only_object_response = await client.post(
+            "/api/external-tools/configs",
+            json=write_only_object_payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
         assert raw_ref_response.status_code == 422
         assert "plain-token-value" not in raw_ref_response.text
         assert write_only_response.status_code == 422
         assert "super-secret-token" not in write_only_response.text
+        assert write_only_object_response.status_code == 422
+        assert "super-secret-object-token" not in write_only_object_response.text
         assert (await client.get("/api/external-tools/configs")).json() == []
 
 
@@ -203,8 +215,33 @@ async def test_external_tool_config_api_rejects_unsafe_tool_policy_and_schema() 
             headers={"X-Aithru-Org-Id": "org_1"},
         )
 
+        invalid_property_schema_payload = mcp_config_payload(key="propertyschema")
+        invalid_property_schema_payload["mcp"]["tools"][0]["input_schema"] = {
+            "type": "object",
+            "properties": {"q": "not-a-schema"},
+        }
+        invalid_property_schema_response = await client.post(
+            "/api/external-tools/configs",
+            json=invalid_property_schema_payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
+        missing_required_payload = mcp_config_payload(key="missingrequired")
+        missing_required_payload["mcp"]["tools"][0]["input_schema"] = {
+            "type": "object",
+            "properties": {},
+            "required": ["missing"],
+        }
+        missing_required_response = await client.post(
+            "/api/external-tools/configs",
+            json=missing_required_payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
         assert dangerous_response.status_code == 422
         assert invalid_schema_response.status_code == 422
+        assert invalid_property_schema_response.status_code == 422
+        assert missing_required_response.status_code == 422
         assert (await client.get("/api/external-tools/configs")).json() == []
 
 

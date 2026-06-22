@@ -1,6 +1,7 @@
 from enum import StrEnum
 from urllib.parse import urlsplit
 
+from jsonschema import Draft202012Validator, SchemaError
 from pydantic import Field, field_validator, model_validator
 
 from .base import AithruBaseModel
@@ -343,6 +344,10 @@ def _validate_secret_ref(value: str) -> None:
 
 
 def _validate_object_schema(value: dict) -> None:
+    try:
+        Draft202012Validator.check_schema(value)
+    except SchemaError as err:
+        raise ValueError("external tool schemas must be valid JSON schemas") from err
     properties = value.get("properties")
     if properties is not None and not isinstance(properties, dict):
         raise ValueError("external tool schema properties must be an object")
@@ -352,6 +357,10 @@ def _validate_object_schema(value: dict) -> None:
         or any(not isinstance(item, str) or not item.strip() for item in required)
     ):
         raise ValueError("external tool schema required values must be nonblank strings")
+    if required is not None and properties is not None:
+        missing = set(required) - set(properties)
+        if missing:
+            raise ValueError("external tool schema required values must be defined properties")
     additional_properties = value.get("additionalProperties")
     if additional_properties is not None and not isinstance(
         additional_properties,
