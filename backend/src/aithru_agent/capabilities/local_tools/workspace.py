@@ -114,7 +114,15 @@ class WorkspaceLocalTool:
         request: AgentToolCallRequest,
         context: AgentRunContext,
     ) -> AgentToolCallResult:
-        input_data = _input_dict(request.input)
+        view_image_path: str | None = None
+        if request.tool_name == "workspace.view_image":
+            path_or_denied = _view_image_path(request.input)
+            if isinstance(path_or_denied, AgentToolCallResult):
+                return path_or_denied
+            view_image_path = path_or_denied
+            input_data: dict[str, Any] = {}
+        else:
+            input_data = _input_dict(request.input)
         match request.tool_name:
             case "workspace.list_files":
                 files = await self._store.list_workspace_files(context.workspace_id)
@@ -138,14 +146,9 @@ class WorkspaceLocalTool:
                     "media_type": content.media_type,
                 }
             case "workspace.view_image":
-                try:
-                    image_path = normalize_workspace_image_path(str(input_data["path"]))
-                except ValueError as err:
-                    return AgentToolCallResult(
-                        status="denied",
-                        error={"message": str(err)},
-                        redaction="none",
-                    )
+                image_path = view_image_path
+                if image_path is None:
+                    return _denied_result("workspace.view_image path must be a non-blank string")
                 denied = _deny_if_path_outside_policy(image_path, context)
                 if denied:
                     return denied
@@ -263,6 +266,26 @@ def _input_dict(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError("Tool input must be an object")
     return value
+
+
+def _view_image_path(value: object) -> str | AgentToolCallResult:
+    if not isinstance(value, dict):
+        return _denied_result("workspace.view_image input must be an object")
+    path = value.get("path")
+    if not isinstance(path, str) or not path.strip():
+        return _denied_result("workspace.view_image path must be a non-blank string")
+    try:
+        return normalize_workspace_image_path(path)
+    except ValueError as err:
+        return _denied_result(str(err))
+
+
+def _denied_result(message: str) -> AgentToolCallResult:
+    return AgentToolCallResult(
+        status="denied",
+        error={"message": message},
+        redaction="none",
+    )
 
 
 def _error_message(err: Exception) -> str:

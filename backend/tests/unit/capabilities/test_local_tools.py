@@ -266,6 +266,39 @@ async def test_workspace_view_image_tool_returns_base64_for_allowed_workspace_im
     }
 
 
+@pytest.mark.parametrize(
+    ("input_data", "expected_message"),
+    [
+        ({}, "workspace.view_image path must be a non-blank string"),
+        ("not an object", "workspace.view_image input must be an object"),
+        ({"path": 123}, "workspace.view_image path must be a non-blank string"),
+        ({"path": "   "}, "workspace.view_image path must be a non-blank string"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_workspace_view_image_tool_denies_invalid_input(
+    input_data: object,
+    expected_message: str,
+) -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_invalid_view_image",
+            tool_name="workspace.view_image",
+            input=input_data,
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "denied"
+    assert result.error == {"message": expected_message}
+    assert result.redaction == "none"
+
+
 @pytest.mark.asyncio
 async def test_workspace_view_image_tool_denies_invalid_or_disallowed_files() -> None:
     store = InMemoryAgentStore()
