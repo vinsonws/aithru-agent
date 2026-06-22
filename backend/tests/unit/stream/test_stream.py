@@ -8,6 +8,7 @@ from aithru_agent.stream import (
     InMemoryAgentEventStore,
     format_sse_event,
 )
+from aithru_agent.stream.redaction import redact_stream_payload_with_receipt
 
 
 @pytest.mark.asyncio
@@ -75,3 +76,21 @@ def test_sse_format_uses_event_id_type_and_json_payload() -> None:
     data = json.loads(data_line.removeprefix("data: "))
     assert data["payload"] == {"message_id": "msg_1", "delta": "hello"}
     assert data["source"] == {"kind": "model", "id": None, "name": None}
+
+
+def test_stream_redaction_returns_pydantic_receipt() -> None:
+    receipt = redact_stream_payload_with_receipt(
+        {
+            "path": "/notes.md",
+            "api_key": "secret",
+            "nested": {"refresh_token": "token"},
+        }
+    )
+
+    assert receipt.payload == {
+        "path": "/notes.md",
+        "api_key": "[REDACTED]",
+        "nested": {"refresh_token": "[REDACTED]"},
+    }
+    assert receipt.redaction == "partial"
+    assert receipt.redacted_paths == ["api_key", "nested.refresh_token"]

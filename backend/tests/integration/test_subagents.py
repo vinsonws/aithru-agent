@@ -1,11 +1,13 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from aithru_agent.agent import AgentRuntime
+from aithru_agent.agent import AgentRuntime, AgentRuntimeResult, PydanticAgentDeps
+from aithru_agent.agent.tools import PydanticAIToolBridge
 from aithru_agent.api.main import create_app
 from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.domain import AgentRunStatus, AgentSkill, AgentSubagentRunStatus
+from aithru_agent.domain import AgentRunSource, AgentRunStatus, AgentSkill, AgentSubagentRunStatus
 from aithru_agent.skills import InMemorySkillResolver
+from aithru_agent.stream.events import AgentStreamEvent, AgentStreamSource
 from aithru_agent.trace import project_trace_spans
 from tests.utils.step_runtime import Step, StepAgentRuntime
 
@@ -20,6 +22,41 @@ class SequencedRuntime(AgentRuntime):
         index = min(self._index, len(self._runs) - 1)
         self._index += 1
         return await StepAgentRuntime(self._runs[index]).run(goal, deps)
+
+
+class ToolContext:
+    def __init__(self, tool_call_id: str) -> None:
+        self.tool_call_id = tool_call_id
+        self.run_step = 0
+        self.tool_call_approved = False
+
+
+class DelegatingArtifactRuntime(AgentRuntime):
+    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del goal
+        if deps.run.source == AgentRunSource.DELEGATED_TASK:
+            await deps.store.create_artifact(
+                org_id=deps.run.org_id,
+                workspace_id=deps.run.workspace_id,
+                run_id=deps.run.id,
+                type="report",
+                name="Child Report",
+                media_type="text/markdown",
+                uri="/reports/child.md",
+                content="# Child Report\nImportant findings.",
+            )
+            return AgentRuntimeResult(content="Child result.")
+
+        await PydanticAIToolBridge(deps=deps).call_tool(
+            ToolContext("delegate_call_1"),
+            "subagent.delegate",
+            {
+                "name": "researcher",
+                "task": "Summarize the workspace.",
+                "spec_key": "researcher",
+            },
+        )
+        return AgentRuntimeResult(content="Parent queued child.")
 
 
 def subagent_skill() -> AgentSkill:
@@ -86,6 +123,43 @@ async def test_subagent_delegate_creates_child_run_and_parent_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_completed_subagent_persists_structured_result_summary() -> None:
+    runtime = create_agent_runtime(agent_runtime=DelegatingArtifactRuntime())
+
+    parent = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Delegate artifact research",
+        scopes=["*"],
+    )
+    subagent_run = (await runtime.store.list_subagent_runs(parent_run_id=parent.id))[0]
+    child = await runtime.store.get_run(subagent_run.child_run_id)
+    assert child is not None
+
+    await runtime.worker.work_once()
+    completed = (await runtime.store.list_subagent_runs(parent_run_id=parent.id))[0]
+    parent_events = await runtime.event_store.list_by_run(parent.id)
+    completed_event = next(event for event in parent_events if event.type == "subagent.completed")
+    subagent_span = next(
+        span
+        for span in project_trace_spans(parent_events)
+        if span.id == f"subagent:{completed.id}"
+    )
+
+    assert completed.status == AgentSubagentRunStatus.COMPLETED
+    assert completed.result_summary is not None
+    assert completed.result_summary.content == "Child result."
+    assert completed.result_summary.artifact_count == 1
+    assert completed.result_summary.artifacts[0].name == "Child Report"
+    assert completed_event.payload["result_summary"]["content"] == "Child result."
+    assert completed_event.payload["result_summary"]["artifacts"][0]["summary"] == (
+        "# Child Report\nImportant findings."
+    )
+    assert subagent_span.refs["artifact_count"] == 1
+    assert subagent_span.refs["result_content_length"] == len("Child result.")
+
+
+@pytest.mark.asyncio
 async def test_cancelled_child_run_updates_parent_subagent_state() -> None:
     driver = SequencedRuntime(
         [
@@ -149,7 +223,7 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         created = (
             await client.post(
-                "/api/agent/subagents",
+                "/api/subagents",
                 json={
                     "org_id": "org_1",
                     "key": "researcher",
@@ -159,10 +233,10 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
                 },
             )
         )
-        listed = await client.get("/api/agent/subagents?org_id=org_1")
+        listed = await client.get("/api/subagents?org_id=org_1")
         parent = (
             await client.post(
-                "/api/agent/runs",
+                "/api/runs",
                 json={
                     "goal": "Delegate research",
                     "org_id": "org_1",
@@ -172,7 +246,7 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
                 },
             )
         ).json()
-        delegations = await client.get(f"/api/agent/runs/{parent['id']}/subagents")
+        delegations = await client.get(f"/api/runs/{parent['id']}/subagents")
 
     assert created.status_code == 201
     assert created.json()["key"] == "researcher"
@@ -181,6 +255,91 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
     assert delegations.status_code == 200
     assert delegations.json()[0]["parent_run_id"] == parent["id"]
     assert delegations.json()[0]["spec_key"] == "researcher"
+
+
+@pytest.mark.asyncio
+async def test_subagent_run_tree_api_projects_parent_child_inspection_view() -> None:
+    driver = SequencedRuntime(
+        [
+            [
+                Step.tool(
+                    "subagent.delegate",
+                    {
+                        "name": "researcher",
+                        "task": "Summarize the workspace.",
+                        "spec_key": "researcher",
+                    },
+                ),
+                Step.finish(),
+            ],
+            [Step.message("Subtask done."), Step.finish()],
+        ]
+    )
+    runtime = create_agent_runtime(agent_runtime=driver)
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        thread = (
+            await client.post(
+                "/api/threads",
+                json={"org_id": "org_1", "owner_user_id": "user_1", "title": "Tree"},
+            )
+        ).json()
+        parent = (
+            await client.post(
+                f"/api/threads/{thread['id']}/runs",
+                json={
+                    "goal": "Delegate research",
+                    "org_id": "org_1",
+                    "actor_user_id": "user_1",
+                    "scopes": ["*"],
+                    "wait_for_completion": True,
+                },
+            )
+        ).json()
+        await runtime.worker.work_once()
+        child_run_id = (
+            await runtime.store.list_subagent_runs(parent_run_id=parent["id"])
+        )[0].child_run_id
+        await runtime.event_store.append(
+            AgentStreamEvent(
+                id="event_child_web_failure",
+                run_id=child_run_id,
+                thread_id=thread["id"],
+                sequence=await runtime.event_store.next_sequence(child_run_id),
+                timestamp="2026-06-18T00:00:00Z",
+                type="web.fetch.failed",
+                source=AgentStreamSource(kind="test"),
+                payload={
+                    "tool_call_id": "tool_1",
+                    "url": "https://example.test",
+                    "error": {"type": "timeout"},
+                },
+            )
+        )
+        tree = (await client.get(f"/api/runs/{parent['id']}/tree")).json()
+        thread_tree = (
+            await client.get(f"/api/threads/{thread['id']}/runs/{parent['id']}/tree")
+        ).json()
+
+    assert tree == thread_tree
+    assert tree["root_run_id"] == parent["id"]
+    assert tree["summary"]["total_runs"] == 2
+    assert tree["summary"]["total_delegations"] == 1
+    assert tree["summary"]["max_depth"] == 1
+    assert tree["summary"]["attention_runs"] == 2
+    assert tree["summary"]["degraded_runs"] == 1
+    assert tree["summary"]["root_needs_attention"] is True
+    assert [node["depth"] for node in tree["nodes"]] == [0, 1]
+    assert tree["nodes"][0]["run_id"] == parent["id"]
+    assert tree["nodes"][0]["child_count"] == 1
+    assert tree["nodes"][0]["attention_reasons"] == ["descendant_degraded"]
+    assert tree["nodes"][1]["source"] == "delegated_task"
+    assert tree["nodes"][1]["research_degraded"] is True
+    assert tree["nodes"][1]["attention_reasons"] == ["self_degraded"]
+    assert tree["nodes"][1]["subagent_run_id"] == tree["delegations"][0]["subagent_run_id"]
+    assert tree["delegations"][0]["parent_run_id"] == parent["id"]
+    assert tree["delegations"][0]["name"] == "researcher"
 
 
 @pytest.mark.asyncio

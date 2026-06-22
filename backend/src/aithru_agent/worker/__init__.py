@@ -1,5 +1,12 @@
 from .queue import InProcessRunQueue, QueuedRun
 from .runner import AgentWorkerRunner
-from .service import AgentWorkerService
+from .service import AgentWorkerHeartbeatPolicy, AgentWorkerLoopPolicy, AgentWorkerService
 
-__all__ = ["AgentWorkerRunner", "AgentWorkerService", "InProcessRunQueue", "QueuedRun"]
+__all__ = [
+    "AgentWorkerHeartbeatPolicy",
+    "AgentWorkerLoopPolicy",
+    "AgentWorkerRunner",
+    "AgentWorkerService",
+    "InProcessRunQueue",
+    "QueuedRun",
+]

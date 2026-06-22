@@ -7,8 +7,11 @@ from aithru_agent.capabilities import (
 )
 from aithru_agent.capabilities.local_tools import (
     ArtifactLocalTool,
+    InputLocalTool,
     MemoryLocalTool,
+    ResearchLocalTool,
     TodoLocalTool,
+    WorkbenchLocalTool,
     WorkspaceLocalTool,
 )
 from aithru_agent.domain import AgentToolCallRequest
@@ -34,6 +37,8 @@ async def make_context(store: InMemoryAgentStore) -> AgentRunContext:
             "agent.workspace.write",
             "agent.todo.write",
             "agent.artifact.write",
+            "agent.research.write",
+            "agent.input.write",
         ],
     )
 
@@ -44,7 +49,10 @@ def make_router(store: InMemoryAgentStore, policy: ToolPolicy | None = None) -> 
             WorkspaceLocalTool(store),
             TodoLocalTool(store),
             ArtifactLocalTool(store),
+            InputLocalTool(),
             MemoryLocalTool(store),
+            ResearchLocalTool(store),
+            WorkbenchLocalTool(store),
         ],
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )
@@ -58,7 +66,10 @@ def test_local_tool_input_schemas_define_required_properties() -> None:
             WorkspaceLocalTool(store),
             TodoLocalTool(store),
             ArtifactLocalTool(store),
+            InputLocalTool(),
             MemoryLocalTool(store),
+            ResearchLocalTool(store),
+            WorkbenchLocalTool(store),
         ]
         for descriptor in adapter.list_tools()
     ]
@@ -80,8 +91,22 @@ async def test_router_lists_local_tools_with_risk_and_scopes() -> None:
 
     assert by_name["workspace.read_file"].risk_level == "read"
     assert by_name["workspace.write_file"].risk_level == "write"
+    assert by_name["workspace.patch_file"].risk_level == "write"
+    assert by_name["workspace.patch_file"].required_scopes == ["agent.workspace.write"]
+    assert "edits" in by_name["workspace.patch_file"].input_schema["properties"]
     assert by_name["todo.create"].required_scopes == ["agent.todo.write"]
     assert by_name["artifact.create"].required_scopes == ["agent.artifact.write"]
+    assert by_name["input.request"].required_scopes == ["agent.input.write"]
+    assert by_name["research.create_report"].required_scopes == [
+        "agent.research.write",
+        "agent.artifact.write",
+    ]
+    assert by_name["research.create_plan"].required_scopes == [
+        "agent.research.write",
+        "agent.todo.write",
+    ]
+    assert "workbench.workflow_draft.create" not in by_name
+    assert "sections" in by_name["research.create_plan"].input_schema["properties"]
 
 
 @pytest.mark.asyncio
@@ -96,6 +121,60 @@ async def test_router_lists_only_tools_allowed_by_run_scopes() -> None:
     assert "workspace.read_file" in tool_names
     assert "workspace.write_file" not in tool_names
     assert "memory.search" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_router_denies_known_tool_with_missing_scope_authorization() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes = ["agent.workspace.read"]
+    router = make_router(store)
+
+    request = AgentToolCallRequest(
+        id="toolcall_1",
+        tool_name="workspace.write_file",
+        input={"path": "/notes.md", "content": "# Notes"},
+        requested_by="model",
+    )
+
+    prepared = await router.prepare_tool_call(request, context)
+    result = await router.execute_tool_call(request, context)
+
+    assert prepared.status == "denied"
+    assert prepared.reason == "Missing required scope: agent.workspace.write"
+    assert prepared.authorization.status == "denied"
+    assert prepared.authorization.missing_scopes == ["agent.workspace.write"]
+    assert result.status == "denied"
+    assert result.authorization.status == "denied"
+    assert result.audit.action == "tool.execute"
+    assert result.audit.outcome == "denied"
+    assert result.audit.authorization.missing_scopes == ["agent.workspace.write"]
+
+
+@pytest.mark.asyncio
+async def test_router_attaches_capability_audit_to_successful_tool_call() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="workspace.list_files",
+            input={},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "completed"
+    assert result.authorization.status == "allowed"
+    assert result.authorization.actor.user_id == "user_1"
+    assert result.audit.action == "tool.execute"
+    assert result.audit.outcome == "completed"
+    assert result.audit.run_id == context.run_id
+    assert result.audit.tool_name == "workspace.list_files"
+    assert result.audit.authorization.required_scopes == ["agent.workspace.read"]
 
 
 @pytest.mark.asyncio
@@ -126,6 +205,140 @@ async def test_workspace_tool_calls_execute_through_router() -> None:
     assert result.status == "completed"
     assert result.output["path"] == "/notes.md"
     assert read.output == {"path": "/notes.md", "content": "# Notes", "media_type": "text/markdown"}
+
+
+@pytest.mark.asyncio
+async def test_workspace_patch_tool_applies_structured_text_edits() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/reports/report.md",
+        content="# Draft\nOld title\nNeeds work.\nOld title\n",
+        media_type="text/markdown",
+    )
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_patch",
+            tool_name="workspace.patch_file",
+            input={
+                "path": "/reports/report.md",
+                "edits": [
+                    {
+                        "old_text": "Old title",
+                        "new_text": "Reviewed title",
+                        "replace_all": True,
+                        "expected_replacements": 2,
+                    },
+                    {
+                        "old_text": "Needs work.",
+                        "new_text": "Ready for review.",
+                    },
+                ],
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+    patched = await store.read_workspace_file(context.workspace_id, "/reports/report.md")
+
+    assert result.status == "completed"
+    assert result.output["path"] == "/reports/report.md"
+    assert result.output["replacement_count"] == 3
+    assert result.output["version_before"] == 1
+    assert result.output["version_after"] == 2
+    assert result.output["file_version_before"] == 1
+    assert result.output["file_version_after"] == 2
+    assert result.output["size_before"] == len("# Draft\nOld title\nNeeds work.\nOld title\n".encode())
+    assert result.output["size_after"] == len("# Draft\nReviewed title\nReady for review.\nReviewed title\n".encode())
+    assert patched.content == "# Draft\nReviewed title\nReady for review.\nReviewed title\n"
+    assert patched.media_type == "text/markdown"
+
+
+@pytest.mark.asyncio
+async def test_workspace_patch_tool_respects_workspace_path_policy() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.workspace_allowed_paths = ["/reports"]
+    router = make_router(store)
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/notes.md",
+        content="draft",
+        media_type="text/markdown",
+    )
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_patch_denied",
+            tool_name="workspace.patch_file",
+            input={
+                "path": "/notes.md",
+                "edits": [{"old_text": "draft", "new_text": "done"}],
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+    unchanged = await store.read_workspace_file(context.workspace_id, "/notes.md")
+
+    assert result.status == "denied"
+    assert result.error["message"] == "Path is outside allowed workspace paths: /notes.md"
+    assert unchanged.content == "draft"
+
+
+@pytest.mark.asyncio
+async def test_workbench_workflow_draft_tool_creates_structured_artifact() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+    scoped_context = context.model_copy(
+        update={"scopes": [*context.scopes, "agent.workbench.write"]}
+    )
+
+    assert "workbench.workflow_draft.create" not in [
+        tool.name for tool in await router.list_tools(context)
+    ]
+    assert "workbench.workflow_draft.create" in [
+        tool.name for tool in await router.list_tools(scoped_context)
+    ]
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="workbench.workflow_draft.create",
+            input={
+                "title": "Review generated report",
+                "summary": "Draft a future Workbench workflow for report review.",
+                "suggested_steps": [
+                    "Collect report artifact.",
+                    "Ask a reviewer for approval.",
+                    "Publish the approved report.",
+                ],
+                "required_inputs": ["Reviewer user id"],
+                "risks": ["Needs human review before any Workbench workflow is created."],
+                "open_questions": ["Who owns the final approval?"],
+                "handoff_notes": "This is a non-executable draft for Workbench review.",
+            },
+            requested_by="model",
+        ),
+        scoped_context,
+    )
+    artifact = await store.get_artifact(result.output["id"])
+
+    assert result.status == "completed"
+    assert result.output["type"] == "workflow_draft"
+    assert result.output["media_type"] == "application/vnd.aithru.workbench.workflow-draft+json"
+    assert result.output["content"]["source_run_id"] == context.run_id
+    assert result.output["content"]["source_workspace_id"] == context.workspace_id
+    assert result.output["content"]["draft_kind"] == "workbench_workflow_draft"
+    assert result.output["content"]["executable"] is False
+    assert result.output["metadata"]["workbench"]["draft"] is True
+    assert result.output["metadata"]["workbench"]["executable"] is False
+    assert artifact is not None
+    assert artifact.type == "workflow_draft"
 
 
 @pytest.mark.asyncio
@@ -189,6 +402,206 @@ async def test_todo_and_artifact_tools_return_normalized_results() -> None:
     assert artifact_result.status == "completed"
     assert artifact_result.output["type"] == "report"
     assert artifact_result.output["uri"] == "/reports/report.md"
+
+
+@pytest.mark.asyncio
+async def test_research_create_report_tool_creates_markdown_report_artifact() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="research.create_report",
+            input={
+                "title": "Aithru research",
+                "query": "aithru deerflow parity",
+                "sources": [
+                    {
+                        "title": "Aithru Agent",
+                        "url": "https://example.com/aithru",
+                        "snippet": "Harness backend.",
+                        "section_id": "architecture",
+                    }
+                ],
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+
+    artifacts = await store.list_artifacts(run_id=context.run_id)
+
+    assert result.status == "completed"
+    assert result.output["report"]["summary"] == "Collected 1 source for `aithru deerflow parity`."
+    assert result.output["artifact"]["type"] == "report"
+    assert result.output["artifact"]["media_type"] == "text/markdown"
+    assert result.output["artifact"]["uri"] == "/reports/aithru-research.md"
+    assert "# Aithru research" in result.output["artifact"]["content"]
+    assert result.output["report"]["section_summary"] == [
+        {"section_id": "architecture", "source_count": 1, "evidence_count": 1}
+    ]
+    assert result.output["artifact"]["metadata"]["section_count"] == 1
+    assert result.output["artifact"]["metadata"]["section_summary"] == [
+        {"section_id": "architecture", "source_count": 1, "evidence_count": 1}
+    ]
+    assert artifacts[0].id == result.output["artifact"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_research_create_report_tool_auto_adds_limitations_from_blocked_todos() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+
+    await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_plan",
+            tool_name="research.create_plan",
+            input={"query": "aithru deerflow parity"},
+            requested_by="model",
+        ),
+        context,
+    )
+    search_todo = next(
+        todo for todo in await store.list_todos(context.run_id) if todo.title == "Search sources"
+    )
+    await store.update_todo(search_todo.id, status="blocked")
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_report",
+            tool_name="research.create_report",
+            input={
+                "title": "Blocked Aithru research",
+                "query": "aithru deerflow parity",
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "completed"
+    assert result.output["report"]["status"] == "insufficient_evidence"
+    assert result.output["report"]["limitations"] == [
+        {
+            "code": "research_search_blocked",
+            "severity": "warning",
+            "message": "Research source search was blocked before report creation.",
+            "source_url": None,
+        }
+    ]
+    assert result.output["artifact"]["metadata"]["limitation_count"] == 1
+    assert "Research source search was blocked before report creation." in result.output[
+        "artifact"
+    ]["content"]
+
+
+@pytest.mark.asyncio
+async def test_research_create_report_tool_is_scope_controlled() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes = ["agent.artifact.write"]
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="research.create_report",
+            input={
+                "title": "Aithru research",
+                "query": "aithru",
+                "sources": [
+                    {
+                        "title": "Aithru Agent",
+                        "url": "https://example.com/aithru",
+                    }
+                ],
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "denied"
+    assert result.error == {"message": "Missing required scope: agent.research.write"}
+    assert result.authorization.missing_scopes == ["agent.research.write"]
+
+
+@pytest.mark.asyncio
+async def test_research_create_plan_tool_creates_runtime_todos() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="research.create_plan",
+            input={
+                "query": "aithru deerflow parity",
+                "objective": "Compare backend completeness.",
+                "sections": [
+                    {
+                        "section_id": "architecture",
+                        "title": "Architecture",
+                        "question": "How is the backend structured?",
+                        "priority": "high",
+                    }
+                ],
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+    todos = await store.list_todos(context.run_id)
+
+    assert result.status == "completed"
+    assert result.output["plan"]["query"] == "aithru deerflow parity"
+    assert result.output["plan"]["sections"] == [
+        {
+            "section_id": "architecture",
+            "title": "Architecture",
+            "question": "How is the backend structured?",
+            "priority": "high",
+        }
+    ]
+    assert [todo["title"] for todo in result.output["todos"]] == [
+        "Search sources",
+        "Fetch and review sources",
+        "Synthesize findings",
+        "Create research report",
+    ]
+    assert [todo.title for todo in todos] == [
+        "Search sources",
+        "Fetch and review sources",
+        "Synthesize findings",
+        "Create research report",
+    ]
+    assert todos[0].description == "Find relevant sources for `aithru deerflow parity`."
+
+
+@pytest.mark.asyncio
+async def test_research_create_plan_tool_is_scope_controlled() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes = ["agent.research.write"]
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="research.create_plan",
+            input={"query": "aithru"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "denied"
+    assert result.error == {"message": "Missing required scope: agent.todo.write"}
+    assert result.authorization.missing_scopes == ["agent.todo.write"]
 
 
 @pytest.mark.asyncio
@@ -366,6 +779,57 @@ async def test_memory_search_without_scope_only_reads_current_context_scopes() -
     assert [entry["key"] for entry in search.output["entries"]] == [
         "current.preference",
         "workspace.note",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_memory_search_filters_private_memory_by_actor() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes.extend(["agent.memory.read"])
+    router = make_router(store)
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="workspace",
+        scope_id=context.workspace_id,
+        key="private.owned",
+        value="Visible owned private memory.",
+        owner=context.actor_user_id,
+        visibility="private",
+    )
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="workspace",
+        scope_id=context.workspace_id,
+        key="private.other",
+        value="Hidden other private memory.",
+        owner="other_user",
+        visibility="private",
+    )
+    await store.create_memory_entry(
+        org_id=context.org_id,
+        scope="workspace",
+        scope_id=context.workspace_id,
+        key="shared.workspace",
+        value="Visible shared memory.",
+        owner="other_user",
+        visibility="shared",
+    )
+
+    search = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_1",
+            tool_name="memory.search",
+            input={"scope": "workspace"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert search.status == "completed"
+    assert [entry["key"] for entry in search.output["entries"]] == [
+        "private.owned",
+        "shared.workspace",
     ]
 
 

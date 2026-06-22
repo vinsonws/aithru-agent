@@ -1,6 +1,7 @@
 from typing import Any
 
 from aithru_agent.domain import (
+    AgentMemoryVisibilityPolicy,
     AgentToolCallRequest,
     AgentToolCallResult,
     AgentToolDescriptor,
@@ -57,7 +58,16 @@ class MemoryLocalTool:
                         "source": {"type": "string"},
                         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                         "visibility": {"type": "string"},
-                        "retention": {"type": "string"},
+                        "retention": {
+                            "type": "object",
+                            "properties": {
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["ephemeral", "retained", "expires_at"],
+                                },
+                                "expires_at": {"type": "string"},
+                            },
+                        },
                     },
                 },
                 output_schema={"type": "object"},
@@ -92,6 +102,7 @@ class MemoryLocalTool:
                         scope_id=scope_id,
                         query=input_data.get("query"),
                     )
+                    entries = _filter_visible_entries(entries, context)
                 return AgentToolCallResult(
                     status="completed",
                     output={"entries": [entry.model_dump(mode="json") for entry in entries]},
@@ -134,6 +145,7 @@ class MemoryLocalTool:
     ) -> list[object]:
         entries = []
         seen: set[str] = set()
+        visibility_policy = AgentMemoryVisibilityPolicy(actor_user_id=context.actor_user_id)
         for scope, scope_id in _accessible_memory_scopes(context):
             scoped_entries = await self._store.list_memory_entries(
                 org_id=context.org_id,
@@ -143,6 +155,8 @@ class MemoryLocalTool:
             )
             for entry in scoped_entries:
                 if entry.id in seen:
+                    continue
+                if not visibility_policy.allows(entry):
                     continue
                 seen.add(entry.id)
                 entries.append(entry)
@@ -205,6 +219,15 @@ def _default_scope_id(scope: str, context: AgentRunContext) -> str | None:
 
 
 _LOCAL_MEMORY_SCOPES = {"thread", "workspace", "user", "organization", "skill"}
+
+
+def _filter_visible_entries(entries: list[object], context: AgentRunContext) -> list[object]:
+    visibility_policy = AgentMemoryVisibilityPolicy(actor_user_id=context.actor_user_id)
+    return [
+        entry
+        for entry in entries
+        if visibility_policy.allows(entry)
+    ]
 
 
 def _input_dict(value: object) -> dict[str, Any]:

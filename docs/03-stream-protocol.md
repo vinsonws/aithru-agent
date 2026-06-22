@@ -43,7 +43,7 @@ Workbench workflow events remain Workbench/Core events. Agent stream events desc
 V1 should use Server-Sent Events:
 
 ```txt
-GET /api/agent/runs/:runId/events/stream?afterSequence=123
+GET /api/runs/:runId/events/stream?afterSequence=123
 ```
 
 Reasons:
@@ -58,10 +58,10 @@ Reasons:
 Reverse operations should be REST:
 
 ```txt
-POST /api/agent/runs/:runId/cancel
-POST /api/agent/runs/:runId/input
-POST /api/agent/runs/:runId/resume
-POST /api/agent/approvals/:approvalId/resolve
+POST /api/runs/:runId/cancel
+POST /api/runs/:runId/input
+POST /api/runs/:runId/resume
+POST /api/approvals/:approvalId/resolve
 ```
 
 WebSocket can be added later for collaborative, terminal-like, or interactive bidirectional sessions.
@@ -102,6 +102,7 @@ type AgentStreamEvent = {
       | "sandbox"
       | "workspace"
       | "memory"
+      | "web"
       | "approval"
       | "system";
     id?: string;
@@ -157,7 +158,7 @@ The stream may close after terminal event.
 The server must support both:
 
 ```txt
-GET /api/agent/runs/:runId/events/stream?afterSequence=42
+GET /api/runs/:runId/events/stream?afterSequence=42
 ```
 
 and:
@@ -291,6 +292,16 @@ tool.denied
 
 `tool.started` means policy and approval checks passed and **real execution is about to begin**. Approval must not happen after `tool.started`.
 
+Terminal `tool.completed`, `tool.failed`, and `tool.denied` events may carry
+Pydantic governance payloads:
+
+- `authorization_decision`: safe actor/scope decision metadata;
+- `audit`: capability audit metadata serialized with
+  `authorization_decision`, not the sensitive key `authorization`.
+
+These payloads let replay, trace, and capability-audit APIs inspect tool policy
+outcomes without exposing raw credentials or bypassing stream redaction.
+
 #### Safe/read tool event order (no approval needed)
 
 ```
@@ -320,6 +331,94 @@ tool.completed      ← executeToolCall finished
   "toolName": "workspace.writeFile",
   "riskLevel": "write",
   "summary": "写入 /reports/analysis.md"
+}
+```
+
+### Context events
+
+```txt
+context.packet.built
+```
+
+This debug event is emitted when the native harness builds a non-empty
+Pydantic `AgentRunContextPacket` for model context engineering. The event
+summarizes counts, budget usage, dropped-context counts, and truncation state
+only; the full prompt text is not copied into the stream. Context packets are
+internal harness projections over existing thread messages, runtime todos,
+artifacts, prior `tool.completed` result summaries, scoped memory recall, and
+resume-state hints. They are not WorkflowSpec objects or public API contracts.
+
+```json
+{
+  "thread_messages": 1,
+  "todos": 1,
+  "artifacts": 1,
+  "tool_results": 1,
+  "memory": 1,
+  "has_truncated_content": false,
+  "has_dropped_context": false,
+  "budget": {
+    "max_chars": 6000,
+    "used_chars": 214,
+    "remaining_chars": 5786,
+    "dropped_thread_messages": 0,
+    "dropped_todos": 0,
+    "dropped_artifacts": 0,
+    "dropped_tool_results": 0,
+    "dropped_memory": 0,
+    "truncated_items": 0
+  }
+}
+```
+
+### Web events
+
+```txt
+web.search.completed
+web.fetch.completed
+web.search.failed
+web.fetch.failed
+```
+
+These events summarize controlled web provider work for research timelines and
+trace projection. Completed events are emitted after the corresponding
+capability router tool call succeeds. Failed events are emitted for controlled
+provider failures and should carry the tool call id, the query or URL reference,
+sanitized error payload, and a structured research limitation payload when the
+failure can affect report quality. Fetch events should not duplicate the full
+fetched body.
+
+For controlled web failures, the tool bridge may also return a model-visible
+recoverable payload such as `{ "status": "failed", "recoverable": true, ... }`
+instead of raising a run-failing exception when the tool descriptor's
+`failure_policy` is `return_recoverable`. The stream must still include the
+dedicated `web.*.failed` event and the generic `tool.failed` event so UI, trace,
+and audit projections do not lose the failed tool call.
+
+```json
+{
+  "toolCallId": "toolcall_web_fetch",
+  "url": "https://example.com/source",
+  "statusCode": 200,
+  "mediaType": "text/html; charset=utf-8",
+  "contentLength": 12042,
+  "truncated": false
+}
+```
+
+```json
+{
+  "toolCallId": "toolcall_web_search",
+  "query": "aithru deerflow parity",
+  "error": {
+    "message": "search provider unavailable"
+  },
+  "limitation": {
+    "code": "web_search_failed",
+    "severity": "warning",
+    "message": "Controlled web search failed for `aithru deerflow parity`: search provider unavailable.",
+    "source_url": null
+  }
 }
 ```
 
@@ -359,6 +458,28 @@ or if rejected:
 ```txt
 approval.resolved
 run.failed
+```
+
+### Input events
+
+```txt
+input.requested
+input.received
+```
+
+`input.requested` is emitted when an agent calls `input.request` and the harness
+pauses the run as `waiting_input`. `input.received` is emitted after
+`POST /api/runs/:runId/input` persists the user message for a waiting run. The
+run can then emit `run.resumed` with `status: "queued"` and continue through the
+ordinary worker queue.
+
+```json
+{
+  "input_request_id": "toolcall_input",
+  "tool_call_id": "toolcall_input",
+  "prompt": "Which region should I use?",
+  "reason": "The report needs a geographic scope."
+}
 ```
 
 ### Workspace events
@@ -486,7 +607,7 @@ One event stream should drive multiple UI projections.
 | Projection | Consumes |
 | --- | --- |
 | Chat | `message.*`, selected `run.*`, selected `artifact.*`, selected `approval.*` |
-| Run timeline | `run.*`, `todo.*`, `tool.*`, `subagent.*`, `sandbox.*` |
+| Run timeline | `run.*`, `todo.*`, `tool.*`, `web.*`, `subagent.*`, `sandbox.*` |
 | Workspace | `workspace.*`, selected `artifact.*` |
 | Artifact panel | `artifact.*` |
 | Approval panel | `approval.*`, related `tool.*` |

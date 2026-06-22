@@ -2,10 +2,12 @@ from enum import StrEnum
 from typing import Literal
 
 from .base import AithruBaseModel
+from .governance import AgentAuthorizationDecision, AgentCapabilityAuditEvent
 
 
 class AgentToolKind(StrEnum):
     LOCAL_TOOL = "local_tool"
+    EXTERNAL_TOOL = "external_tool"
     WORKFLOW_CAPABILITY = "workflow_capability"
 
 
@@ -20,6 +22,11 @@ class AgentToolApprovalPolicy(StrEnum):
     NEVER = "never"
     ON_RISK = "on_risk"
     ALWAYS = "always"
+
+
+class AgentToolFailurePolicy(StrEnum):
+    FAIL_RUN = "fail_run"
+    RETURN_RECOVERABLE = "return_recoverable"
 
 
 class AgentExternalRunRef(AithruBaseModel):
@@ -40,6 +47,9 @@ class AgentToolDescriptor(AithruBaseModel):
     risk_level: AgentToolRiskLevel
     required_scopes: list[str]
     approval_policy: AgentToolApprovalPolicy | Literal["never", "on_risk", "always"]
+    failure_policy: AgentToolFailurePolicy | Literal["fail_run", "return_recoverable"] = (
+        AgentToolFailurePolicy.FAIL_RUN
+    )
 
 
 class AgentToolCallRequest(AithruBaseModel):
@@ -51,10 +61,11 @@ class AgentToolCallRequest(AithruBaseModel):
 
 
 class AgentToolCallResult(AithruBaseModel):
-    status: Literal["completed", "failed", "denied", "waiting_approval"]
+    status: Literal["completed", "failed", "denied", "waiting_approval", "running"]
     output: object | None = None
     error: dict | None = None
     redaction: Literal["none", "partial", "full"]
     external_run: AgentExternalRunRef | None = None
     approval_id: str | None = None
-
+    authorization: AgentAuthorizationDecision | None = None
+    audit: AgentCapabilityAuditEvent | None = None

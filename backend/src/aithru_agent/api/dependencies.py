@@ -1,24 +1,33 @@
 """Shared API request models and dependency helpers."""
 
 import asyncio
+import base64
+import binascii
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from aithru_agent.application import AgentRuntime
 from aithru_agent.domain import (
     AgentApproval,
     AgentApprovalDecision,
     AgentArtifact,
+    AgentArtifactRetentionPolicy,
+    AgentArtifactType,
     AgentMemoryEntry,
+    AgentMemoryRetentionPolicy,
+    AgentMemoryVisibilityPolicy,
     AgentMessageRole,
     AgentRun,
     AgentRunHarnessOptions,
+    AgentRunRetryPolicy,
     AgentRunStatus,
     AgentThread,
+    AgentThreadStatus,
     AgentWorkspace,
+    AgentWorkspaceTextPatchEdit,
 )
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import ContextBuilder
@@ -29,6 +38,24 @@ class CreateThreadRequest(BaseModel):
     org_id: str = "org_1"
     owner_user_id: str = "user_1"
     title: str | None = None
+
+
+class UpdateThreadRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1)
+    status: AgentThreadStatus = Field(default=None)
+
+    @model_validator(mode="after")
+    def _at_least_one_field(self) -> "UpdateThreadRequest":
+        if not self.model_fields_set.intersection({"title", "status"}):
+            raise ValueError("at least one thread field must be supplied")
+        return self
+
+    def store_updates(self) -> dict[str, object]:
+        return {
+            field: getattr(self, field)
+            for field in ("title", "status")
+            if field in self.model_fields_set
+        }
 
 
 class AppendMessageRequest(BaseModel):
@@ -42,6 +69,7 @@ class CreateRunRequest(BaseModel):
     actor_user_id: str = "user_1"
     scopes: list[str] | None = None
     harness_options: AgentRunHarnessOptions | None = None
+    retry_policy: AgentRunRetryPolicy | None = None
     thread_id: str | None = None
     skill_id: str | None = None
     wait_for_completion: bool = False
@@ -50,6 +78,21 @@ class CreateRunRequest(BaseModel):
 class ResolveApprovalRequest(BaseModel):
     decision: AgentApprovalDecision
     approval_id: str | None = None
+    comment: str | None = None
+
+
+class ResolveExternalApprovalRequest(BaseModel):
+    decision: AgentApprovalDecision
+    approval_id: str | None = None
+    capability_run_id: str | None = None
+    comment: str | None = None
+
+
+class ResolveExternalRunRequest(BaseModel):
+    capability_run_id: str = Field(min_length=1)
+    status: Literal["completed", "failed", "cancelled"]
+    output: Any | None = None
+    error: dict | None = None
     comment: str | None = None
 
 
@@ -62,6 +105,56 @@ class WriteWorkspaceFileRequest(BaseModel):
     media_type: str | None = None
 
 
+class PatchWorkspaceFileRequest(BaseModel):
+    edits: list[AgentWorkspaceTextPatchEdit] = Field(min_length=1)
+    media_type: str | None = None
+
+
+class UploadWorkspaceFileRequest(BaseModel):
+    path: str = Field(min_length=1)
+    content_base64: str = Field(min_length=1)
+    media_type: str | None = None
+
+    @field_validator("path")
+    @classmethod
+    def _path_must_be_under_uploads(cls, value: str) -> str:
+        normalized = "/" + value.lstrip("/")
+        if normalized == "/uploads" or not normalized.startswith("/uploads/"):
+            raise ValueError("upload path must be under /uploads")
+        return normalized
+
+    @field_validator("content_base64")
+    @classmethod
+    def _content_must_be_base64(cls, value: str) -> str:
+        try:
+            base64.b64decode(value, validate=True)
+        except binascii.Error as err:
+            raise ValueError("content_base64 must be valid base64") from err
+        return value
+
+    def content_bytes(self) -> bytes:
+        return base64.b64decode(self.content_base64, validate=True)
+
+
+class RestoreWorkspaceSnapshotRequest(BaseModel):
+    version: int = Field(ge=0)
+
+
+class PromoteWorkspaceFileRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    type: AgentArtifactType = "file"
+    run_id: str | None = None
+    retention: AgentArtifactRetentionPolicy | None = None
+    metadata: dict | None = None
+
+
+class CreateRunExportArtifactRequest(BaseModel):
+    path: str | None = Field(default=None, min_length=1)
+    name: str | None = Field(default=None, min_length=1)
+    retention: AgentArtifactRetentionPolicy | None = None
+    metadata: dict | None = None
+
+
 class CreateMemoryEntryRequest(BaseModel):
     org_id: str = "org_1"
     scope: str
@@ -72,7 +165,7 @@ class CreateMemoryEntryRequest(BaseModel):
     source: str | None = None
     confidence: float | None = None
     visibility: str | None = None
-    retention: str | None = None
+    retention: AgentMemoryRetentionPolicy | None = None
 
 
 class CreateSubagentSpecRequest(BaseModel):
@@ -268,12 +361,12 @@ def filter_memory_entries_for_request(
     entries: list[AgentMemoryEntry],
 ) -> list[AgentMemoryEntry]:
     trusted_user_id = request.headers.get("x-aithru-user-id")
-    if trusted_user_id is None:
-        return entries
+    visibility_policy = AgentMemoryVisibilityPolicy(actor_user_id=trusted_user_id)
     return [
         entry
         for entry in entries
-        if entry.scope != "user" or entry.scope_id == trusted_user_id
+        if (trusted_user_id is None or entry.scope != "user" or entry.scope_id == trusted_user_id)
+        and visibility_policy.allows(entry)
     ]
 
 

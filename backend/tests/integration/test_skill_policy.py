@@ -74,6 +74,37 @@ async def test_worker_denies_scripted_tool_not_allowed_by_skill() -> None:
 
 
 @pytest.mark.asyncio
+async def test_worker_denied_tool_event_carries_capability_audit() -> None:
+    runtime = create_agent_runtime(
+        agent_runtime=StepAgentRuntime(
+            [
+                Step.tool("workspace.write_file", {"path": "/x.md", "content": "x"}),
+                Step.finish(),
+            ]
+        ),
+        skill_resolver=InMemorySkillResolver([file_report_skill(["workspace.read_file"])]),
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Try write",
+        scopes=["*"],
+        skill_id="file-report",
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+    denied = next(event for event in events if event.type == "tool.denied")
+
+    assert denied.payload["authorization_decision"]["status"] == "allowed"
+    assert denied.payload["audit"]["action"] == "tool.prepare"
+    assert denied.payload["audit"]["outcome"] == "denied"
+    assert denied.payload["audit"]["tool_name"] == "workspace.write_file"
+    assert "authorization" not in denied.payload["audit"]
+    assert denied.payload["audit"]["authorization_decision"]["granted_scopes"] == ["*"]
+    assert denied.payload["reason"] == "Tool is not allowed by run policy: workspace.write_file"
+
+
+@pytest.mark.asyncio
 async def test_worker_uses_skill_approval_policy_for_risky_tools() -> None:
     runtime = create_agent_runtime(
         agent_runtime=AgentRuntime(

@@ -194,11 +194,14 @@ POST /api/capability-runs/:runId/approvals/:approvalId/resolve
 Agent product APIs remain Agent-owned:
 
 ```txt
-POST /api/agent/runs
-GET  /api/agent/runs/:runId
-GET  /api/agent/runs/:runId/events?afterSequence=123
-GET  /api/agent/runs/:runId/stream?afterSequence=123
-POST /api/agent/runs/:runId/cancel
+POST /api/runs
+GET  /api/runs/:runId
+GET  /api/runs/:runId/summary
+GET  /api/runs/:runId/events?afterSequence=123
+GET  /api/runs/:runId/stream?afterSequence=123
+POST /api/runs/:runId/cancel
+POST /api/runs/:runId/external-approval/resolve
+POST /api/runs/:runId/external-run/resolve
 ```
 
 The MVP transport is HTTP plus SSE. Reverse operations such as approval,
@@ -227,11 +230,62 @@ MVP behavior:
   asynchronously;
 - the protocol supports both modes;
 - approval is owned by the Workflow product;
+- asynchronous CapabilityRun status is owned by the Workflow product;
 - Agent UI may present and resolve Workflow-owned approvals through Workflow
   APIs.
 
 Agent should not create a second approval record for a Workflow capability
 approval. It should store and stream a reference to the Workflow-owned approval.
+The Agent run may enter `waiting_approval` with `current_external_approval`
+pointing at the Workflow-owned approval. Resolving that reference through the
+run-scoped Agent API records `external_approval.resolved` and either requeues
+the Agent run or fails it if the Workflow approval was rejected; the underlying
+approval record remains owned by Workflow.
+
+Agent should also not duplicate asynchronous CapabilityRun state into an
+Agent-owned scheduler. If a provider returns `status="running"` with an external
+run reference, the Agent run may enter `waiting_external_run` with
+`current_external_run` pointing at the provider-owned CapabilityRun. Resolving
+that reference through the run-scoped Agent API records terminal
+`external_run.*` events and requeues, fails, or cancels the Agent run around the
+provider-owned result. Completed external results are placed back on the Agent
+worker queue, and the next harness continuation receives the external output
+through bounded Pydantic tool-result context that includes the external
+capability run id.
+Provider retries that repeat the same terminal status for the same CapabilityRun
+are idempotent. A late callback with a different terminal status is rejected so
+Agent does not overwrite the already recorded provider-owned outcome. The
+run-scoped resolve response should expose typed metadata for the external
+CapabilityRun id, terminal status, idempotency, and fresh requeue decision while
+preserving the Agent Run fields expected by control-plane clients.
+While waiting, Agent may expose an `active_external_run` diagnostic with wait
+age and stale status, and run lists may filter stale waits for operator
+attention. This diagnostic must not become polling, cancellation, retry, or
+Workflow scheduling behavior. Stale diagnostics may include operator action
+hints for checking provider status or resolving the external run through the
+existing Agent control-plane endpoint; the hints are metadata, not execution.
+
+Current Agent backend support covers the provider-side adapter contract:
+injected `WorkflowCapabilityProvider` instances publish Pydantic
+`WorkflowCapabilitySpec` descriptors, execute through the Aithru capability
+router, and return `AgentExternalRunRef` values that stream as `external_run.*`
+events. `completed`, `failed`, and `cancelled` results are terminal; `running`
+results pause Agent as `waiting_external_run` until the provider calls the
+run-scoped resolve API. Completed external run results requeue the Agent Run and
+are collected into subsequent context packets from `external_run.completed`
+events. Failed or cancelled external runs are exposed in Agent run summaries as
+derived diagnostics over `external_run.*` events, so UI surfaces can distinguish
+provider failures from Agent harness failures. Duplicate terminal callbacks with
+the same status return the current Agent Run without writing duplicate events;
+conflicting terminal callbacks return an error. Resolve responses include
+Pydantic idempotency and requeue metadata so clients can distinguish a fresh
+completed callback from a duplicate provider retry. Active waiting external runs
+can be flagged as stale in summaries and run-list filters, and stale summaries
+can include inert operator action hints. The backend also includes a controlled
+HTTP JSON provider for a settings-configured CapabilityRun endpoint.
+It posts typed `WorkflowCapabilityInvocation` payloads, validates bounded
+`WorkflowCapabilityResult` responses, requires explicit allowed hosts, and still
+must not import Workbench internals or execute `WorkflowSpec` graphs directly.
 
 Recommended Agent event shape:
 
@@ -496,6 +550,7 @@ This design does not require:
 - Invoke capability runs using delegated user identity.
 - Support synchronous wait and asynchronous run references.
 - Display Workflow-owned approval references in Agent stream/UI.
+- Display and resolve asynchronous CapabilityRun references in Agent stream/UI.
 
 ### Phase 4: Workflow Agent Node
 
@@ -520,6 +575,7 @@ The design is acceptable when:
 - the call creates a first-class `CapabilityRun`;
 - the CapabilityRun owns its approval record;
 - Agent can present and resolve the Workflow-owned approval;
+- Agent can pause on and resolve an asynchronous provider-owned CapabilityRun;
 - the call uses delegated user identity by default;
 - Workflow and Agent traces remain independent but linked;
 - no product imports the other's internals;

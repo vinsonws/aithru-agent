@@ -89,12 +89,14 @@ class RecordingInstructionsAgentRuntime(AgentRuntime):
         self.seen_memory_entries: list[AgentMemoryEntry] | None = None
         self.seen_thread_messages: list[AgentMessage] | None = None
         self.seen_workspace_files: list[AgentWorkspaceFile] | None = None
+        self.seen_instructions: str | None = None
 
     async def build_agent(self, deps):  # type: ignore[no-untyped-def]
         builder = InstructionBuilder(self.instructions)
         self.seen_memory_entries = await builder._memory_entries_for_run(deps)
         self.seen_thread_messages = await builder._thread_messages_for_run(deps)
         self.seen_workspace_files = await builder._workspace_files_for_run(deps)
+        self.seen_instructions = await builder.build(deps)
         return await super().build_agent(deps)
 
 
@@ -483,3 +485,76 @@ async def test_pydantic_ai_runtime_loads_thread_message_summary() -> None:
     assert [message.content for message in agent_runtime.seen_thread_messages] == [
         "Remember that reports should be concise."
     ]
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_runtime_injects_context_packet_and_emits_debug_event() -> None:
+    agent_runtime = RecordingInstructionsAgentRuntime()
+    runtime = _runtime(agent_runtime=agent_runtime)
+    thread = await runtime.store.create_thread(
+        org_id="org_1",
+        owner_user_id="user_1",
+        title="Research",
+    )
+    await runtime.store.append_message(
+        thread_id=thread.id,
+        role="user",
+        content="Use APAC as the scope.",
+    )
+    run = await runtime.runner.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Continue the report.",
+        scopes=["*"],
+        thread_id=thread.id,
+    )
+    await runtime.store.create_memory_entry(
+        org_id=run.org_id,
+        scope="user",
+        scope_id=run.actor_user_id,
+        key="preference.language",
+        value="Prefers Chinese summaries.",
+    )
+    await runtime.store.create_todo(
+        run_id=run.id,
+        title="Search sources",
+        status="done",
+    )
+    await runtime.store.create_artifact(
+        org_id=run.org_id,
+        workspace_id=run.workspace_id,
+        run_id=run.id,
+        type="report",
+        name="Draft Report",
+        uri="/reports/draft.md",
+        media_type="text/markdown",
+        content="# Draft\nEvidence collected.",
+    )
+
+    await runtime.runner.execute_run(run.id)
+    events = await runtime.event_store.list_by_run(run.id)
+    packet_event = next(event for event in events if event.type == "context.packet.built")
+
+    assert packet_event.visibility == "debug"
+    assert packet_event.payload["thread_messages"] == 1
+    assert packet_event.payload["todos"] == 1
+    assert packet_event.payload["artifacts"] == 1
+    assert packet_event.payload["tool_results"] == 0
+    assert packet_event.payload["memory"] == 1
+    assert packet_event.payload["has_truncated_content"] is False
+    assert packet_event.payload["has_dropped_context"] is False
+    assert packet_event.payload["budget"]["max_chars"] == 6_000
+    assert packet_event.payload["budget"]["used_chars"] > 0
+    assert packet_event.payload["budget"]["dropped_thread_messages"] == 0
+    assert packet_event.payload["budget"]["dropped_todos"] == 0
+    assert packet_event.payload["budget"]["dropped_artifacts"] == 0
+    assert packet_event.payload["budget"]["dropped_tool_results"] == 0
+    assert packet_event.payload["budget"]["dropped_memory"] == 0
+    assert agent_runtime.seen_instructions is not None
+    assert "Run context packet:" in agent_runtime.seen_instructions
+    assert "Relevant memory:" in agent_runtime.seen_instructions
+    assert "user:preference.language = Prefers Chinese summaries." in agent_runtime.seen_instructions
+    assert "Context budget:" in agent_runtime.seen_instructions
+    assert "- user: Use APAC as the scope." in agent_runtime.seen_instructions
+    assert "- [done] Search sources" in agent_runtime.seen_instructions
+    assert "- report Draft Report (/reports/draft.md): # Draft\nEvidence collected." in agent_runtime.seen_instructions

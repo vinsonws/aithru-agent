@@ -142,12 +142,14 @@ type AgentToolDescriptor = {
   description: string;
   kind:
     | "local_tool"
+    | "external_tool"
     | "workflow_capability";
   inputSchema?: unknown;
   outputSchema?: unknown;
   requiredScopes: string[];
   riskLevel: "safe" | "read" | "write" | "dangerous";
   approvalPolicy: "never" | "on_risk" | "always";
+  failurePolicy: "fail_run" | "return_recoverable";
   display?: {
     name?: string;
     description?: string;
@@ -157,6 +159,13 @@ type AgentToolDescriptor = {
   metadata?: Record<string, unknown>;
 };
 ```
+
+`failurePolicy` controls harness behavior after a tool returns a failed result.
+The default is `fail_run`, which preserves normal `TOOL_FAILED` behavior.
+Selected controlled tools, such as web search/fetch, may use
+`return_recoverable` so the model receives a structured failure payload and can
+continue toward a degraded artifact while stream and audit events still record
+the failed tool call.
 
 ## Tool call request
 
@@ -262,9 +271,42 @@ Workflow capabilities may be backed by Core nodes, but the backing details
 belong to the Workflow product. Agent consumes the curated capability API and
 stores linked external run references.
 
-Sandbox, memory, or MCP adapters must enter Agent through either Agent-owned
-local harness interfaces or Workflow product capabilities. They are not
-top-level `AgentToolKind` values in the simplified Agent contract.
+### external-tool adapter
+
+Allows Agent to expose hosted integrations, MCP-like servers, search, fetch, or
+other provider-backed tools as `external_tool` descriptors.
+
+Current provider contracts include:
+
+```txt
+mcp.<server>.<tool>
+web.search
+web.fetch
+```
+
+Rules:
+
+- provider tools are optional runtime inputs, not ambient model access;
+- settings can enable the built-in `web.search` / `web.fetch` catalog or
+  Pydantic-validated MCP-like catalogs, but they are disabled by default;
+- each provider maps its catalog into `ExternalToolSpec` descriptors;
+- every tool keeps explicit risk, scope, approval, provider, and metadata;
+- provider input/output contracts use Pydantic models at the boundary;
+- adapters validate inputs before calling provider executors;
+- actual web/network or MCP execution must be supplied by a controlled executor
+  and still passes through scope, risk, approval, trace, and redaction policy;
+- the built-in HTTP web executor supports `web.fetch`, and the built-in
+  HTTP-JSON search executor supports `web.search` through a configured endpoint;
+- Web executors require explicit allowed hosts and enforce timeout and byte
+  limits;
+- settings-installed provider catalogs use safe unavailable executors until a
+  concrete provider integration is supplied.
+
+Sandbox and memory adapters may enter Agent through Agent-owned local harness
+interfaces. MCP-like, search, fetch, or hosted integration tools enter through
+`external_tool` adapters. Workflow capabilities remain separate
+`workflow_capability` adapters. All forms still pass through the same
+scope/risk/approval/redaction checks.
 
 ## Policy checks
 
@@ -367,6 +409,12 @@ tool.started
 tool.completed
 ```
 
+Terminal tool events should include safe governance projections when available:
+`authorization_decision` for actor/scope status and `audit` for the capability
+prepare/execute outcome. The event payload must avoid sensitive field names such
+as `authorization`; nested audit authorization is serialized as
+`authorization_decision` so stream redaction does not remove the policy proof.
+
 For denied tool:
 
 ```txt
@@ -458,7 +506,8 @@ Sources:
 - skill-provided tools;
 - Workflow capability catalog;
 - Workbench workflows exposed as workflow capabilities;
-- sandbox, memory, MCP providers through local or capability interfaces.
+- sandbox and memory providers through local interfaces;
+- MCP-like, search, fetch, and hosted providers through external tool adapters.
 
 `listTools(context)` should return only tools available under current actor/org/skill/runtime context.
 

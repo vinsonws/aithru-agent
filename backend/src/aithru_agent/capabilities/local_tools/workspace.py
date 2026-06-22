@@ -1,12 +1,18 @@
 from typing import Any
 
+from pydantic import ValidationError
+
 from aithru_agent.domain import (
+    AgentWorkspacePatchResult,
+    AgentWorkspaceTextPatchRequest,
     AgentToolCallRequest,
     AgentToolCallResult,
     AgentToolDescriptor,
     AgentToolKind,
     AgentToolRiskLevel,
+    apply_workspace_text_patch,
 )
+from aithru_agent.domain.errors import AgentError
 from aithru_agent.persistence.protocols import AgentStore
 
 from ..descriptors import AgentRunContext
@@ -56,6 +62,16 @@ class WorkspaceLocalTool:
                     },
                 },
                 output_schema={"type": "object"},
+                risk_level=AgentToolRiskLevel.WRITE,
+                required_scopes=["agent.workspace.write"],
+                approval_policy="on_risk",
+            ),
+            AgentToolDescriptor(
+                name="workspace.patch_file",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="Patch a text file in the current Agent workspace with explicit replacements.",
+                input_schema=AgentWorkspaceTextPatchRequest.model_json_schema(),
+                output_schema=AgentWorkspacePatchResult.model_json_schema(),
                 risk_level=AgentToolRiskLevel.WRITE,
                 required_scopes=["agent.workspace.write"],
                 approval_policy="on_risk",
@@ -115,6 +131,64 @@ class WorkspaceLocalTool:
                     media_type=input_data.get("media_type"),
                 )
                 output = file.model_dump(mode="json")
+            case "workspace.patch_file":
+                patch_request = _patch_request(input_data)
+                if isinstance(patch_request, AgentToolCallResult):
+                    return patch_request
+                denied = _deny_if_path_outside_policy(patch_request.path, context)
+                if denied:
+                    return denied
+                try:
+                    current = await self._store.read_workspace_file(
+                        context.workspace_id,
+                        patch_request.path,
+                    )
+                    before_file = await _workspace_file(
+                        self._store,
+                        workspace_id=context.workspace_id,
+                        path=patch_request.path,
+                    )
+                except AgentError as err:
+                    return AgentToolCallResult(
+                        status="denied",
+                        error={"message": err.message},
+                        redaction="none",
+                    )
+                if not isinstance(current.content, str):
+                    return AgentToolCallResult(
+                        status="denied",
+                        error={"message": "workspace.patch_file only supports text files"},
+                        redaction="none",
+                    )
+                try:
+                    patched_content, replacement_count = apply_workspace_text_patch(
+                        current.content,
+                        patch_request,
+                    )
+                except ValueError as err:
+                    return AgentToolCallResult(
+                        status="denied",
+                        error={"message": str(err)},
+                        redaction="none",
+                    )
+                patched_file = await self._store.write_workspace_file(
+                    workspace_id=context.workspace_id,
+                    path=patch_request.path,
+                    content=patched_content,
+                    media_type=patch_request.media_type or current.media_type,
+                )
+                output = AgentWorkspacePatchResult(
+                    workspace_id=context.workspace_id,
+                    path=patched_file.path,
+                    version_before=before_file.version,
+                    version_after=patched_file.version,
+                    file_version_before=before_file.file_version,
+                    file_version_after=patched_file.file_version,
+                    size_before=before_file.size,
+                    size_after=patched_file.size,
+                    replacement_count=replacement_count,
+                    content_hash=patched_file.content_hash,
+                ).model_dump(mode="json")
             case "workspace.delete_file":
                 denied = _deny_if_path_outside_policy(input_data["path"], context)
                 if denied:
@@ -136,6 +210,30 @@ def _input_dict(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError("Tool input must be an object")
     return value
+
+
+def _patch_request(input_data: dict[str, Any]) -> AgentWorkspaceTextPatchRequest | AgentToolCallResult:
+    try:
+        return AgentWorkspaceTextPatchRequest.model_validate(input_data)
+    except ValidationError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={"message": "Invalid workspace patch request", "details": err.errors()},
+            redaction="none",
+        )
+
+
+async def _workspace_file(
+    store: AgentStore,
+    *,
+    workspace_id: str,
+    path: str,
+):
+    normalized = _normalize_for_policy(path)
+    for file in await store.list_workspace_files(workspace_id):
+        if file.path == normalized:
+            return file
+    raise AgentError("NOT_FOUND", f"Workspace file not found: {path}")
 
 
 def _deny_if_path_outside_policy(path: object, context: AgentRunContext) -> AgentToolCallResult | None:

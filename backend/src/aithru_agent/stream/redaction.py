@@ -1,5 +1,7 @@
 from typing import Any
 
+from aithru_agent.domain.governance import AgentRedactedPayload
+
 from .events import AgentStreamRedaction
 
 
@@ -26,8 +28,18 @@ _SENSITIVE_KEY_NAMES = {
 
 
 def redact_stream_payload(payload: Any) -> tuple[Any, AgentStreamRedaction]:
-    redacted, changed = _redact_value(payload)
-    return redacted, AgentStreamRedaction.PARTIAL if changed else AgentStreamRedaction.NONE
+    receipt = redact_stream_payload_with_receipt(payload)
+    return receipt.payload, AgentStreamRedaction(receipt.redaction)
+
+
+def redact_stream_payload_with_receipt(payload: Any) -> AgentRedactedPayload:
+    redacted, redacted_paths = _redact_value(payload)
+    redaction = AgentStreamRedaction.PARTIAL if redacted_paths else AgentStreamRedaction.NONE
+    return AgentRedactedPayload(
+        payload=redacted,
+        redaction=redaction.value,
+        redacted_paths=redacted_paths,
+    )
 
 
 def combine_redaction(
@@ -43,34 +55,36 @@ def combine_redaction(
     return AgentStreamRedaction.NONE
 
 
-def _redact_value(value: Any) -> tuple[Any, bool]:
+def _redact_value(value: Any, path: str = "") -> tuple[Any, list[str]]:
     if isinstance(value, dict):
-        changed = False
+        redacted_paths: list[str] = []
         redacted: dict[Any, Any] = {}
         for key, item in value.items():
+            child_path = _join_path(path, str(key))
             if _is_sensitive_key(key):
                 redacted[key] = REDACTED_VALUE
-                changed = True
+                redacted_paths.append(child_path)
                 continue
-            redacted_item, item_changed = _redact_value(item)
+            redacted_item, item_paths = _redact_value(item, child_path)
             redacted[key] = redacted_item
-            changed = changed or item_changed
-        return redacted, changed
+            redacted_paths.extend(item_paths)
+        return redacted, redacted_paths
 
     if isinstance(value, list):
-        changed = False
+        redacted_paths: list[str] = []
         redacted_items: list[Any] = []
-        for item in value:
-            redacted_item, item_changed = _redact_value(item)
+        for index, item in enumerate(value):
+            child_path = f"{path}[{index}]" if path else f"[{index}]"
+            redacted_item, item_paths = _redact_value(item, child_path)
             redacted_items.append(redacted_item)
-            changed = changed or item_changed
-        return redacted_items, changed
+            redacted_paths.extend(item_paths)
+        return redacted_items, redacted_paths
 
     if isinstance(value, tuple):
-        redacted_items, changed = _redact_value(list(value))
-        return tuple(redacted_items), changed
+        redacted_items, redacted_paths = _redact_value(list(value), path)
+        return tuple(redacted_items), redacted_paths
 
-    return value, False
+    return value, []
 
 
 def _is_sensitive_key(key: Any) -> bool:
@@ -83,3 +97,7 @@ def _is_sensitive_key(key: Any) -> bool:
         or normalized.endswith("_secret")
         or normalized.endswith("_password")
     )
+
+
+def _join_path(prefix: str, key: str) -> str:
+    return f"{prefix}.{key}" if prefix else key

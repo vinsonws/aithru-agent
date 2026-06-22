@@ -19,7 +19,7 @@ from aithru_agent.agent.deps import PydanticAgentDeps
 from aithru_agent.agent.instructions import InstructionBuilder
 from aithru_agent.agent.skills import ProgressiveSkill, SkillActivator, SkillRegistry
 from aithru_agent.agent.tools.bridge import PydanticAIToolBridge
-from aithru_agent.domain import AgentRun, AgentRunStatus, AgentToolDescriptor
+from aithru_agent.domain import AgentArtifactSummary, AgentRun, AgentRunStatus, AgentToolDescriptor
 from aithru_agent.domain.errors import AgentError
 
 
@@ -269,6 +269,31 @@ class AgentRuntime:
             pending_approval=None,
         )
 
+    async def resume_subagent(
+        self,
+        *,
+        run_id: str,
+        subagent_run_id: str,
+        child_run_id: str,
+        child_result: str | None,
+        child_artifacts: list[AgentArtifactSummary] | None = None,
+        deps: PydanticAgentDeps,
+    ) -> AgentRuntimeResult:
+        """Resume a parent run after a delegated child completed."""
+        child_output = child_result or "No textual child result was persisted."
+        artifact_context = _render_child_artifact_context(child_artifacts or [])
+        prompt = (
+            f"{deps.run.goal}\n\n"
+            "A delegated subagent run completed while this parent run was paused.\n"
+            f"Parent run id: {run_id}\n"
+            f"Subagent run id: {subagent_run_id}\n"
+            f"Child run id: {child_run_id}\n"
+            f"Child result:\n{child_output}\n\n"
+            f"{artifact_context}"
+            "Continue the parent Agent Run using the child result."
+        )
+        return await self.run(prompt, deps)
+
     def _model_for_run(self, run: AgentRun | None) -> object:
         if run and run.harness_options and run.harness_options.model:
             return self.model_factory(run.harness_options.model)
@@ -367,6 +392,20 @@ def _result_content(content_parts: list[str], final_output: str | None) -> str:
     if content_parts:
         return "".join(content_parts)
     return final_output or ""
+
+
+def _render_child_artifact_context(artifacts: list[AgentArtifactSummary]) -> str:
+    if not artifacts:
+        return ""
+    lines = ["Child artifacts:"]
+    for artifact in artifacts:
+        location = f" ({artifact.uri})" if artifact.uri else ""
+        summary = artifact.summary or "No summary available."
+        suffix = "..." if artifact.truncated else ""
+        lines.append(
+            f"- {artifact.type} {artifact.name}{location}: {summary}{suffix}"
+        )
+    return "\n".join(lines) + "\n\n"
 
 
 def _map_run_usage(usage: object) -> dict[str, int]:
