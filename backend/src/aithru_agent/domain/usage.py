@@ -12,8 +12,8 @@ AgentRunBudgetStatus = Literal["ok", "warning", "exceeded"]
 
 
 class AgentRunBudgetPolicy(AithruBaseModel):
-    max_requests: int | None = Field(default=None, ge=0)
-    max_total_tokens: int | None = Field(default=None, ge=0)
+    max_requests: int | None = Field(default=None, ge=1)
+    max_total_tokens: int | None = Field(default=None, ge=1)
     warn_at_ratio: float = Field(default=0.8, gt=0, le=1)
 
 
@@ -122,7 +122,7 @@ def evaluate_budget_status(
         elif total_tokens >= budget_policy.max_total_tokens * budget_policy.warn_at_ratio:
             warnings.append("total_tokens_near_limit")
     if exceeded:
-        return "exceeded", exceeded
+        return "exceeded", [*exceeded, *warnings]
     if warnings:
         return "warning", warnings
     return "ok", []

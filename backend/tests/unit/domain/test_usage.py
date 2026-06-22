@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from aithru_agent.domain import (
     AgentRunBudgetPolicy,
     AgentRunHarnessOptions,
@@ -74,6 +77,25 @@ def test_aggregate_model_usage_payloads_reports_budget_warning_and_exceeded() ->
     assert warning.warnings == ["requests_near_limit", "total_tokens_near_limit"]
     assert exceeded.budget_status == "exceeded"
     assert exceeded.warnings == ["requests_exceeded", "total_tokens_exceeded"]
+
+
+def test_budget_exceeded_status_preserves_near_limit_warnings() -> None:
+    summary = aggregate_model_usage_payloads(
+        "run_1",
+        [{"requests": 11, "total_tokens": 80}],
+        budget_policy=AgentRunBudgetPolicy(max_requests=10, max_total_tokens=100),
+    )
+
+    assert summary.budget_status == "exceeded"
+    assert summary.warnings == ["requests_exceeded", "total_tokens_near_limit"]
+
+
+def test_budget_policy_rejects_zero_limits() -> None:
+    with pytest.raises(ValidationError):
+        AgentRunBudgetPolicy(max_requests=0)
+
+    with pytest.raises(ValidationError):
+        AgentRunBudgetPolicy(max_total_tokens=0)
 
 
 def test_usage_contracts_are_exported_and_harness_options_accept_budget_policy() -> None:
