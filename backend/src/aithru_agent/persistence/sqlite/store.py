@@ -15,6 +15,8 @@ from aithru_agent.domain import (
     AgentArtifactPromotionResult,
     AgentArtifactRetentionPolicy,
     AgentContextSummary,
+    AgentMemoryCandidate,
+    AgentMemoryCandidateStatus,
     AgentMemoryEntry,
     AgentMemoryForgetResult,
     AgentMemoryRetentionPolicy,
@@ -1217,6 +1219,76 @@ class SQLiteAgentStore:
             forgotten=deleted_count > 0,
             deleted_count=deleted_count,
         )
+
+    async def create_memory_candidate(
+        self,
+        candidate: AgentMemoryCandidate,
+    ) -> AgentMemoryCandidate:
+        existing = await self.get_memory_candidate(candidate.id)
+        if existing is not None:
+            return existing
+        self._save_doc("memory_candidate", candidate.id, candidate)
+        return candidate
+
+    async def get_memory_candidate(
+        self,
+        candidate_id: str,
+        *,
+        org_id: str | None = None,
+    ) -> AgentMemoryCandidate | None:
+        candidate = self._get_doc("memory_candidate", candidate_id, AgentMemoryCandidate)
+        if candidate is None:
+            return None
+        if org_id is not None and candidate.org_id != org_id:
+            return None
+        return candidate
+
+    async def list_memory_candidates(
+        self,
+        *,
+        org_id: str,
+        status: AgentMemoryCandidateStatus | str | None = None,
+        run_id: str | None = None,
+        scope: str | None = None,
+        scope_id: str | None = None,
+    ) -> list[AgentMemoryCandidate]:
+        candidates = [
+            candidate
+            for candidate in self._list_docs("memory_candidate", AgentMemoryCandidate)
+            if candidate.org_id == org_id
+            and (status is None or candidate.status == status)
+            and (run_id is None or candidate.run_id == run_id)
+            and (scope is None or candidate.scope == scope)
+            and (scope_id is None or candidate.scope_id == scope_id)
+        ]
+        return sorted(candidates, key=lambda candidate: (candidate.created_at, candidate.id))
+
+    async def update_memory_candidate(
+        self,
+        candidate_id: str,
+        *,
+        org_id: str,
+        status: AgentMemoryCandidateStatus | str | None = None,
+        resolved_at: str | None = None,
+    ) -> AgentMemoryCandidate:
+        candidate = await self.get_memory_candidate(candidate_id, org_id=org_id)
+        if candidate is None:
+            raise AgentError("NOT_FOUND", f"Memory candidate not found: {candidate_id}")
+        updates = {
+            key: value
+            for key, value in {
+                "status": status,
+                "resolved_at": resolved_at,
+            }.items()
+            if value is not None
+        }
+        if not updates:
+            return candidate
+        updated = AgentMemoryCandidate.model_validate(
+            {**candidate.model_dump(mode="python"), **updates}
+        )
+        self._save_doc("memory_candidate", candidate_id, updated)
+        return updated
 
     async def create_subagent_spec(
         self,

@@ -32,16 +32,19 @@ def test_processor_settings_default_to_deterministic_summarization_enabled() -> 
     assert settings.processors.title_max_words == 6
     assert settings.processors.summarization_enabled is True
     assert settings.processors.summarization_min_message_count == 6
+    assert settings.processors.memory_extraction_enabled is True
 
 
 def test_processor_settings_parse_title_generation_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AITHRU_AGENT_PROCESSOR_TITLE_GENERATION_ENABLED", "false")
     monkeypatch.setenv("AITHRU_AGENT_PROCESSOR_TITLE_MAX_WORDS", "4")
+    monkeypatch.setenv("AITHRU_AGENT_PROCESSOR_MEMORY_EXTRACTION_ENABLED", "false")
 
     settings = AgentSettings.from_env()
 
     assert settings.processors.title_generation_enabled is False
     assert settings.processors.title_max_words == 4
+    assert settings.processors.memory_extraction_enabled is False
 
 
 def test_external_tool_settings_are_pydantic_validated() -> None:

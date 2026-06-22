@@ -102,9 +102,10 @@ async def test_worker_service_queues_run_until_work_once_executes_it() -> None:
     assert completed is not None
     assert completed.status == AgentRunStatus.COMPLETED
     assert after_file.content == "# Report\n"
-    assert [event.type for event in after_events][-3:] == [
+    assert [event.type for event in after_events][-4:] == [
         "model.completed",
         "message.completed",
+        "memory.candidate.created",
         "run.completed",
     ]
     assert await runtime.worker.work_once() is None

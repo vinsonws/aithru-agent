@@ -5,6 +5,7 @@ from aithru_agent.domain import (
     AgentApprovalStatus,
     AgentArtifactRetentionPolicy,
     AgentContextSummary,
+    AgentMemoryCandidate,
     AgentMemoryRetentionPolicy,
     AgentRunStatus,
 )
@@ -456,3 +457,40 @@ async def test_memory_store_manages_agent_memory_entries() -> None:
     assert matches == [entry]
     assert scoped == [entry]
     assert unrelated not in matches
+
+
+@pytest.mark.asyncio
+async def test_memory_store_manages_agent_memory_candidates() -> None:
+    store = InMemoryAgentStore()
+    candidate = AgentMemoryCandidate(
+        id="memcand_run_1",
+        org_id="org_1",
+        run_id="run_1",
+        scope="user",
+        scope_id="user_1",
+        key="run_run_1_outcome",
+        value="Prefers concise summaries.",
+        confidence=0.6,
+        created_at="2026-06-22T00:00:00Z",
+    )
+    duplicate = candidate.model_copy(update={"value": "Do not overwrite."})
+
+    created = await store.create_memory_candidate(candidate)
+    idempotent = await store.create_memory_candidate(duplicate)
+    pending = await store.list_memory_candidates(org_id="org_1", status="pending")
+    hidden = await store.get_memory_candidate(candidate.id, org_id="org_2")
+    resolved = await store.update_memory_candidate(
+        candidate.id,
+        org_id="org_1",
+        status="approved",
+        resolved_at="2026-06-22T00:01:00Z",
+    )
+    approved = await store.list_memory_candidates(org_id="org_1", status="approved")
+
+    assert created == candidate
+    assert idempotent == candidate
+    assert pending == [candidate]
+    assert hidden is None
+    assert resolved.status == "approved"
+    assert resolved.resolved_at == "2026-06-22T00:01:00Z"
+    assert approved == [resolved]

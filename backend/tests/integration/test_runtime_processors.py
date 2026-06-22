@@ -13,6 +13,7 @@ from aithru_agent.runtime.processors import (
     AgentRuntimeProcessorContext,
     AgentRuntimeProcessorDecision,
     AgentRuntimeProcessorRunner,
+    MemoryExtractionProcessor,
 )
 from aithru_agent.runtime.processors.clarification import ClarificationPreflightProcessor
 from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
@@ -154,6 +155,7 @@ def test_application_wires_runtime_processors_from_settings() -> None:
                 "title_max_words": 6,
                 "summarization_enabled": False,
                 "summarization_min_message_count": 9,
+                "memory_extraction_enabled": False,
             },
         ),
     )
@@ -164,6 +166,7 @@ def test_application_wires_runtime_processors_from_settings() -> None:
         ClarificationPreflightProcessor,
         ThreadTitleProcessor,
         ContextSummarizationProcessor,
+        MemoryExtractionProcessor,
     ]
     assert disabled.processor_runner.processors == []
 

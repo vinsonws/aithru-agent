@@ -40,6 +40,7 @@ from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
 from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
 from aithru_agent.runtime.processors.clarification import ClarificationPreflightProcessor
+from aithru_agent.runtime.processors.memory_extraction import MemoryExtractionProcessor
 from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
 from aithru_agent.runtime.processors.title import ThreadTitleProcessor
 from aithru_agent.sandbox import LocalPythonSandboxProvider
@@ -194,6 +195,8 @@ def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRu
                 min_message_count=settings.processors.summarization_min_message_count,
             )
         )
+    if settings.processors.memory_extraction_enabled:
+        processors.append(MemoryExtractionProcessor())
     return AgentRuntimeProcessorRunner(processors=processors)
 
 

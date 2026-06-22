@@ -6,6 +6,7 @@ from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import (
     AgentArtifactRetentionPolicy,
     AgentContextSummary,
+    AgentMemoryCandidate,
     AgentMemoryRetentionPolicy,
     AgentRunStatus,
 )
@@ -353,6 +354,48 @@ async def test_sqlite_store_filters_expired_entries_and_forgets_memory(tmp_path:
     assert forget.forgotten is True
     assert forget.deleted_count == 1
     assert await reopened.get_memory_entry(active.id) is None
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_persists_agent_memory_candidates(tmp_path: Path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    store = SQLiteAgentStore(db_path)
+    candidate = AgentMemoryCandidate(
+        id="memcand_run_1",
+        org_id="org_1",
+        run_id="run_1",
+        scope="thread",
+        scope_id="thread_1",
+        key="run_run_1_outcome",
+        value="Thread outcome worth reviewing.",
+        confidence=0.6,
+        created_at="2026-06-22T00:00:00Z",
+    )
+
+    created = await store.create_memory_candidate(candidate)
+    reopened = SQLiteAgentStore(db_path)
+    idempotent = await reopened.create_memory_candidate(
+        candidate.model_copy(update={"value": "Do not overwrite."})
+    )
+    pending = await reopened.list_memory_candidates(
+        org_id="org_1",
+        status="pending",
+        scope="thread",
+        scope_id="thread_1",
+    )
+    resolved = await reopened.update_memory_candidate(
+        candidate.id,
+        org_id="org_1",
+        status="rejected",
+        resolved_at="2026-06-22T00:01:00Z",
+    )
+
+    assert created == candidate
+    assert idempotent == candidate
+    assert pending == [candidate]
+    assert await reopened.get_memory_candidate(candidate.id, org_id="org_2") is None
+    assert resolved.status == "rejected"
+    assert resolved.resolved_at == "2026-06-22T00:01:00Z"
 
 
 @pytest.mark.asyncio

@@ -164,6 +164,7 @@ class AgentProcessorSettings(AithruBaseModel):
     title_max_words: int = Field(default=6, ge=1, le=12)
     summarization_enabled: bool = True
     summarization_min_message_count: int = Field(default=6, ge=1, le=100)
+    memory_extraction_enabled: bool = True
 
 
 class AgentSettings(AithruBaseModel):
@@ -363,6 +364,11 @@ class AgentSettings(AithruBaseModel):
                     os.getenv("AITHRU_AGENT_PROCESSOR_SUMMARIZATION_MIN_MESSAGE_COUNT"),
                     default=6,
                     name="AITHRU_AGENT_PROCESSOR_SUMMARIZATION_MIN_MESSAGE_COUNT",
+                ),
+                memory_extraction_enabled=_env_bool_default(
+                    os.getenv("AITHRU_AGENT_PROCESSOR_MEMORY_EXTRACTION_ENABLED"),
+                    default=True,
+                    name="AITHRU_AGENT_PROCESSOR_MEMORY_EXTRACTION_ENABLED",
                 ),
             ),
         )

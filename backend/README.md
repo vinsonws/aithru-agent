@@ -230,6 +230,10 @@ uv run aithru-agent-worker --loop --poll-interval 1 --sqlite-path .aithru/agent.
   `retained`, `ephemeral`, and `expires_at` modes; expired entries are filtered
   from default memory list/search/recall paths, and `DELETE /api/memory/{id}`
   returns a Pydantic forget result after identity checks.
+- Completed memory-write runs create deterministic pending memory candidates,
+  not durable memory entries. `GET /api/memory-candidates` lists visible
+  candidates, approval writes a normal scoped `AgentMemoryEntry`, and rejection
+  only resolves the candidate.
 - Private memory visibility is enforced through a Pydantic policy at API,
   `memory.search`, and run-recall boundaries: private entries require owner or
   user-scope ownership to match the current actor, while shared/org/unset
@@ -240,7 +244,8 @@ uv run aithru-agent-worker --loop --poll-interval 1 --sqlite-path .aithru/agent.
   `AgentThreadSummaryMessage`, `AgentThreadSummaryRun`,
   `AgentThreadWorkbench`, `AgentThreadWorkbenchRun`,
   `AgentThreadDashboardPage`, `AgentThreadDashboardItem`, `AgentApproval`,
-  `AgentRun`, `AgentMemoryEntry`, `AgentMemoryForgetResult`, `AgentMessage`,
+  `AgentRun`, `AgentMemoryEntry`, `AgentMemoryForgetResult`,
+  `AgentMemoryCandidate`, `AgentMemoryCandidateApprovalResult`, `AgentMessage`,
   and `AgentSkill`. Thread lists support active/archive filtering, ordering,
   and opt-in pagination metadata. `GET /api/threads/dashboard` derives queue
   rows with latest-run attention and degraded-research rollups from visible

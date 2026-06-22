@@ -48,6 +48,11 @@ from .memory import (
     AgentMemoryRetentionPolicy,
     AgentMemoryVisibilityPolicy,
 )
+from .memory_candidate import (
+    AgentMemoryCandidate,
+    AgentMemoryCandidateApprovalResult,
+    AgentMemoryCandidateStatus,
+)
 from .message import AgentMessage, AgentMessageRole
 from .research import (
     ResearchEvidenceSectionSummary,
@@ -177,6 +182,9 @@ __all__ = [
     "AgentExternalApprovalRef",
     "AgentExternalRunRef",
     "AgentMemoryEntry",
+    "AgentMemoryCandidate",
+    "AgentMemoryCandidateApprovalResult",
+    "AgentMemoryCandidateStatus",
     "AgentMemoryForgetResult",
     "AgentMemoryRecall",
     "AgentMemoryRecallItem",

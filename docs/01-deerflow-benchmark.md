@@ -719,6 +719,9 @@ Rules:
 - Structured memory retention supports retained, ephemeral, and expires-at
   policy modes. Expired memory is omitted from default list/search/recall paths,
   and the forget API removes visible entries through the control plane.
+- Completed memory-write runs create deterministic pending memory candidates
+  for review. Approving a candidate writes a normal scoped memory entry;
+  rejecting it only resolves the candidate.
 - Private memory visibility is an enforced Pydantic policy at API, tool, and
   recall boundaries: private entries only surface to the owning/current actor.
 - Control-plane threads, approvals, memory entries, thread messages, and skills
@@ -728,8 +731,9 @@ Rules:
   `AgentThreadWorkbench`, `AgentThreadWorkbenchRun`,
   `AgentThreadDashboardPage`, `AgentThreadDashboardItem`,
   `AgentThreadDashboardActionHint`, `AgentApproval`, `AgentRun`,
-  `AgentMemoryEntry`, `AgentMemoryForgetResult`, `AgentMessage`, and
-  `AgentSkill`). Thread lists can filter active/archive views and return
+  `AgentMemoryEntry`, `AgentMemoryForgetResult`, `AgentMemoryCandidate`,
+  `AgentMemoryCandidateApprovalResult`, `AgentMessage`, and `AgentSkill`).
+  Thread lists can filter active/archive views and return
   pagination/order metadata for conversation sidebars. Thread dashboard reads
   add DeerFlow-like queue rows with latest-run attention, degraded-research
   rollups, and typed next-action hints for input, approval, research

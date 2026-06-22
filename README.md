@@ -336,6 +336,11 @@ Memory entries can carry a Pydantic retention policy (`retained`, `ephemeral`,
 or `expires_at`); expired entries are filtered from default memory list/search
 and run recall paths, while `DELETE /api/memory/{memory_id}` provides a
 governed forget path.
+Completed runs with memory-write scope create deterministic pending memory
+candidates instead of directly writing durable memory. Operators can review
+them through `GET /api/memory-candidates`; approving a pending candidate writes
+a normal scoped `AgentMemoryEntry`, while rejecting it only resolves the
+candidate.
 Private memory visibility is enforced at actor-aware boundaries: API reads and
 deletes, `memory.search`, and run recall only expose private entries when the
 entry owner or user-scoped memory id matches the current actor.
@@ -355,7 +360,8 @@ and skills now publish typed OpenAPI response schemas: `AgentThread`,
 `AgentThreadWorkbenchRun`, `AgentThreadDashboardPage`,
 `AgentThreadDashboardItem`, `AgentThreadDashboardActionHint`,
 `AgentApproval`, `AgentRun`, `AgentMemoryEntry`, `AgentMemoryForgetResult`,
-`AgentMessage`, and `AgentSkill`. Thread lists support active/archive
+`AgentMemoryCandidate`, `AgentMemoryCandidateApprovalResult`, `AgentMessage`,
+and `AgentSkill`. Thread lists support active/archive
 filtering, ordering, and opt-in pagination metadata;
 `GET /api/threads/dashboard` exposes a page of thread dashboard rows with
 latest-run attention, degraded-research rollups, and ordered next-action hints
@@ -663,6 +669,9 @@ GET    /api/artifacts/{artifact_id}/download
 POST   /api/memory
 GET    /api/memory
 DELETE /api/memory/{memory_id}
+GET    /api/memory-candidates
+POST   /api/memory-candidates/{candidate_id}/approve
+POST   /api/memory-candidates/{candidate_id}/reject
 POST   /api/subagents
 GET    /api/subagents
 GET    /api/subagents/{key}

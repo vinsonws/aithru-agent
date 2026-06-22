@@ -849,7 +849,10 @@ for API reads/deletes, `memory.search`, and context-packet recall; shared,
 organization, and unset visibility still depend on existing org and scope
 boundaries.
 Control-plane memory APIs should publish typed Pydantic OpenAPI schemas for
-`AgentMemoryEntry` and `AgentMemoryForgetResult`. Thread-message, thread
+`AgentMemoryEntry`, `AgentMemoryForgetResult`, `AgentMemoryCandidate`, and
+`AgentMemoryCandidateApprovalResult`. Completed runs with memory-write scope
+may create deterministic pending memory candidates, but durable memory writes
+still require an explicit approval API transition. Thread-message, thread
 summary, thread dashboard, thread workbench, and skill resource APIs should
 likewise expose `AgentMessage`, `AgentThreadSummary`,
 `AgentThreadDashboardPage`, `AgentThreadWorkbench`, and `AgentSkill` response

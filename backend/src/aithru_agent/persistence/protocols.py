@@ -13,6 +13,8 @@ from aithru_agent.domain import (
     AgentArtifactPromotionResult,
     AgentArtifactRetentionPolicy,
     AgentContextSummary,
+    AgentMemoryCandidate,
+    AgentMemoryCandidateStatus,
     AgentMemoryEntry,
     AgentMemoryForgetResult,
     AgentMemoryRetentionPolicy,
@@ -353,6 +355,41 @@ class AgentStore(Protocol):
         ...
 
     async def delete_memory_entry(self, memory_id: str) -> AgentMemoryForgetResult:
+        ...
+
+    async def create_memory_candidate(
+        self,
+        candidate: AgentMemoryCandidate,
+    ) -> AgentMemoryCandidate:
+        ...
+
+    async def get_memory_candidate(
+        self,
+        candidate_id: str,
+        *,
+        org_id: str | None = None,
+    ) -> AgentMemoryCandidate | None:
+        ...
+
+    async def list_memory_candidates(
+        self,
+        *,
+        org_id: str,
+        status: AgentMemoryCandidateStatus | str | None = None,
+        run_id: str | None = None,
+        scope: str | None = None,
+        scope_id: str | None = None,
+    ) -> list[AgentMemoryCandidate]:
+        ...
+
+    async def update_memory_candidate(
+        self,
+        candidate_id: str,
+        *,
+        org_id: str,
+        status: AgentMemoryCandidateStatus | str | None = None,
+        resolved_at: str | None = None,
+    ) -> AgentMemoryCandidate:
         ...
 
     async def create_subagent_spec(

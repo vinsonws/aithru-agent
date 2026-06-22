@@ -1128,7 +1128,7 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
 
     assert resumed.status == AgentRunStatus.COMPLETED
     assert file.content == "a"
-    assert [event.type for event in events][-11:] == [
+    assert [event.type for event in events][-12:] == [
         "approval.resolved",
         "run.resumed",
         "tool.started",
@@ -1139,5 +1139,6 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
         "model.usage",
         "model.completed",
         "message.completed",
+        "memory.candidate.created",
         "run.completed",
     ]
