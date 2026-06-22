@@ -22,6 +22,7 @@ from aithru_agent.domain import (
     AgentMemoryForgetResult,
     AgentMemoryRetentionPolicy,
     AgentMessage,
+    AgentMessageAttachment,
     AgentRun,
     AgentRunClaim,
     AgentRunHarnessOptions,
@@ -388,6 +389,7 @@ class SQLiteAgentStore:
         content: str,
         run_id: str | None = None,
         artifact_ids: list[str] | None = None,
+        attachments: list[AgentMessageAttachment] | None = None,
     ) -> AgentMessage:
         message = AgentMessage(
             id=self._next_id("msg"),
@@ -396,6 +398,7 @@ class SQLiteAgentStore:
             content=content,
             run_id=run_id,
             artifact_ids=artifact_ids or [],
+            attachments=attachments or [],
             created_at=utc_now(),
         )
         self._save_doc("message", message.id, message)

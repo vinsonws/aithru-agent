@@ -5,6 +5,7 @@ from aithru_agent.domain import (
     AgentMemoryEntry,
     AgentMemoryRecallItem,
     AgentMessage,
+    AgentRunHarnessOptions,
     AgentRunContextBudgetUsage,
     AgentRunContextPacket,
     AgentRunContextToolResult,
@@ -43,6 +44,12 @@ class InstructionBuilder:
                 for message in thread_messages
             ]
             sections.append("Thread messages:\n" + "\n".join(lines))
+            image_lines = _image_attachment_lines(
+                thread_messages,
+                vision_enabled=_vision_enabled(deps.run.harness_options),
+            )
+            if image_lines:
+                sections.append("Attached images:\n" + "\n".join(image_lines))
 
         workspace_files = await self._workspace_files_for_run(deps)
         if workspace_files:
@@ -110,6 +117,33 @@ def _truncate_message(content: str) -> str:
     if len(content) <= MAX_THREAD_MESSAGE_CHARS:
         return content
     return content[:MAX_THREAD_MESSAGE_CHARS] + "..."
+
+
+def _image_attachment_lines(
+    messages: list[AgentMessage],
+    *,
+    vision_enabled: bool,
+) -> list[str]:
+    lines: list[str] = []
+    for message in messages:
+        for attachment in message.attachments:
+            hash_suffix = f" content_hash={attachment.content_hash}" if attachment.content_hash else ""
+            lines.append(
+                f"- {message.role}: {attachment.path} "
+                f"({attachment.workspace_id}, {attachment.media_type}, {attachment.size} bytes)"
+                f"{hash_suffix}"
+            )
+    if not lines:
+        return []
+    if vision_enabled:
+        lines.append("Model vision is enabled for this run; attached workspace images are directly viewable.")
+    else:
+        lines.append("Model vision is not enabled for this run; use workspace.view_image when available.")
+    return lines
+
+
+def _vision_enabled(options: AgentRunHarnessOptions | None) -> bool:
+    return bool(options and options.model_capabilities and options.model_capabilities.vision)
 
 
 def _render_context_packet(packet: AgentRunContextPacket) -> str:

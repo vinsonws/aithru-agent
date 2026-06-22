@@ -525,6 +525,14 @@ Workspace upload APIs now persist base64 Pydantic upload payloads under
 `/uploads/...`, returning structured upload/file metadata and normal versioned
 workspace records. This closes more of the DeerFlow-like "uploaded and generated
 files" surface while keeping uploads in the control plane.
+Workspace image uploads can now be attached to messages as metadata-only
+`workspace_image` references, and allowed actors can view supported images
+through the typed workspace image view API or the read-only
+`workspace.view_image` tool. The tool is scope-bound, honors skill/run
+allowed-tool policy and workspace allowed paths, caps image size, and returns
+base64 only on the immediate controlled result. Prompt/context summaries render
+image metadata and model vision capability guidance without injecting base64 by
+default.
 `workspace.patch_file` now gives models a DeerFlow-like file editing primitive
 without raw filesystem access: edits are explicit Pydantic text replacements,
 run through scope, skill, approval, and workspace path policy, and persist as a
@@ -839,7 +847,7 @@ ecosystem phase rather than the current backend parity plan.
 | Clarification preflight | `input.request` can pause a run as `waiting_input`, and user input can resume it. | The system does not automatically decide that an underspecified goal should ask a clarification before execution. | Add a clarification processor before or at the start of execution that can create a user input request instead of prematurely running. | P1 |
 | Auto title generation | Threads support manual title creation, update, filtering, and ordering. | Thread titles are not generated automatically from goals or early messages. | Add a title processor that creates short thread titles from the run goal or first messages when no explicit title is present. | P1 |
 | Async memory extraction | Memory CRUD, `memory.remember`, scoped recall, visibility, retention, and context injection exist. | Completed runs do not automatically produce long-term memory candidates. | Add a post-run memory extraction processor that writes approved memory or creates auditable memory candidates. | P1 |
-| Vision / view image | Workspace uploads, media types, artifact content, and base64 binary handling exist. | There is no image-understanding tool, multimodal message attachment path, or provider-aware image prompt injection. | Design image attachments, media policy, model capability checks, and a controlled view-image capability as a separate multimodal slice. | P2 |
+| Vision / view image | Workspace uploads now support metadata-only workspace image message attachments, a typed `GET /api/workspaces/{workspace_id}/images/{path}/view` endpoint, and a read-only `workspace.view_image` capability that returns capped base64 content through the router. Prompt assembly renders image references and honors `harness_options.model_capabilities.vision`. | Provider-specific direct image prompt injection and richer image understanding remain future model-profile work. | Add model profile management and provider adapters that can safely pass already-authorized workspace images into vision-capable models without bypassing the capability boundary. | P2 |
 | File conversion | Workspace upload and file/artifact storage exist. | PDF, PPT, Excel, Word, and similar files are not automatically converted into model-readable markdown/text. | Add an upload/conversion processor that produces managed markdown/text workspace files or artifacts while preserving originals. | P2 |
 | Skill management UI/API | Skill packages, built-in `deep-research`, skill listing/detail, and policy fields exist. | There is no user-facing install, enable/disable, version, configuration, or marketplace management surface. | Add skill registry management APIs and typed skill configuration models. | P2 |
 | MCP/external tool config | Controlled MCP/HTTP capability providers exist behind the capability router. | Users cannot manage MCP server configuration, OAuth/cache/reset, or external tool settings through a product API. | Add external tool configuration APIs with secret boundaries, policy validation, and audit. | P2 |

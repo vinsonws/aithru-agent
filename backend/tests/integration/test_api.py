@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 
 import pytest
@@ -20,6 +21,7 @@ from aithru_agent.domain import (
     AgentExternalRunRef,
     AgentExternalApprovalRef,
     AgentExternalRunWaitRef,
+    MAX_WORKSPACE_IMAGE_BYTES,
     AgentRunStatus,
     AgentSandboxPolicy,
     AgentSkill,
@@ -202,6 +204,26 @@ class InputRequestRuntime(AgentRuntime):
                 },
             )
         return AgentRuntimeResult(content="Thanks, I can continue now.")
+
+
+class ViewImageRuntime(AgentRuntime):
+    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del goal
+        await deps.store.write_workspace_file(
+            workspace_id=deps.run.workspace_id,
+            path="/uploads/chart.png",
+            content=b"image-bytes",
+            media_type="image/png",
+        )
+        bridge = PydanticAIToolBridge(deps=deps)
+        output = await bridge.call_tool(
+            ToolContext("toolcall_view_image"),
+            "workspace.view_image",
+            {"path": "/uploads/chart.png"},
+        )
+        assert isinstance(output, dict)
+        assert "content_base64" in output
+        return AgentRuntimeResult(content="Viewed image.")
 
 
 class RunningWorkflowCapabilityProvider:
@@ -477,6 +499,284 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
         f'attachment; filename="Run_{run["id"]}_export.json"'
     )
     assert json.loads(export_artifact_download.text)["run"]["id"] == run["id"]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_views_workspace_images_and_persists_message_attachments() -> None:
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
+    app = create_app(runtime)
+    image_bytes = b"\x89PNG\r\nimage"
+    image_base64 = base64.b64encode(image_bytes).decode("ascii")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        thread = (
+            await client.post(
+                "/api/threads",
+                json={"org_id": "org_1", "owner_user_id": "user_1", "title": "Vision"},
+            )
+        ).json()
+        run = (
+            await client.post(
+                f"/api/threads/{thread['id']}/runs",
+                json={
+                    "org_id": "org_1",
+                    "actor_user_id": "user_1",
+                    "goal": "Inspect the attached image",
+                    "scopes": ["agent.workspace.read"],
+                },
+            )
+        ).json()
+        upload = (
+            await client.post(
+                f"/api/workspaces/{run['workspace_id']}/uploads",
+                json={
+                    "path": "/uploads/chart.png",
+                    "content_base64": image_base64,
+                    "media_type": "image/png",
+                },
+            )
+        ).json()
+        view_response = await client.get(
+            f"/api/workspaces/{run['workspace_id']}/images/uploads/chart.png/view"
+        )
+        attachment = {
+            "kind": "workspace_image",
+            "workspace_id": run["workspace_id"],
+            "path": "/uploads/chart.png",
+            "media_type": "image/png",
+            "size": len(image_bytes),
+            "content_hash": upload["file"]["content_hash"],
+        }
+        message_response = await client.post(
+            f"/api/threads/{thread['id']}/messages",
+            json={
+                "role": "user",
+                "content": "What does this chart show?",
+                "attachments": [attachment],
+            },
+        )
+        messages = (
+            await client.get(f"/api/threads/{thread['id']}/messages")
+        ).json()
+
+    assert view_response.status_code == 200
+    assert view_response.json() == {
+        "workspace_id": run["workspace_id"],
+        "path": "/uploads/chart.png",
+        "media_type": "image/png",
+        "size": len(image_bytes),
+        "content_hash": upload["file"]["content_hash"],
+        "content_encoding": "base64",
+        "content_base64": image_base64,
+    }
+    assert message_response.status_code == 201
+    assert message_response.json()["attachments"] == [attachment]
+    assert messages[-1]["attachments"] == [attachment]
+    assert "content_base64" not in message_response.json()["attachments"][0]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_rejects_invalid_image_views_and_message_attachments() -> None:
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
+    app = create_app(runtime)
+    user_a_headers = {
+        "X-Aithru-Org-Id": "org_1",
+        "X-Aithru-User-Id": "user_1",
+    }
+    user_b_headers = {
+        "X-Aithru-Org-Id": "org_b",
+        "X-Aithru-User-Id": "user_b",
+    }
+    text_base64 = base64.b64encode(b"plain text").decode("ascii")
+    oversized_base64 = base64.b64encode(b"x" * (MAX_WORKSPACE_IMAGE_BYTES + 1)).decode("ascii")
+    image_base64 = base64.b64encode(b"image").decode("ascii")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        user_a_thread = (
+            await client.post(
+                "/api/threads",
+                headers=user_a_headers,
+                json={"title": "User A"},
+            )
+        ).json()
+        user_a_run = (
+            await client.post(
+                f"/api/threads/{user_a_thread['id']}/runs",
+                headers=user_a_headers,
+                json={"goal": "Inspect image", "scopes": ["agent.workspace.read"]},
+            )
+        ).json()
+        await client.post(
+            f"/api/workspaces/{user_a_run['workspace_id']}/uploads",
+            headers=user_a_headers,
+            json={
+                "path": "/uploads/notes.txt",
+                "content_base64": text_base64,
+                "media_type": "text/plain",
+            },
+        )
+        await client.post(
+            f"/api/workspaces/{user_a_run['workspace_id']}/uploads",
+            headers=user_a_headers,
+            json={
+                "path": "/uploads/large.png",
+                "content_base64": oversized_base64,
+                "media_type": "image/png",
+            },
+        )
+        user_b_thread = (
+            await client.post(
+                "/api/threads",
+                headers=user_b_headers,
+                json={"title": "User B"},
+            )
+        ).json()
+        user_b_run = (
+            await client.post(
+                f"/api/threads/{user_b_thread['id']}/runs",
+                headers=user_b_headers,
+                json={"goal": "Inspect image", "scopes": ["agent.workspace.read"]},
+            )
+        ).json()
+        await client.post(
+            f"/api/workspaces/{user_b_run['workspace_id']}/uploads",
+            headers=user_b_headers,
+            json={
+                "path": "/uploads/hidden.png",
+                "content_base64": image_base64,
+                "media_type": "image/png",
+            },
+        )
+
+        missing_view = await client.get(
+            f"/api/workspaces/{user_a_run['workspace_id']}/images/uploads/missing.png/view",
+            headers=user_a_headers,
+        )
+        non_image_view = await client.get(
+            f"/api/workspaces/{user_a_run['workspace_id']}/images/uploads/notes.txt/view",
+            headers=user_a_headers,
+        )
+        oversized_view = await client.get(
+            f"/api/workspaces/{user_a_run['workspace_id']}/images/uploads/large.png/view",
+            headers=user_a_headers,
+        )
+        hidden_view = await client.get(
+            f"/api/workspaces/{user_b_run['workspace_id']}/images/uploads/hidden.png/view",
+            headers=user_a_headers,
+        )
+        non_image_attachment = await client.post(
+            f"/api/threads/{user_a_thread['id']}/messages",
+            headers=user_a_headers,
+            json={
+                "role": "user",
+                "content": "Attach text as image",
+                "attachments": [
+                    {
+                        "kind": "workspace_image",
+                        "workspace_id": user_a_run["workspace_id"],
+                        "path": "/uploads/notes.txt",
+                        "media_type": "image/png",
+                        "size": len(b"plain text"),
+                    }
+                ],
+            },
+        )
+        oversized_attachment = await client.post(
+            f"/api/threads/{user_a_thread['id']}/messages",
+            headers=user_a_headers,
+            json={
+                "role": "user",
+                "content": "Attach large image",
+                "attachments": [
+                    {
+                        "kind": "workspace_image",
+                        "workspace_id": user_a_run["workspace_id"],
+                        "path": "/uploads/large.png",
+                        "media_type": "image/png",
+                        "size": 1,
+                    }
+                ],
+            },
+        )
+        missing_attachment = await client.post(
+            f"/api/threads/{user_a_thread['id']}/messages",
+            headers=user_a_headers,
+            json={
+                "role": "user",
+                "content": "Attach missing image",
+                "attachments": [
+                    {
+                        "kind": "workspace_image",
+                        "workspace_id": user_a_run["workspace_id"],
+                        "path": "/uploads/missing.png",
+                        "media_type": "image/png",
+                        "size": 1,
+                    }
+                ],
+            },
+        )
+        hidden_attachment = await client.post(
+            f"/api/threads/{user_a_thread['id']}/messages",
+            headers=user_a_headers,
+            json={
+                "role": "user",
+                "content": "Attach hidden image",
+                "attachments": [
+                    {
+                        "kind": "workspace_image",
+                        "workspace_id": user_b_run["workspace_id"],
+                        "path": "/uploads/hidden.png",
+                        "media_type": "image/png",
+                        "size": len(b"image"),
+                    }
+                ],
+            },
+        )
+
+    assert missing_view.status_code == 404
+    assert non_image_view.status_code == 415
+    assert oversized_view.status_code == 413
+    assert hidden_view.status_code == 404
+    assert non_image_attachment.status_code == 415
+    assert oversized_attachment.status_code == 413
+    assert missing_attachment.status_code == 404
+    assert hidden_attachment.status_code == 404
+
+
+def test_agent_api_openapi_includes_workspace_image_view_contract() -> None:
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
+    app = create_app(runtime)
+
+    schema = app.openapi()
+    image_view = schema["paths"]["/api/workspaces/{workspace_id}/images/{path}/view"]["get"]
+
+    assert image_view["operationId"].startswith("view_workspace_image")
+    assert (
+        image_view["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+        == "#/components/schemas/AgentWorkspaceImageViewResult"
+    )
+
+
+@pytest.mark.asyncio
+async def test_workspace_view_image_tool_events_do_not_store_base64_content() -> None:
+    runtime = create_agent_runtime(agent_runtime=ViewImageRuntime())
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="View image",
+        scopes=["agent.workspace.read", "agent.workspace.write"],
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+    completed = next(
+        event
+        for event in events
+        if event.type == "tool.completed" and event.payload["tool_name"] == "workspace.view_image"
+    )
+
+    assert completed.payload["output"]["path"] == "/uploads/chart.png"
+    assert completed.payload["output"]["media_type"] == "image/png"
+    assert "content_base64" not in completed.payload["output"]
 
 
 @pytest.mark.asyncio

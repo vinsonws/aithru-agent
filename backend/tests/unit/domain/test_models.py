@@ -25,10 +25,12 @@ from aithru_agent.domain import (
     AgentMemoryRetentionPolicy,
     AgentMemoryVisibilityPolicy,
     AgentMessage,
+    AgentModelCapabilities,
     AgentRun,
     AgentRunExportArtifactResult,
     AgentRunExportBundle,
     AgentRunExportSummary,
+    AgentRunHarnessOptions,
     AgentRunStatus,
     AgentRunSource,
     AgentRunOperatorFollowUpOptions,
@@ -56,6 +58,9 @@ from aithru_agent.domain import (
     AgentWorkspaceRestoreResult,
     AgentWorkspaceSnapshot,
     AgentWorkspaceSnapshotFile,
+    AgentWorkspaceImageAttachment,
+    AgentWorkspaceImageViewResult,
+    MAX_WORKSPACE_IMAGE_BYTES,
     WorkbenchWorkflowDraft,
 )
 
@@ -214,6 +219,62 @@ def test_subagent_result_summary_derives_output_and_artifact_counts() -> None:
     assert payload["artifact_ids"] == ["artifact_1", "artifact_2"]
     assert payload["artifact_count"] == 2
     assert payload["has_output"] is True
+
+
+def test_workspace_image_contracts_validate_media_and_size() -> None:
+    attachment = AgentWorkspaceImageAttachment(
+        kind="workspace_image",
+        workspace_id=" ws_1 ",
+        path="uploads/Chart.PNG",
+        media_type=" image/png ",
+        size=16,
+        content_hash=" sha256:abc ",
+    )
+    view_result = AgentWorkspaceImageViewResult(
+        workspace_id="ws_1",
+        path="/uploads/Chart.PNG",
+        media_type="image/png",
+        size=16,
+        content_hash="sha256:abc",
+        content_base64="QUJDRA==",
+    )
+    options = AgentRunHarnessOptions(
+        model_capabilities=AgentModelCapabilities(vision=True)
+    )
+
+    assert attachment.workspace_id == "ws_1"
+    assert attachment.path == "/uploads/Chart.PNG"
+    assert attachment.media_type == "image/png"
+    assert attachment.content_hash == "sha256:abc"
+    assert view_result.content_encoding == "base64"
+    assert view_result.content_base64 == "QUJDRA=="
+    assert options.model_capabilities is not None
+    assert options.model_capabilities.vision is True
+
+    with pytest.raises(ValidationError, match="supported image"):
+        AgentWorkspaceImageAttachment(
+            kind="workspace_image",
+            workspace_id="ws_1",
+            path="/uploads/notes.txt",
+            media_type="text/plain",
+            size=10,
+        )
+    with pytest.raises(ValidationError, match="maximum image size"):
+        AgentWorkspaceImageAttachment(
+            kind="workspace_image",
+            workspace_id="ws_1",
+            path="/uploads/large.png",
+            media_type="image/png",
+            size=MAX_WORKSPACE_IMAGE_BYTES + 1,
+        )
+    with pytest.raises(ValidationError, match="workspace file"):
+        AgentWorkspaceImageAttachment(
+            kind="workspace_image",
+            workspace_id="ws_1",
+            path=" / ",
+            media_type="image/png",
+            size=10,
+        )
 
 
 def test_subagent_result_summary_rejects_blank_artifact_ids() -> None:

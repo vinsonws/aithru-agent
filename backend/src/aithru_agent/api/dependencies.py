@@ -20,6 +20,7 @@ from aithru_agent.domain import (
     AgentMemoryRetentionPolicy,
     AgentMemoryVisibilityPolicy,
     AgentMessageRole,
+    AgentMessageAttachment,
     AgentRun,
     AgentRunHarnessOptions,
     AgentRunRetryPolicy,
@@ -60,6 +61,7 @@ class UpdateThreadRequest(BaseModel):
 class AppendMessageRequest(BaseModel):
     role: AgentMessageRole
     content: str = Field(min_length=1)
+    attachments: list[AgentMessageAttachment] = Field(default_factory=list)
 
 
 class CreateRunRequest(BaseModel):

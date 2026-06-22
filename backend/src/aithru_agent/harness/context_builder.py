@@ -49,7 +49,7 @@ def _allowed_tools_for_skill(skill: AgentSkill) -> list[str]:
             tools = [
                 tool
                 for tool in tools
-                if tool not in {"workspace.list_files", "workspace.read_file"}
+                if tool not in {"workspace.list_files", "workspace.read_file", "workspace.view_image"}
             ]
         if not skill.workspace_policy.write:
             tools = [

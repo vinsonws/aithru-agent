@@ -260,6 +260,12 @@ typed OpenAPI schemas: `AgentWorkspaceSnapshot`, `AgentWorkspaceDiff`,
 Control-plane uploads can now persist base64 Pydantic payloads under
 `/uploads/...` through `POST /api/workspaces/{workspace_id}/uploads`, returning
 `AgentWorkspaceUploadResult` and normal workspace file version metadata.
+Supported workspace images can now be attached to thread messages as
+metadata-only `workspace_image` references and viewed through the controlled
+`GET /api/workspaces/{workspace_id}/images/{path}/view` API or
+`workspace.view_image` tool. Both paths read from Agent Workspace storage,
+enforce visibility/media/size policy, and avoid adding raw image bytes to normal
+prompt summaries.
 Models can now propose `workspace.patch_file` text edits through the capability
 router. Patch requests use Pydantic edit contracts, honor workspace path policy
 and write approval policy, and persist the result as a normal new workspace file
@@ -404,6 +410,7 @@ Stage 1 local tools:
 ```txt
 workspace.list_files
 workspace.read_file
+workspace.view_image
 workspace.write_file
 workspace.patch_file
 workspace.delete_file
@@ -654,6 +661,7 @@ GET    /api/workspaces/{workspace_id}/snapshot
 GET    /api/workspaces/{workspace_id}/diff
 POST   /api/workspaces/{workspace_id}/restore
 POST   /api/workspaces/{workspace_id}/uploads
+GET    /api/workspaces/{workspace_id}/images/{path}/view
 GET    /api/workspaces/{workspace_id}/files
 GET    /api/workspaces/{workspace_id}/files/{path}
 GET    /api/workspaces/{workspace_id}/files/{path}/versions

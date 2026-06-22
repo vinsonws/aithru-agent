@@ -3,6 +3,7 @@
 from pathlib import PurePosixPath
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import ValidationError
 
 from aithru_agent.api.dependencies import (
     ApiDependencies,
@@ -20,12 +21,14 @@ from aithru_agent.domain import (
     AgentWorkspaceFileDeleteResult,
     AgentWorkspaceFileVersion,
     AgentWorkspaceFileReadResult,
+    AgentWorkspaceImageViewResult,
     AgentWorkspacePatchResult,
     AgentWorkspaceRestoreResult,
     AgentWorkspaceSnapshot,
     AgentWorkspaceTextPatchRequest,
     AgentWorkspaceUploadResult,
     apply_workspace_text_patch,
+    workspace_image_content_base64,
 )
 from aithru_agent.domain.errors import AgentError
 
@@ -140,6 +143,34 @@ async def upload_workspace_file(
         media_type=file.media_type,
         overwritten=existing is not None,
     )
+
+
+@router.get(
+    "/api/workspaces/{workspace_id}/images/{path:path}/view",
+    response_model=AgentWorkspaceImageViewResult,
+)
+async def view_workspace_image(
+    request: Request,
+    workspace_id: str,
+    path: str,
+    deps: ApiDependencies = Depends(api_deps),
+) -> AgentWorkspaceImageViewResult:
+    await deps.require_workspace(request, workspace_id)
+    try:
+        file = await _workspace_file_metadata(deps, workspace_id=workspace_id, path=path)
+        content = await deps.runtime.store.read_workspace_file(workspace_id, path)
+        return AgentWorkspaceImageViewResult(
+            workspace_id=workspace_id,
+            path=file.path,
+            media_type=file.media_type or "",
+            size=file.size,
+            content_hash=file.content_hash,
+            content_base64=workspace_image_content_base64(content.content),
+        )
+    except AgentError as err:
+        raise HTTPException(status_code=404, detail=err.message) from err
+    except ValidationError as err:
+        raise _workspace_image_http_error(err) from err
 
 
 @router.post(
@@ -313,3 +344,12 @@ async def _workspace_file_metadata_or_none(
         return await _workspace_file_metadata(deps, workspace_id=workspace_id, path=path)
     except AgentError:
         return None
+
+
+def _workspace_image_http_error(err: ValidationError) -> HTTPException:
+    message = "; ".join(str(error.get("msg", "")) for error in err.errors()) or str(err)
+    if "Unsupported image media type" in message:
+        return HTTPException(status_code=415, detail=message)
+    if "maximum image size" in message:
+        return HTTPException(status_code=413, detail=message)
+    return HTTPException(status_code=409, detail=message)

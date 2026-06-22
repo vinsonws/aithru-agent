@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 
 from aithru_agent.capabilities import (
@@ -14,7 +16,7 @@ from aithru_agent.capabilities.local_tools import (
     WorkbenchLocalTool,
     WorkspaceLocalTool,
 )
-from aithru_agent.domain import AgentToolCallRequest
+from aithru_agent.domain import AgentToolCallRequest, MAX_WORKSPACE_IMAGE_BYTES
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 
 
@@ -90,6 +92,10 @@ async def test_router_lists_local_tools_with_risk_and_scopes() -> None:
     by_name = {tool.name: tool for tool in tools}
 
     assert by_name["workspace.read_file"].risk_level == "read"
+    assert by_name["workspace.view_image"].risk_level == "read"
+    assert by_name["workspace.view_image"].required_scopes == ["agent.workspace.read"]
+    assert by_name["workspace.view_image"].approval_policy == "never"
+    assert "content_base64" in by_name["workspace.view_image"].output_schema["properties"]
     assert by_name["workspace.write_file"].risk_level == "write"
     assert by_name["workspace.patch_file"].risk_level == "write"
     assert by_name["workspace.patch_file"].required_scopes == ["agent.workspace.write"]
@@ -119,8 +125,26 @@ async def test_router_lists_only_tools_allowed_by_run_scopes() -> None:
     tool_names = [tool.name for tool in await router.list_tools(context)]
 
     assert "workspace.read_file" in tool_names
+    assert "workspace.view_image" in tool_names
     assert "workspace.write_file" not in tool_names
     assert "memory.search" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_router_filters_workspace_view_image_by_allowed_tools() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.scopes = ["agent.workspace.read"]
+    router = make_router(store)
+
+    context.allowed_tools = ["workspace.read_file"]
+    read_only_names = [tool.name for tool in await router.list_tools(context)]
+    context.allowed_tools = ["workspace.view_image"]
+    image_only_names = [tool.name for tool in await router.list_tools(context)]
+
+    assert "workspace.read_file" in read_only_names
+    assert "workspace.view_image" not in read_only_names
+    assert image_only_names == ["workspace.view_image"]
 
 
 @pytest.mark.asyncio
@@ -205,6 +229,113 @@ async def test_workspace_tool_calls_execute_through_router() -> None:
     assert result.status == "completed"
     assert result.output["path"] == "/notes.md"
     assert read.output == {"path": "/notes.md", "content": "# Notes", "media_type": "text/markdown"}
+
+
+@pytest.mark.asyncio
+async def test_workspace_view_image_tool_returns_base64_for_allowed_workspace_image() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+    image_bytes = b"\x89PNG\r\nimage"
+    written = await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/uploads/chart.png",
+        content=image_bytes,
+        media_type="image/png",
+    )
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_view_image",
+            tool_name="workspace.view_image",
+            input={"path": "/uploads/chart.png"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "completed"
+    assert result.output == {
+        "workspace_id": context.workspace_id,
+        "path": "/uploads/chart.png",
+        "media_type": "image/png",
+        "size": len(image_bytes),
+        "content_hash": written.content_hash,
+        "content_encoding": "base64",
+        "content_base64": base64.b64encode(image_bytes).decode("ascii"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_workspace_view_image_tool_denies_invalid_or_disallowed_files() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    context.workspace_allowed_paths = ["/uploads"]
+    router = make_router(store)
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/uploads/notes.txt",
+        content="not an image",
+        media_type="text/plain",
+    )
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/uploads/large.png",
+        content=b"x" * (MAX_WORKSPACE_IMAGE_BYTES + 1),
+        media_type="image/png",
+    )
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/private/chart.png",
+        content=b"image",
+        media_type="image/png",
+    )
+
+    non_image = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_non_image",
+            tool_name="workspace.view_image",
+            input={"path": "/uploads/notes.txt"},
+            requested_by="model",
+        ),
+        context,
+    )
+    oversized = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_oversized",
+            tool_name="workspace.view_image",
+            input={"path": "/uploads/large.png"},
+            requested_by="model",
+        ),
+        context,
+    )
+    missing = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_missing",
+            tool_name="workspace.view_image",
+            input={"path": "/uploads/missing.png"},
+            requested_by="model",
+        ),
+        context,
+    )
+    outside_policy = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_outside",
+            tool_name="workspace.view_image",
+            input={"path": "/private/chart.png"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert non_image.status == "denied"
+    assert "Unsupported image media type" in non_image.error["message"]
+    assert oversized.status == "denied"
+    assert "maximum image size" in oversized.error["message"]
+    assert missing.status == "denied"
+    assert "Workspace file not found" in missing.error["message"]
+    assert outside_policy.status == "denied"
+    assert outside_policy.error["message"] == "Path is outside allowed workspace paths: /private/chart.png"
 
 
 @pytest.mark.asyncio

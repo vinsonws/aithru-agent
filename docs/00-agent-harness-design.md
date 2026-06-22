@@ -195,6 +195,25 @@ User uploads should enter the workspace through a control-plane API that
 validates a Pydantic upload request, stores bytes under `/uploads/...`, and
 returns structured upload/file-version metadata. Upload handling must remain
 workspace state and must not grant model code direct host file access.
+Workspace images may be attached to thread messages only as metadata
+references: workspace id, normalized path, supported image media type, byte
+size, and optional content hash. The backend should validate that the
+referenced workspace is visible to the current actor, the file exists, the media
+type is one of the conservative supported image types, and the size is within
+the image cap. Message storage must not persist base64 image content.
+Image bytes are available only through a controlled read path:
+`GET /api/workspaces/{workspace_id}/images/{path}/view` for control-plane
+clients and `workspace.view_image` for model-proposed inspection. Both paths
+read only from Agent Workspace storage, return a typed base64
+`AgentWorkspaceImageViewResult`, and preserve existing workspace visibility,
+scope, allowed-tool, and allowed-path boundaries. Tool and prompt summaries
+should carry image metadata, not raw base64, unless the immediate controlled
+tool result is being returned to the model.
+Runs may declare explicit model capabilities such as
+`harness_options.model_capabilities.vision`. Prompt assembly may mention whether
+attached workspace images are directly viewable by the model, but should direct
+non-vision runs toward `workspace.view_image` instead of assuming provider-side
+multimodal injection.
 Model-proposed workspace patches should pass through the capability router as
 explicit Pydantic text edit requests. Patch execution reads the current
 workspace file, applies bounded replacements, writes a new version through the

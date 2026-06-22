@@ -67,6 +67,7 @@ from .research import (
     ResearchSource,
 )
 from .run import (
+    AgentModelCapabilities,
     AgentExternalApprovalRef,
     AgentExternalRunWaitRef,
     AgentRun,
@@ -135,6 +136,18 @@ from .workspace import (
     AgentWorkspaceUploadResult,
     apply_workspace_text_patch,
 )
+from .vision import (
+    AgentMessageAttachment,
+    AgentWorkspaceImageAttachment,
+    AgentWorkspaceImageContentEncoding,
+    AgentWorkspaceImageViewResult,
+    MAX_WORKSPACE_IMAGE_BYTES,
+    SUPPORTED_WORKSPACE_IMAGE_MEDIA_TYPES,
+    normalize_workspace_image_path,
+    validate_workspace_image_media_type,
+    validate_workspace_image_size,
+    workspace_image_content_base64,
+)
 from .workbench import WorkbenchWorkflowDraft
 
 __all__ = [
@@ -193,7 +206,9 @@ __all__ = [
     "AgentMemoryRetentionPolicy",
     "AgentMemoryVisibilityPolicy",
     "AgentMessage",
+    "AgentMessageAttachment",
     "AgentMessageRole",
+    "AgentModelCapabilities",
     "ResearchEvidenceSectionSummary",
     "ResearchLimitation",
     "ResearchPlan",
@@ -250,6 +265,9 @@ __all__ = [
     "AgentWorkspaceFileDiff",
     "AgentWorkspaceFileReadResult",
     "AgentWorkspaceFileVersion",
+    "AgentWorkspaceImageAttachment",
+    "AgentWorkspaceImageContentEncoding",
+    "AgentWorkspaceImageViewResult",
     "AgentWorkspacePatchResult",
     "AgentWorkspacePolicy",
     "AgentWorkspaceRestoreChange",
@@ -260,7 +278,13 @@ __all__ = [
     "AgentWorkspaceTextPatchEdit",
     "AgentWorkspaceTextPatchRequest",
     "AgentWorkspaceUploadResult",
+    "MAX_WORKSPACE_IMAGE_BYTES",
+    "SUPPORTED_WORKSPACE_IMAGE_MEDIA_TYPES",
     "apply_workspace_text_patch",
+    "normalize_workspace_image_path",
+    "validate_workspace_image_media_type",
+    "validate_workspace_image_size",
+    "workspace_image_content_base64",
     "WorkbenchWorkflowDraft",
     "validate_run_status_transition",
 ]

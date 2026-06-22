@@ -894,6 +894,7 @@ def _operator_follow_up_harness_options(
         lines.append(extra_instructions)
     return AgentRunHarnessOptions(
         model=inherited.model if inherited else None,
+        model_capabilities=inherited.model_capabilities if inherited else None,
         instructions=_bounded_instruction("\n".join(lines)),
         operator_follow_up=follow_up,
     )
@@ -966,6 +967,7 @@ def _continuation_harness_options(
         lines.append(extra_instructions)
     return AgentRunHarnessOptions(
         model=inherited.model if inherited else None,
+        model_capabilities=inherited.model_capabilities if inherited else None,
         instructions=_bounded_instruction("\n".join(lines)),
         research_continuation=AgentRunResearchContinuationOptions(
             source_run_id=source_run.id,

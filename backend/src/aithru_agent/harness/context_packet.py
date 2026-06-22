@@ -666,6 +666,17 @@ def _tool_output_summary(*, tool_name: str, output: object) -> str:
             )
         if tool_name == "web.search":
             return _web_search_summary(output)
+        if tool_name == "workspace.view_image":
+            return _join_summary_parts(
+                [
+                    ("workspace_id", output.get("workspace_id")),
+                    ("path", output.get("path")),
+                    ("media_type", output.get("media_type")),
+                    ("size", output.get("size")),
+                    ("content_hash", output.get("content_hash")),
+                    ("content_encoding", output.get("content_encoding")),
+                ]
+            )
         if tool_name == "research.create_report":
             report = output.get("report")
             artifact = output.get("artifact")

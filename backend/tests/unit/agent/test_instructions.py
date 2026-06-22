@@ -7,6 +7,7 @@ from aithru_agent.domain import (
     AgentMemoryRecall,
     AgentMemoryRecallItem,
     AgentMemoryPolicy,
+    AgentModelCapabilities,
     AgentRunCompressedContext,
     AgentRunContextBudgetUsage,
     AgentRunContextCounts,
@@ -18,6 +19,7 @@ from aithru_agent.domain import (
     AgentRunResearchSectionContext,
     AgentRunHarnessOptions,
     AgentSkill,
+    AgentWorkspaceImageAttachment,
     ResearchLimitation,
 )
 from aithru_agent.harness import ContextBuilder
@@ -114,6 +116,102 @@ async def test_instruction_builder_adds_run_harness_instructions() -> None:
     instructions = await InstructionBuilder("Base instructions.").build(deps)
 
     assert instructions == "Base instructions.\n\nRun instructions:\nUse terse bullet points."
+
+
+@pytest.mark.asyncio
+async def test_instruction_builder_renders_image_attachments_with_view_image_guidance() -> None:
+    store = InMemoryAgentStore()
+    thread = await store.create_thread(org_id="org_1", owner_user_id="user_1")
+    workspace = await store.create_workspace(org_id="org_1", thread_id=thread.id)
+    await store.append_message(
+        thread_id=thread.id,
+        role="user",
+        content="What does this chart show?",
+        attachments=[
+            AgentWorkspaceImageAttachment(
+                kind="workspace_image",
+                workspace_id=workspace.id,
+                path="/uploads/chart.png",
+                media_type="image/png",
+                size=12,
+                content_hash="sha256:chart",
+            )
+        ],
+    )
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Describe attached image.",
+        workspace_id=workspace.id,
+        scopes=["agent.workspace.read"],
+        thread_id=thread.id,
+    )
+    deps = PydanticAgentDeps(
+        run=run,
+        run_context=ContextBuilder().build(run, run.scopes, None),
+        event_writer=AgentEventWriter(InMemoryAgentEventStore()),
+        capability_router=AithruCapabilityRouter(adapters=[]),
+        store=store,
+        skill=None,
+        context_packet=None,
+    )
+
+    instructions = await InstructionBuilder("Base instructions.").build(deps)
+
+    assert "Attached images:" in instructions
+    assert f"- user: /uploads/chart.png ({workspace.id}, image/png, 12 bytes)" in instructions
+    assert "Model vision is not enabled for this run; use workspace.view_image when available." in instructions
+    assert "content_base64" not in instructions
+
+
+@pytest.mark.asyncio
+async def test_instruction_builder_renders_direct_vision_guidance_when_enabled() -> None:
+    store = InMemoryAgentStore()
+    thread = await store.create_thread(org_id="org_1", owner_user_id="user_1")
+    workspace = await store.create_workspace(org_id="org_1", thread_id=thread.id)
+    await store.append_message(
+        thread_id=thread.id,
+        role="user",
+        content="Inspect this screenshot.",
+        attachments=[
+            AgentWorkspaceImageAttachment(
+                kind="workspace_image",
+                workspace_id=workspace.id,
+                path="/uploads/screenshot.webp",
+                media_type="image/webp",
+                size=20,
+            )
+        ],
+    )
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Describe attached image.",
+        workspace_id=workspace.id,
+        scopes=["agent.workspace.read"],
+        thread_id=thread.id,
+        harness_options=AgentRunHarnessOptions(
+            model_capabilities=AgentModelCapabilities(vision=True)
+        ),
+    )
+    deps = PydanticAgentDeps(
+        run=run,
+        run_context=ContextBuilder().build(run, run.scopes, None),
+        event_writer=AgentEventWriter(InMemoryAgentEventStore()),
+        capability_router=AithruCapabilityRouter(adapters=[]),
+        store=store,
+        skill=None,
+        context_packet=None,
+    )
+
+    instructions = await InstructionBuilder("Base instructions.").build(deps)
+
+    assert "Attached images:" in instructions
+    assert "- user: /uploads/screenshot.webp" in instructions
+    assert "Model vision is enabled for this run; attached workspace images are directly viewable." in instructions
+    assert "use workspace.view_image" not in instructions
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,7 @@ from aithru_agent.domain import (
     AgentMemoryCandidate,
     AgentMemoryRetentionPolicy,
     AgentRunStatus,
+    AgentWorkspaceImageAttachment,
 )
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
@@ -18,10 +19,19 @@ async def test_memory_store_manages_threads_messages_runs_and_approvals() -> Non
     store = InMemoryAgentStore()
 
     thread = await store.create_thread(org_id="org_1", owner_user_id="user_1", title="Work")
+    attachment = AgentWorkspaceImageAttachment(
+        kind="workspace_image",
+        workspace_id="ws_1",
+        path="/uploads/chart.png",
+        media_type="image/png",
+        size=4,
+        content_hash="sha256:abcd",
+    )
     message = await store.append_message(
         thread_id=thread.id,
         role="user",
         content="Analyze this",
+        attachments=[attachment],
     )
     workspace = await store.create_workspace(org_id="org_1", thread_id=thread.id)
     run = await store.create_run(
@@ -51,6 +61,7 @@ async def test_memory_store_manages_threads_messages_runs_and_approvals() -> Non
     assert (await store.get_thread(thread.id)) == thread
     assert await store.list_threads() == [thread]
     assert await store.list_messages(thread.id) == [message]
+    assert message.attachments == [attachment]
     assert (await store.get_run(run.id)).status == AgentRunStatus.WAITING_APPROVAL
     assert await store.list_runs() == [await store.get_run(run.id)]
     assert resolved.status == AgentApprovalStatus.RESOLVED

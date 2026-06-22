@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from aithru_agent.domain import (
     AgentWorkspacePatchResult,
+    AgentWorkspaceImageViewResult,
     AgentWorkspaceTextPatchRequest,
     AgentToolCallRequest,
     AgentToolCallResult,
@@ -11,6 +12,7 @@ from aithru_agent.domain import (
     AgentToolKind,
     AgentToolRiskLevel,
     apply_workspace_text_patch,
+    workspace_image_content_base64,
 )
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.persistence.protocols import AgentStore
@@ -44,6 +46,20 @@ class WorkspaceLocalTool:
                     "properties": {"path": {"type": "string"}},
                 },
                 output_schema={"type": "object"},
+                risk_level=AgentToolRiskLevel.READ,
+                required_scopes=["agent.workspace.read"],
+                approval_policy="never",
+            ),
+            AgentToolDescriptor(
+                name="workspace.view_image",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="Read a supported image file from the current Agent workspace as base64.",
+                input_schema={
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {"path": {"type": "string"}},
+                },
+                output_schema=AgentWorkspaceImageViewResult.model_json_schema(),
                 risk_level=AgentToolRiskLevel.READ,
                 required_scopes=["agent.workspace.read"],
                 approval_policy="never",
@@ -120,6 +136,34 @@ class WorkspaceLocalTool:
                     "content": content.content,
                     "media_type": content.media_type,
                 }
+            case "workspace.view_image":
+                denied = _deny_if_path_outside_policy(input_data["path"], context)
+                if denied:
+                    return denied
+                try:
+                    file = await _workspace_file(
+                        self._store,
+                        workspace_id=context.workspace_id,
+                        path=str(input_data["path"]),
+                    )
+                    content = await self._store.read_workspace_file(
+                        context.workspace_id,
+                        str(input_data["path"]),
+                    )
+                    output = AgentWorkspaceImageViewResult(
+                        workspace_id=context.workspace_id,
+                        path=file.path,
+                        media_type=file.media_type or "",
+                        size=file.size,
+                        content_hash=file.content_hash,
+                        content_base64=workspace_image_content_base64(content.content),
+                    ).model_dump(mode="json")
+                except (AgentError, ValidationError, ValueError) as err:
+                    return AgentToolCallResult(
+                        status="denied",
+                        error={"message": _error_message(err)},
+                        redaction="none",
+                    )
             case "workspace.write_file":
                 denied = _deny_if_path_outside_policy(input_data["path"], context)
                 if denied:
@@ -210,6 +254,15 @@ def _input_dict(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TypeError("Tool input must be an object")
     return value
+
+
+def _error_message(err: Exception) -> str:
+    if isinstance(err, AgentError):
+        return err.message
+    if isinstance(err, ValidationError):
+        messages = [str(error.get("msg", "")) for error in err.errors()]
+        return "; ".join(message for message in messages if message) or str(err)
+    return str(err)
 
 
 def _patch_request(input_data: dict[str, Any]) -> AgentWorkspaceTextPatchRequest | AgentToolCallResult:

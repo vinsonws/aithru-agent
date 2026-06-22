@@ -20,6 +20,7 @@ from aithru_agent.domain import (
     AgentMemoryForgetResult,
     AgentMemoryRetentionPolicy,
     AgentMessage,
+    AgentMessageAttachment,
     AgentMessageRole,
     AgentRun,
     AgentRunHarnessOptions,
@@ -85,6 +86,7 @@ class AgentStore(Protocol):
         content: str,
         run_id: str | None = None,
         artifact_ids: list[str] | None = None,
+        attachments: list[AgentMessageAttachment] | None = None,
     ) -> AgentMessage:
         ...
 

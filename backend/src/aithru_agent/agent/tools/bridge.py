@@ -192,7 +192,10 @@ class PydanticAIToolBridge:
                 "tool_call_id": tool_call_id,
                 "tool_name": tool_name,
                 "status": status,
-                "output": getattr(result, "output", None),
+                "output": _event_output_for_tool(
+                    tool_name,
+                    getattr(result, "output", None),
+                ),
                 "error": getattr(result, "error", None),
                 "external_run": result.external_run.model_dump(mode="json")
                 if getattr(result, "external_run", None) is not None
@@ -612,6 +615,14 @@ def _tool_result_error_message(error: dict | None) -> str:
         return "Tool failed"
     message = error.get("message")
     return str(message) if message else "Tool failed"
+
+
+def _event_output_for_tool(tool_name: str, output: object) -> object:
+    if tool_name != "workspace.view_image" or not isinstance(output, dict):
+        return output
+    sanitized = dict(output)
+    sanitized.pop("content_base64", None)
+    return sanitized
 
 
 def _error_payload(error: Exception) -> dict[str, str]:

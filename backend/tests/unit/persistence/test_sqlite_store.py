@@ -9,6 +9,7 @@ from aithru_agent.domain import (
     AgentMemoryCandidate,
     AgentMemoryRetentionPolicy,
     AgentRunStatus,
+    AgentWorkspaceImageAttachment,
 )
 from aithru_agent.domain.errors import AgentError
 from tests.utils.step_runtime import Step, StepAgentRuntime
@@ -128,6 +129,33 @@ async def test_sqlite_store_persists_thread_lifecycle_updates(tmp_path: Path) ->
     assert archived.created_at == thread.created_at
     assert archived.updated_at >= thread.updated_at
     assert persisted == archived
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_persists_message_image_attachments(tmp_path: Path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    store = SQLiteAgentStore(db_path)
+    thread = await store.create_thread(org_id="org_1", owner_user_id="user_1")
+    attachment = AgentWorkspaceImageAttachment(
+        kind="workspace_image",
+        workspace_id="ws_1",
+        path="/uploads/chart.png",
+        media_type="image/png",
+        size=4,
+        content_hash="sha256:abcd",
+    )
+
+    created = await store.append_message(
+        thread_id=thread.id,
+        role="user",
+        content="What does this chart show?",
+        attachments=[attachment],
+    )
+    reopened = SQLiteAgentStore(db_path)
+    messages = await reopened.list_messages(thread.id)
+
+    assert messages == [created]
+    assert messages[0].attachments == [attachment]
 
 
 @pytest.mark.asyncio

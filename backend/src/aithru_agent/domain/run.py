@@ -196,9 +196,17 @@ class AgentRunOperatorFollowUpOptions(AithruBaseModel):
         return stripped or None
 
 
+class AgentModelCapabilities(AithruBaseModel):
+    vision: bool = False
+
+
 class AgentRunHarnessOptions(AithruBaseModel):
     model: str | None = None
     instructions: str | None = None
+    model_capabilities: AgentModelCapabilities | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     budget_policy: AgentRunBudgetPolicy | None = Field(
         default=None,
         exclude_if=lambda value: value is None,
