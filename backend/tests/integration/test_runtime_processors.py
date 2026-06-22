@@ -14,6 +14,7 @@ from aithru_agent.runtime.processors import (
     AgentRuntimeProcessorDecision,
     AgentRuntimeProcessorRunner,
 )
+from aithru_agent.runtime.processors.clarification import ClarificationPreflightProcessor
 from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
 from aithru_agent.settings import AgentSettings
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
@@ -136,7 +137,7 @@ async def test_before_model_processor_can_pause_before_model_started() -> None:
     assert "model.started" not in event_types
 
 
-def test_application_wires_context_summarization_processor_from_settings() -> None:
+def test_application_wires_runtime_processors_from_settings() -> None:
     enabled = create_agent_runtime(
         agent_runtime=DoneRuntime(),
         settings=AgentSettings(model="test"),
@@ -146,16 +147,20 @@ def test_application_wires_context_summarization_processor_from_settings() -> No
         settings=AgentSettings(
             model="test",
             processors={
+                "clarification_enabled": False,
+                "clarification_min_goal_words": 4,
                 "summarization_enabled": False,
                 "summarization_min_message_count": 9,
             },
         ),
     )
 
-    assert any(
-        isinstance(processor, ContextSummarizationProcessor)
-        for processor in enabled.processor_runner.processors
-    )
+    assert [
+        type(processor) for processor in enabled.processor_runner.processors
+    ] == [
+        ClarificationPreflightProcessor,
+        ContextSummarizationProcessor,
+    ]
     assert disabled.processor_runner.processors == []
 
 

@@ -290,7 +290,7 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
                 "thread_id": thread["id"],
-                "goal": "Write report",
+                "goal": "Write the report draft",
                 "scopes": ["*"],
             },
         )
@@ -1076,7 +1076,7 @@ async def test_agent_api_exposes_thread_dashboard_for_queue_views() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Recover degraded research",
+                    "goal": "Recover degraded research report",
                     "scopes": ["*"],
                     "skill_id": "skill_deep_research",
                 },
@@ -1362,7 +1362,7 @@ async def test_agent_api_thread_action_hint_input_path_resolves_and_clears_hints
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Resolve input hint",
+                    "goal": "Resolve input hint request",
                     "scopes": ["*"],
                 },
             )
@@ -2274,7 +2274,7 @@ async def test_agent_api_research_evidence_ledger_projects_sources_and_evidence(
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Create evidence ledger",
+                    "goal": "Create evidence ledger report",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -2396,7 +2396,7 @@ async def test_agent_api_research_review_snapshot_grades_report_quality() -> Non
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Review insufficient evidence",
+                    "goal": "Review insufficient evidence report",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -2443,7 +2443,7 @@ async def test_agent_api_research_continuation_snapshot_suggests_next_actions() 
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Plan continuation actions",
+                    "goal": "Plan continuation action set",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -2696,7 +2696,7 @@ async def test_agent_api_research_continuation_run_carries_target_sections() -> 
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research section quality",
+                    "goal": "Research section quality gaps",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -2866,7 +2866,7 @@ async def test_agent_api_filters_runs_by_sandbox_summary() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Create sandbox output",
+                    "goal": "Create sandbox output file",
                     "scopes": ["*"],
                 },
             )
@@ -3051,7 +3051,7 @@ async def test_agent_api_creates_operator_action_follow_up_run() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Create sandbox output",
+                    "goal": "Create sandbox output file",
                     "scopes": ["*"],
                     "retry_policy": {"max_attempts": 2, "initial_delay_seconds": 1},
                 },
@@ -4372,7 +4372,7 @@ async def test_agent_api_persists_completed_assistant_message_to_thread() -> Non
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "thread_id": thread["id"],
-                    "goal": "Write report",
+                    "goal": "Write the report draft",
                     "scopes": ["*"],
                 },
             )
@@ -4890,7 +4890,7 @@ async def test_agent_api_accepts_user_input_for_paused_thread_run() -> None:
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "thread_id": thread["id"],
-                    "goal": "Write report",
+                    "goal": "Write the report draft",
                     "scopes": ["*"],
                 },
             )

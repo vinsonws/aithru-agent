@@ -63,7 +63,7 @@ async def test_threads_runs_join_stream_routes() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Write report",
+                "goal": "Write the report draft",
                 "scopes": ["*"],
             },
         )
@@ -111,7 +111,7 @@ async def test_thread_runs_support_status_and_summary_filters() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Completed report",
+                    "goal": "Complete the report draft",
                     "scopes": ["*"],
                 },
             )

@@ -52,7 +52,7 @@ class DelegatingArtifactRuntime(AgentRuntime):
             "subagent.delegate",
             {
                 "name": "researcher",
-                "task": "Summarize the workspace.",
+                "task": "Summarize the workspace evidence now.",
                 "spec_key": "researcher",
             },
         )
@@ -82,7 +82,7 @@ async def test_subagent_delegate_creates_child_run_and_parent_events() -> None:
                     "subagent.delegate",
                     {
                         "name": "researcher",
-                        "task": "Summarize the workspace.",
+                        "task": "Summarize the workspace evidence now.",
                     },
                 ),
                 Step.finish(),
@@ -168,7 +168,7 @@ async def test_cancelled_child_run_updates_parent_subagent_state() -> None:
                     "subagent.delegate",
                     {
                         "name": "researcher",
-                        "task": "Summarize the workspace.",
+                        "task": "Summarize the workspace evidence now.",
                     },
                 ),
                 Step.finish(),
@@ -209,7 +209,7 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
                     "subagent.delegate",
                     {
                         "name": "researcher",
-                        "task": "Summarize the workspace.",
+                        "task": "Summarize the workspace evidence now.",
                         "spec_key": "researcher",
                     },
                 ),
@@ -238,7 +238,7 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
             await client.post(
                 "/api/runs",
                 json={
-                    "goal": "Delegate research",
+                    "goal": "Delegate research task now",
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "scopes": ["*"],
@@ -266,7 +266,7 @@ async def test_subagent_run_tree_api_projects_parent_child_inspection_view() -> 
                     "subagent.delegate",
                     {
                         "name": "researcher",
-                        "task": "Summarize the workspace.",
+                        "task": "Summarize the workspace evidence now.",
                         "spec_key": "researcher",
                     },
                 ),
@@ -289,7 +289,7 @@ async def test_subagent_run_tree_api_projects_parent_child_inspection_view() -> 
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
                 json={
-                    "goal": "Delegate research",
+                    "goal": "Delegate research task now",
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "scopes": ["*"],
@@ -351,7 +351,7 @@ async def test_subagent_delegate_rejects_unknown_child_skill() -> None:
                     "subagent.delegate",
                     {
                         "name": "researcher",
-                        "task": "Summarize the workspace.",
+                        "task": "Summarize the workspace evidence now.",
                         "skill_id": "missing-skill",
                     },
                 ),
@@ -385,7 +385,7 @@ async def test_subagent_delegate_cannot_expand_child_scopes() -> None:
                     "subagent.delegate",
                     {
                         "name": "researcher",
-                        "task": "Summarize the workspace.",
+                        "task": "Summarize the workspace evidence now.",
                         "skill_id": "child-researcher",
                         "scopes": ["*"],
                     },

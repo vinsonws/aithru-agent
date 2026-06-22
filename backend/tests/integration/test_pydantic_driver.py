@@ -474,7 +474,7 @@ async def test_pydantic_ai_runtime_loads_thread_message_summary() -> None:
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write a report.",
+        goal="Write a concise report draft.",
         scopes=["*"],
         thread_id=thread.id,
     )
@@ -504,7 +504,7 @@ async def test_pydantic_ai_runtime_injects_context_packet_and_emits_debug_event(
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Continue the report.",
+        goal="Continue the APAC report draft.",
         scopes=["*"],
         thread_id=thread.id,
     )

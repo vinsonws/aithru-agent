@@ -39,6 +39,7 @@ from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
 from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
+from aithru_agent.runtime.processors.clarification import ClarificationPreflightProcessor
 from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
 from aithru_agent.sandbox import LocalPythonSandboxProvider
 from aithru_agent.settings import AgentSettings
@@ -174,6 +175,12 @@ def _create_native_agent_runtime(settings: AgentSettings) -> NativeAgentRuntime:
 
 def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRunner:
     processors = []
+    if settings.processors.clarification_enabled:
+        processors.append(
+            ClarificationPreflightProcessor(
+                min_goal_words=settings.processors.clarification_min_goal_words,
+            )
+        )
     if settings.processors.summarization_enabled:
         processors.append(
             ContextSummarizationProcessor(
