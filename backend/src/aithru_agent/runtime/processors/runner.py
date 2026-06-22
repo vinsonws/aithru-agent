@@ -66,5 +66,23 @@ class AgentRuntimeProcessorRunner:
         )
         latest_decision = AgentRuntimeProcessorDecision()
         for processor in self._processors:
-            latest_decision = await processor.after_terminal(context)
+            try:
+                latest_decision = await processor.after_terminal(context)
+            except Exception as exc:
+                await event_writer.write(
+                    run_id=run.id,
+                    thread_id=run.thread_id,
+                    type="runtime.processor.failed",
+                    source={"kind": "harness"},
+                    visibility="debug",
+                    payload={
+                        "hook": "after_terminal",
+                        "processor": processor.__class__.__name__,
+                        "error": _error_payload(exc),
+                    },
+                )
         return latest_decision
+
+
+def _error_payload(error: Exception) -> dict[str, str]:
+    return {"message": str(error)}

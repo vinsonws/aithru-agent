@@ -174,13 +174,26 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload={"status": "running"},
         )
-        decision = await self._processor_runner.before_model(
-            run=run,
-            store=self._store,
-            event_writer=self._event_writer,
-            event_store=self._event_store,
-            skill=skill,
-        )
+        try:
+            decision = await self._processor_runner.before_model(
+                run=run,
+                store=self._store,
+                event_writer=self._event_writer,
+                event_store=self._event_store,
+                skill=skill,
+            )
+        except AgentError as exc:
+            if exc.code in {
+                "RUN_PAUSED_FOR_APPROVAL",
+                "RUN_PAUSED_FOR_EXTERNAL_APPROVAL",
+                "RUN_PAUSED_FOR_EXTERNAL_RUN",
+                "RUN_PAUSED_FOR_INPUT",
+                "RUN_PAUSED_FOR_SUBAGENT",
+            }:
+                return await self._get_existing_run(run.id)
+            return await self._fail_run(run, thread_id, exc, skill=skill)
+        except Exception as exc:
+            return await self._retry_or_fail_run(run, thread_id, exc, skill=skill)
         if decision.paused_run is not None:
             return decision.paused_run
         if decision.replaced_run is not None:
@@ -574,6 +587,7 @@ class AgentWorkerRunner:
                     "reason": comment,
                 },
             )
+            await self._after_terminal(failed)
             await self._event_writer.write(
                 run_id=run_id,
                 thread_id=run.thread_id,
@@ -581,7 +595,6 @@ class AgentWorkerRunner:
                 source={"kind": "harness"},
                 payload={"status": "failed", "error": {"message": "Approval rejected"}},
             )
-            await self._after_terminal(failed)
             return failed
 
         try:
@@ -715,6 +728,7 @@ class AgentWorkerRunner:
                     "error": error,
                 },
             )
+            await self._after_terminal(failed)
             await self._event_writer.write(
                 run_id=run_id,
                 thread_id=run.thread_id,
@@ -722,7 +736,6 @@ class AgentWorkerRunner:
                 source={"kind": "harness"},
                 payload={"status": "failed", "error": error},
             )
-            await self._after_terminal(failed)
             return failed
 
         resumed = await self._store.update_run(
@@ -840,6 +853,7 @@ class AgentWorkerRunner:
                     "comment": comment,
                 },
             )
+            await self._after_terminal(failed)
             await self._event_writer.write(
                 run_id=run_id,
                 thread_id=run.thread_id,
@@ -847,7 +861,6 @@ class AgentWorkerRunner:
                 source={"kind": "harness"},
                 payload={"status": "failed", "error": error_payload},
             )
-            await self._after_terminal(failed)
             return failed
 
         if status == "cancelled":
@@ -875,6 +888,7 @@ class AgentWorkerRunner:
                     "comment": comment,
                 },
             )
+            await self._after_terminal(cancelled)
             await self._event_writer.write(
                 run_id=run_id,
                 thread_id=run.thread_id,
@@ -882,7 +896,6 @@ class AgentWorkerRunner:
                 source={"kind": "harness"},
                 payload={"status": "cancelled"},
             )
-            await self._after_terminal(cancelled)
             return cancelled
 
         raise AgentError("BAD_REQUEST", f"Unsupported external run status: {status}")
@@ -1066,6 +1079,7 @@ class AgentWorkerRunner:
             result=result,
             current_external_run=None,
         )
+        await self._after_terminal(run, skill=skill)
         await self._event_writer.write(
             run_id=run.id,
             thread_id=thread_id,
@@ -1074,7 +1088,6 @@ class AgentWorkerRunner:
             payload={"status": "completed", "result": result.model_dump(mode="json")},
         )
         await self._emit_parent_subagent_completed(run, content)
-        await self._after_terminal(run, skill=skill)
         return run
 
     async def _fail_run(
@@ -1108,6 +1121,7 @@ class AgentWorkerRunner:
         if retry_state is not None:
             updates["retry_state"] = retry_state
         failed = await self._store.update_run(run.id, **updates)
+        await self._after_terminal(failed, skill=skill)
         await self._event_writer.write(
             run_id=run.id,
             thread_id=thread_id,
@@ -1116,7 +1130,6 @@ class AgentWorkerRunner:
             payload={"status": "failed", "error": error_payload},
         )
         await self._emit_parent_subagent_failed(failed, error_payload)
-        await self._after_terminal(failed, skill=skill)
         return failed
 
     async def _retry_or_fail_run(
@@ -1283,6 +1296,7 @@ class AgentWorkerRunner:
             current_external_approval=None,
             current_external_run=None,
         )
+        await self._after_terminal(cancelled)
         await self._event_writer.write(
             run_id=run_id,
             thread_id=run.thread_id,
@@ -1291,7 +1305,6 @@ class AgentWorkerRunner:
             payload={"status": "cancelled"},
         )
         await self._emit_parent_subagent_cancelled(cancelled)
-        await self._after_terminal(cancelled)
         return cancelled
 
     async def _emit_parent_subagent_cancelled(self, run: AgentRun) -> None:
