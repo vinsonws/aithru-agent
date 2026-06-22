@@ -240,6 +240,37 @@ async def test_printable_header_footer_pdf_fails_without_writing_output() -> Non
 
 
 @pytest.mark.asyncio
+async def test_printable_pdf_stream_without_text_operators_fails_without_output() -> None:
+    store = InMemoryAgentStore()
+    workspace = await store.create_workspace(org_id="org_1")
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/stream.pdf",
+        content=(
+            b"%PDF-1.4\n"
+            b"1 0 obj\n<< /Length 24 >>\nstream\n"
+            b"arbitrary printable text\n"
+            b"endstream\nendobj\n%%EOF"
+        ),
+        media_type=PDF_MEDIA_TYPE,
+    )
+
+    result = await convert_workspace_file(
+        store,
+        workspace_id=workspace.id,
+        path="/uploads/stream.pdf",
+    )
+
+    assert result.status == "failed"
+    assert result.output_path is None
+    assert result.output_file is None
+    assert result.reason == "Could not extract text from workspace file."
+    assert [file.path for file in await store.list_workspace_files(workspace.id)] == [
+        "/uploads/stream.pdf",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_invalid_printable_pdf_fails_without_writing_output() -> None:
     store = InMemoryAgentStore()
     workspace = await store.create_workspace(org_id="org_1")

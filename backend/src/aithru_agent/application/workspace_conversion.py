@@ -38,9 +38,6 @@ MODEL_READABLE_MEDIA_TYPES = frozenset({"text/plain", "text/markdown", "applicat
 _PDF_TJ_RE = re.compile(rb"\(((?:\\.|[^\\()])*)\)\s*Tj", re.DOTALL)
 _PDF_TJ_ARRAY_RE = re.compile(rb"\[(.*?)\]\s*TJ", re.DOTALL)
 _PDF_HEADER_RE = re.compile(rb"%PDF-\d\.\d")
-_PDF_OBJECT_RE = re.compile(rb"\b\d+\s+\d+\s+obj\b")
-_PDF_STREAM_RE = re.compile(rb"\bstream\r?\n?(.*?)\r?\n?endstream\b", re.DOTALL)
-_PRINTABLE_RE = re.compile(r"[A-Za-z0-9][ -~]{4,}")
 _PDF_ESCAPE_BYTES = {
     ord("n"): 10,
     ord("r"): 13,
@@ -296,7 +293,7 @@ def _extract_pdf_text(content: bytes) -> str:
             lines.append(decoded)
     if lines:
         return "\n".join(lines)
-    return _extract_printable_pdf_text(content)
+    return ""
 
 
 def _has_pdf_envelope(content: bytes) -> bool:
@@ -475,46 +472,6 @@ def _pdf_literal_parts(raw: bytes) -> Iterable[bytes]:
                 index += 1
                 break
             index += 1
-
-
-def _extract_printable_pdf_text(content: bytes) -> str:
-    if not _has_printable_pdf_fallback_structure(content):
-        return ""
-    lines: list[str] = []
-    for stream in _pdf_streams(content):
-        decoded = stream.decode("latin-1", errors="ignore")
-        for chunk in _PRINTABLE_RE.findall(decoded):
-            compact = " ".join(chunk.split())
-            if _is_meaningful_pdf_fallback_text(compact):
-                lines.append(compact)
-    return "\n".join(lines[:100])
-
-
-def _has_printable_pdf_fallback_structure(content: bytes) -> bool:
-    return (
-        _has_pdf_envelope(content)
-        and bool(_PDF_OBJECT_RE.search(content))
-        and b"endobj" in content
-        and b"stream" in content
-        and b"endstream" in content
-    )
-
-
-def _pdf_streams(content: bytes) -> Iterable[bytes]:
-    for match in _PDF_STREAM_RE.finditer(content):
-        stream = match.group(1).strip()
-        if len(stream) > MAX_PDF_EXTRACT_BYTES:
-            raise ValueError("PDF stream exceeds conversion size limit.")
-        yield stream
-
-
-def _is_meaningful_pdf_fallback_text(value: str) -> bool:
-    return not _looks_like_pdf_syntax(value) and re.search(r"[A-Za-z]{3}", value) is not None
-
-
-def _looks_like_pdf_syntax(value: str) -> bool:
-    markers = ("%PDF", "PDF-", " obj", "endobj", "stream", "endstream", "xref", "trailer", "%%EOF")
-    return any(marker in value for marker in markers)
 
 
 def _clean_extracted_text(text: str | None) -> str | None:
