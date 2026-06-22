@@ -40,6 +40,11 @@ from aithru_agent.external_tools import (
     InMemoryExternalToolConfigRegistry,
     SQLiteExternalToolConfigRegistry,
 )
+from aithru_agent.model_profiles import (
+    AgentModelProfileRegistry,
+    InMemoryModelProfileRegistry,
+    SQLiteModelProfileRegistry,
+)
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
@@ -74,6 +79,7 @@ class AgentApplication:
     skill_resolver: AgentSkillResolver
     skill_registry: AgentSkillRegistry
     external_tool_config_registry: AgentExternalToolConfigRegistry
+    model_profile_registry: AgentModelProfileRegistry
     agent_runtime: NativeAgentRuntime
     processor_runner: AgentRuntimeProcessorRunner
 
@@ -103,6 +109,7 @@ def create_agent_application(
         seed_skill_resolver,
     )
     external_tool_config_registry = _create_external_tool_config_registry(resolved_settings)
+    model_profile_registry = _create_model_profile_registry(resolved_settings)
     resolved_skill_resolver = resolved_skill_registry
     subagent_tool = SubagentLocalTool(resolved_store, event_writer, resolved_skill_resolver)
     tool_adapters = [
@@ -164,6 +171,7 @@ def create_agent_application(
         skill_resolver=resolved_skill_resolver,
         skill_registry=resolved_skill_registry,
         external_tool_config_registry=external_tool_config_registry,
+        model_profile_registry=model_profile_registry,
         agent_runtime=resolved_agent_runtime,
         processor_runner=processor_runner,
     )
@@ -238,6 +246,12 @@ def _create_external_tool_config_registry(
     if settings.persistence_backend == "sqlite":
         return SQLiteExternalToolConfigRegistry(settings.sqlite_path)
     return InMemoryExternalToolConfigRegistry()
+
+
+def _create_model_profile_registry(settings: AgentSettings) -> AgentModelProfileRegistry:
+    if settings.persistence_backend == "sqlite":
+        return SQLiteModelProfileRegistry(settings.sqlite_path)
+    return InMemoryModelProfileRegistry()
 
 
 def _create_external_tool_providers(settings: AgentSettings) -> list[ExternalToolProvider]:

@@ -198,12 +198,25 @@ class AgentRunOperatorFollowUpOptions(AithruBaseModel):
 
 class AgentModelCapabilities(AithruBaseModel):
     vision: bool = False
+    thinking: bool = False
+
+
+class AgentRunModelCostPolicy(AithruBaseModel):
+    max_cost_usd: float | None = Field(default=None, ge=0)
 
 
 class AgentRunHarnessOptions(AithruBaseModel):
     model: str | None = None
+    model_profile_key: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     instructions: str | None = None
     model_capabilities: AgentModelCapabilities | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    model_cost_policy: AgentRunModelCostPolicy | None = Field(
         default=None,
         exclude_if=lambda value: value is None,
     )
@@ -219,6 +232,16 @@ class AgentRunHarnessOptions(AithruBaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+
+    @field_validator("model", "model_profile_key", "instructions")
+    @classmethod
+    def _optional_strings_must_not_be_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("run harness option strings cannot be blank")
+        return stripped
 
 
 class AgentRunResult(AithruBaseModel):

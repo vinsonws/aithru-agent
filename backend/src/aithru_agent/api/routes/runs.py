@@ -29,10 +29,13 @@ from aithru_agent.api.snapshots import (
     build_run_inspection_summary,
 )
 from aithru_agent.domain import (
+    AgentModelCapabilities,
     AgentMemoryRecall,
     AgentMessage,
     AgentRun,
+    AgentRunBudgetPolicy,
     AgentRunHarnessOptions,
+    AgentRunModelCostPolicy,
     AgentRunOperatorFollowUpOptions,
     AgentRunResearchContinuationOptions,
     AgentRunStatus,
@@ -648,12 +651,18 @@ async def _create_run(
         if not await _thread_access_allowed(request, thread_id=resolved_thread_id, deps=deps):
             raise HTTPException(status_code=404, detail="Thread not found")
 
+    harness_options = _resolve_model_profile_harness_options(
+        deps=deps,
+        org_id=org_id,
+        scopes=scopes,
+        harness_options=body.harness_options,
+    )
     run_kwargs = {
         "org_id": org_id,
         "actor_user_id": actor_user_id,
         "goal": body.goal,
         "scopes": scopes,
-        "harness_options": body.harness_options,
+        "harness_options": harness_options,
         "retry_policy": body.retry_policy,
         "thread_id": resolved_thread_id,
         "skill_id": body.skill_id,
@@ -666,6 +675,102 @@ async def _create_run(
     except AgentError as err:
         status_code = 404 if err.code in {"NOT_FOUND", "SKILL_NOT_FOUND"} else 409
         raise HTTPException(status_code=status_code, detail=err.message) from err
+
+
+def _resolve_model_profile_harness_options(
+    *,
+    deps: ApiDependencies,
+    org_id: str,
+    scopes: list[str],
+    harness_options: AgentRunHarnessOptions | None,
+) -> AgentRunHarnessOptions | None:
+    if harness_options is None or harness_options.model_profile_key is None:
+        return harness_options
+    profile = deps.runtime.model_profile_registry.get_profile(
+        org_id,
+        harness_options.model_profile_key,
+    )
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Model profile not found")
+    if not profile.enabled:
+        raise HTTPException(status_code=403, detail="Model profile is disabled")
+    if harness_options.model is not None and harness_options.model != profile.model:
+        raise HTTPException(
+            status_code=409,
+            detail="Run model must match selected model profile",
+        )
+
+    required_scopes = set(profile.selection_policy.required_scopes)
+    if not required_scopes.issubset(set(scopes)):
+        raise HTTPException(status_code=403, detail="Run scopes do not allow model profile")
+
+    requested_capabilities = harness_options.model_capabilities or AgentModelCapabilities()
+    if requested_capabilities.vision and not profile.capabilities.vision:
+        raise HTTPException(status_code=403, detail="Model profile does not allow vision")
+    if requested_capabilities.thinking and not profile.capabilities.thinking:
+        raise HTTPException(status_code=403, detail="Model profile does not allow thinking")
+
+    budget_policy = _resolve_model_profile_budget_policy(
+        harness_options.budget_policy,
+        profile.selection_policy.max_total_tokens,
+    )
+    model_cost_policy = _resolve_model_profile_cost_policy(
+        harness_options.model_cost_policy,
+        profile.cost_policy.max_run_cost_usd,
+    )
+    return harness_options.model_copy(
+        update={
+            "model": profile.model,
+            "model_profile_key": profile.key,
+            "model_capabilities": profile.capabilities,
+            "budget_policy": budget_policy,
+            "model_cost_policy": model_cost_policy,
+        }
+    )
+
+
+def _resolve_model_profile_budget_policy(
+    requested: AgentRunBudgetPolicy | None,
+    profile_max_total_tokens: int | None,
+) -> AgentRunBudgetPolicy | None:
+    if profile_max_total_tokens is None:
+        return requested
+    if (
+        requested
+        and requested.max_total_tokens
+        and requested.max_total_tokens > profile_max_total_tokens
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Run token budget exceeds model profile policy",
+        )
+    if requested is None:
+        return AgentRunBudgetPolicy(max_total_tokens=profile_max_total_tokens)
+    if requested.max_total_tokens is None:
+        return requested.model_copy(update={"max_total_tokens": profile_max_total_tokens})
+    return requested
+
+
+def _resolve_model_profile_cost_policy(
+    requested: AgentRunModelCostPolicy | None,
+    profile_max_run_cost_usd: float | None,
+) -> AgentRunModelCostPolicy | None:
+    if profile_max_run_cost_usd is None:
+        return requested
+    if (
+        requested
+        and requested.max_cost_usd
+        and requested.max_cost_usd > profile_max_run_cost_usd
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Run cost budget exceeds model profile policy",
+        )
+    if requested is None:
+        return AgentRunModelCostPolicy(max_cost_usd=profile_max_run_cost_usd)
+    if requested.max_cost_usd is None:
+        return requested.model_copy(update={"max_cost_usd": profile_max_run_cost_usd})
+    return requested
 
 
 async def _create_research_continuation_run(
@@ -894,7 +999,10 @@ def _operator_follow_up_harness_options(
         lines.append(extra_instructions)
     return AgentRunHarnessOptions(
         model=inherited.model if inherited else None,
+        model_profile_key=inherited.model_profile_key if inherited else None,
         model_capabilities=inherited.model_capabilities if inherited else None,
+        model_cost_policy=inherited.model_cost_policy if inherited else None,
+        budget_policy=inherited.budget_policy if inherited else None,
         instructions=_bounded_instruction("\n".join(lines)),
         operator_follow_up=follow_up,
     )
@@ -967,7 +1075,10 @@ def _continuation_harness_options(
         lines.append(extra_instructions)
     return AgentRunHarnessOptions(
         model=inherited.model if inherited else None,
+        model_profile_key=inherited.model_profile_key if inherited else None,
         model_capabilities=inherited.model_capabilities if inherited else None,
+        model_cost_policy=inherited.model_cost_policy if inherited else None,
+        budget_policy=inherited.budget_policy if inherited else None,
         instructions=_bounded_instruction("\n".join(lines)),
         research_continuation=AgentRunResearchContinuationOptions(
             source_run_id=source_run.id,

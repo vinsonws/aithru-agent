@@ -74,6 +74,14 @@ from .memory_candidate import (
     AgentMemoryCandidateStatus,
 )
 from .message import AgentMessage, AgentMessageRole
+from .model_profile import (
+    AgentModelProfileCostPolicy,
+    AgentModelProfileDefinition,
+    AgentModelProfileEnablementResult,
+    AgentModelProfileEntry,
+    AgentModelProfileSelectionPolicy,
+    AgentModelProviderKind,
+)
 from .research import (
     ResearchEvidenceSectionSummary,
     ResearchLimitation,
@@ -93,6 +101,7 @@ from .run import (
     AgentRun,
     AgentRunClaim,
     AgentRunHarnessOptions,
+    AgentRunModelCostPolicy,
     AgentRunOperatorFollowUpOptions,
     AgentRunResearchContinuationOptions,
     AgentRunRetryPolicy,
@@ -254,6 +263,12 @@ __all__ = [
     "AgentMessageAttachment",
     "AgentMessageRole",
     "AgentModelCapabilities",
+    "AgentModelProfileCostPolicy",
+    "AgentModelProfileDefinition",
+    "AgentModelProfileEnablementResult",
+    "AgentModelProfileEntry",
+    "AgentModelProfileSelectionPolicy",
+    "AgentModelProviderKind",
     "ResearchEvidenceSectionSummary",
     "ResearchLimitation",
     "ResearchPlan",
@@ -271,6 +286,7 @@ __all__ = [
     "AgentExternalRunWaitRef",
     "AgentRunClaim",
     "AgentRunHarnessOptions",
+    "AgentRunModelCostPolicy",
     "AgentRunOperatorFollowUpOptions",
     "AgentRunResearchContinuationOptions",
     "AgentRunRetryPolicy",
