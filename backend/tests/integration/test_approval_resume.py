@@ -4,7 +4,12 @@ from pydantic_ai.models.test import TestModel
 from aithru_agent.agent import AgentRuntime
 from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
 from aithru_agent.capabilities.local_tools import ArtifactLocalTool, TodoLocalTool, WorkspaceLocalTool
-from aithru_agent.domain import AgentApprovalDecision, AgentRunStatus
+from aithru_agent.domain import (
+    AgentApprovalDecision,
+    AgentExternalApprovalRef,
+    AgentExternalRunWaitRef,
+    AgentRunStatus,
+)
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 from aithru_agent.worker.runner import AgentWorkerRunner
@@ -104,8 +109,10 @@ async def test_approval_resume_fails_run_with_unresolvable_skill_before_tool_exe
         tool_name="workspace.write_file",
         tool_input={"path": "/reports/report.md", "content": "# Report\n", "media_type": "text/markdown"},
     )
+    running = await store.claim_run(run.id)
+    assert running is not None
     await store.update_run(
-        run.id,
+        running.id,
         status=AgentRunStatus.WAITING_APPROVAL,
         current_approval_id=approval.id,
     )
@@ -124,3 +131,216 @@ async def test_approval_resume_fails_run_with_unresolvable_skill_before_tool_exe
     assert resumed.error["message"] == "Skill not found: missing-skill"
     assert "tool.started" not in event_types
     assert files == []
+
+
+@pytest.mark.asyncio
+async def test_workflow_owned_external_approval_resume_requeues_without_agent_approval() -> None:
+    runner, store, event_store = make_approval_runner()
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Wait for workflow-owned approval",
+        workspace_id=workspace.id,
+        scopes=["workflow.capability.report_review.invoke"],
+    )
+    running = await store.claim_run(run.id)
+    assert running is not None
+    paused = await store.update_run(
+        running.id,
+        status=AgentRunStatus.WAITING_APPROVAL,
+        current_external_approval=AgentExternalApprovalRef(
+            kind="workflow_capability",
+            capability_key="report_review",
+            capability_run_id="caprun_1",
+            approval_id="capapproval_1",
+            tool_call_id="tc_workflow",
+            tool_name="workflow.report_review",
+            correlation_id="run_1:tc_workflow",
+            status="pending",
+        ),
+    )
+
+    resumed = await runner.resume_after_external_approval(
+        paused.id,
+        approval_id="capapproval_1",
+        capability_run_id="caprun_1",
+        decision=AgentApprovalDecision.APPROVED,
+        comment="approved in Workbench",
+    )
+    events = await event_store.list_by_run(run.id)
+
+    assert resumed.status == AgentRunStatus.QUEUED
+    assert resumed.current_approval_id is None
+    assert resumed.current_external_approval is None
+    assert await store.list_approvals() == []
+    assert [event.type for event in events] == [
+        "external_approval.resolved",
+        "run.resumed",
+    ]
+    assert events[0].payload == {
+        "kind": "workflow_capability",
+        "capability_key": "report_review",
+        "capability_run_id": "caprun_1",
+        "approval_id": "capapproval_1",
+        "tool_call_id": "tc_workflow",
+        "tool_name": "workflow.report_review",
+        "decision": "approved",
+        "comment": "approved in Workbench",
+    }
+
+
+@pytest.mark.asyncio
+async def test_rejected_workflow_owned_external_approval_fails_run() -> None:
+    runner, store, event_store = make_approval_runner()
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Wait for workflow-owned approval",
+        workspace_id=workspace.id,
+        scopes=["workflow.capability.report_review.invoke"],
+    )
+    running = await store.claim_run(run.id)
+    assert running is not None
+    paused = await store.update_run(
+        running.id,
+        status=AgentRunStatus.WAITING_APPROVAL,
+        current_external_approval=AgentExternalApprovalRef(
+            kind="workflow_capability",
+            capability_key="report_review",
+            capability_run_id="caprun_1",
+            approval_id="capapproval_1",
+            tool_call_id="tc_workflow",
+            tool_name="workflow.report_review",
+            correlation_id="run_1:tc_workflow",
+            status="pending",
+        ),
+    )
+
+    failed = await runner.resume_after_external_approval(
+        paused.id,
+        approval_id="capapproval_1",
+        capability_run_id="caprun_1",
+        decision=AgentApprovalDecision.REJECTED,
+        comment="rejected in Workbench",
+    )
+    events = await event_store.list_by_run(run.id)
+
+    assert failed.status == AgentRunStatus.FAILED
+    assert failed.current_external_approval is None
+    assert [event.type for event in events] == [
+        "external_approval.resolved",
+        "external_run.failed",
+        "run.failed",
+    ]
+    assert failed.error == {"message": "External workflow approval rejected"}
+
+
+@pytest.mark.asyncio
+async def test_external_run_resume_requeues_after_completion() -> None:
+    runner, store, event_store = make_approval_runner()
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Wait for asynchronous workflow capability",
+        workspace_id=workspace.id,
+        scopes=["workflow.capability.report_review.invoke"],
+    )
+    running = await store.claim_run(run.id)
+    assert running is not None
+    paused = await store.update_run(
+        running.id,
+        status=AgentRunStatus.WAITING_EXTERNAL_RUN,
+        current_external_run=AgentExternalRunWaitRef(
+            kind="workflow_capability",
+            capability_key="report_review",
+            capability_run_id="caprun_1",
+            tool_call_id="tc_workflow",
+            tool_name="workflow.report_review",
+            correlation_id="run_1:tc_workflow",
+            status="running",
+        ),
+    )
+
+    resumed = await runner.resume_after_external_run(
+        paused.id,
+        capability_run_id="caprun_1",
+        status="completed",
+        output={"review_status": "accepted"},
+        comment="completed in Workbench",
+    )
+    events = await event_store.list_by_run(run.id)
+
+    assert resumed.status == AgentRunStatus.QUEUED
+    assert resumed.current_external_run is None
+    assert resumed.current_external_approval is None
+    assert await store.list_approvals() == []
+    assert [event.type for event in events] == [
+        "external_run.completed",
+        "run.resumed",
+    ]
+    assert events[0].payload == {
+        "kind": "workflow_capability",
+        "capability_key": "report_review",
+        "capability_run_id": "caprun_1",
+        "tool_call_id": "tc_workflow",
+        "tool_name": "workflow.report_review",
+        "status": "completed",
+        "correlation_id": "run_1:tc_workflow",
+        "output": {"review_status": "accepted"},
+        "comment": "completed in Workbench",
+    }
+    assert events[1].payload == {"status": "queued", "resume_reason": "external_run_completed"}
+
+
+@pytest.mark.asyncio
+async def test_failed_external_run_fails_waiting_run() -> None:
+    runner, store, event_store = make_approval_runner()
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Wait for asynchronous workflow capability",
+        workspace_id=workspace.id,
+        scopes=["workflow.capability.report_review.invoke"],
+    )
+    running = await store.claim_run(run.id)
+    assert running is not None
+    paused = await store.update_run(
+        running.id,
+        status=AgentRunStatus.WAITING_EXTERNAL_RUN,
+        current_external_run=AgentExternalRunWaitRef(
+            kind="workflow_capability",
+            capability_key="report_review",
+            capability_run_id="caprun_1",
+            tool_call_id="tc_workflow",
+            tool_name="workflow.report_review",
+            correlation_id="run_1:tc_workflow",
+            status="running",
+        ),
+    )
+
+    failed = await runner.resume_after_external_run(
+        paused.id,
+        capability_run_id="caprun_1",
+        status="failed",
+        error={"message": "Workflow capability failed"},
+        comment="failed in Workbench",
+    )
+    events = await event_store.list_by_run(run.id)
+
+    assert failed.status == AgentRunStatus.FAILED
+    assert failed.current_external_run is None
+    assert failed.error == {"message": "Workflow capability failed"}
+    assert [event.type for event in events] == [
+        "external_run.failed",
+        "run.failed",
+    ]
+    assert events[0].payload["status"] == "failed"
+    assert events[0].payload["error"] == {"message": "Workflow capability failed"}

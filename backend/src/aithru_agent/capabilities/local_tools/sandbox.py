@@ -1,46 +1,149 @@
-import asyncio
-import json
-import sys
+import base64
+from pathlib import PurePosixPath
 from typing import Any
 
+from pydantic import ValidationError
+
 from aithru_agent.domain import (
+    AgentArtifactPromotionResult,
+    AgentWorkspaceDiff,
+    AgentWorkspacePatchResult,
+    AgentWorkspaceFile,
+    AgentWorkspaceFileVersion,
+    AgentWorkspaceTextPatchRequest,
     AgentToolCallRequest,
     AgentToolCallResult,
     AgentToolDescriptor,
     AgentToolKind,
     AgentToolRiskLevel,
+    apply_workspace_text_patch,
 )
 from aithru_agent.domain.errors import AgentError
+from aithru_agent.persistence.protocols import AgentStore
+from aithru_agent.sandbox import (
+    LocalPythonSandboxProvider,
+    SandboxExecutionRequest,
+    SandboxExecutionResult,
+    SandboxExecutionStatus,
+    SandboxExecutionSummary,
+    SandboxFileDeleteRequest,
+    SandboxFileDeleteResult,
+    SandboxFileListRequest,
+    SandboxFileListResult,
+    SandboxFilePromotionRequest,
+    SandboxFileReadRequest,
+    SandboxFileReadResult,
+    SandboxFileWriteRequest,
+    SandboxFileWriteResult,
+    SandboxProvider,
+    SandboxRunDiagnostics,
+    SandboxRunPythonOutput,
+    SandboxWorkspaceDiffRequest,
+    SandboxWorkspaceEffectsSummary,
+    SandboxWorkspaceOutputFile,
+)
 from aithru_agent.stream import AgentEventWriter
 
 from ..descriptors import AgentRunContext
 
 
-MAX_CODE_SIZE = 20_000
-MAX_TIMEOUT_MS = 5_000
-MAX_STREAM_CHARS = 16_000
-
-
 class SandboxLocalTool:
-    def __init__(self, event_writer: AgentEventWriter) -> None:
+    def __init__(
+        self,
+        event_writer: AgentEventWriter,
+        *,
+        store: AgentStore | None = None,
+        provider: SandboxProvider | None = None,
+    ) -> None:
         self._event_writer = event_writer
+        self._store = store
+        self._provider = provider or LocalPythonSandboxProvider()
 
     def list_tools(self) -> list[AgentToolDescriptor]:
         return [
             AgentToolDescriptor(
+                name="sandbox.list_files",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="List current Agent workspace file metadata through the sandbox boundary.",
+                input_schema=SandboxFileListRequest.model_json_schema(),
+                output_schema=SandboxFileListResult.model_json_schema(),
+                risk_level=AgentToolRiskLevel.READ,
+                required_scopes=["agent.sandbox.execute", "agent.workspace.read"],
+                approval_policy="never",
+            ),
+            AgentToolDescriptor(
+                name="sandbox.read_file",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="Read a file from the current Agent workspace through the sandbox boundary.",
+                input_schema=SandboxFileReadRequest.model_json_schema(),
+                output_schema=SandboxFileReadResult.model_json_schema(),
+                risk_level=AgentToolRiskLevel.READ,
+                required_scopes=["agent.sandbox.execute", "agent.workspace.read"],
+                approval_policy="never",
+            ),
+            AgentToolDescriptor(
+                name="sandbox.diff",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="Inspect metadata changes between Agent workspace snapshots through the sandbox boundary.",
+                input_schema=SandboxWorkspaceDiffRequest.model_json_schema(),
+                output_schema=AgentWorkspaceDiff.model_json_schema(),
+                risk_level=AgentToolRiskLevel.READ,
+                required_scopes=["agent.sandbox.execute", "agent.workspace.read"],
+                approval_policy="never",
+            ),
+            AgentToolDescriptor(
+                name="sandbox.write_file",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="Write a file to the current Agent workspace through the sandbox boundary.",
+                input_schema=SandboxFileWriteRequest.model_json_schema(),
+                output_schema=SandboxFileWriteResult.model_json_schema(),
+                risk_level=AgentToolRiskLevel.WRITE,
+                required_scopes=["agent.sandbox.execute", "agent.workspace.write"],
+                approval_policy="on_risk",
+            ),
+            AgentToolDescriptor(
+                name="sandbox.patch_file",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="Patch a text file in the current Agent workspace through the sandbox boundary.",
+                input_schema=AgentWorkspaceTextPatchRequest.model_json_schema(),
+                output_schema=AgentWorkspacePatchResult.model_json_schema(),
+                risk_level=AgentToolRiskLevel.WRITE,
+                required_scopes=["agent.sandbox.execute", "agent.workspace.write"],
+                approval_policy="on_risk",
+            ),
+            AgentToolDescriptor(
+                name="sandbox.delete_file",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description="Delete a file from the current Agent workspace through the sandbox boundary.",
+                input_schema=SandboxFileDeleteRequest.model_json_schema(),
+                output_schema=SandboxFileDeleteResult.model_json_schema(),
+                risk_level=AgentToolRiskLevel.WRITE,
+                required_scopes=["agent.sandbox.execute", "agent.workspace.write"],
+                approval_policy="on_risk",
+            ),
+            AgentToolDescriptor(
+                name="sandbox.promote_file",
+                kind=AgentToolKind.LOCAL_TOOL,
+                description=(
+                    "Promote a current Agent workspace file to a managed artifact through "
+                    "the sandbox boundary."
+                ),
+                input_schema=SandboxFilePromotionRequest.model_json_schema(),
+                output_schema=AgentArtifactPromotionResult.model_json_schema(),
+                risk_level=AgentToolRiskLevel.WRITE,
+                required_scopes=[
+                    "agent.sandbox.execute",
+                    "agent.workspace.read",
+                    "agent.artifact.write",
+                ],
+                approval_policy="on_risk",
+            ),
+            AgentToolDescriptor(
                 name="sandbox.run_python",
                 kind=AgentToolKind.LOCAL_TOOL,
                 description="Run restricted Python code with explicit input and captured output.",
-                input_schema={
-                    "type": "object",
-                    "required": ["code"],
-                    "properties": {
-                        "code": {"type": "string"},
-                        "input": {},
-                        "timeout_ms": {"type": "integer", "minimum": 1, "maximum": MAX_TIMEOUT_MS},
-                    },
-                },
-                output_schema={"type": "object"},
+                input_schema=SandboxExecutionRequest.model_json_schema(),
+                output_schema=SandboxRunPythonOutput.model_json_schema(),
                 risk_level=AgentToolRiskLevel.DANGEROUS,
                 required_scopes=["agent.sandbox.execute"],
                 approval_policy="on_risk",
@@ -52,15 +155,27 @@ class SandboxLocalTool:
         request: AgentToolCallRequest,
         context: AgentRunContext,
     ) -> AgentToolCallResult:
+        if request.tool_name == "sandbox.list_files":
+            return await self._list_workspace_files(request, context)
+        if request.tool_name == "sandbox.read_file":
+            return await self._read_workspace_file(request, context)
+        if request.tool_name == "sandbox.diff":
+            return await self._diff_workspace(request, context)
+        if request.tool_name == "sandbox.write_file":
+            return await self._write_workspace_file(request, context)
+        if request.tool_name == "sandbox.patch_file":
+            return await self._patch_workspace_file(request, context)
+        if request.tool_name == "sandbox.delete_file":
+            return await self._delete_workspace_file(request, context)
+        if request.tool_name == "sandbox.promote_file":
+            return await self._promote_workspace_file(request, context)
         if request.tool_name != "sandbox.run_python":
             return AgentToolCallResult(
                 status="denied",
                 error={"message": f"Unknown sandbox tool: {request.tool_name}"},
                 redaction="none",
             )
-        input_data = _input_dict(request.input)
-        code = _required_code(input_data)
-        timeout_ms = _timeout_ms(input_data.get("timeout_ms"))
+        execution_request = _execution_request(request.input, context)
         sandbox_run_id = f"sandbox_{request.id}"
 
         await self._event_writer.write(
@@ -72,17 +187,12 @@ class SandboxLocalTool:
                 "sandbox_run_id": sandbox_run_id,
                 "language": "python",
                 "status": "running",
-                "timeout_ms": timeout_ms,
+                "timeout_ms": execution_request.timeout_ms,
             },
         )
-        result = await _run_restricted_python(
-            code=code,
-            input_value=input_data.get("input"),
-            timeout_ms=timeout_ms,
-        )
-        stdout = str(result.get("stdout") or "")
-        stderr = str(result.get("stderr") or "")
-        if stdout:
+        result = await self._provider.run_python(execution_request)
+        execution = result.execution or _execution_summary(execution_request, result)
+        if result.stdout:
             await self._event_writer.write(
                 run_id=context.run_id,
                 thread_id=context.thread_id,
@@ -91,10 +201,10 @@ class SandboxLocalTool:
                 payload={
                     "sandbox_run_id": sandbox_run_id,
                     "stream": "stdout",
-                    "delta": stdout,
+                    "delta": result.stdout,
                 },
             )
-        if stderr:
+        if result.stderr:
             await self._event_writer.write(
                 run_id=context.run_id,
                 thread_id=context.thread_id,
@@ -103,18 +213,51 @@ class SandboxLocalTool:
                 payload={
                     "sandbox_run_id": sandbox_run_id,
                     "stream": "stderr",
-                    "delta": stderr,
+                    "delta": result.stderr,
                 },
             )
 
-        output = {
-            "sandbox_run_id": sandbox_run_id,
-            "language": "python",
-            "stdout": stdout,
-            "stderr": stderr,
-            "result": result.get("result"),
-        }
-        if result.get("status") == "completed":
+        persisted_files, persistence_error = await self._persist_workspace_files(
+            context=context,
+            sandbox_run_id=sandbox_run_id,
+            files=result.workspace_files,
+        )
+        status: SandboxExecutionStatus = (
+            "failed" if persistence_error is not None or result.status != "completed" else "completed"
+        )
+        diagnostics = _run_diagnostics(
+            sandbox_run_id=sandbox_run_id,
+            status=status,
+            execution=execution,
+            declared_files=result.workspace_files,
+            persisted_files=persisted_files,
+            persistence_error=persistence_error,
+        )
+
+        output = SandboxRunPythonOutput(
+            sandbox_run_id=sandbox_run_id,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            result=result.result,
+            execution=execution,
+            diagnostics=diagnostics,
+            workspace_files=persisted_files,
+        ).model_dump(mode="json")
+        if persistence_error is not None:
+            await self._event_writer.write(
+                run_id=context.run_id,
+                thread_id=context.thread_id,
+                type="sandbox.failed",
+                source={"kind": "sandbox", "id": sandbox_run_id, "name": "python"},
+                payload={**output, "status": "failed", "error": persistence_error},
+            )
+            return AgentToolCallResult(
+                status="failed",
+                output=output,
+                error=persistence_error,
+                redaction="none",
+            )
+        if status == "completed":
             await self._event_writer.write(
                 run_id=context.run_id,
                 thread_id=context.thread_id,
@@ -124,7 +267,7 @@ class SandboxLocalTool:
             )
             return AgentToolCallResult(status="completed", output=output, redaction="none")
 
-        error = _error_dict(result.get("error"))
+        error = result.error or {"message": "Sandbox failed"}
         await self._event_writer.write(
             run_id=context.run_id,
             thread_id=context.thread_id,
@@ -134,59 +277,487 @@ class SandboxLocalTool:
         )
         return AgentToolCallResult(status="failed", output=output, error=error, redaction="none")
 
-
-async def _run_restricted_python(
-    *,
-    code: str,
-    input_value: object,
-    timeout_ms: int,
-) -> dict[str, object]:
-    payload = json.dumps({"code": code, "input": input_value})
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-I",
-        "-c",
-        _PYTHON_SANDBOX_RUNNER,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(payload.encode("utf-8")),
-            timeout=timeout_ms / 1000,
+    async def _list_workspace_files(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        if self._store is None:
+            return AgentToolCallResult(
+                status="failed",
+                error={"message": "Sandbox file listing requires a workspace store"},
+                redaction="none",
+            )
+        list_request = _file_list_request(request.input)
+        if isinstance(list_request, AgentToolCallResult):
+            return list_request
+        if list_request.prefix is not None and not _path_allowed(
+            list_request.prefix,
+            context.workspace_allowed_paths,
+        ):
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": f"Path is outside allowed workspace paths: {list_request.prefix}"},
+                redaction="none",
+            )
+        files = [
+            file
+            for file in await self._store.list_workspace_files(context.workspace_id)
+            if _path_allowed(file.path, context.workspace_allowed_paths)
+            and _path_has_prefix(file.path, list_request.prefix)
+        ]
+        files = sorted(files, key=lambda file: file.path)
+        total_count = len(files)
+        limited_files = files[: list_request.limit]
+        output = SandboxFileListResult(
+            workspace_id=context.workspace_id,
+            prefix=list_request.prefix,
+            files=limited_files,
+            count=len(limited_files),
+            total_count=total_count,
+            truncated=len(limited_files) < total_count,
         )
-    except TimeoutError:
-        process.kill()
-        stdout, stderr = await process.communicate()
-        return {
-            "status": "failed",
-            "stdout": _truncate(stdout.decode("utf-8", "replace")),
-            "stderr": _truncate(stderr.decode("utf-8", "replace")),
-            "error": {"message": f"Sandbox timed out after {timeout_ms}ms"},
-        }
+        return AgentToolCallResult(
+            status="completed",
+            output=output.model_dump(mode="json"),
+            redaction="none",
+        )
 
-    raw_stdout = stdout.decode("utf-8", "replace")
-    raw_stderr = _truncate(stderr.decode("utf-8", "replace"))
-    try:
-        result = json.loads(raw_stdout)
-    except json.JSONDecodeError:
-        return {
-            "status": "failed",
-            "stdout": "",
-            "stderr": raw_stderr,
-            "error": {"message": "Sandbox returned invalid output"},
+    async def _persist_workspace_files(
+        self,
+        *,
+        context: AgentRunContext,
+        sandbox_run_id: str,
+        files: list[SandboxWorkspaceOutputFile],
+    ) -> tuple[list[dict[str, object]], dict[str, str] | None]:
+        if not files:
+            return [], None
+        if self._store is None:
+            return [], {"message": "Sandbox declared workspace files but no workspace store is configured"}
+        if not _can_write_workspace(context.scopes):
+            return [], {"message": "Missing required scope: agent.workspace.write"}
+        if any(file.artifact is not None for file in files) and not _can_write_artifact(context.scopes):
+            return [], {"message": "Missing required scope: agent.artifact.write"}
+        for file in files:
+            if not _path_allowed(file.path, context.workspace_allowed_paths):
+                return [], {
+                    "message": f"Path is outside allowed workspace paths: {file.path}",
+                }
+        persisted: list[dict[str, object]] = []
+        for file in files:
+            written = await self._store.write_workspace_file(
+                workspace_id=context.workspace_id,
+                path=file.path,
+                content=file.content,
+                media_type=file.media_type,
+            )
+            payload = {
+                "source": "sandbox.run_python",
+                "sandbox_run_id": sandbox_run_id,
+                **written.model_dump(mode="json"),
+            }
+            await self._event_writer.write(
+                run_id=context.run_id,
+                thread_id=context.thread_id,
+                type="workspace.file.created",
+                source={"kind": "workspace"},
+                payload=payload,
+            )
+            promotion = None
+            if file.artifact is not None:
+                promotion = await self._store.promote_workspace_file_to_artifact(
+                    org_id=context.org_id,
+                    workspace_id=context.workspace_id,
+                    path=file.path,
+                    name=file.artifact.name,
+                    type=file.artifact.type,
+                    run_id=context.run_id,
+                    metadata={
+                        "sandbox": {
+                            "sandbox_run_id": sandbox_run_id,
+                            "run_id": context.run_id,
+                            "path": file.path,
+                        }
+                    },
+                )
+                await self._event_writer.write(
+                    run_id=context.run_id,
+                    thread_id=context.thread_id,
+                    type="artifact.created",
+                    source={"kind": "artifact"},
+                    payload={
+                        "source": "sandbox.run_python",
+                        "sandbox_run_id": sandbox_run_id,
+                        "artifact_id": promotion.artifact.id,
+                        **promotion.artifact.model_dump(mode="json"),
+                    },
+                )
+            persisted.append(
+                _workspace_output_payload(file=file, written=written, promotion=promotion)
+            )
+        return persisted, None
+
+    async def _read_workspace_file(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        if self._store is None:
+            return AgentToolCallResult(
+                status="failed",
+                error={"message": "Sandbox file reads require a workspace store"},
+                redaction="none",
+            )
+        read_request = _file_read_request(request.input)
+        if isinstance(read_request, AgentToolCallResult):
+            return read_request
+        if not _path_allowed(read_request.path, context.workspace_allowed_paths):
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": f"Path is outside allowed workspace paths: {read_request.path}"},
+                redaction="none",
+            )
+        try:
+            content = await self._store.read_workspace_file(
+                context.workspace_id,
+                read_request.path,
+            )
+        except AgentError as err:
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": err.message},
+                redaction="none",
+            )
+        output = _file_read_result(
+            path=read_request.path,
+            content=content.content,
+            media_type=content.media_type,
+            max_bytes=read_request.max_bytes,
+        )
+        return AgentToolCallResult(
+            status="completed",
+            output=output.model_dump(mode="json"),
+            redaction="none",
+        )
+
+    async def _diff_workspace(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        if self._store is None:
+            return AgentToolCallResult(
+                status="failed",
+                error={"message": "Sandbox workspace diffs require a workspace store"},
+                redaction="none",
+            )
+        diff_request = _workspace_diff_request(request.input)
+        if isinstance(diff_request, AgentToolCallResult):
+            return diff_request
+        diff = await self._store.diff_workspace_snapshots(
+            workspace_id=context.workspace_id,
+            base_version=diff_request.base_version,
+            target_version=diff_request.target_version,
+        )
+        output = _filter_workspace_diff(diff, context.workspace_allowed_paths)
+        return AgentToolCallResult(
+            status="completed",
+            output=output.model_dump(mode="json"),
+            redaction="none",
+        )
+
+    async def _patch_workspace_file(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        if self._store is None:
+            return AgentToolCallResult(
+                status="failed",
+                error={"message": "Sandbox file patches require a workspace store"},
+                redaction="none",
+            )
+        patch_request = _file_patch_request(request.input)
+        if isinstance(patch_request, AgentToolCallResult):
+            return patch_request
+        if not _path_allowed(patch_request.path, context.workspace_allowed_paths):
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": f"Path is outside allowed workspace paths: {patch_request.path}"},
+                redaction="none",
+            )
+        try:
+            current = await self._store.read_workspace_file(
+                context.workspace_id,
+                patch_request.path,
+            )
+            before_file = await _workspace_file(
+                self._store,
+                workspace_id=context.workspace_id,
+                path=patch_request.path,
+            )
+        except AgentError as err:
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": err.message},
+                redaction="none",
+            )
+        if not isinstance(current.content, str):
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": "sandbox.patch_file only supports text files"},
+                redaction="none",
+            )
+        try:
+            patched_content, replacement_count = apply_workspace_text_patch(
+                current.content,
+                patch_request,
+            )
+        except ValueError as err:
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": str(err)},
+                redaction="none",
+            )
+        patched_file = await self._store.write_workspace_file(
+            workspace_id=context.workspace_id,
+            path=patch_request.path,
+            content=patched_content,
+            media_type=patch_request.media_type or current.media_type,
+        )
+        await self._event_writer.write(
+            run_id=context.run_id,
+            thread_id=context.thread_id,
+            type="workspace.file.created",
+            source={"kind": "workspace"},
+            payload={
+                "source": "sandbox.patch_file",
+                "tool_call_id": request.id,
+                **patched_file.model_dump(mode="json"),
+            },
+        )
+        output = AgentWorkspacePatchResult(
+            workspace_id=context.workspace_id,
+            path=patched_file.path,
+            version_before=before_file.version,
+            version_after=patched_file.version,
+            file_version_before=before_file.file_version,
+            file_version_after=patched_file.file_version,
+            size_before=before_file.size,
+            size_after=patched_file.size,
+            replacement_count=replacement_count,
+            content_hash=patched_file.content_hash,
+        )
+        return AgentToolCallResult(
+            status="completed",
+            output=output.model_dump(mode="json"),
+            redaction="none",
+        )
+
+    async def _delete_workspace_file(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        if self._store is None:
+            return AgentToolCallResult(
+                status="failed",
+                error={"message": "Sandbox file deletion requires a workspace store"},
+                redaction="none",
+            )
+        delete_request = _file_delete_request(request.input)
+        if isinstance(delete_request, AgentToolCallResult):
+            return delete_request
+        if not _path_allowed(delete_request.path, context.workspace_allowed_paths):
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": f"Path is outside allowed workspace paths: {delete_request.path}"},
+                redaction="none",
+            )
+        try:
+            before_file = await _workspace_file(
+                self._store,
+                workspace_id=context.workspace_id,
+                path=delete_request.path,
+            )
+            await self._store.delete_workspace_file(context.workspace_id, delete_request.path)
+            delete_version = await _latest_deleted_workspace_file_version(
+                self._store,
+                workspace_id=context.workspace_id,
+                path=delete_request.path,
+            )
+        except AgentError as err:
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": err.message},
+                redaction="none",
+            )
+        output = SandboxFileDeleteResult(
+            workspace_id=context.workspace_id,
+            path=before_file.path,
+            version_before=before_file.version,
+            deleted_version=delete_version.version,
+            file_version_before=before_file.file_version,
+            deleted_file_version=delete_version.file_version,
+            size_before=before_file.size,
+            media_type=before_file.media_type,
+            content_hash_before=before_file.content_hash,
+        )
+        await self._event_writer.write(
+            run_id=context.run_id,
+            thread_id=context.thread_id,
+            type="workspace.file.deleted",
+            source={"kind": "workspace"},
+            payload={
+                "source": "sandbox.delete_file",
+                "tool_call_id": request.id,
+                **output.model_dump(mode="json"),
+            },
+        )
+        return AgentToolCallResult(
+            status="completed",
+            output=output.model_dump(mode="json"),
+            redaction="none",
+        )
+
+    async def _promote_workspace_file(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        if self._store is None:
+            return AgentToolCallResult(
+                status="failed",
+                error={"message": "Sandbox file promotion requires a workspace store"},
+                redaction="none",
+            )
+        promotion_request = _file_promotion_request(request.input)
+        if isinstance(promotion_request, AgentToolCallResult):
+            return promotion_request
+        if not _path_allowed(promotion_request.path, context.workspace_allowed_paths):
+            return AgentToolCallResult(
+                status="denied",
+                error={
+                    "message": f"Path is outside allowed workspace paths: {promotion_request.path}"
+                },
+                redaction="none",
+            )
+        name = (
+            promotion_request.name
+            or PurePosixPath(promotion_request.path).name
+            or promotion_request.path
+        )
+        metadata = {
+            **(promotion_request.metadata or {}),
+            "sandbox": {
+                "source": "sandbox.promote_file",
+                "tool_call_id": request.id,
+                "run_id": context.run_id,
+                "path": promotion_request.path,
+            },
         }
-    if isinstance(result, dict):
-        result["stdout"] = _truncate(str(result.get("stdout") or ""))
-        result["stderr"] = _truncate(raw_stderr or str(result.get("stderr") or ""))
-        return result
-    return {
-        "status": "failed",
-        "stdout": "",
-        "stderr": raw_stderr,
-        "error": {"message": "Sandbox returned an invalid payload"},
-    }
+        try:
+            promotion = await self._store.promote_workspace_file_to_artifact(
+                org_id=context.org_id,
+                workspace_id=context.workspace_id,
+                path=promotion_request.path,
+                name=name,
+                type=promotion_request.type,
+                run_id=context.run_id,
+                retention=promotion_request.retention,
+                metadata=metadata,
+            )
+        except AgentError as err:
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": err.message},
+                redaction="none",
+            )
+        await self._event_writer.write(
+            run_id=context.run_id,
+            thread_id=context.thread_id,
+            type="artifact.created",
+            source={"kind": "artifact"},
+            payload={
+                "source": "sandbox.promote_file",
+                "tool_call_id": request.id,
+                "artifact_id": promotion.artifact.id,
+                **promotion.artifact.model_dump(mode="json"),
+            },
+        )
+        return AgentToolCallResult(
+            status="completed",
+            output=promotion.model_dump(mode="json"),
+            redaction="none",
+        )
+
+    async def _write_workspace_file(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        if self._store is None:
+            return AgentToolCallResult(
+                status="failed",
+                error={"message": "Sandbox file writes require a workspace store"},
+                redaction="none",
+            )
+        write_request = _file_write_request(request.input)
+        if isinstance(write_request, AgentToolCallResult):
+            return write_request
+        if not _path_allowed(write_request.path, context.workspace_allowed_paths):
+            return AgentToolCallResult(
+                status="denied",
+                error={"message": f"Path is outside allowed workspace paths: {write_request.path}"},
+                redaction="none",
+            )
+        overwritten = await _workspace_file_exists(
+            self._store,
+            workspace_id=context.workspace_id,
+            path=write_request.path,
+        )
+        written = await self._store.write_workspace_file(
+            workspace_id=context.workspace_id,
+            path=write_request.path,
+            content=write_request.content,
+            media_type=write_request.media_type,
+        )
+        await self._event_writer.write(
+            run_id=context.run_id,
+            thread_id=context.thread_id,
+            type="workspace.file.created",
+            source={"kind": "workspace"},
+            payload={
+                "source": "sandbox.write_file",
+                "tool_call_id": request.id,
+                **written.model_dump(mode="json"),
+            },
+        )
+        output = SandboxFileWriteResult(
+            workspace_id=context.workspace_id,
+            path=written.path,
+            file=written,
+            size=written.size,
+            media_type=written.media_type,
+            overwritten=overwritten,
+        )
+        return AgentToolCallResult(
+            status="completed",
+            output=output.model_dump(mode="json"),
+            redaction="none",
+        )
+
+
+def _execution_request(value: object, context: AgentRunContext) -> SandboxExecutionRequest:
+    input_data = _input_dict(value)
+    try:
+        execution_request = SandboxExecutionRequest.model_validate(input_data)
+    except ValidationError as exc:
+        raise AgentError("BAD_REQUEST", f"Invalid sandbox input: {exc}") from exc
+    timeout_ms = context.sandbox_policy.timeout_ms if context.sandbox_policy else None
+    if timeout_ms is not None and execution_request.timeout_ms > timeout_ms:
+        return execution_request.model_copy(update={"timeout_ms": timeout_ms})
+    return execution_request
 
 
 def _input_dict(value: object) -> dict[str, Any]:
@@ -195,139 +766,350 @@ def _input_dict(value: object) -> dict[str, Any]:
     return value
 
 
-def _required_code(input_data: dict[str, Any]) -> str:
-    value = input_data.get("code")
-    if not isinstance(value, str) or not value.strip():
-        raise AgentError("BAD_REQUEST", "Missing required sandbox field: code")
-    if len(value) > MAX_CODE_SIZE:
-        raise AgentError("BAD_REQUEST", f"Sandbox code exceeds {MAX_CODE_SIZE} characters")
-    return value
-
-
-def _timeout_ms(value: object) -> int:
-    if value is None:
-        return 1_000
+def _file_list_request(value: object) -> SandboxFileListRequest | AgentToolCallResult:
     try:
-        parsed = int(value)
-    except (TypeError, ValueError) as exc:
-        raise AgentError("BAD_REQUEST", "Sandbox timeout_ms must be an integer") from exc
-    return max(1, min(parsed, MAX_TIMEOUT_MS))
-
-
-def _truncate(value: str) -> str:
-    return value[:MAX_STREAM_CHARS]
-
-
-def _error_dict(value: object) -> dict[str, str]:
-    if isinstance(value, dict):
-        message = value.get("message")
-        code = value.get("code")
-        error = {"message": str(message) if message else "Sandbox failed"}
-        if code:
-            error["code"] = str(code)
-        return error
-    return {"message": str(value) if value else "Sandbox failed"}
-
-
-_PYTHON_SANDBOX_RUNNER = r"""
-import ast
-import contextlib
-import io
-import json
-import math
-import statistics
-import sys
-
-SAFE_BUILTINS = {
-    "abs": abs,
-    "all": all,
-    "any": any,
-    "bool": bool,
-    "dict": dict,
-    "enumerate": enumerate,
-    "float": float,
-    "int": int,
-    "len": len,
-    "list": list,
-    "max": max,
-    "min": min,
-    "print": print,
-    "range": range,
-    "round": round,
-    "set": set,
-    "sorted": sorted,
-    "str": str,
-    "sum": sum,
-    "tuple": tuple,
-    "zip": zip,
-}
-
-
-class SandboxValidationError(Exception):
-    pass
-
-
-class SandboxValidator(ast.NodeVisitor):
-    def visit_Import(self, node):
-        raise SandboxValidationError("import statements are not allowed")
-
-    def visit_ImportFrom(self, node):
-        raise SandboxValidationError("import statements are not allowed")
-
-    def visit_Attribute(self, node):
-        if node.attr.startswith("__"):
-            raise SandboxValidationError("dunder attribute access is not allowed")
-        self.generic_visit(node)
-
-    def visit_Name(self, node):
-        if node.id.startswith("__"):
-            raise SandboxValidationError("dunder names are not allowed")
-        self.generic_visit(node)
-
-
-def make_jsonable(value):
-    try:
-        json.dumps(value)
-        return value
-    except TypeError:
-        return str(value)
-
-
-def main():
-    payload = json.loads(sys.stdin.read())
-    code = payload.get("code", "")
-    input_data = payload.get("input")
-    stdout = io.StringIO()
-    try:
-        tree = ast.parse(code, mode="exec")
-        SandboxValidator().visit(tree)
-        env = {
-            "__builtins__": SAFE_BUILTINS,
-            "input_data": input_data,
-            "math": math,
-            "statistics": statistics,
-        }
-        compiled = compile(tree, "<aithru-sandbox>", "exec")
-        with contextlib.redirect_stdout(stdout):
-            exec(compiled, env, env)
-        response = {
-            "status": "completed",
-            "stdout": stdout.getvalue(),
-            "stderr": "",
-            "result": make_jsonable(env.get("result")),
-        }
-    except Exception as exc:
-        response = {
-            "status": "failed",
-            "stdout": stdout.getvalue(),
-            "stderr": "",
-            "error": {
-                "code": exc.__class__.__name__,
-                "message": str(exc),
+        return SandboxFileListRequest.model_validate(_input_dict(value))
+    except ValidationError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={
+                "message": "Invalid sandbox file list request",
+                "details": err.errors(include_context=False),
             },
-        }
-    json.dump(response, sys.stdout)
+            redaction="none",
+        )
+    except TypeError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={"message": str(err)},
+            redaction="none",
+        )
 
 
-main()
-"""
+def _file_read_request(value: object) -> SandboxFileReadRequest | AgentToolCallResult:
+    try:
+        return SandboxFileReadRequest.model_validate(_input_dict(value))
+    except ValidationError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={
+                "message": "Invalid sandbox file read request",
+                "details": err.errors(include_context=False),
+            },
+            redaction="none",
+        )
+    except TypeError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={"message": str(err)},
+            redaction="none",
+        )
+
+
+def _file_write_request(value: object) -> SandboxFileWriteRequest | AgentToolCallResult:
+    try:
+        return SandboxFileWriteRequest.model_validate(_input_dict(value))
+    except ValidationError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={
+                "message": "Invalid sandbox file write request",
+                "details": err.errors(include_context=False),
+            },
+            redaction="none",
+        )
+    except TypeError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={"message": str(err)},
+            redaction="none",
+        )
+
+
+def _file_delete_request(value: object) -> SandboxFileDeleteRequest | AgentToolCallResult:
+    try:
+        return SandboxFileDeleteRequest.model_validate(_input_dict(value))
+    except ValidationError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={
+                "message": "Invalid sandbox file deletion request",
+                "details": err.errors(include_context=False),
+            },
+            redaction="none",
+        )
+    except TypeError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={"message": str(err)},
+            redaction="none",
+        )
+
+
+def _file_promotion_request(value: object) -> SandboxFilePromotionRequest | AgentToolCallResult:
+    try:
+        return SandboxFilePromotionRequest.model_validate(_input_dict(value))
+    except ValidationError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={
+                "message": "Invalid sandbox file promotion request",
+                "details": err.errors(include_context=False),
+            },
+            redaction="none",
+        )
+    except TypeError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={"message": str(err)},
+            redaction="none",
+        )
+
+
+def _file_patch_request(value: object) -> AgentWorkspaceTextPatchRequest | AgentToolCallResult:
+    try:
+        return AgentWorkspaceTextPatchRequest.model_validate(_input_dict(value))
+    except ValidationError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={
+                "message": "Invalid sandbox file patch request",
+                "details": err.errors(include_context=False),
+            },
+            redaction="none",
+        )
+    except TypeError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={"message": str(err)},
+            redaction="none",
+        )
+
+
+def _workspace_diff_request(value: object) -> SandboxWorkspaceDiffRequest | AgentToolCallResult:
+    try:
+        return SandboxWorkspaceDiffRequest.model_validate(_input_dict(value))
+    except ValidationError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={
+                "message": "Invalid sandbox workspace diff request",
+                "details": err.errors(include_context=False),
+            },
+            redaction="none",
+        )
+    except TypeError as err:
+        return AgentToolCallResult(
+            status="denied",
+            error={"message": str(err)},
+            redaction="none",
+        )
+
+
+def _file_read_result(
+    *,
+    path: str,
+    content: str | bytes,
+    media_type: str | None,
+    max_bytes: int,
+) -> SandboxFileReadResult:
+    raw = content.encode("utf-8") if isinstance(content, str) else content
+    returned = raw[:max_bytes]
+    if isinstance(content, str):
+        encoded_content = returned.decode("utf-8", "replace")
+        encoding = "utf-8"
+    else:
+        encoded_content = base64.b64encode(returned).decode("ascii")
+        encoding = "base64"
+    return SandboxFileReadResult(
+        path=path,
+        content=encoded_content,
+        media_type=media_type,
+        content_encoding=encoding,
+        size=len(raw),
+        returned_bytes=len(returned),
+        truncated=len(returned) < len(raw),
+    )
+
+
+def _execution_summary(
+    request: SandboxExecutionRequest,
+    result: SandboxExecutionResult,
+) -> SandboxExecutionSummary:
+    error = result.error or {}
+    return SandboxExecutionSummary(
+        timeout_ms=request.timeout_ms,
+        stdout_chars=len(result.stdout),
+        stderr_chars=len(result.stderr),
+        result_type=_result_type(result.result),
+        error_code=error.get("code"),
+        timed_out=error.get("code") == "timeout",
+    )
+
+
+def _run_diagnostics(
+    *,
+    sandbox_run_id: str,
+    status: SandboxExecutionStatus,
+    execution: SandboxExecutionSummary,
+    declared_files: list[SandboxWorkspaceOutputFile],
+    persisted_files: list[dict[str, object]],
+    persistence_error: dict[str, str] | None,
+) -> SandboxRunDiagnostics:
+    return SandboxRunDiagnostics(
+        sandbox_run_id=sandbox_run_id,
+        status=status,
+        execution=execution,
+        workspace_effects=_workspace_effects_summary(
+            declared_files=declared_files,
+            persisted_files=persisted_files,
+            persistence_error=persistence_error,
+        ),
+        error_code=execution.error_code,
+        timed_out=execution.timed_out,
+    )
+
+
+def _workspace_effects_summary(
+    *,
+    declared_files: list[SandboxWorkspaceOutputFile],
+    persisted_files: list[dict[str, object]],
+    persistence_error: dict[str, str] | None,
+) -> SandboxWorkspaceEffectsSummary:
+    return SandboxWorkspaceEffectsSummary(
+        declared_count=len(declared_files),
+        persisted_count=len(persisted_files),
+        promoted_count=sum(1 for file in persisted_files if file.get("artifact") is not None),
+        paths=[
+            path
+            for file in persisted_files
+            if isinstance(path := file.get("path"), str)
+        ],
+        persistence_error=persistence_error,
+    )
+
+
+def _result_type(value: object) -> str | None:
+    if value is None:
+        return None
+    return type(value).__name__
+
+
+def _filter_workspace_diff(
+    diff: AgentWorkspaceDiff,
+    allowed_paths: list[str] | None,
+) -> AgentWorkspaceDiff:
+    if not allowed_paths:
+        return diff
+    changes = [
+        change
+        for change in diff.changes
+        if _path_allowed(change.path, allowed_paths)
+    ]
+    return AgentWorkspaceDiff(
+        workspace_id=diff.workspace_id,
+        base_version=diff.base_version,
+        target_version=diff.target_version,
+        changes=changes,
+        added_count=sum(1 for change in changes if change.operation == "added"),
+        modified_count=sum(1 for change in changes if change.operation == "modified"),
+        deleted_count=sum(1 for change in changes if change.operation == "deleted"),
+    )
+
+
+async def _workspace_file_exists(
+    store: AgentStore,
+    *,
+    workspace_id: str,
+    path: str,
+) -> bool:
+    normalized = _normalize_workspace_path(path)
+    return any(file.path == normalized for file in await store.list_workspace_files(workspace_id))
+
+
+async def _workspace_file(
+    store: AgentStore,
+    *,
+    workspace_id: str,
+    path: str,
+) -> AgentWorkspaceFile:
+    normalized = _normalize_workspace_path(path)
+    for file in await store.list_workspace_files(workspace_id):
+        if file.path == normalized:
+            return file
+    raise AgentError("NOT_FOUND", f"Workspace file not found: {path}")
+
+
+async def _latest_deleted_workspace_file_version(
+    store: AgentStore,
+    *,
+    workspace_id: str,
+    path: str,
+) -> AgentWorkspaceFileVersion:
+    normalized = _normalize_workspace_path(path)
+    versions = await store.list_workspace_file_versions(
+        workspace_id=workspace_id,
+        path=normalized,
+    )
+    deleted_versions = [version for version in versions if version.operation == "delete"]
+    if not deleted_versions:
+        raise AgentError("NOT_FOUND", f"Workspace deletion version not found: {path}")
+    return max(deleted_versions, key=lambda version: version.version)
+
+
+def _can_write_workspace(scopes: list[str]) -> bool:
+    return "*" in scopes or "agent.workspace.write" in scopes
+
+
+def _can_write_artifact(scopes: list[str]) -> bool:
+    return "*" in scopes or "agent.artifact.write" in scopes
+
+
+def _workspace_output_payload(
+    *,
+    file: SandboxWorkspaceOutputFile,
+    written: AgentWorkspaceFile,
+    promotion: AgentArtifactPromotionResult | None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "path": file.path,
+        "media_type": file.media_type,
+        "file": written.model_dump(mode="json"),
+    }
+    if promotion is not None:
+        payload["artifact"] = promotion.model_dump(mode="json")
+    return payload
+
+
+def _path_allowed(path: str, allowed_paths: list[str] | None) -> bool:
+    if not allowed_paths:
+        return True
+    normalized = _normalize_workspace_path(path)
+    return any(
+        normalized == allowed or normalized.startswith(allowed.rstrip("/") + "/")
+        for allowed in (_normalize_workspace_path(allowed_path) for allowed_path in allowed_paths)
+    )
+
+
+def _path_has_prefix(path: str, prefix: str | None) -> bool:
+    if prefix is None:
+        return True
+    normalized = _normalize_workspace_path(path)
+    normalized_prefix = _normalize_workspace_path(prefix)
+    return normalized == normalized_prefix or normalized.startswith(
+        normalized_prefix.rstrip("/") + "/"
+    )
+
+
+def _normalize_workspace_path(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    parts: list[str] = []
+    for part in normalized.split("/"):
+        if not part or part == ".":
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    return "/" + "/".join(parts)

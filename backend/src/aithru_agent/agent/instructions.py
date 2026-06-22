@@ -1,7 +1,15 @@
 """System prompt assembly for the native Pydantic AI agent."""
 
 from aithru_agent.agent.deps import PydanticAgentDeps
-from aithru_agent.domain import AgentMemoryEntry, AgentMessage, AgentWorkspaceFile
+from aithru_agent.domain import (
+    AgentMemoryEntry,
+    AgentMemoryRecallItem,
+    AgentMessage,
+    AgentRunContextBudgetUsage,
+    AgentRunContextPacket,
+    AgentRunContextToolResult,
+    AgentWorkspaceFile,
+)
 
 
 MAX_WORKSPACE_FILES_IN_PROMPT = 50
@@ -24,6 +32,9 @@ class InstructionBuilder:
 
         if deps.skill:
             sections.append(f"Skill instructions:\n{deps.skill.instructions}")
+
+        if deps.context_packet and deps.context_packet.has_context:
+            sections.append(_render_context_packet(deps.context_packet))
 
         thread_messages = await self._thread_messages_for_run(deps)
         if thread_messages:
@@ -99,6 +110,235 @@ def _truncate_message(content: str) -> str:
     if len(content) <= MAX_THREAD_MESSAGE_CHARS:
         return content
     return content[:MAX_THREAD_MESSAGE_CHARS] + "..."
+
+
+def _render_context_packet(packet: AgentRunContextPacket) -> str:
+    lines = [
+        "Run context packet:",
+        f"Status: {packet.status.value}",
+    ]
+    if packet.resume:
+        lines.append(f"Resume: {packet.resume.reason} - {packet.resume.detail}")
+    if packet.budget:
+        lines.append(_budget_line(packet.budget))
+    if packet.compressed_context:
+        lines.append("Compressed context:")
+        lines.append(
+            f"- {_display_truncated(packet.compressed_context.summary, packet.compressed_context.truncated)}"
+        )
+    if packet.thread_messages:
+        lines.append("Recent thread messages:")
+        lines.extend(
+            f"- {message.role}: {_display_truncated(message.content, message.truncated)}"
+            for message in packet.thread_messages
+        )
+    if packet.todos:
+        lines.append("Run todos:")
+        lines.extend(
+            f"- [{todo.status.value}] {todo.title}{_description_suffix(todo.description)}"
+            for todo in packet.todos
+        )
+    if packet.research:
+        lines.append("Research continuation:")
+        lines.extend(_research_lines(packet.research))
+    if packet.artifacts:
+        lines.append("Run artifacts:")
+        lines.extend(
+            _artifact_line(artifact.type, artifact.name, artifact.uri, artifact.summary, artifact.truncated)
+            for artifact in packet.artifacts
+        )
+    if packet.tool_results:
+        lines.append("Recent tool results:")
+        lines.extend(
+            _tool_result_line(result)
+            for result in packet.tool_results
+        )
+    if packet.memory and packet.memory.items:
+        lines.append("Relevant memory:")
+        lines.extend(_memory_line(item) for item in packet.memory.items)
+    return "\n".join(lines)
+
+
+def _tool_result_line(result: AgentRunContextToolResult) -> str:
+    label = result.status
+    if result.source_type == "external_run":
+        external_label = "external"
+        if result.capability_run_id:
+            external_label = f"{external_label} {result.capability_run_id}"
+        label = f"{label} {external_label}"
+    return f"- {result.tool_name} [{label}]: {_display_truncated(result.summary, result.truncated)}"
+
+
+def _budget_line(budget: AgentRunContextBudgetUsage) -> str:
+    return (
+        f"Context budget: {budget.used_chars}/{budget.max_chars} chars used, "
+        f"{budget.remaining_chars} remaining; dropped details: "
+        f"{_count_label(budget.dropped_thread_messages, 'message', 'messages')}, "
+        f"{_count_label(budget.dropped_todos, 'todo', 'todos')}, "
+        f"{_count_label(budget.dropped_artifacts, 'artifact', 'artifacts')}, "
+        f"{_count_label(budget.dropped_tool_results, 'tool result', 'tool results')}, "
+        f"{_count_label(budget.dropped_memory, 'memory entry', 'memory entries')}; "
+        f"truncated items: {budget.truncated_items}"
+    )
+
+
+def _display_truncated(value: str, truncated: bool) -> str:
+    return value + ("..." if truncated else "")
+
+
+def _description_suffix(description: str | None) -> str:
+    if not description:
+        return ""
+    return f" - {description}"
+
+
+def _artifact_line(
+    artifact_type: str,
+    name: str,
+    uri: str | None,
+    summary: str | None,
+    truncated: bool,
+) -> str:
+    location = f" ({uri})" if uri else ""
+    suffix = ""
+    if summary:
+        suffix = f": {_display_truncated(summary, truncated)}"
+    return f"- {artifact_type} {name}{location}{suffix}"
+
+
+def _memory_line(item: AgentMemoryRecallItem) -> str:
+    scope = f"{item.scope}:{item.key}"
+    reason = f" ({item.reason})" if item.reason else ""
+    return f"- {scope} = {_display_truncated(item.value, item.truncated)}{reason}"
+
+
+def _research_lines(research: object) -> list[str]:
+    query = getattr(research, "query", None) or "unknown"
+    report_status = getattr(research, "report_status", None) or "none"
+    lines = [
+        f"- Status: {getattr(research, 'status', 'none')}; report status: {report_status}; query: {query}"
+    ]
+    source_run_id = getattr(research, "source_run_id", None)
+    if source_run_id:
+        lines.append(f"- Source run: {source_run_id}")
+    target_section_ids = getattr(research, "target_section_ids", [])
+    if target_section_ids:
+        lines.append("- Target sections: " + ", ".join(str(section_id) for section_id in target_section_ids))
+    completed_steps = getattr(research, "completed_steps", [])
+    pending_steps = getattr(research, "pending_steps", [])
+    blocked_steps = getattr(research, "blocked_steps", [])
+    if completed_steps:
+        lines.append("- Completed steps: " + ", ".join(completed_steps))
+    if pending_steps:
+        lines.append("- Pending steps: " + ", ".join(pending_steps))
+    if blocked_steps:
+        lines.append("- Blocked steps: " + ", ".join(blocked_steps))
+    artifact_line = _research_artifact_line(
+        getattr(research, "report_artifact_ids", []),
+        getattr(research, "report_artifact_uris", []),
+    )
+    if artifact_line:
+        lines.append(artifact_line)
+    sections = getattr(research, "sections", [])
+    if sections:
+        lines.append("Research sections:")
+        lines.extend(_research_section_line(section) for section in sections)
+    for item in getattr(research, "evidence", []):
+        lines.append(_research_evidence_line(item))
+    for limitation in getattr(research, "limitations", []):
+        lines.append(_research_limitation_line(limitation))
+    for action in getattr(research, "next_actions", []):
+        lines.append(f"- Next action: {action}")
+    for action_hint in getattr(research, "action_hints", []):
+        lines.append(_research_action_hint_line(action_hint))
+    dropped = getattr(research, "dropped_evidence", 0)
+    if dropped:
+        lines.append(f"- Dropped evidence rows: {dropped}")
+    return lines
+
+
+def _research_artifact_line(ids: list[str], uris: list[str]) -> str | None:
+    if not ids:
+        return None
+    rendered = []
+    for index, artifact_id in enumerate(ids):
+        uri = uris[index] if index < len(uris) else None
+        rendered.append(f"{artifact_id} ({uri})" if uri else artifact_id)
+    return "- Report artifacts: " + ", ".join(rendered)
+
+
+def _research_section_line(section: object) -> str:
+    section_id = getattr(section, "section_id", "section")
+    status = "covered" if getattr(section, "covered", False) else "missing"
+    priority = getattr(section, "priority", "medium")
+    title = getattr(section, "title", section_id)
+    question = getattr(section, "question", None)
+    question_suffix = f" - {_display_truncated(question, bool(getattr(section, 'truncated', False)))}" if question else ""
+    source_count = getattr(section, "source_count", 0)
+    evidence_count = getattr(section, "evidence_count", 0)
+    return (
+        f"- Section {section_id} [{status}, {priority}]: {title}{question_suffix} "
+        f"sources={source_count}; evidence={evidence_count}"
+    )
+
+
+def _research_evidence_line(item: object) -> str:
+    citation_number = getattr(item, "citation_number", "?")
+    title = getattr(item, "title", "source")
+    url = getattr(item, "url", "")
+    quality = getattr(item, "quality_label", None) or "unknown"
+    evidence_text = _research_evidence_text(item)
+    location = f", {url}" if url else ""
+    section = getattr(item, "section_id", None)
+    section_prefix = f" section={section};" if section else ""
+    return (
+        f"- Evidence [{citation_number}]{section_prefix} {title} ({quality}{location}): "
+        f"{_display_truncated(evidence_text, bool(getattr(item, 'truncated', False)))}"
+    )
+
+
+def _research_evidence_text(item: object) -> str:
+    parts = [
+        value
+        for value in [getattr(item, "snippet", None), getattr(item, "excerpt", None)]
+        if isinstance(value, str) and value
+    ]
+    return " ".join(dict.fromkeys(parts)) or "No evidence text provided."
+
+
+def _research_limitation_line(limitation: object) -> str:
+    severity = getattr(limitation, "severity", "warning")
+    code = getattr(limitation, "code", "research_limitation")
+    message = getattr(limitation, "message", "Research limitation.")
+    source_url = getattr(limitation, "source_url", None)
+    suffix = f" ({source_url})" if source_url else ""
+    return f"- Limitation {severity} {code}: {message}{suffix}"
+
+
+def _research_action_hint_line(action_hint: object) -> str:
+    priority = getattr(action_hint, "priority", "medium")
+    kind = getattr(action_hint, "kind", "action")
+    title = getattr(action_hint, "title", "Continue research")
+    reason = getattr(action_hint, "reason", "Continue from current research context.")
+    suffixes = []
+    target_section_ids = getattr(action_hint, "target_section_ids", [])
+    if target_section_ids:
+        suffixes.append("sections: " + ", ".join(str(section_id) for section_id in target_section_ids))
+    suggested_tools = getattr(action_hint, "suggested_tool_names", [])
+    if suggested_tools:
+        suffixes.append("Tools: " + ", ".join(suggested_tools))
+    suggested_phases = getattr(action_hint, "suggested_research_phases", [])
+    if suggested_phases:
+        suffixes.append("phases: " + ", ".join(str(phase) for phase in suggested_phases))
+    suffix = "; ".join(suffixes)
+    if suffix:
+        suffix = " " + suffix
+    punctuation = "" if str(reason).endswith((".", "!", "?")) else "."
+    return f"- Action hint [{priority}] {kind}: {title} - {reason}{punctuation}{suffix}"
+
+
+def _count_label(count: int, singular: str, plural: str) -> str:
+    return f"{count} {singular if count == 1 else plural}"
 
 
 def _memory_scope_id(scope: str, deps: PydanticAgentDeps) -> str | None:

@@ -1,4 +1,7 @@
 from enum import StrEnum
+from typing import Literal
+
+from pydantic import Field, field_validator
 
 from .base import AithruBaseModel
 
@@ -22,11 +25,37 @@ class AgentMemoryPolicy(AithruBaseModel):
     scopes: list[str] | None = None
 
 
+class AgentSandboxMount(AithruBaseModel):
+    source: str
+    target: str
+    mode: Literal["read", "write"] = "read"
+
+    @field_validator("source", "target")
+    @classmethod
+    def _path_must_be_absolute(cls, value: str) -> str:
+        path = value.strip()
+        if not path.startswith("/"):
+            raise ValueError("sandbox mount paths must be absolute")
+        return path
+
+
 class AgentSandboxPolicy(AithruBaseModel):
     enabled: bool = False
-    network: str = "none"
+    network: Literal["none", "allowlist", "full"] = "none"
     allowed_commands: list[str] | None = None
-    timeout_ms: int | None = None
+    allowed_packages: list[str] | None = None
+    allowed_mounts: list[AgentSandboxMount] | None = None
+    timeout_ms: int | None = Field(default=None, ge=1, le=5_000)
+
+    @field_validator("allowed_commands", "allowed_packages")
+    @classmethod
+    def _list_items_must_not_be_blank(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        stripped = [item.strip() for item in value]
+        if any(not item for item in stripped):
+            raise ValueError("sandbox policy lists cannot contain blank items")
+        return stripped
 
 
 class AgentApprovalPolicy(AithruBaseModel):
@@ -54,4 +83,3 @@ class AgentSkill(AithruBaseModel):
     output_schema: object | None = None
     version: str
     status: AgentSkillStatus
-

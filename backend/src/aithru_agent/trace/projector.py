@@ -71,7 +71,10 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
             continue
 
         if event.type == "tool.started":
-            tool_call_id = _payload_value(event, "tool_call_id", "toolCallId") or f"{event.sequence}"
+            tool_call_id = (
+                _payload_value(event, "tool_call_id", "toolCallId")
+                or f"{event.sequence}"
+            )
             tool_name = _payload_value(event, "tool_name", "toolName") or "tool"
             spans[f"tool:{tool_call_id}"] = _start_span(
                 event,
@@ -88,6 +91,59 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
                     f"tool:{tool_call_id}",
                     event,
                     "completed" if event.type == "tool.completed" else "failed",
+                )
+            continue
+
+        if event.type == "external_run.created":
+            capability_run_id = _payload_value(
+                event,
+                "capability_run_id",
+                "capabilityRunId",
+            ) or f"{event.sequence}"
+            tool_name = _payload_value(event, "tool_name", "toolName")
+            capability_key = _payload_value(event, "capability_key", "capabilityKey")
+            spans[f"external_run:{capability_run_id}"] = _start_span(
+                event,
+                "external_run",
+                str(tool_name or capability_key or "external_run"),
+                refs=_external_run_refs(event),
+            )
+            continue
+        if event.type == "external_approval.requested":
+            capability_run_id = _payload_value(
+                event,
+                "capability_run_id",
+                "capabilityRunId",
+            )
+            if capability_run_id:
+                _merge_span_refs(
+                    spans,
+                    f"external_run:{capability_run_id}",
+                    _external_run_refs(event),
+                )
+            continue
+        if event.type in {
+            "external_run.completed",
+            "external_run.failed",
+            "external_run.cancelled",
+        }:
+            capability_run_id = _payload_value(
+                event,
+                "capability_run_id",
+                "capabilityRunId",
+            )
+            if capability_run_id:
+                span_id = f"external_run:{capability_run_id}"
+                _merge_span_refs(spans, span_id, _external_run_refs(event))
+                _finish_span(
+                    spans,
+                    span_id,
+                    event,
+                    "completed"
+                    if event.type == "external_run.completed"
+                    else "cancelled"
+                    if event.type == "external_run.cancelled"
+                    else "failed",
                 )
             continue
 
@@ -173,6 +229,11 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
                     if event.type == "subagent.completed"
                     else "failed"
                 )
+                _merge_span_refs(
+                    spans,
+                    f"subagent:{subagent_run_id}",
+                    _subagent_completion_refs(event),
+                )
                 _finish_span(
                     spans,
                     f"subagent:{subagent_run_id}",
@@ -195,9 +256,15 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
         if event.type in {"sandbox.completed", "sandbox.failed"}:
             sandbox_run_id = _payload_value(event, "sandbox_run_id", "sandboxRunId")
             if sandbox_run_id:
+                span_id = f"sandbox:{sandbox_run_id}"
+                existing = spans.get(span_id)
+                if existing:
+                    spans[span_id] = existing.model_copy(
+                        update={"refs": {**(existing.refs or {}), **_sandbox_execution_refs(event)}}
+                    )
                 _finish_span(
                     spans,
-                    f"sandbox:{sandbox_run_id}",
+                    span_id,
                     event,
                     "completed" if event.type == "sandbox.completed" else "failed",
                 )
@@ -225,6 +292,46 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
                 refs={"artifact_id": artifact_id},
             )
             _finish_span(spans, span_id, event, "completed")
+
+        if event.type in {
+            "web.search.completed",
+            "web.fetch.completed",
+            "web.search.failed",
+            "web.fetch.failed",
+        }:
+            tool_call_id = (
+                _payload_value(event, "tool_call_id", "toolCallId")
+                or f"{event.sequence}"
+            )
+            span_id = f"web:{tool_call_id}"
+            refs = {
+                key: value
+                for key, value in {
+                    "tool_call_id": tool_call_id,
+                    "query": _payload_value(event, "query"),
+                    "result_count": _payload_value(event, "result_count", "resultCount"),
+                    "url": _payload_value(event, "url"),
+                    "status_code": _payload_value(event, "status_code", "statusCode"),
+                    "content_length": _payload_value(event, "content_length", "contentLength"),
+                    "truncated": _payload_value(event, "truncated"),
+                    "error": _payload_value(event, "error"),
+                    "limitation": _payload_value(event, "limitation"),
+                }.items()
+                if value is not None
+            }
+            spans[span_id] = _start_span(
+                event,
+                "web",
+                "web.search" if event.type.startswith("web.search.") else "web.fetch",
+                refs=refs,
+            )
+            _finish_span(
+                spans,
+                span_id,
+                event,
+                "completed" if event.type.endswith(".completed") else "failed",
+            )
+            continue
 
         if event.type in {"memory.read", "memory.written", "memory.skipped"}:
             span_id = f"memory:{event.run_id}:{event.sequence}"
@@ -290,6 +397,21 @@ def _finish_span(
     )
 
 
+def _merge_span_refs(
+    spans: dict[str, AgentTraceSpan],
+    span_id: str,
+    refs: dict[str, object],
+) -> None:
+    if not refs:
+        return
+    span = spans.get(span_id)
+    if not span:
+        return
+    spans[span_id] = span.model_copy(
+        update={"refs": {**(span.refs or {}), **refs}}
+    )
+
+
 def _finish_open_span(
     spans: dict[str, AgentTraceSpan],
     span_id: str,
@@ -310,6 +432,29 @@ def _payload_value(event: AgentStreamEvent, *keys: str) -> object | None:
     return None
 
 
+def _subagent_completion_refs(event: AgentStreamEvent) -> dict[str, object]:
+    summary = _payload_value(event, "result_summary", "resultSummary")
+    refs: dict[str, object] = {}
+    if isinstance(summary, dict):
+        artifact_count = summary.get("artifact_count")
+        if isinstance(artifact_count, int):
+            refs["artifact_count"] = artifact_count
+        artifact_ids = summary.get("artifact_ids")
+        if isinstance(artifact_ids, list) and all(isinstance(item, str) for item in artifact_ids):
+            refs["artifact_ids"] = artifact_ids
+        content = summary.get("content")
+        if isinstance(content, str):
+            refs["result_content_length"] = len(content)
+            if summary.get("content_truncated") is True:
+                refs["result_content_truncated"] = True
+        return refs
+
+    result = _payload_value(event, "result")
+    if isinstance(result, str):
+        refs["result_content_length"] = len(result)
+    return refs
+
+
 def _usage_refs(event: AgentStreamEvent) -> dict[str, object]:
     return {
         key: value
@@ -318,6 +463,44 @@ def _usage_refs(event: AgentStreamEvent) -> dict[str, object]:
             "output_tokens": _payload_value(event, "output_tokens"),
             "total_tokens": _payload_value(event, "total_tokens"),
             "requests": _payload_value(event, "requests"),
+        }.items()
+        if value is not None
+    }
+
+
+def _sandbox_execution_refs(event: AgentStreamEvent) -> dict[str, object]:
+    execution = _payload_value(event, "execution")
+    if not isinstance(execution, dict):
+        return {}
+    return {
+        key: execution[key]
+        for key in (
+            "language",
+            "timeout_ms",
+            "exit_code",
+            "stdout_chars",
+            "stderr_chars",
+            "timed_out",
+        )
+        if key in execution
+    }
+
+
+def _external_run_refs(event: AgentStreamEvent) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in {
+            "kind": _payload_value(event, "kind"),
+            "tool_call_id": _payload_value(event, "tool_call_id", "toolCallId"),
+            "tool_name": _payload_value(event, "tool_name", "toolName"),
+            "capability_key": _payload_value(event, "capability_key", "capabilityKey"),
+            "capability_run_id": _payload_value(
+                event,
+                "capability_run_id",
+                "capabilityRunId",
+            ),
+            "correlation_id": _payload_value(event, "correlation_id", "correlationId"),
+            "approval_id": _payload_value(event, "approval_id", "approvalId"),
         }.items()
         if value is not None
     }

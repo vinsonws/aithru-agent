@@ -89,11 +89,24 @@ def _memory_policy(skill: ProgressiveSkill) -> AgentMemoryPolicy | None:
 
 
 def _sandbox_policy(skill: ProgressiveSkill) -> AgentSandboxPolicy | None:
-    if not skill.sandbox_enabled and not skill.sandbox_allowed_commands:
+    if not any(
+        [
+            skill.sandbox_enabled,
+            skill.sandbox_allowed_commands,
+            skill.sandbox_allowed_packages,
+            skill.sandbox_mounts,
+            skill.sandbox_network,
+            skill.sandbox_timeout_ms,
+        ]
+    ):
         return None
     return AgentSandboxPolicy(
         enabled=skill.sandbox_enabled,
+        network=skill.sandbox_network or "none",
         allowed_commands=skill.sandbox_allowed_commands,
+        allowed_packages=skill.sandbox_allowed_packages,
+        allowed_mounts=skill.sandbox_mounts,
+        timeout_ms=skill.sandbox_timeout_ms,
     )
 
 

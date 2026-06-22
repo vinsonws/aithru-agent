@@ -24,6 +24,10 @@ class ProgressiveSkill:
     memory_write_scopes: list[str] | None = None
     sandbox_enabled: bool = False
     sandbox_allowed_commands: list[str] | None = None
+    sandbox_allowed_packages: list[str] | None = None
+    sandbox_mounts: list[dict[str, str]] | None = None
+    sandbox_network: str | None = None
+    sandbox_timeout_ms: int | None = None
     requires_approval_for_risk: list[str] | None = None
     metadata: dict[str, Any] | None = None
 
@@ -67,6 +71,10 @@ def parse_skill_md(content: str) -> ProgressiveSkill:
         memory_write_scopes=_policy_list(memory_policy, "Write"),
         sandbox_enabled=_policy_bool(sandbox_policy, "Enabled"),
         sandbox_allowed_commands=_policy_list(sandbox_policy, "Allowed Commands"),
+        sandbox_allowed_packages=_policy_list(sandbox_policy, "Allowed Packages"),
+        sandbox_mounts=_policy_mounts(sandbox_policy, "Mounts"),
+        sandbox_network=_policy_value(sandbox_policy, "Network"),
+        sandbox_timeout_ms=_policy_int(sandbox_policy, "Timeout"),
         requires_approval_for_risk=_policy_list(approval_policy, "Require Approval"),
         metadata=frontmatter,
     )
@@ -101,6 +109,40 @@ def _policy_bool(section: str | None, key: str) -> bool:
         if line.strip().startswith(prefix):
             return line.split(":", 1)[1].strip().lower() == "true"
     return False
+
+
+def _policy_value(section: str | None, key: str) -> str | None:
+    if not section:
+        return None
+    prefix = f"{key}:"
+    for line in section.splitlines():
+        if line.strip().startswith(prefix):
+            value = line.split(":", 1)[1].strip()
+            return value or None
+    return None
+
+
+def _policy_int(section: str | None, key: str) -> int | None:
+    value = _policy_value(section, key)
+    return int(value) if value is not None else None
+
+
+def _policy_mounts(section: str | None, key: str) -> list[dict[str, str]] | None:
+    value = _policy_value(section, key)
+    if value is None:
+        return None
+    mounts = []
+    for item in value.split(","):
+        raw = item.strip()
+        if not raw:
+            continue
+        source, target_and_mode = [part.strip() for part in raw.split("->", 1)]
+        if ":" in target_and_mode:
+            target, mode = [part.strip() for part in target_and_mode.rsplit(":", 1)]
+        else:
+            target, mode = target_and_mode, "read"
+        mounts.append({"source": source, "target": target, "mode": mode})
+    return mounts or None
 
 
 def _string_list(value: object) -> list[str] | None:

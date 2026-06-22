@@ -18,7 +18,7 @@ def create_app(runtime: AgentRuntime | None = None) -> FastAPI:
     @app.middleware("http")
     async def require_api_token(request: Request, call_next):
         token = rt.settings.api_token
-        if token and request.url.path not in {"/api/agent/health", "/api/health"}:
+        if token and request.url.path != "/api/health":
             expected = f"Bearer {token}"
             actual = request.headers.get("authorization", "")
             if not compare_digest(actual, expected):

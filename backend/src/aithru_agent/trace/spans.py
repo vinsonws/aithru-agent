@@ -16,6 +16,7 @@ AgentTraceSpanKind = Literal[
     "external_run",
     "sandbox",
     "memory",
+    "web",
 ]
 
 AgentTraceSpanStatus = Literal["running", "completed", "failed", "cancelled"]

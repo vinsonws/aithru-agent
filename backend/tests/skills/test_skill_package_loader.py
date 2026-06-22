@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from aithru_agent.domain import AgentSkillStatus
+from aithru_agent.domain import AgentSandboxPolicy, AgentSkill, AgentSkillStatus
 from aithru_agent.harness.context_builder import ContextBuilder
 from aithru_agent.skills.loader import FileSkillLoader
 
@@ -128,3 +128,86 @@ Denied: artifact.create
 
     assert context.allowed_tools == ["workspace.read_file"]
 
+
+def test_context_builder_carries_enabled_sandbox_policy() -> None:
+    skill = AgentSkill(
+        id="skill_sandbox",
+        org_id="org_1",
+        key="sandbox",
+        name="Sandbox",
+        instructions="Run code under policy.",
+        allowed_tools=["sandbox.run_python"],
+        allowed_subagents=[],
+        sandbox_policy=AgentSandboxPolicy(
+            enabled=True,
+            network="none",
+            allowed_commands=["python"],
+            allowed_packages=["pandas"],
+            allowed_mounts=[{"source": "/workspace", "target": "/sandbox/workspace", "mode": "read"}],
+            timeout_ms=250,
+        ),
+        version="0.1.0",
+        status="published",
+    )
+
+    context = ContextBuilder().build(
+        run=type(
+            "Run",
+            (),
+            {
+                "id": "run_1",
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "workspace_id": "workspace_1",
+                "thread_id": None,
+                "skill_id": skill.id,
+            },
+        )(),
+        scopes=["*"],
+        skill=skill,
+    )
+
+    assert context.sandbox_policy == skill.sandbox_policy
+
+
+def test_file_skill_loader_parses_extended_sandbox_policy(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "skills" / "public" / "sandbox-policy"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: Sandbox Policy
+key: sandbox-policy
+id: skill_sandbox_policy
+org_id: org_1
+version: 0.1.0
+status: published
+enabled: true
+---
+
+## Tool Policy
+Allowed: sandbox.run_python
+
+## Sandbox Policy
+Enabled: true
+Timeout: 2500
+Network: allowlist
+Allowed Commands: python
+Allowed Packages: pandas, numpy
+Mounts: /workspace -> /sandbox/workspace:read, /reports -> /sandbox/reports:write
+""",
+        encoding="utf-8",
+    )
+
+    skill = FileSkillLoader(tmp_path / "skills").resolve("sandbox-policy")
+
+    assert skill is not None
+    assert skill.sandbox_policy is not None
+    assert skill.sandbox_policy.enabled is True
+    assert skill.sandbox_policy.timeout_ms == 2_500
+    assert skill.sandbox_policy.network == "allowlist"
+    assert skill.sandbox_policy.allowed_commands == ["python"]
+    assert skill.sandbox_policy.allowed_packages == ["pandas", "numpy"]
+    assert [mount.model_dump(mode="json") for mount in skill.sandbox_policy.allowed_mounts] == [
+        {"source": "/workspace", "target": "/sandbox/workspace", "mode": "read"},
+        {"source": "/reports", "target": "/sandbox/reports", "mode": "write"},
+    ]

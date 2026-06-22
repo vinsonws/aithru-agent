@@ -110,6 +110,14 @@ def test_projects_subagent_span() -> None:
                     "child_run_id": "run_2",
                     "name": "researcher",
                     "result": "Done",
+                    "result_summary": {
+                        "content": "Done",
+                        "content_truncated": False,
+                        "artifact_ids": ["artifact_1"],
+                        "artifacts": [],
+                        "artifact_count": 1,
+                        "has_output": True,
+                    },
                 },
                 "subagent",
             ),
@@ -125,6 +133,9 @@ def test_projects_subagent_span() -> None:
     assert by_id["subagent:subagent_run_1"].refs == {
         "subagent_run_id": "subagent_run_1",
         "child_run_id": "run_2",
+        "artifact_count": 1,
+        "artifact_ids": ["artifact_1"],
+        "result_content_length": 4,
     }
 
 
@@ -147,6 +158,188 @@ def test_projects_memory_spans() -> None:
     assert [span.status for span in memory_spans] == ["completed", "completed"]
     assert memory_spans[0].refs == {"operation": "write", "memory_scope": "user"}
     assert memory_spans[1].refs == {"operation": "read", "count": 1}
+
+
+def test_projects_web_search_and_fetch_spans() -> None:
+    spans = project_trace_spans(
+        [
+            ev(
+                1,
+                "web.search.completed",
+                {
+                    "tool_call_id": "tc_search",
+                    "query": "aithru",
+                    "result_count": 1,
+                },
+                "web",
+            ),
+            ev(
+                2,
+                "web.fetch.completed",
+                {
+                    "tool_call_id": "tc_fetch",
+                    "url": "https://example.com/aithru",
+                    "status_code": 200,
+                    "content_length": 42,
+                    "truncated": False,
+                },
+                "web",
+            ),
+        ]
+    )
+
+    by_id = {span.id: span for span in spans}
+
+    assert by_id["web:tc_search"].kind == "web"
+    assert by_id["web:tc_search"].name == "web.search"
+    assert by_id["web:tc_search"].status == "completed"
+    assert by_id["web:tc_search"].refs == {
+        "tool_call_id": "tc_search",
+        "query": "aithru",
+        "result_count": 1,
+    }
+    assert by_id["web:tc_fetch"].kind == "web"
+    assert by_id["web:tc_fetch"].name == "web.fetch"
+    assert by_id["web:tc_fetch"].status == "completed"
+    assert by_id["web:tc_fetch"].refs == {
+        "tool_call_id": "tc_fetch",
+        "url": "https://example.com/aithru",
+        "status_code": 200,
+        "content_length": 42,
+        "truncated": False,
+    }
+
+
+def test_projects_external_run_span() -> None:
+    spans = project_trace_spans(
+        [
+            ev(
+                1,
+                "external_run.created",
+                {
+                    "kind": "workflow_capability",
+                    "tool_call_id": "tc_workflow",
+                    "tool_name": "workflow.report_review",
+                    "capability_key": "report_review",
+                    "capability_run_id": "caprun_1",
+                    "status": "running",
+                    "correlation_id": "run_1:tc_workflow",
+                    "approval_id": None,
+                },
+                "workflow",
+            ),
+            ev(
+                2,
+                "external_approval.requested",
+                {
+                    "kind": "workflow_capability",
+                    "capability_run_id": "caprun_1",
+                    "approval_id": "capapproval_1",
+                },
+                "workflow",
+            ),
+            ev(
+                3,
+                "external_run.completed",
+                {
+                    "kind": "workflow_capability",
+                    "tool_call_id": "tc_workflow",
+                    "tool_name": "workflow.report_review",
+                    "capability_key": "report_review",
+                    "capability_run_id": "caprun_1",
+                    "status": "completed",
+                    "correlation_id": "run_1:tc_workflow",
+                    "approval_id": "capapproval_1",
+                },
+                "workflow",
+            ),
+        ]
+    )
+
+    by_id = {span.id: span for span in spans}
+
+    assert by_id["external_run:caprun_1"].kind == "external_run"
+    assert by_id["external_run:caprun_1"].name == "workflow.report_review"
+    assert by_id["external_run:caprun_1"].status == "completed"
+    assert by_id["external_run:caprun_1"].refs == {
+        "kind": "workflow_capability",
+        "tool_call_id": "tc_workflow",
+        "tool_name": "workflow.report_review",
+        "capability_key": "report_review",
+        "capability_run_id": "caprun_1",
+        "correlation_id": "run_1:tc_workflow",
+        "approval_id": "capapproval_1",
+    }
+
+
+def test_projects_failed_web_search_and_fetch_spans() -> None:
+    spans = project_trace_spans(
+        [
+            ev(
+                1,
+                "web.search.failed",
+                {
+                    "tool_call_id": "tc_search",
+                    "query": "aithru",
+                    "error": {"message": "search provider unavailable"},
+                    "limitation": {
+                        "code": "web_search_failed",
+                        "severity": "warning",
+                        "message": "Controlled web search failed: search provider unavailable.",
+                        "source_url": None,
+                    },
+                },
+                "web",
+            ),
+            ev(
+                2,
+                "web.fetch.failed",
+                {
+                    "tool_call_id": "tc_fetch",
+                    "url": "https://example.com/aithru",
+                    "error": {"message": "fetch provider unavailable"},
+                    "limitation": {
+                        "code": "web_fetch_failed",
+                        "severity": "warning",
+                        "message": "Controlled web fetch failed: fetch provider unavailable.",
+                        "source_url": "https://example.com/aithru",
+                    },
+                },
+                "web",
+            ),
+        ]
+    )
+
+    by_id = {span.id: span for span in spans}
+
+    assert by_id["web:tc_search"].kind == "web"
+    assert by_id["web:tc_search"].name == "web.search"
+    assert by_id["web:tc_search"].status == "failed"
+    assert by_id["web:tc_search"].refs == {
+        "tool_call_id": "tc_search",
+        "query": "aithru",
+        "error": {"message": "search provider unavailable"},
+        "limitation": {
+            "code": "web_search_failed",
+            "severity": "warning",
+            "message": "Controlled web search failed: search provider unavailable.",
+            "source_url": None,
+        },
+    }
+    assert by_id["web:tc_fetch"].kind == "web"
+    assert by_id["web:tc_fetch"].name == "web.fetch"
+    assert by_id["web:tc_fetch"].status == "failed"
+    assert by_id["web:tc_fetch"].refs == {
+        "tool_call_id": "tc_fetch",
+        "url": "https://example.com/aithru",
+        "error": {"message": "fetch provider unavailable"},
+        "limitation": {
+            "code": "web_fetch_failed",
+            "severity": "warning",
+            "message": "Controlled web fetch failed: fetch provider unavailable.",
+            "source_url": "https://example.com/aithru",
+        },
+    }
 
 
 def test_projects_todo_spans() -> None:

@@ -18,7 +18,7 @@ from aithru_agent.api.routes import (
 
 
 def include_agent_routes(app: FastAPI) -> None:
-    """Register new route groups and legacy compatibility aliases."""
+    """Register Aithru Agent route groups."""
     for router in [
         health.router,
         threads.router,
@@ -36,4 +36,3 @@ def include_agent_routes(app: FastAPI) -> None:
 
 
 __all__ = ["include_agent_routes"]
-

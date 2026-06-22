@@ -83,4 +83,3 @@ async def test_runtime_adds_skill_instruction_capability_for_active_skill() -> N
         isinstance(capability, SkillInstructionCapability)
         for capability in root_capabilities
     )
-

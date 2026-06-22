@@ -10,22 +10,32 @@ from aithru_agent.domain import (
     AgentApprovalDecision,
     AgentApprovalStatus,
     AgentArtifact,
+    AgentArtifactPromotionResult,
+    AgentArtifactRetentionPolicy,
     AgentMemoryEntry,
+    AgentMemoryForgetResult,
+    AgentMemoryRetentionPolicy,
     AgentMessage,
     AgentMessageRole,
     AgentRun,
     AgentRunHarnessOptions,
+    AgentRunRetryPolicy,
     AgentRunSource,
     AgentSubagentRun,
     AgentSubagentSpec,
     AgentThread,
+    AgentThreadStatus,
     AgentTodo,
     AgentTodoCreatorType,
     AgentTodoStatus,
     AgentWorkspace,
+    AgentWorkspaceDiff,
     AgentWorkspaceFile,
+    AgentWorkspaceFileVersion,
+    AgentWorkspaceRestoreResult,
+    AgentWorkspaceSnapshot,
 )
-from aithru_agent.domain.artifact import AgentArtifactType
+from aithru_agent.domain.artifact import AgentArtifactRetentionMode, AgentArtifactType
 
 if TYPE_CHECKING:
     from aithru_agent.stream.events import AgentStreamEvent
@@ -54,6 +64,13 @@ class AgentStore(Protocol):
         ...
 
     async def list_threads(self) -> list[AgentThread]:
+        ...
+
+    async def update_thread(
+        self,
+        thread_id: str,
+        **updates: AgentThreadStatus | str | object,
+    ) -> AgentThread:
         ...
 
     async def append_message(
@@ -92,6 +109,7 @@ class AgentStore(Protocol):
         workspace_id: str,
         scopes: list[str] | None = None,
         harness_options: AgentRunHarnessOptions | None = None,
+        retry_policy: AgentRunRetryPolicy | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
     ) -> AgentRun:
@@ -106,10 +124,33 @@ class AgentStore(Protocol):
     async def update_run(self, run_id: str, **updates: object) -> AgentRun:
         ...
 
-    async def claim_run(self, run_id: str) -> AgentRun | None:
+    async def claim_run(
+        self,
+        run_id: str,
+        *,
+        worker_id: str = "worker",
+        claimed_at: str | None = None,
+        lease_seconds: int = 300,
+    ) -> AgentRun | None:
         ...
 
-    async def claim_next_queued_run(self) -> AgentRun | None:
+    async def claim_next_queued_run(
+        self,
+        *,
+        worker_id: str = "worker",
+        claimed_at: str | None = None,
+        lease_seconds: int = 300,
+    ) -> AgentRun | None:
+        ...
+
+    async def renew_run_claim(
+        self,
+        run_id: str,
+        *,
+        worker_id: str,
+        heartbeat_at: str | None = None,
+        lease_seconds: int = 300,
+    ) -> AgentRun | None:
         ...
 
     async def create_todo(
@@ -182,6 +223,39 @@ class AgentStore(Protocol):
     async def list_workspace_files(self, workspace_id: str) -> list[AgentWorkspaceFile]:
         ...
 
+    async def list_workspace_file_versions(
+        self,
+        *,
+        workspace_id: str,
+        path: str | None = None,
+    ) -> list[AgentWorkspaceFileVersion]:
+        ...
+
+    async def get_workspace_snapshot(
+        self,
+        workspace_id: str,
+        *,
+        version: int | None = None,
+    ) -> AgentWorkspaceSnapshot:
+        ...
+
+    async def diff_workspace_snapshots(
+        self,
+        *,
+        workspace_id: str,
+        base_version: int | None = None,
+        target_version: int | None = None,
+    ) -> AgentWorkspaceDiff:
+        ...
+
+    async def restore_workspace_snapshot(
+        self,
+        workspace_id: str,
+        *,
+        version: int,
+    ) -> AgentWorkspaceRestoreResult:
+        ...
+
     async def delete_workspace_file(self, workspace_id: str, path: str) -> dict[str, str]:
         ...
 
@@ -197,13 +271,36 @@ class AgentStore(Protocol):
         uri: str | None = None,
         content: object | None = None,
         metadata: dict | None = None,
+        retention: AgentArtifactRetentionPolicy | None = None,
     ) -> AgentArtifact:
+        ...
+
+    async def promote_workspace_file_to_artifact(
+        self,
+        *,
+        org_id: str,
+        workspace_id: str,
+        path: str,
+        name: str,
+        type: AgentArtifactType = "file",
+        run_id: str | None = None,
+        retention: AgentArtifactRetentionPolicy | None = None,
+        metadata: dict | None = None,
+    ) -> AgentArtifactPromotionResult:
         ...
 
     async def get_artifact(self, artifact_id: str) -> AgentArtifact | None:
         ...
 
-    async def list_artifacts(self, *, run_id: str | None = None) -> list[AgentArtifact]:
+    async def list_artifacts(
+        self,
+        *,
+        run_id: str | None = None,
+        workspace_id: str | None = None,
+        type: AgentArtifactType | None = None,
+        retention_mode: AgentArtifactRetentionMode | None = None,
+        finalized: bool | None = None,
+    ) -> list[AgentArtifact]:
         ...
 
     async def finalize_artifact(self, artifact_id: str) -> AgentArtifact:
@@ -221,8 +318,11 @@ class AgentStore(Protocol):
         source: str | None = None,
         confidence: float | None = None,
         visibility: str | None = None,
-        retention: str | None = None,
+        retention: AgentMemoryRetentionPolicy | dict[str, object] | str | None = None,
     ) -> AgentMemoryEntry:
+        ...
+
+    async def get_memory_entry(self, memory_id: str) -> AgentMemoryEntry | None:
         ...
 
     async def list_memory_entries(
@@ -232,7 +332,11 @@ class AgentStore(Protocol):
         scope: str | None = None,
         scope_id: str | None = None,
         query: str | None = None,
+        include_expired: bool = False,
     ) -> list[AgentMemoryEntry]:
+        ...
+
+    async def delete_memory_entry(self, memory_id: str) -> AgentMemoryForgetResult:
         ...
 
     async def create_subagent_spec(
