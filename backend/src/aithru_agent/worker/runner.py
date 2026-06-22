@@ -35,6 +35,7 @@ from aithru_agent.harness import ContextBuilder, ContextPacketBuilder
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
 from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
+from aithru_agent.skills.resolver import resolve_skill_for_org
 from aithru_agent.stream import AgentEventWriter
 from aithru_agent.worker.recovery import RunRecoveryDecision, decide_run_recovery
 from aithru_agent.worker.subagent_result import build_subagent_result_summary
@@ -374,8 +375,8 @@ class AgentWorkerRunner:
     ) -> AgentSkill | None:
         if skill_id is None:
             return None
-        skill = self._skill_resolver.resolve(skill_id)
-        if skill is None or skill.org_id != org_id:
+        skill = resolve_skill_for_org(self._skill_resolver, org_id, skill_id)
+        if skill is None:
             raise AgentError("SKILL_NOT_FOUND", f"Skill not found: {skill_id}")
         return skill
 

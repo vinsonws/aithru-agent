@@ -28,7 +28,7 @@ class AgentWorkspacePolicy(AithruBaseModel):
 class AgentMemoryPolicy(AithruBaseModel):
     read: bool = False
     write: bool = False
-    scopes: list[str] | None = None
+    scopes: list[Literal["user", "thread", "workspace", "organization", "skill"]] | None = None
 
 
 class AgentSandboxMount(AithruBaseModel):
@@ -65,8 +65,16 @@ class AgentSandboxPolicy(AithruBaseModel):
 
 
 class AgentApprovalPolicy(AithruBaseModel):
-    default_decision: str = "require_approval"
-    require_approval_for_risk: list[str] = []
+    default_decision: Literal["require_approval"] = "require_approval"
+    require_approval_for_risk: list[str] = Field(default_factory=list)
+
+    @field_validator("require_approval_for_risk")
+    @classmethod
+    def _risk_levels_must_not_be_blank(cls, value: list[str]) -> list[str]:
+        stripped = [item.strip() for item in value]
+        if any(not item for item in stripped):
+            raise ValueError("approval policy risk entries cannot be blank")
+        return stripped
 
 
 class AgentSkill(AithruBaseModel):

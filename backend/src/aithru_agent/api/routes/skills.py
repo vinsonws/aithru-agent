@@ -19,10 +19,12 @@ from aithru_agent.domain import (
     AgentSkillStatus,
 )
 from aithru_agent.skills import (
+    SkillRegistryError,
     SkillRegistryConflictError,
     SkillRegistryNotFoundError,
     SkillRegistryReadOnlyError,
 )
+from aithru_agent.skills.resolver import resolve_skill_for_org
 
 router = APIRouter()
 
@@ -47,6 +49,9 @@ class UpdateSkillRegistryEntryRequest(BaseModel):
             {"name", "description", "version", "status", "marketplace", "configuration"}
         ):
             raise ValueError("at least one skill registry field must be supplied")
+        for field in ("name", "version", "status", "configuration"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
         return self
 
     def registry_updates(self) -> dict[str, object]:
@@ -84,6 +89,8 @@ async def register_skill_registry_entry(
         )
     except SkillRegistryConflictError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
+    except SkillRegistryError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
 
 
 @router.get("/api/skill-registry", response_model=list[AgentSkillRegistryEntry])
@@ -129,6 +136,8 @@ async def update_skill_registry_entry(
         raise HTTPException(status_code=404, detail="Skill registry entry not found") from err
     except SkillRegistryReadOnlyError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
+    except SkillRegistryError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
 
 
 @router.post(
@@ -187,7 +196,12 @@ async def get_skill(
     skill_id_or_key: str,
     deps: ApiDependencies = Depends(api_deps),
 ) -> AgentSkill:
-    skill = deps.runtime.skill_resolver.resolve(skill_id_or_key)
+    trusted_org_id = request.headers.get("x-aithru-org-id")
+    skill = (
+        resolve_skill_for_org(deps.runtime.skill_resolver, trusted_org_id, skill_id_or_key)
+        if trusted_org_id is not None
+        else deps.runtime.skill_resolver.resolve(skill_id_or_key)
+    )
     if not skill or not org_visible(request, skill.org_id):
         raise HTTPException(status_code=404, detail="Skill not found")
     return skill

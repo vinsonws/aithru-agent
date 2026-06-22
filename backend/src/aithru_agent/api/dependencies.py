@@ -31,6 +31,7 @@ from aithru_agent.domain import (
 )
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import ContextBuilder
+from aithru_agent.skills.resolver import resolve_skill_for_org
 from aithru_agent.stream import format_sse_event
 
 
@@ -248,8 +249,8 @@ class ApiDependencies:
     def resolve_run_skill(self, run: AgentRun):
         if not run.skill_id:
             return None
-        skill = self.runtime.skill_resolver.resolve(run.skill_id)
-        if not skill or skill.org_id != run.org_id:
+        skill = resolve_skill_for_org(self.runtime.skill_resolver, run.org_id, run.skill_id)
+        if not skill:
             raise HTTPException(status_code=409, detail=f"Skill not found: {run.skill_id}")
         return skill
 

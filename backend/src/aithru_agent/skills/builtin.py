@@ -17,6 +17,12 @@ class BuiltInResearchSkillResolver:
     def resolve(self, skill_id_or_key: str) -> AgentSkill | None:
         return self._by_id.get(skill_id_or_key) or self._by_key.get(skill_id_or_key)
 
+    def resolve_for_org(self, org_id: str, skill_id_or_key: str) -> AgentSkill | None:
+        skill = self.resolve(skill_id_or_key)
+        if skill is None or skill.org_id != org_id:
+            return None
+        return skill
+
     def list_skills(self) -> list[AgentSkill]:
         return list(self._skills)
 

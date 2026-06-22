@@ -7,6 +7,7 @@ from typing import Protocol
 
 from aithru_agent.domain import (
     AgentSkill,
+    AgentSkillConfiguration,
     AgentSkillEnablementResult,
     AgentSkillMarketplaceMetadata,
     AgentSkillRegistryEntry,
@@ -99,6 +100,7 @@ class InMemorySkillRegistry:
             marketplace=marketplace,
             read_only=read_only,
         )
+        _validate_managed_configuration(entry.configuration)
         _ensure_available(entry, self._entries.values())
         self._entries[entry.id] = entry
         return entry
@@ -147,6 +149,12 @@ class InMemorySkillRegistry:
                 return entry.to_skill()
         return None
 
+    def resolve_for_org(self, org_id: str, skill_id_or_key: str) -> AgentSkill | None:
+        entry = self.get_entry(org_id, skill_id_or_key)
+        if entry is None or not _is_runtime_visible(entry):
+            return None
+        return entry.to_skill()
+
     def list_skills(self) -> list[AgentSkill]:
         return [
             entry.to_skill()
@@ -174,6 +182,15 @@ class SQLiteSkillRegistry:
             existing = self.get_entry(entry.org_id, entry.id) or self.get_entry(entry.org_id, entry.key)
             if existing is None:
                 self._save_entry(entry)
+            elif existing.read_only and entry.read_only:
+                self._save_entry(
+                    entry.model_copy(
+                        update={
+                            "created_at": existing.created_at,
+                            "updated_at": _utc_now(),
+                        }
+                    )
+                )
 
     def register_skill(
         self,
@@ -189,6 +206,7 @@ class SQLiteSkillRegistry:
             marketplace=marketplace,
             read_only=read_only,
         )
+        _validate_managed_configuration(entry.configuration)
         _ensure_available(entry, self._list_all_entries())
         self._save_entry(entry)
         return entry
@@ -242,6 +260,12 @@ class SQLiteSkillRegistry:
             if entry.key == skill_id_or_key and _is_runtime_visible(entry):
                 return entry.to_skill()
         return None
+
+    def resolve_for_org(self, org_id: str, skill_id_or_key: str) -> AgentSkill | None:
+        entry = self.get_entry(org_id, skill_id_or_key)
+        if entry is None or not _is_runtime_visible(entry):
+            return None
+        return entry.to_skill()
 
     def list_skills(self) -> list[AgentSkill]:
         return [
@@ -311,7 +335,23 @@ def _updated_entry(
     payload = entry.model_dump(mode="python")
     payload.update(updates)
     payload["updated_at"] = _utc_now()
-    return AgentSkillRegistryEntry.model_validate(payload)
+    updated = AgentSkillRegistryEntry.model_validate(payload)
+    _validate_managed_configuration(updated.configuration)
+    return updated
+
+
+def _validate_managed_configuration(configuration: AgentSkillConfiguration) -> None:
+    sandbox = configuration.sandbox_policy
+    if sandbox is None:
+        return
+    if sandbox.network != "none":
+        raise SkillRegistryError("managed sandbox policy supports only network='none'")
+    if sandbox.allowed_commands is not None:
+        raise SkillRegistryError("managed sandbox policy does not support allowed_commands")
+    if sandbox.allowed_packages is not None:
+        raise SkillRegistryError("managed sandbox policy does not support allowed_packages")
+    if sandbox.allowed_mounts is not None:
+        raise SkillRegistryError("managed sandbox policy does not support allowed_mounts")
 
 
 def _is_runtime_visible(entry: AgentSkillRegistryEntry) -> bool:

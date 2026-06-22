@@ -5849,7 +5849,7 @@ async def test_agent_api_registers_marketplace_skill_with_typed_config_and_org_f
         "allowed_tools": ["workspace.read_file", "artifact.create"],
         "denied_tools": ["web.fetch"],
         "allowed_subagents": ["citation-checker"],
-        "memory_policy": {"read": True, "write": False, "scopes": ["org"]},
+        "memory_policy": {"read": True, "write": False, "scopes": ["organization"]},
         "sandbox_policy": {"enabled": False, "network": "none"},
         "approval_policy": {
             "default_decision": "require_approval",
@@ -5898,11 +5898,61 @@ async def test_agent_api_registers_marketplace_skill_with_typed_config_and_org_f
     assert created["marketplace"]["listing_id"] == "listing_research_brief"
     assert created["configuration"]["denied_tools"] == ["web.fetch"]
     assert created["configuration"]["allowed_subagents"] == ["citation-checker"]
-    assert created["configuration"]["memory_policy"]["scopes"] == ["org"]
+    assert created["configuration"]["memory_policy"]["scopes"] == ["organization"]
     assert created["configuration"]["approval_policy"]["require_approval_for_risk"] == ["high"]
     assert [entry["key"] for entry in listed.json()] == ["research-brief"]
     assert own_detail.status_code == 200
     assert external_detail.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "policy_fragment",
+    [
+        {"memory_policy": {"read": True, "scopes": ["org"]}},
+        {"approval_policy": {"default_decision": "auto_approve"}},
+        {"approval_policy": {"require_approval_for_risk": ["write", " "]}},
+        {"sandbox_policy": {"enabled": True, "network": "allowlist"}},
+        {"sandbox_policy": {"enabled": True, "allowed_commands": ["python"]}},
+        {"sandbox_policy": {"enabled": True, "allowed_packages": ["pandas"]}},
+        {
+            "sandbox_policy": {
+                "enabled": True,
+                "allowed_mounts": [
+                    {"source": "/workspace", "target": "/sandbox/workspace", "mode": "read"}
+                ],
+            }
+        },
+    ],
+)
+@pytest.mark.asyncio
+async def test_agent_api_rejects_unsupported_skill_registry_policy_values(
+    policy_fragment: dict[str, object],
+) -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([]))
+    app = create_app(runtime)
+    skill_payload = {
+        "id": "skill_policy_validation",
+        "org_id": "org_1",
+        "key": "policy-validation",
+        "name": "Policy Validation",
+        "instructions": "Validate managed policy.",
+        "allowed_tools": [],
+        "allowed_subagents": [],
+        "version": "0.1.0",
+        "status": "published",
+        **policy_fragment,
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/api/skill-registry",
+            json={"skill": skill_payload, "source": "managed"},
+        )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -6028,6 +6078,44 @@ async def test_agent_api_updates_skill_registry_version_and_runtime_policy_confi
     assert [tool["name"] for tool in tools] == ["artifact.create"]
 
 
+@pytest.mark.parametrize(
+    "patch_payload",
+    [
+        {"name": None},
+        {"version": None},
+        {"status": None},
+        {"configuration": None},
+    ],
+)
+@pytest.mark.asyncio
+async def test_agent_api_rejects_null_skill_registry_patch_values(
+    patch_payload: dict[str, object],
+) -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([]))
+    app = create_app(runtime)
+    skill_payload = {
+        "id": "skill_file_report",
+        "org_id": "org_1",
+        "key": "file-report",
+        "name": "File Report",
+        "instructions": "List workspace files.",
+        "allowed_tools": ["workspace.list_files"],
+        "allowed_subagents": [],
+        "version": "0.1.0",
+        "status": "published",
+        "enabled": True,
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        await client.post("/api/skill-registry", json={"skill": skill_payload, "source": "managed"})
+        response = await client.patch("/api/skill-registry/file-report", json=patch_payload)
+
+    assert response.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_agent_api_filters_skills_by_authenticated_org() -> None:
     org_skill = AgentSkill(
@@ -6067,6 +6155,69 @@ async def test_agent_api_filters_skills_by_authenticated_org() -> None:
     assert own_by_key.json()["id"] == "skill_1"
     assert external_by_key.status_code == 404
     assert external_by_id.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_agent_api_resolves_duplicate_skill_keys_with_authenticated_org() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([]))
+    app = create_app(runtime)
+    org_1_skill = {
+        "id": "skill_org_1_shared_report",
+        "org_id": "org_1",
+        "key": "shared-report",
+        "name": "Org 1 Shared Report",
+        "instructions": "List workspace files for org 1.",
+        "allowed_tools": ["workspace.list_files"],
+        "allowed_subagents": [],
+        "version": "0.1.0",
+        "status": "published",
+        "enabled": True,
+    }
+    org_2_skill = {
+        **org_1_skill,
+        "id": "skill_org_2_shared_report",
+        "org_id": "org_2",
+        "name": "Org 2 Shared Report",
+        "instructions": "Create artifacts for org 2.",
+        "allowed_tools": ["artifact.create"],
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/skill-registry", json={"skill": org_1_skill, "source": "managed"})
+        await client.post("/api/skill-registry", json={"skill": org_2_skill, "source": "managed"})
+        org_2_detail = await client.get(
+            "/api/skills/shared-report",
+            headers={"X-Aithru-Org-Id": "org_2"},
+        )
+        org_1_detail = await client.get(
+            "/api/skills/shared-report",
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+        org_2_run = await client.post(
+            "/api/runs",
+            headers={"X-Aithru-Org-Id": "org_2", "X-Aithru-User-Id": "user_2"},
+            json={
+                "org_id": "org_2",
+                "actor_user_id": "user_2",
+                "goal": "Use org 2 shared report",
+                "skill_id": "shared-report",
+                "scopes": ["*"],
+            },
+        )
+        org_2_tools = await client.get(
+            f"/api/runs/{org_2_run.json().get('id', 'missing')}/tools",
+            headers={"X-Aithru-Org-Id": "org_2", "X-Aithru-User-Id": "user_2"},
+        )
+
+    assert org_2_detail.status_code == 200
+    assert org_2_detail.json()["id"] == "skill_org_2_shared_report"
+    assert org_1_detail.status_code == 200
+    assert org_1_detail.json()["id"] == "skill_org_1_shared_report"
+    assert org_2_run.status_code == 201
+    assert org_2_run.json()["org_id"] == "org_2"
+    assert org_2_run.json()["skill_id"] == "shared-report"
+    assert org_2_tools.status_code == 200
+    assert [tool["name"] for tool in org_2_tools.json()] == ["artifact.create"]
 
 
 @pytest.mark.asyncio

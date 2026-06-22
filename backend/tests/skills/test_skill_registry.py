@@ -2,6 +2,50 @@ from aithru_agent.domain import AgentSkill
 from aithru_agent.skills import SQLiteSkillRegistry
 
 
+def test_sqlite_skill_registry_reconciles_read_only_seed_entries(tmp_path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    SQLiteSkillRegistry(
+        db_path,
+        seed_skills=[
+            AgentSkill(
+                id="skill_deep_research",
+                org_id="org_1",
+                key="deep-research",
+                name="Deep Research",
+                instructions="Instructions A.",
+                allowed_tools=["research.create_plan"],
+                allowed_subagents=[],
+                version="0.1.0",
+                status="published",
+            )
+        ],
+    )
+
+    reloaded = SQLiteSkillRegistry(
+        db_path,
+        seed_skills=[
+            AgentSkill(
+                id="skill_deep_research",
+                org_id="org_1",
+                key="deep-research",
+                name="Deep Research",
+                instructions="Instructions B.",
+                allowed_tools=["research.create_plan", "research.create_report"],
+                allowed_subagents=[],
+                version="0.2.0",
+                status="published",
+            )
+        ],
+    )
+
+    entry = reloaded.get_entry("org_1", "deep-research")
+    assert entry is not None
+    assert entry.read_only is True
+    assert entry.version == "0.2.0"
+    assert entry.configuration.instructions == "Instructions B."
+    assert entry.configuration.allowed_tools == ["research.create_plan", "research.create_report"]
+
+
 def test_sqlite_skill_registry_persists_managed_entries_and_runtime_enablement(tmp_path) -> None:
     db_path = tmp_path / "agent.sqlite"
     registry = SQLiteSkillRegistry(db_path, seed_skills=[])

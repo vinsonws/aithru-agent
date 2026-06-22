@@ -16,9 +16,11 @@ from aithru_agent.domain import (
     AgentArtifactSummary,
     AgentApproval,
     AgentApprovalDecision,
+    AgentApprovalPolicy,
     AgentApprovalStatus,
     AgentContextSummary,
     AgentMemoryEntry,
+    AgentMemoryPolicy,
     AgentMemoryForgetResult,
     AgentMemoryRecall,
     AgentMemoryRecallItem,
@@ -993,6 +995,34 @@ def test_sandbox_policy_is_pydantic_validated_contract() -> None:
 def test_sandbox_policy_rejects_invalid_values(kwargs: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         AgentSandboxPolicy(**kwargs)
+
+
+def test_memory_policy_validates_supported_instruction_scopes() -> None:
+    policy = AgentMemoryPolicy(
+        read=True,
+        write=True,
+        scopes=["user", "thread", "workspace", "organization", "skill"],
+    )
+
+    assert policy.scopes == ["user", "thread", "workspace", "organization", "skill"]
+
+    with pytest.raises(ValidationError):
+        AgentMemoryPolicy(read=True, scopes=["org"])
+
+
+def test_approval_policy_validates_supported_decision_and_risk_entries() -> None:
+    policy = AgentApprovalPolicy(
+        default_decision="require_approval",
+        require_approval_for_risk=["write"],
+    )
+
+    assert policy.default_decision == "require_approval"
+    assert policy.require_approval_for_risk == ["write"]
+
+    with pytest.raises(ValidationError):
+        AgentApprovalPolicy(default_decision="auto_approve")
+    with pytest.raises(ValidationError):
+        AgentApprovalPolicy(require_approval_for_risk=["write", " "])
 
 
 def test_workbench_workflow_draft_is_structured_non_executable_artifact_content() -> None:
