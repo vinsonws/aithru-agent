@@ -52,6 +52,7 @@ class AgentExternalToolSecretStatus(AithruBaseModel):
         stripped = value.strip()
         if not stripped:
             raise ValueError("secret_ref cannot be blank")
+        _validate_secret_ref(stripped)
         return stripped
 
     @model_validator(mode="after")
@@ -77,10 +78,13 @@ class AgentExternalToolEndpointConfig(AithruBaseModel):
     @classmethod
     def _url_must_be_http(cls, value: str) -> str:
         url = value.strip()
-        if not (url.startswith("http://") or url.startswith("https://")):
+        parts = urlsplit(url)
+        if parts.scheme not in {"http", "https"}:
             raise ValueError("external tool endpoint must use http or https")
-        if _url_host(url) is None:
+        if parts.hostname is None:
             raise ValueError("external tool endpoint must include a host")
+        if parts.username is not None or parts.password is not None:
+            raise ValueError("external tool endpoint cannot include user info")
         return url
 
     @field_validator("allowed_hosts")
@@ -132,6 +136,7 @@ class AgentExternalToolCatalogTool(AithruBaseModel):
     def _schema_must_be_object(cls, value: dict) -> dict:
         if value.get("type") != "object":
             raise ValueError("external tool schemas must be JSON object schemas")
+        _validate_object_schema(value)
         return value
 
     @field_validator("required_scopes")
@@ -141,6 +146,15 @@ class AgentExternalToolCatalogTool(AithruBaseModel):
         if any(not scope for scope in scopes):
             raise ValueError("external tool scopes cannot contain blank values")
         return scopes
+
+    @model_validator(mode="after")
+    def _risky_tools_must_require_approval(self) -> "AgentExternalToolCatalogTool":
+        if (
+            self.risk_level in {AgentToolRiskLevel.WRITE, AgentToolRiskLevel.DANGEROUS}
+            and self.approval_policy == AgentToolApprovalPolicy.NEVER
+        ):
+            raise ValueError("write and dangerous external tools must require approval")
+        return self
 
 
 class AgentExternalToolMCPServerConfig(AithruBaseModel):
@@ -316,6 +330,36 @@ def _url_host(value: str) -> str | None:
 
 def _host_allowed(host: str, allowed_hosts: list[str]) -> bool:
     return any(host == allowed or host.endswith(f".{allowed}") for allowed in allowed_hosts)
+
+
+def _validate_secret_ref(value: str) -> None:
+    parts = urlsplit(value)
+    if parts.scheme != "secret" or not parts.netloc:
+        raise ValueError("secret_ref must be a secret:// reference")
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("secret_ref cannot include user info")
+    if parts.query or parts.fragment:
+        raise ValueError("secret_ref cannot include query or fragment values")
+
+
+def _validate_object_schema(value: dict) -> None:
+    properties = value.get("properties")
+    if properties is not None and not isinstance(properties, dict):
+        raise ValueError("external tool schema properties must be an object")
+    required = value.get("required")
+    if required is not None and (
+        not isinstance(required, list)
+        or any(not isinstance(item, str) or not item.strip() for item in required)
+    ):
+        raise ValueError("external tool schema required values must be nonblank strings")
+    additional_properties = value.get("additionalProperties")
+    if additional_properties is not None and not isinstance(
+        additional_properties,
+        (bool, dict),
+    ):
+        raise ValueError(
+            "external tool schema additionalProperties must be a boolean or object"
+        )
 
 
 def _slug(value: str, *, label: str) -> str:

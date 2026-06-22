@@ -1,5 +1,3 @@
-import json
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -8,9 +6,9 @@ from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.settings import AgentSettings
 
 
-def mcp_config_payload(*, key: str = "search", secret: str = "super-secret-token") -> dict:
+def mcp_config_payload(*, key: str = "search", org_id: str = "org_1") -> dict:
     return {
-        "org_id": "org_1",
+        "org_id": org_id,
         "key": key,
         "provider_kind": "mcp",
         "name": "Search MCP",
@@ -23,7 +21,9 @@ def mcp_config_payload(*, key: str = "search", secret: str = "super-secret-token
                 "allowed_hosts": ["mcp.example.com"],
                 "timeout_ms": 1_000,
                 "max_response_bytes": 100_000,
-                "auth_secret": {"write_only_value": secret},
+                "auth_secret": {
+                    "secret_ref": f"secret://external-tools/{org_id}/{key}/endpoint-auth"
+                },
             },
             "tools": [
                 {
@@ -66,7 +66,6 @@ async def test_external_tool_config_api_manages_mcp_config_without_returning_sec
         }
         assert created["audit"][-1]["action"] == "created"
         assert created["audit"][-1]["actor_user_id"] == "user_admin"
-        assert "super-secret-token" not in json.dumps(created)
 
         listed = (
             await client.get(
@@ -75,7 +74,6 @@ async def test_external_tool_config_api_manages_mcp_config_without_returning_sec
             )
         ).json()
         assert [item["key"] for item in listed] == ["search"]
-        assert "super-secret-token" not in json.dumps(listed)
 
         detail = (
             await client.get(
@@ -84,7 +82,6 @@ async def test_external_tool_config_api_manages_mcp_config_without_returning_sec
             )
         ).json()
         assert detail["mcp"]["tools"][0]["name"] == "query"
-        assert "super-secret-token" not in json.dumps(detail)
 
         patch_response = await client.patch(
             "/api/external-tools/configs/search",
@@ -96,7 +93,6 @@ async def test_external_tool_config_api_manages_mcp_config_without_returning_sec
         assert patched["name"] == "Search MCP v2"
         assert [event["action"] for event in patched["audit"]] == ["created", "updated"]
         assert patched["updated_by"] == "user_owner"
-        assert "super-secret-token" not in json.dumps(patched)
 
 
 @pytest.mark.asyncio
@@ -130,9 +126,85 @@ async def test_external_tool_config_api_rejects_invalid_allowed_hosts_and_endpoi
             headers={"X-Aithru-Org-Id": "org_1"},
         )
 
+        credential_url_payload = mcp_config_payload(key="search4")
+        credential_url_payload["mcp"]["endpoint"]["url"] = (
+            "https://user:pass@mcp.example.com/rpc"
+        )
+        credential_url_response = await client.post(
+            "/api/external-tools/configs",
+            json=credential_url_payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
         assert wildcard_response.status_code == 422
         assert disallowed_response.status_code == 422
         assert blank_scope_response.status_code == 422
+        assert credential_url_response.status_code == 422
+        assert "pass" not in credential_url_response.text
+        assert (await client.get("/api/external-tools/configs")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_external_tool_config_api_rejects_raw_or_unsupported_secret_inputs() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        raw_ref_payload = mcp_config_payload(key="rawref")
+        raw_ref_payload["mcp"]["endpoint"]["auth_secret"] = {
+            "secret_ref": "plain-token-value"
+        }
+        raw_ref_response = await client.post(
+            "/api/external-tools/configs",
+            json=raw_ref_payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
+        write_only_payload = mcp_config_payload(key="writeonly")
+        write_only_payload["mcp"]["endpoint"]["auth_secret"] = {
+            "write_only_value": "super-secret-token"
+        }
+        write_only_response = await client.post(
+            "/api/external-tools/configs",
+            json=write_only_payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
+        assert raw_ref_response.status_code == 422
+        assert "plain-token-value" not in raw_ref_response.text
+        assert write_only_response.status_code == 422
+        assert "super-secret-token" not in write_only_response.text
+        assert (await client.get("/api/external-tools/configs")).json() == []
+
+
+@pytest.mark.asyncio
+async def test_external_tool_config_api_rejects_unsafe_tool_policy_and_schema() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        dangerous_payload = mcp_config_payload(key="dangerous")
+        dangerous_payload["mcp"]["tools"][0]["risk_level"] = "dangerous"
+        dangerous_payload["mcp"]["tools"][0]["approval_policy"] = "never"
+        dangerous_response = await client.post(
+            "/api/external-tools/configs",
+            json=dangerous_payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
+        invalid_schema_payload = mcp_config_payload(key="schema")
+        invalid_schema_payload["mcp"]["tools"][0]["input_schema"] = {
+            "type": "object",
+            "properties": "not-an-object",
+        }
+        invalid_schema_response = await client.post(
+            "/api/external-tools/configs",
+            json=invalid_schema_payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
+        assert dangerous_response.status_code == 422
+        assert invalid_schema_response.status_code == 422
         assert (await client.get("/api/external-tools/configs")).json() == []
 
 
@@ -193,9 +265,8 @@ async def test_external_tool_config_api_isolates_configs_by_org() -> None:
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        org_1_payload = mcp_config_payload(key="search")
-        org_2_payload = mcp_config_payload(key="search")
-        org_2_payload["org_id"] = "org_2"
+        org_1_payload = mcp_config_payload(key="search", org_id="org_1")
+        org_2_payload = mcp_config_payload(key="search", org_id="org_2")
 
         await client.post(
             "/api/external-tools/configs",
@@ -244,6 +315,9 @@ async def test_external_tool_config_api_openapi_exposes_typed_contracts() -> Non
     assert "AgentExternalToolSecretStatus" in schemas
     assert "CreateExternalToolConfigRequest" in schemas
     assert "UpdateExternalToolConfigRequest" in schemas
+    assert schemas["ExternalToolSecretInput"]["properties"]["write_only_value"][
+        "writeOnly"
+    ] is True
     assert "/api/external-tools/configs" in openapi["paths"]
     assert "/api/external-tools/configs/{config_id_or_key}" in openapi["paths"]
     assert "/api/external-tools/configs/{config_id_or_key}/enable" in openapi["paths"]
@@ -283,5 +357,3 @@ async def test_external_tool_config_api_persists_configs_in_sqlite_mode(tmp_path
     detail = detail_response.json()
     assert detail["key"] == "search"
     assert detail["mcp"]["endpoint"]["auth_secret"]["has_secret"] is True
-    assert "super-secret-token" not in json.dumps(detail)
-    assert b"super-secret-token" not in db_path.read_bytes()

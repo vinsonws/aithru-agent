@@ -28,29 +28,30 @@ router = APIRouter()
 
 class ExternalToolSecretInput(BaseModel):
     secret_ref: str | None = None
-    write_only_value: str | None = None
-
-    @model_validator(mode="after")
-    def _secret_source_must_be_unambiguous(self) -> "ExternalToolSecretInput":
-        if self.secret_ref is not None and self.write_only_value is not None:
-            raise ValueError("provide either secret_ref or write_only_value, not both")
-        if self.secret_ref is not None and not self.secret_ref.strip():
-            raise ValueError("secret_ref cannot be blank")
-        if self.write_only_value is not None and not self.write_only_value.strip():
-            raise ValueError("write_only_value cannot be blank")
-        return self
+    write_only_value: str | None = Field(
+        default=None,
+        description="Reserved for a future capability-bound secret store.",
+        json_schema_extra={"writeOnly": True},
+    )
 
     def to_secret_status(self, *, org_id: str, key: str) -> AgentExternalToolSecretStatus:
+        del org_id, key
+        if self.secret_ref is not None and self.write_only_value is not None:
+            raise ExternalToolConfigError("provide either secret_ref or write_only_value, not both")
         if self.write_only_value is not None:
-            return AgentExternalToolSecretStatus(
-                has_secret=True,
-                secret_ref=f"secret://external-tools/{org_id}/{key}/endpoint-auth",
-                redacted=True,
+            if not self.write_only_value.strip():
+                raise ExternalToolConfigError("write_only_value cannot be blank")
+            raise ExternalToolConfigError(
+                "write_only_value requires a configured secret store; provide secret_ref"
             )
         if self.secret_ref is not None:
+            secret_ref = self.secret_ref.strip()
+            if not secret_ref:
+                raise ExternalToolConfigError("secret_ref cannot be blank")
+            _validate_secret_ref(secret_ref)
             return AgentExternalToolSecretStatus(
                 has_secret=True,
-                secret_ref=self.secret_ref.strip(),
+                secret_ref=secret_ref,
                 redacted=True,
             )
         return AgentExternalToolSecretStatus()
@@ -230,7 +231,7 @@ async def create_external_tool_config(
     except ExternalToolConfigConflictError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
     except ValidationError as err:
-        raise HTTPException(status_code=422, detail=str(err)) from err
+        raise HTTPException(status_code=422, detail="Invalid external tool config") from err
     except ExternalToolConfigError as err:
         raise HTTPException(status_code=422, detail=str(err)) from err
 
@@ -284,7 +285,7 @@ async def update_external_tool_config(
     except ExternalToolConfigNotFoundError as err:
         raise HTTPException(status_code=404, detail="External tool config not found") from err
     except ValidationError as err:
-        raise HTTPException(status_code=422, detail=str(err)) from err
+        raise HTTPException(status_code=422, detail="Invalid external tool config") from err
     except ExternalToolConfigError as err:
         raise HTTPException(status_code=422, detail=str(err)) from err
 
@@ -370,3 +371,8 @@ def _set_external_tool_config_enabled(
 
 def _actor_user_id(request: Request) -> str:
     return request.headers.get("x-aithru-user-id") or "user_1"
+
+
+def _validate_secret_ref(value: str) -> None:
+    if not value.startswith("secret://"):
+        raise ExternalToolConfigError("secret_ref must be a secret:// reference")

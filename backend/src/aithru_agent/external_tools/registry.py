@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -233,7 +234,7 @@ class SQLiteExternalToolConfigRegistry:
     ) -> AgentExternalToolConfigEntry:
         entry = _entry_from_definition(definition, actor_user_id=actor_user_id)
         _ensure_available(entry, self._list_all_entries())
-        self._save_entry(entry)
+        self._insert_entry(entry)
         return entry
 
     def list_configs(self, org_id: str) -> list[AgentExternalToolConfigEntry]:
@@ -358,6 +359,9 @@ class SQLiteExternalToolConfigRegistry:
     def _save_entry(self, entry: AgentExternalToolConfigEntry) -> None:
         _save_doc(self._db, "external_tool_config_entry", entry.id, entry)
 
+    def _insert_entry(self, entry: AgentExternalToolConfigEntry) -> None:
+        _insert_doc(self._db, "external_tool_config_entry", entry.id, entry)
+
     def _get_entry_by_id(self, entry_id: str) -> AgentExternalToolConfigEntry | None:
         return _get_doc(
             self._db,
@@ -472,6 +476,26 @@ def _save_doc(
         """,
         (kind, id, model.model_dump_json()),
     )
+
+
+def _insert_doc(
+    db: SQLiteConnection,
+    kind: str,
+    id: str,
+    model: AithruBaseModel,
+) -> None:
+    try:
+        db.execute(
+            """
+            INSERT INTO agent_documents (kind, id, payload)
+            VALUES (?, ?, ?)
+            """,
+            (kind, id, model.model_dump_json()),
+        )
+    except sqlite3.IntegrityError as err:
+        raise ExternalToolConfigConflictError(
+            f"External tool config already exists: {id}"
+        ) from err
 
 
 def _get_doc(
