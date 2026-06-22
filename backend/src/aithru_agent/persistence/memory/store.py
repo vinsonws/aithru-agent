@@ -12,6 +12,7 @@ from aithru_agent.domain import (
     AgentArtifactRetentionPolicy,
     AgentContextSummary,
     AgentMemoryCandidate,
+    AgentMemoryCandidateApprovalResult,
     AgentMemoryCandidateStatus,
     AgentMemoryEntry,
     AgentMemoryForgetResult,
@@ -1088,10 +1089,13 @@ class InMemoryAgentStore:
         org_id: str,
         status: AgentMemoryCandidateStatus | str | None = None,
         resolved_at: str | None = None,
+        expected_status: AgentMemoryCandidateStatus | str | None = None,
     ) -> AgentMemoryCandidate:
-        candidate = await self.get_memory_candidate(candidate_id, org_id=org_id)
-        if candidate is None:
+        candidate = self._memory_candidates.get(candidate_id)
+        if candidate is None or candidate.org_id != org_id:
             raise AgentError("NOT_FOUND", f"Memory candidate not found: {candidate_id}")
+        if expected_status is not None and candidate.status != expected_status:
+            raise AgentError("CONFLICT", "Memory candidate is already resolved")
         updates = {
             key: value
             for key, value in {
@@ -1107,6 +1111,49 @@ class InMemoryAgentStore:
         )
         self._memory_candidates[candidate_id] = updated
         return updated
+
+    async def approve_memory_candidate(
+        self,
+        candidate_id: str,
+        *,
+        org_id: str,
+        owner: str | None = None,
+        resolved_at: str | None = None,
+    ) -> AgentMemoryCandidateApprovalResult:
+        candidate = self._memory_candidates.get(candidate_id)
+        if candidate is None or candidate.org_id != org_id:
+            raise AgentError("NOT_FOUND", f"Memory candidate not found: {candidate_id}")
+        if candidate.status != "pending":
+            raise AgentError("CONFLICT", "Memory candidate is already resolved")
+
+        now = utc_now()
+        memory_entry = AgentMemoryEntry(
+            id=self._ids.next("memory"),
+            org_id=candidate.org_id,
+            scope=candidate.scope,
+            scope_id=candidate.scope_id,
+            key=candidate.key,
+            value=candidate.value,
+            owner=owner,
+            source="memory_candidate",
+            confidence=candidate.confidence,
+            retention=_memory_retention_policy(candidate.retention),
+            created_at=now,
+            updated_at=now,
+        )
+        resolved = AgentMemoryCandidate.model_validate(
+            {
+                **candidate.model_dump(mode="python"),
+                "status": "approved",
+                "resolved_at": resolved_at or now,
+            }
+        )
+        self._memory_entries[memory_entry.id] = memory_entry
+        self._memory_candidates[candidate_id] = resolved
+        return AgentMemoryCandidateApprovalResult(
+            candidate=resolved,
+            memory_entry=memory_entry,
+        )
 
     async def create_subagent_spec(
         self,

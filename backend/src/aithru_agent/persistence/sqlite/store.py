@@ -16,6 +16,7 @@ from aithru_agent.domain import (
     AgentArtifactRetentionPolicy,
     AgentContextSummary,
     AgentMemoryCandidate,
+    AgentMemoryCandidateApprovalResult,
     AgentMemoryCandidateStatus,
     AgentMemoryEntry,
     AgentMemoryForgetResult,
@@ -1270,10 +1271,21 @@ class SQLiteAgentStore:
         org_id: str,
         status: AgentMemoryCandidateStatus | str | None = None,
         resolved_at: str | None = None,
+        expected_status: AgentMemoryCandidateStatus | str | None = None,
     ) -> AgentMemoryCandidate:
-        candidate = await self.get_memory_candidate(candidate_id, org_id=org_id)
-        if candidate is None:
+        if expected_status is not None:
+            return self._update_memory_candidate_in_transaction(
+                candidate_id,
+                org_id=org_id,
+                status=status,
+                resolved_at=resolved_at,
+                expected_status=expected_status,
+            )
+        candidate = self._get_doc("memory_candidate", candidate_id, AgentMemoryCandidate)
+        if candidate is None or candidate.org_id != org_id:
             raise AgentError("NOT_FOUND", f"Memory candidate not found: {candidate_id}")
+        if expected_status is not None and candidate.status != expected_status:
+            raise AgentError("CONFLICT", "Memory candidate is already resolved")
         updates = {
             key: value
             for key, value in {
@@ -1289,6 +1301,114 @@ class SQLiteAgentStore:
         )
         self._save_doc("memory_candidate", candidate_id, updated)
         return updated
+
+    def _update_memory_candidate_in_transaction(
+        self,
+        candidate_id: str,
+        *,
+        org_id: str,
+        status: AgentMemoryCandidateStatus | str | None,
+        resolved_at: str | None,
+        expected_status: AgentMemoryCandidateStatus | str,
+    ) -> AgentMemoryCandidate:
+        conn = self._db._conn
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute(
+                """
+                SELECT payload
+                FROM agent_documents
+                WHERE kind = ? AND id = ?
+                """,
+                ("memory_candidate", candidate_id),
+            ).fetchone()
+            if row is None:
+                raise AgentError("NOT_FOUND", f"Memory candidate not found: {candidate_id}")
+            candidate = AgentMemoryCandidate.model_validate_json(row["payload"])
+            if candidate.org_id != org_id:
+                raise AgentError("NOT_FOUND", f"Memory candidate not found: {candidate_id}")
+            if candidate.status != expected_status:
+                raise AgentError("CONFLICT", "Memory candidate is already resolved")
+            updates = {
+                key: value
+                for key, value in {
+                    "status": status,
+                    "resolved_at": resolved_at,
+                }.items()
+                if value is not None
+            }
+            if not updates:
+                conn.commit()
+                return candidate
+            updated = AgentMemoryCandidate.model_validate(
+                {**candidate.model_dump(mode="python"), **updates}
+            )
+            self._save_doc_in_transaction(conn, "memory_candidate", candidate_id, updated)
+            conn.commit()
+            return updated
+        except Exception:
+            conn.rollback()
+            raise
+
+    async def approve_memory_candidate(
+        self,
+        candidate_id: str,
+        *,
+        org_id: str,
+        owner: str | None = None,
+        resolved_at: str | None = None,
+    ) -> AgentMemoryCandidateApprovalResult:
+        conn = self._db._conn
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute(
+                """
+                SELECT payload
+                FROM agent_documents
+                WHERE kind = ? AND id = ?
+                """,
+                ("memory_candidate", candidate_id),
+            ).fetchone()
+            if row is None:
+                raise AgentError("NOT_FOUND", f"Memory candidate not found: {candidate_id}")
+            candidate = AgentMemoryCandidate.model_validate_json(row["payload"])
+            if candidate.org_id != org_id:
+                raise AgentError("NOT_FOUND", f"Memory candidate not found: {candidate_id}")
+            if candidate.status != "pending":
+                raise AgentError("CONFLICT", "Memory candidate is already resolved")
+
+            now = utc_now()
+            memory_entry = AgentMemoryEntry(
+                id=self._next_id_in_transaction(conn, "memory"),
+                org_id=candidate.org_id,
+                scope=candidate.scope,
+                scope_id=candidate.scope_id,
+                key=candidate.key,
+                value=candidate.value,
+                owner=owner,
+                source="memory_candidate",
+                confidence=candidate.confidence,
+                retention=_memory_retention_policy(candidate.retention),
+                created_at=now,
+                updated_at=now,
+            )
+            resolved = AgentMemoryCandidate.model_validate(
+                {
+                    **candidate.model_dump(mode="python"),
+                    "status": "approved",
+                    "resolved_at": resolved_at or now,
+                }
+            )
+            self._save_doc_in_transaction(conn, "memory", memory_entry.id, memory_entry)
+            self._save_doc_in_transaction(conn, "memory_candidate", candidate_id, resolved)
+            conn.commit()
+            return AgentMemoryCandidateApprovalResult(
+                candidate=resolved,
+                memory_entry=memory_entry,
+            )
+        except Exception:
+            conn.rollback()
+            raise
 
     async def create_subagent_spec(
         self,
@@ -1397,8 +1517,39 @@ class SQLiteAgentStore:
         )
         return f"{prefix}_{next_value}"
 
+    def _next_id_in_transaction(self, conn: sqlite3.Connection, prefix: str) -> str:
+        row = conn.execute(
+            "SELECT value FROM agent_counters WHERE prefix = ?",
+            (prefix,),
+        ).fetchone()
+        next_value = int(row["value"]) + 1 if row else 1
+        conn.execute(
+            """
+            INSERT INTO agent_counters (prefix, value)
+            VALUES (?, ?)
+            ON CONFLICT(prefix) DO UPDATE SET value = excluded.value
+            """,
+            (prefix, next_value),
+        )
+        return f"{prefix}_{next_value}"
+
     def _save_doc(self, kind: str, id: str, model: AithruBaseModel) -> None:
         self._db.execute(
+            """
+            INSERT OR REPLACE INTO agent_documents (kind, id, payload)
+            VALUES (?, ?, ?)
+            """,
+            (kind, id, model.model_dump_json()),
+        )
+
+    def _save_doc_in_transaction(
+        self,
+        conn: sqlite3.Connection,
+        kind: str,
+        id: str,
+        model: AithruBaseModel,
+    ) -> None:
+        conn.execute(
             """
             INSERT OR REPLACE INTO agent_documents (kind, id, payload)
             VALUES (?, ?, ?)

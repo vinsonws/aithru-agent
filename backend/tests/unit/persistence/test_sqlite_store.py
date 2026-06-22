@@ -10,6 +10,7 @@ from aithru_agent.domain import (
     AgentMemoryRetentionPolicy,
     AgentRunStatus,
 )
+from aithru_agent.domain.errors import AgentError
 from tests.utils.step_runtime import Step, StepAgentRuntime
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
 from aithru_agent.stream import AgentEventWriter
@@ -396,6 +397,52 @@ async def test_sqlite_store_persists_agent_memory_candidates(tmp_path: Path) -> 
     assert await reopened.get_memory_candidate(candidate.id, org_id="org_2") is None
     assert resolved.status == "rejected"
     assert resolved.resolved_at == "2026-06-22T00:01:00Z"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_approves_memory_candidate_once(tmp_path: Path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    store = SQLiteAgentStore(db_path)
+    candidate = AgentMemoryCandidate(
+        id="memcand_run_1",
+        org_id="org_1",
+        run_id="run_1",
+        scope="user",
+        scope_id="user_1",
+        key="run_run_1_outcome",
+        value="Prefers concise summaries.",
+        confidence=0.6,
+        created_at="2026-06-22T00:00:00Z",
+    )
+    await store.create_memory_candidate(candidate)
+
+    approved = await store.approve_memory_candidate(
+        candidate.id,
+        org_id="org_1",
+        owner="user_1",
+        resolved_at="2026-06-22T00:01:00Z",
+    )
+    reopened = SQLiteAgentStore(db_path)
+    entries = await reopened.list_memory_entries(org_id="org_1")
+
+    with pytest.raises(AgentError) as conflict:
+        await reopened.approve_memory_candidate(candidate.id, org_id="org_1", owner="user_1")
+    with pytest.raises(AgentError) as reject_conflict:
+        await reopened.update_memory_candidate(
+            candidate.id,
+            org_id="org_1",
+            status="rejected",
+            resolved_at="2026-06-22T00:02:00Z",
+            expected_status="pending",
+        )
+
+    assert approved.candidate.status == "approved"
+    assert approved.candidate.resolved_at == "2026-06-22T00:01:00Z"
+    assert approved.memory_entry.source == "memory_candidate"
+    assert approved.memory_entry.owner == "user_1"
+    assert entries == [approved.memory_entry]
+    assert conflict.value.code == "CONFLICT"
+    assert reject_conflict.value.code == "CONFLICT"
 
 
 @pytest.mark.asyncio

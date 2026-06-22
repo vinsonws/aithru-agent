@@ -9,6 +9,7 @@ from aithru_agent.domain import (
     AgentMemoryRetentionPolicy,
     AgentRunStatus,
 )
+from aithru_agent.domain.errors import AgentError
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 
 
@@ -494,3 +495,47 @@ async def test_memory_store_manages_agent_memory_candidates() -> None:
     assert resolved.status == "approved"
     assert resolved.resolved_at == "2026-06-22T00:01:00Z"
     assert approved == [resolved]
+
+
+@pytest.mark.asyncio
+async def test_memory_store_approves_memory_candidate_once() -> None:
+    store = InMemoryAgentStore()
+    candidate = AgentMemoryCandidate(
+        id="memcand_run_1",
+        org_id="org_1",
+        run_id="run_1",
+        scope="user",
+        scope_id="user_1",
+        key="run_run_1_outcome",
+        value="Prefers concise summaries.",
+        confidence=0.6,
+        created_at="2026-06-22T00:00:00Z",
+    )
+    await store.create_memory_candidate(candidate)
+
+    approved = await store.approve_memory_candidate(
+        candidate.id,
+        org_id="org_1",
+        owner="user_1",
+        resolved_at="2026-06-22T00:01:00Z",
+    )
+    entries = await store.list_memory_entries(org_id="org_1")
+
+    with pytest.raises(AgentError) as conflict:
+        await store.approve_memory_candidate(candidate.id, org_id="org_1", owner="user_1")
+    with pytest.raises(AgentError) as reject_conflict:
+        await store.update_memory_candidate(
+            candidate.id,
+            org_id="org_1",
+            status="rejected",
+            resolved_at="2026-06-22T00:02:00Z",
+            expected_status="pending",
+        )
+
+    assert approved.candidate.status == "approved"
+    assert approved.candidate.resolved_at == "2026-06-22T00:01:00Z"
+    assert approved.memory_entry.source == "memory_candidate"
+    assert approved.memory_entry.owner == "user_1"
+    assert entries == [approved.memory_entry]
+    assert conflict.value.code == "CONFLICT"
+    assert reject_conflict.value.code == "CONFLICT"

@@ -14,6 +14,7 @@ from aithru_agent.domain import (
     AgentArtifactRetentionPolicy,
     AgentContextSummary,
     AgentMemoryCandidate,
+    AgentMemoryCandidateApprovalResult,
     AgentMemoryCandidateStatus,
     AgentMemoryEntry,
     AgentMemoryForgetResult,
@@ -389,7 +390,18 @@ class AgentStore(Protocol):
         org_id: str,
         status: AgentMemoryCandidateStatus | str | None = None,
         resolved_at: str | None = None,
+        expected_status: AgentMemoryCandidateStatus | str | None = None,
     ) -> AgentMemoryCandidate:
+        ...
+
+    async def approve_memory_candidate(
+        self,
+        candidate_id: str,
+        *,
+        org_id: str,
+        owner: str | None = None,
+        resolved_at: str | None = None,
+    ) -> AgentMemoryCandidateApprovalResult:
         ...
 
     async def create_subagent_spec(

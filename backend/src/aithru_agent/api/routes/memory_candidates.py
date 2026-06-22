@@ -56,27 +56,15 @@ async def approve_memory_candidate(
     if candidate.status != "pending":
         raise HTTPException(status_code=409, detail="Memory candidate is already resolved")
     run = await deps.runtime.store.get_run(candidate.run_id)
-    memory_entry = await deps.runtime.store.create_memory_entry(
-        org_id=candidate.org_id,
-        scope=candidate.scope,
-        scope_id=candidate.scope_id,
-        key=candidate.key,
-        value=candidate.value,
-        owner=run.actor_user_id if run else None,
-        source="memory_candidate",
-        confidence=candidate.confidence,
-        retention=candidate.retention,
-    )
     try:
-        resolved = await deps.runtime.store.update_memory_candidate(
+        return await deps.runtime.store.approve_memory_candidate(
             candidate.id,
             org_id=candidate.org_id,
-            status="approved",
+            owner=run.actor_user_id if run else None,
             resolved_at=utc_now(),
         )
     except AgentError as err:
-        raise HTTPException(status_code=404, detail="Memory candidate not found") from err
-    return AgentMemoryCandidateApprovalResult(candidate=resolved, memory_entry=memory_entry)
+        _raise_memory_candidate_error(err)
 
 
 @router.post(
@@ -97,9 +85,10 @@ async def reject_memory_candidate(
             org_id=candidate.org_id,
             status="rejected",
             resolved_at=utc_now(),
+            expected_status="pending",
         )
     except AgentError as err:
-        raise HTTPException(status_code=404, detail="Memory candidate not found") from err
+        _raise_memory_candidate_error(err)
 
 
 async def _require_candidate(
@@ -141,3 +130,8 @@ async def _visible_candidates(
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _raise_memory_candidate_error(err: AgentError) -> None:
+    status_code = 404 if err.code == "NOT_FOUND" else 409
+    raise HTTPException(status_code=status_code, detail=err.message) from err
