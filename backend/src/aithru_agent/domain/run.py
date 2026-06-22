@@ -7,6 +7,7 @@ from pydantic import Field, field_validator, model_validator
 
 from .base import AithruBaseModel
 from .errors import AgentError
+from .usage import AgentRunBudgetPolicy
 
 
 class AgentRunStatus(StrEnum):
@@ -198,6 +199,10 @@ class AgentRunOperatorFollowUpOptions(AithruBaseModel):
 class AgentRunHarnessOptions(AithruBaseModel):
     model: str | None = None
     instructions: str | None = None
+    budget_policy: AgentRunBudgetPolicy | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     research_continuation: AgentRunResearchContinuationOptions | None = Field(
         default=None,
         exclude_if=lambda value: value is None,

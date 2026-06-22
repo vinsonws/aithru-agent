@@ -103,6 +103,13 @@ from .tool import (
     AgentToolKind,
     AgentToolRiskLevel,
 )
+from .usage import (
+    AgentRunBudgetPolicy,
+    AgentRunBudgetStatus,
+    AgentRunTreeUsageSnapshot,
+    AgentRunUsageSummary,
+    AgentUsageCounters,
+)
 from .workspace import (
     AgentWorkspace,
     AgentWorkspaceDiff,
@@ -187,6 +194,8 @@ __all__ = [
     "ResearchReportStatus",
     "ResearchSource",
     "AgentRun",
+    "AgentRunBudgetPolicy",
+    "AgentRunBudgetStatus",
     "AgentExternalApprovalRef",
     "AgentExternalRunWaitRef",
     "AgentRunClaim",
@@ -198,6 +207,8 @@ __all__ = [
     "AgentRunResult",
     "AgentRunSource",
     "AgentRunStatus",
+    "AgentRunTreeUsageSnapshot",
+    "AgentRunUsageSummary",
     "AgentRedactedPayload",
     "AgentSandboxMount",
     "AgentSandboxPolicy",
@@ -220,6 +231,7 @@ __all__ = [
     "AgentToolFailurePolicy",
     "AgentToolKind",
     "AgentToolRiskLevel",
+    "AgentUsageCounters",
     "AgentWorkspace",
     "AgentWorkspaceDiff",
     "AgentWorkspaceFile",

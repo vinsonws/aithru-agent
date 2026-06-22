@@ -36,11 +36,17 @@ from aithru_agent.domain import (
     AgentRunOperatorFollowUpOptions,
     AgentRunResearchContinuationOptions,
     AgentRunStatus,
+    AgentRunTreeUsageSnapshot,
+    AgentRunUsageSummary,
     AgentSubagentRun,
     AgentToolDescriptor,
 )
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import ContextPacketBuilder
+from aithru_agent.runtime.processors.usage import (
+    build_run_tree_usage_snapshot,
+    build_run_usage_summary,
+)
 from aithru_agent.stream import format_sse_event
 from aithru_agent.trace import project_trace_spans
 
@@ -277,6 +283,54 @@ async def get_thread_run_summary(
 ) -> RunInspectionSummary:
     run = await deps.require_thread_run(request, thread_id, run_id)
     return await _build_run_inspection_summary_for_run(run, deps)
+
+
+@router.get("/api/runs/{run_id}/usage", response_model=AgentRunUsageSummary)
+async def get_run_usage(
+    request: Request,
+    run_id: str,
+    deps: ApiDependencies = Depends(api_deps),
+) -> AgentRunUsageSummary:
+    run = await deps.require_run(request, run_id)
+    return await build_run_usage_summary(run, deps.runtime.event_store)
+
+
+@router.get(
+    "/api/threads/{thread_id}/runs/{run_id}/usage",
+    response_model=AgentRunUsageSummary,
+)
+async def get_thread_run_usage(
+    request: Request,
+    thread_id: str,
+    run_id: str,
+    deps: ApiDependencies = Depends(api_deps),
+) -> AgentRunUsageSummary:
+    run = await deps.require_thread_run(request, thread_id, run_id)
+    return await build_run_usage_summary(run, deps.runtime.event_store)
+
+
+@router.get("/api/runs/{run_id}/tree/usage", response_model=AgentRunTreeUsageSnapshot)
+async def get_run_tree_usage(
+    request: Request,
+    run_id: str,
+    deps: ApiDependencies = Depends(api_deps),
+) -> AgentRunTreeUsageSnapshot:
+    run = await deps.require_run(request, run_id)
+    return await build_run_tree_usage_snapshot(run, deps.runtime.store, deps.runtime.event_store)
+
+
+@router.get(
+    "/api/threads/{thread_id}/runs/{run_id}/tree/usage",
+    response_model=AgentRunTreeUsageSnapshot,
+)
+async def get_thread_run_tree_usage(
+    request: Request,
+    thread_id: str,
+    run_id: str,
+    deps: ApiDependencies = Depends(api_deps),
+) -> AgentRunTreeUsageSnapshot:
+    run = await deps.require_thread_run(request, thread_id, run_id)
+    return await build_run_tree_usage_snapshot(run, deps.runtime.store, deps.runtime.event_store)
 
 
 @router.get("/api/runs/{run_id}/memory-recall", response_model=AgentMemoryRecall)
