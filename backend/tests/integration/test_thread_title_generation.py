@@ -75,3 +75,57 @@ async def test_disabled_title_generation_leaves_thread_untitled() -> None:
     assert updated_thread is not None
     assert updated_thread.title is None
     assert "thread.title.generated" not in [event.type for event in events]
+
+
+@pytest.mark.asyncio
+async def test_resumed_clarification_run_generates_title_from_input_content() -> None:
+    runtime = create_agent_runtime(
+        settings=AgentSettings(
+            model="test",
+            test_model_output="clarified title generation completed",
+        )
+    )
+    thread = await runtime.store.create_thread(
+        org_id="org_1",
+        owner_user_id="user_1",
+    )
+    run = await runtime.runner.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        goal="Fix it",
+        scopes=["agent.input.write"],
+        thread_id=thread.id,
+    )
+    paused = await runtime.runner.execute_run(run.id)
+    message = await runtime.store.append_message(
+        thread_id=thread.id,
+        role="user",
+        content="Focus on failing report export and produce a patch.",
+        run_id=run.id,
+    )
+    await runtime.event_writer.write(
+        run_id=run.id,
+        thread_id=thread.id,
+        type="input.received",
+        source={"kind": "user", "id": "user_1"},
+        payload={
+            "message_id": message.id,
+            "content": message.content,
+        },
+    )
+
+    await runtime.worker.resume_waiting_input(paused.id)
+    completed = await runtime.worker.work_once()
+
+    updated_thread = await runtime.store.get_thread(thread.id)
+    events = await runtime.event_store.list_by_run(run.id)
+    title_events = [event for event in events if event.type == "thread.title.generated"]
+    assert completed is not None
+    assert completed.status == AgentRunStatus.COMPLETED
+    assert updated_thread is not None
+    assert updated_thread.title == "Focus On Failing Report Export And"
+    assert len(title_events) == 1
+    assert title_events[0].payload == {
+        "thread_id": thread.id,
+        "title": "Focus On Failing Report Export And",
+    }
