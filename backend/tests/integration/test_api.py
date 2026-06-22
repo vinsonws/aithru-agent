@@ -23,6 +23,8 @@ from aithru_agent.domain import (
     AgentExternalRunRef,
     AgentExternalApprovalRef,
     AgentExternalRunWaitRef,
+    AgentModelCapabilities,
+    AgentRunHarnessOptions,
     MAX_WORKSPACE_IMAGE_BYTES,
     AgentRunStatus,
     AgentSandboxPolicy,
@@ -995,6 +997,9 @@ async def test_workspace_view_image_tool_events_do_not_store_base64_content() ->
         actor_user_id="user_1",
         goal="View image",
         scopes=["agent.workspace.read", "agent.workspace.write"],
+        harness_options=AgentRunHarnessOptions(
+            model_capabilities=AgentModelCapabilities(vision=True)
+        ),
     )
     events = await runtime.event_store.list_by_run(run.id)
     completed = next(
@@ -1165,7 +1170,7 @@ async def test_agent_api_persists_run_harness_options() -> None:
                     "actor_user_id": "user_1",
                     "goal": "Use run config",
                     "harness_options": {
-                        "model": "openai:gpt-4.1-mini",
+                        "model": "test",
                         "instructions": "Answer with terse bullets.",
                     },
                 },
@@ -1174,7 +1179,7 @@ async def test_agent_api_persists_run_harness_options() -> None:
         fetched = (await client.get(f"/api/runs/{created['id']}")).json()
 
     assert created["harness_options"] == {
-        "model": "openai:gpt-4.1-mini",
+        "model": "test",
         "instructions": "Answer with terse bullets.",
     }
     assert fetched["harness_options"] == created["harness_options"]
@@ -3311,6 +3316,60 @@ async def test_agent_api_creates_research_continuation_run_from_actions() -> Non
         ready_response = await client.post(f"/api/runs/{ready_run['id']}/research/continue", json={})
 
     assert ready_response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_agent_api_revalidates_model_profile_for_research_continuation_run() -> None:
+    runtime = create_agent_runtime(
+        agent_runtime=recoverable_web_failure_research_driver(),
+        settings=AgentSettings(model="test", external_tools={"web_enabled": True}),
+    )
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post(
+            "/api/model-profiles",
+            json={
+                "org_id": "org_1",
+                "key": "research",
+                "name": "Research model",
+                "provider": "test",
+                "model": "test",
+                "selection_policy": {"required_scopes": ["agent.model.research"]},
+            },
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+        thread = (
+            await client.post(
+                "/api/threads",
+                json={"org_id": "org_1", "owner_user_id": "user_1", "title": "Continuation"},
+            )
+        ).json()
+        source_run = (
+            await client.post(
+                f"/api/threads/{thread['id']}/runs",
+                json={
+                    "org_id": "org_1",
+                    "actor_user_id": "user_1",
+                    "goal": "Research recoverable web failures",
+                    "scopes": ["*"],
+                    "skill_id": "deep-research",
+                    "harness_options": {"model_profile_key": "research"},
+                },
+            )
+        ).json()
+        await runtime.worker.drain()
+        await client.post(
+            "/api/model-profiles/research/disable",
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+        response = await client.post(
+            f"/api/runs/{source_run['id']}/research/continue",
+            json={"action_ids": ["retry_search"]},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Model profile is disabled"
 
 
 @pytest.mark.asyncio

@@ -606,7 +606,16 @@ uv run aithru-agent-worker --loop --poll-interval 1 --sqlite-path .aithru/agent.
 - Restricted local Python sandbox execution with stdout/stderr events, Pydantic
   execution summaries and run diagnostics, controlled workspace reads, declared
   workspace-file/artifact recovery, and trace spans.
-- Per-run harness options for model selection and additional run instructions.
+- Per-run harness options for model selection, model-profile selection, model
+  capabilities, cost policy, and additional run instructions.
+- Organization-scoped model profile registry APIs under `/api/model-profiles`
+  provide typed create/list/get/patch/enable/disable management for provider
+  model ids, vision/thinking capability flags, required selection scopes, token
+  ceilings, and cost policy. `POST /api/runs` resolves
+  `harness_options.model_profile_key` through that registry before queuing.
+  Non-default raw model overrides are rejected by the product API so runs
+  cannot bypass profile policy. Research continuation and operator follow-up
+  runs revalidate inherited profiles before creation.
 - Pydantic AI prompt context with skill instructions, thread summaries, readable memory, and workspace file summaries.
 - Pydantic AI harness driver with controlled tool bridge.
 - Phase 1 `pydantic-ai-harness` compatibility probe covering the internal
@@ -618,7 +627,9 @@ uv run aithru-agent-worker --loop --poll-interval 1 --sqlite-path .aithru/agent.
   boundary capability instead of direct raw Pydantic function tools.
 - Active run skills add `SkillInstructionCapability` while tool exposure remains
   constrained by the Aithru run context and capability router.
-- Pydantic AI usage counts are emitted as debug `model.usage` events and projected into model trace spans.
+- Pydantic AI usage counts are emitted as debug `model.usage` events,
+  projected into model trace spans, and rolled into run usage summaries with
+  token and model-cost budget status when a profile supplies cost policy.
 - Pydantic AI tools expose Aithru descriptor input schemas directly to the model.
 - Approval pause/resume semantics for risky Pydantic AI tool calls, including model continuation after approved tools.
 - Pydantic AI approval resume state is persisted on approval metadata for worker restart recovery.

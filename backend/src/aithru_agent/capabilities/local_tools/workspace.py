@@ -146,6 +146,8 @@ class WorkspaceLocalTool:
                     "media_type": content.media_type,
                 }
             case "workspace.view_image":
+                if not context.model_vision_enabled:
+                    return _denied_result("workspace.view_image requires a vision-capable model")
                 image_path = view_image_path
                 if image_path is None:
                     return _denied_result("workspace.view_image path must be a non-blank string")

@@ -30,6 +30,7 @@ from aithru_agent.api.snapshots import (
 )
 from aithru_agent.domain import (
     AgentModelCapabilities,
+    AgentModelProfileCostPolicy,
     AgentMemoryRecall,
     AgentMessage,
     AgentRun,
@@ -684,7 +685,17 @@ def _resolve_model_profile_harness_options(
     scopes: list[str],
     harness_options: AgentRunHarnessOptions | None,
 ) -> AgentRunHarnessOptions | None:
-    if harness_options is None or harness_options.model_profile_key is None:
+    if harness_options is None:
+        return None
+    if harness_options.model_profile_key is None:
+        if (
+            harness_options.model is not None
+            and harness_options.model != deps.runtime.settings.model
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Run model selection requires a model profile",
+            )
         return harness_options
     profile = deps.runtime.model_profile_registry.get_profile(
         org_id,
@@ -701,7 +712,7 @@ def _resolve_model_profile_harness_options(
         )
 
     required_scopes = set(profile.selection_policy.required_scopes)
-    if not required_scopes.issubset(set(scopes)):
+    if required_scopes and not scopes_allowed(list(required_scopes), scopes):
         raise HTTPException(status_code=403, detail="Run scopes do not allow model profile")
 
     requested_capabilities = harness_options.model_capabilities or AgentModelCapabilities()
@@ -716,7 +727,7 @@ def _resolve_model_profile_harness_options(
     )
     model_cost_policy = _resolve_model_profile_cost_policy(
         harness_options.model_cost_policy,
-        profile.cost_policy.max_run_cost_usd,
+        profile.cost_policy,
     )
     return harness_options.model_copy(
         update={
@@ -753,10 +764,29 @@ def _resolve_model_profile_budget_policy(
 
 def _resolve_model_profile_cost_policy(
     requested: AgentRunModelCostPolicy | None,
-    profile_max_run_cost_usd: float | None,
+    profile_cost_policy: AgentModelProfileCostPolicy,
 ) -> AgentRunModelCostPolicy | None:
+    profile_max_run_cost_usd = profile_cost_policy.max_run_cost_usd
     if profile_max_run_cost_usd is None:
-        return requested
+        if requested is None:
+            return AgentRunModelCostPolicy(
+                input_cost_per_million_tokens_usd=(
+                    profile_cost_policy.input_cost_per_million_tokens_usd
+                ),
+                output_cost_per_million_tokens_usd=(
+                    profile_cost_policy.output_cost_per_million_tokens_usd
+                ),
+            )
+        return requested.model_copy(
+            update={
+                "input_cost_per_million_tokens_usd": (
+                    profile_cost_policy.input_cost_per_million_tokens_usd
+                ),
+                "output_cost_per_million_tokens_usd": (
+                    profile_cost_policy.output_cost_per_million_tokens_usd
+                ),
+            }
+        )
     if (
         requested
         and requested.max_cost_usd
@@ -767,10 +797,26 @@ def _resolve_model_profile_cost_policy(
             detail="Run cost budget exceeds model profile policy",
         )
     if requested is None:
-        return AgentRunModelCostPolicy(max_cost_usd=profile_max_run_cost_usd)
+        return AgentRunModelCostPolicy(
+            input_cost_per_million_tokens_usd=(
+                profile_cost_policy.input_cost_per_million_tokens_usd
+            ),
+            output_cost_per_million_tokens_usd=(
+                profile_cost_policy.output_cost_per_million_tokens_usd
+            ),
+            max_cost_usd=profile_max_run_cost_usd,
+        )
+    update = {
+        "input_cost_per_million_tokens_usd": (
+            profile_cost_policy.input_cost_per_million_tokens_usd
+        ),
+        "output_cost_per_million_tokens_usd": (
+            profile_cost_policy.output_cost_per_million_tokens_usd
+        ),
+    }
     if requested.max_cost_usd is None:
-        return requested.model_copy(update={"max_cost_usd": profile_max_run_cost_usd})
-    return requested
+        update["max_cost_usd"] = profile_max_run_cost_usd
+    return requested.model_copy(update=update)
 
 
 async def _create_research_continuation_run(
@@ -808,6 +854,12 @@ async def _create_research_continuation_run(
         action_ids=action_ids,
         target_section_ids=target_section_ids,
         extra_instructions=body.instructions,
+    )
+    harness_options = _resolve_model_profile_harness_options(
+        deps=deps,
+        org_id=source_run.org_id,
+        scopes=scopes,
+        harness_options=harness_options,
     )
     created_run = await deps.runtime.store.create_run(
         org_id=source_run.org_id,
@@ -876,6 +928,12 @@ async def _create_operator_action_follow_up_run(
         follow_up=follow_up,
         selected=selected,
         extra_instructions=body.instructions,
+    )
+    harness_options = _resolve_model_profile_harness_options(
+        deps=deps,
+        org_id=source_run.org_id,
+        scopes=scopes,
+        harness_options=harness_options,
     )
     created_run = await deps.runtime.store.create_run(
         org_id=source_run.org_id,

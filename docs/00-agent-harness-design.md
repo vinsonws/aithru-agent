@@ -214,6 +214,22 @@ Runs may declare explicit model capabilities such as
 attached workspace images are directly viewable by the model, but should direct
 non-vision runs toward `workspace.view_image` instead of assuming provider-side
 multimodal injection.
+Product-level model selection should go through Aithru `AgentModelProfile`
+contracts, not provider SDK objects. Model profiles are organization-scoped
+control-plane records with provider/model identifiers, enabled state,
+vision/thinking capabilities, required selection scopes, token ceilings, and
+cost policy. `POST /api/runs` may select a profile through
+`harness_options.model_profile_key`; the control plane resolves that profile
+into the concrete run model and persisted harness options only after checking
+organization visibility, enabled state, run scopes, requested model
+capabilities, token ceilings, and cost ceilings. Continuation and operator
+follow-up runs must revalidate the inherited profile before queuing.
+Non-default raw `harness_options.model` values are not a product-level escape
+hatch around profile governance.
+`workspace.view_image` is a model-facing capability only for runs whose resolved
+model capabilities include vision. Cost policy is projected from `model.usage`
+events into run usage summaries and budget status; it is harness accounting
+state, not a direct provider billing contract.
 Model-proposed workspace patches should pass through the capability router as
 explicit Pydantic text edit requests. Patch execution reads the current
 workspace file, applies bounded replacements, writes a new version through the

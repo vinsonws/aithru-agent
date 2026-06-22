@@ -685,15 +685,27 @@ GET    /api/subagents
 GET    /api/subagents/{key}
 GET    /api/skills
 GET    /api/skills/{skill_id_or_key}
+POST   /api/model-profiles
+GET    /api/model-profiles
+GET    /api/model-profiles/{profile_id_or_key}
+PATCH  /api/model-profiles/{profile_id_or_key}
+POST   /api/model-profiles/{profile_id_or_key}/enable
+POST   /api/model-profiles/{profile_id_or_key}/disable
 ```
 
 Run streams replay existing events by default. Add `follow=true` to wait for new
 SSE events until the run reaches a terminal state or the stream timeout expires.
 Completed runs expose `result.content`, `result.artifact_ids`, and message
 references on the run record and in the `run.completed` event payload.
-`POST /api/runs` accepts optional `harness_options.model` and
-`harness_options.instructions` fields for per-run model selection and extra
-run instructions. These are Aithru run options, not Pydantic AI public objects.
+`POST /api/runs` accepts optional `harness_options.model_profile_key`,
+`harness_options.model_capabilities`, `harness_options.model_cost_policy`, and
+`harness_options.instructions` fields for governed model selection and extra
+run instructions. Non-default raw `harness_options.model` values must go
+through a model profile; profiles are organization-scoped Aithru contracts, not
+Pydantic AI public objects. Profile selection checks enabled state, required
+run scopes, vision/thinking capability requests, token ceilings, and cost
+ceilings before a run is queued. Continuation and operator follow-up runs
+revalidate inherited profiles.
 
 Set `AITHRU_AGENT_API_TOKEN` to require `Authorization: Bearer <token>` on Agent
 API endpoints. Health remains public for readiness checks. Set

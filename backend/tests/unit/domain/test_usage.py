@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from aithru_agent.domain import (
     AgentRunBudgetPolicy,
     AgentRunHarnessOptions,
+    AgentRunModelCostPolicy,
     AgentRunTreeUsageSnapshot,
     AgentRunUsageSummary,
     AgentUsageCounters,
@@ -79,6 +80,35 @@ def test_aggregate_model_usage_payloads_reports_budget_warning_and_exceeded() ->
     assert exceeded.warnings == ["requests_exceeded", "total_tokens_exceeded"]
 
 
+def test_aggregate_model_usage_payloads_estimates_and_limits_model_cost() -> None:
+    warning = aggregate_model_usage_payloads(
+        "run_1",
+        [{"requests": 1, "input_tokens": 800_000, "output_tokens": 0}],
+        budget_policy=AgentRunBudgetPolicy(),
+        model_cost_policy=AgentRunModelCostPolicy(
+            input_cost_per_million_tokens_usd=1,
+            output_cost_per_million_tokens_usd=2,
+            max_cost_usd=1,
+        ),
+    )
+    exceeded = aggregate_model_usage_payloads(
+        "run_1",
+        [{"requests": 1, "input_tokens": 500_000, "output_tokens": 500_001}],
+        model_cost_policy=AgentRunModelCostPolicy(
+            input_cost_per_million_tokens_usd=1,
+            output_cost_per_million_tokens_usd=2,
+            max_cost_usd=1.5,
+        ),
+    )
+
+    assert warning.own_model_cost_usd == 0.8
+    assert warning.budget_status == "warning"
+    assert warning.warnings == ["model_cost_near_limit"]
+    assert exceeded.own_model_cost_usd == 1.500002
+    assert exceeded.budget_status == "exceeded"
+    assert exceeded.warnings == ["model_cost_exceeded"]
+
+
 def test_budget_exceeded_status_preserves_near_limit_warnings() -> None:
     summary = aggregate_model_usage_payloads(
         "run_1",
@@ -100,12 +130,14 @@ def test_budget_policy_rejects_zero_limits() -> None:
 
 def test_usage_contracts_are_exported_and_harness_options_accept_budget_policy() -> None:
     policy = AgentRunBudgetPolicy(max_requests=3, max_total_tokens=30)
-    options = AgentRunHarnessOptions(budget_policy=policy)
+    cost_policy = AgentRunModelCostPolicy(max_cost_usd=0.25)
+    options = AgentRunHarnessOptions(budget_policy=policy, model_cost_policy=cost_policy)
     summary = AgentRunUsageSummary(run_id="run_1")
     snapshot = AgentRunTreeUsageSnapshot(root_run_id="run_1", runs=[summary])
     counters = AgentUsageCounters(requests=1).add(AgentUsageCounters(total_tokens=2))
 
     assert options.budget_policy == policy
+    assert options.model_cost_policy == cost_policy
     assert options.model_dump(mode="json")["budget_policy"] == {
         "max_requests": 3,
         "max_total_tokens": 30,

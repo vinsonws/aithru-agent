@@ -235,6 +235,7 @@ async def test_workspace_tool_calls_execute_through_router() -> None:
 async def test_workspace_view_image_tool_returns_base64_for_allowed_workspace_image() -> None:
     store = InMemoryAgentStore()
     context = await make_context(store)
+    context.model_vision_enabled = True
     router = make_router(store)
     image_bytes = b"\x89PNG\r\nimage"
     written = await store.write_workspace_file(
@@ -264,6 +265,32 @@ async def test_workspace_view_image_tool_returns_base64_for_allowed_workspace_im
         "content_encoding": "base64",
         "content_base64": base64.b64encode(image_bytes).decode("ascii"),
     }
+
+
+@pytest.mark.asyncio
+async def test_workspace_view_image_tool_requires_vision_enabled_model() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/uploads/chart.png",
+        content=b"\x89PNG\r\nimage",
+        media_type="image/png",
+    )
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="toolcall_view_image",
+            tool_name="workspace.view_image",
+            input={"path": "/uploads/chart.png"},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "denied"
+    assert result.error == {"message": "workspace.view_image requires a vision-capable model"}
 
 
 @pytest.mark.parametrize(
@@ -303,6 +330,7 @@ async def test_workspace_view_image_tool_denies_invalid_input(
 async def test_workspace_view_image_tool_denies_invalid_or_disallowed_files() -> None:
     store = InMemoryAgentStore()
     context = await make_context(store)
+    context.model_vision_enabled = True
     context.workspace_allowed_paths = ["/uploads"]
     router = make_router(store)
     await store.write_workspace_file(

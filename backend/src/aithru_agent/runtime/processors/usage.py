@@ -30,6 +30,9 @@ async def build_run_usage_summary(
             if event.type == "model.usage" and isinstance(event.payload, dict)
         ],
         budget_policy=run.harness_options.budget_policy if run.harness_options else None,
+        model_cost_policy=(
+            run.harness_options.model_cost_policy if run.harness_options else None
+        ),
     )
 
 
@@ -85,6 +88,7 @@ async def build_run_tree_usage_snapshot(
         runs=summaries,
         total_requests=root_summary.total_requests,
         total_tokens=root_summary.total_tokens,
+        total_model_cost_usd=root_summary.total_model_cost_usd,
         budget_status=_worst_budget_status(summaries),
         warnings=sorted({warning for summary in summaries for warning in summary.warnings}),
     )
@@ -96,12 +100,17 @@ def _with_descendant_usage(
 ) -> AgentRunUsageSummary:
     descendant_requests = sum(child.total_requests for child in child_summaries)
     descendant_total_tokens = sum(child.total_tokens for child in child_summaries)
+    descendant_model_cost_usd = sum(child.total_model_cost_usd for child in child_summaries)
     budget_status, warnings = evaluate_budget_status(
         requests=summary.own_requests + descendant_requests + summary.external_requests,
         total_tokens=summary.own_total_tokens
         + descendant_total_tokens
         + summary.external_total_tokens,
+        model_cost_usd=summary.own_model_cost_usd
+        + descendant_model_cost_usd
+        + summary.external_model_cost_usd,
         budget_policy=summary.budget_policy,
+        model_cost_policy=summary.model_cost_policy,
     )
     return summary.model_copy(
         update={
@@ -115,6 +124,7 @@ def _with_descendant_usage(
                 for child in child_summaries
             ),
             "descendant_total_tokens": descendant_total_tokens,
+            "descendant_model_cost_usd": descendant_model_cost_usd,
             "budget_status": budget_status,
             "warnings": warnings,
         }

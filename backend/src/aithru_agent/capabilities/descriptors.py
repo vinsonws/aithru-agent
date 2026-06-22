@@ -25,6 +25,7 @@ class AgentRunContext(BaseModel):
     workspace_allowed_paths: list[str] | None = None
     sandbox_policy: AgentSandboxPolicy | None = None
     require_approval_for_risk: list[str] = Field(default_factory=list)
+    model_vision_enabled: bool = False
 
     @field_validator("scopes")
     @classmethod

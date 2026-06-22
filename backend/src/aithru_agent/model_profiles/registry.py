@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable
 from datetime import UTC, datetime
+import hashlib
 from pathlib import Path
 from typing import Protocol, TypeVar
 
@@ -216,6 +217,7 @@ def _updated_entry(
 ) -> AgentModelProfileEntry:
     allowed = {
         "name",
+        "provider",
         "model",
         "enabled",
         "capabilities",
@@ -254,7 +256,8 @@ def _enablement_result(entry: AgentModelProfileEntry) -> AgentModelProfileEnable
 
 
 def _profile_id(org_id: str, key: str) -> str:
-    return f"model_profile_{org_id}_{key}"
+    digest = hashlib.sha256(f"{org_id}\0{key}".encode("utf-8")).hexdigest()[:20]
+    return f"model_profile_{digest}"
 
 
 def _utc_now() -> str:

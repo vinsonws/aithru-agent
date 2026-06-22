@@ -7,7 +7,7 @@ from pydantic import Field, field_validator, model_validator
 
 from .base import AithruBaseModel
 from .errors import AgentError
-from .usage import AgentRunBudgetPolicy
+from .usage import AgentRunBudgetPolicy, AgentRunModelCostPolicy
 
 
 class AgentRunStatus(StrEnum):
@@ -199,10 +199,6 @@ class AgentRunOperatorFollowUpOptions(AithruBaseModel):
 class AgentModelCapabilities(AithruBaseModel):
     vision: bool = False
     thinking: bool = False
-
-
-class AgentRunModelCostPolicy(AithruBaseModel):
-    max_cost_usd: float | None = Field(default=None, ge=0)
 
 
 class AgentRunHarnessOptions(AithruBaseModel):

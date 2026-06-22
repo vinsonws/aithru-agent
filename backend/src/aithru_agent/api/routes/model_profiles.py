@@ -60,6 +60,7 @@ class CreateModelProfileRequest(BaseModel):
 
 class UpdateModelProfileRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1)
+    provider: AgentModelProviderKind | None = None
     model: str | None = Field(default=None, min_length=1)
     enabled: bool | None = None
     capabilities: AgentModelCapabilities | None = None
@@ -71,6 +72,7 @@ class UpdateModelProfileRequest(BaseModel):
     def _at_least_one_field(self) -> "UpdateModelProfileRequest":
         fields = {
             "name",
+            "provider",
             "model",
             "enabled",
             "capabilities",
@@ -80,7 +82,14 @@ class UpdateModelProfileRequest(BaseModel):
         }
         if not self.model_fields_set.intersection(fields):
             raise ValueError("at least one model profile field must be supplied")
-        for field in ("name", "model", "capabilities", "cost_policy", "selection_policy"):
+        for field in (
+            "name",
+            "provider",
+            "model",
+            "capabilities",
+            "cost_policy",
+            "selection_policy",
+        ):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         return self
@@ -90,6 +99,7 @@ class UpdateModelProfileRequest(BaseModel):
             field: getattr(self, field)
             for field in (
                 "name",
+                "provider",
                 "model",
                 "enabled",
                 "capabilities",

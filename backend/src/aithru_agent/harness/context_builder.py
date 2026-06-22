@@ -4,6 +4,7 @@ from aithru_agent.domain import AgentRun, AgentSkill
 
 class ContextBuilder:
     def build(self, run: AgentRun, scopes: list[str], skill: AgentSkill | None = None) -> AgentRunContext:
+        harness_options = getattr(run, "harness_options", None)
         return AgentRunContext(
             run_id=run.id,
             org_id=run.org_id,
@@ -28,6 +29,11 @@ class ContextBuilder:
                 skill.approval_policy.require_approval_for_risk
                 if skill and skill.approval_policy
                 else []
+            ),
+            model_vision_enabled=(
+                bool(harness_options.model_capabilities.vision)
+                if harness_options and harness_options.model_capabilities
+                else False
             ),
         )
 

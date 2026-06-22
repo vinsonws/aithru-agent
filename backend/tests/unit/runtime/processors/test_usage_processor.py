@@ -1,6 +1,11 @@
 import pytest
 
-from aithru_agent.domain import AgentRunBudgetPolicy, AgentRunHarnessOptions, AgentRunSource
+from aithru_agent.domain import (
+    AgentRunBudgetPolicy,
+    AgentRunHarnessOptions,
+    AgentRunModelCostPolicy,
+    AgentRunSource,
+)
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.runtime.processors.usage import (
     build_run_tree_usage_snapshot,
@@ -52,6 +57,42 @@ async def test_model_usage_events_project_into_direct_run_summary() -> None:
     assert summary.descendant_requests == 0
     assert summary.total_requests == 1
     assert summary.total_tokens == 15
+
+
+@pytest.mark.asyncio
+async def test_model_usage_summary_applies_model_cost_policy() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source=AgentRunSource.API,
+        goal="Track cost",
+        workspace_id=workspace.id,
+        harness_options=AgentRunHarnessOptions(
+            model_cost_policy=AgentRunModelCostPolicy(
+                input_cost_per_million_tokens_usd=1,
+                output_cost_per_million_tokens_usd=2,
+                max_cost_usd=1.5,
+            )
+        ),
+    )
+    await writer.write(
+        run_id=run.id,
+        thread_id=run.thread_id,
+        type="model.usage",
+        source={"kind": "model"},
+        payload={"requests": 1, "input_tokens": 500_000, "output_tokens": 500_001},
+    )
+
+    summary = await build_run_usage_summary(run, event_store)
+
+    assert summary.own_model_cost_usd == 1.500002
+    assert summary.total_model_cost_usd == 1.500002
+    assert summary.budget_status == "exceeded"
+    assert summary.warnings == ["model_cost_exceeded"]
 
 
 @pytest.mark.asyncio

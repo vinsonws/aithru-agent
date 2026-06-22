@@ -60,7 +60,7 @@ async def test_model_profile_api_manages_profiles_and_openapi_contracts() -> Non
         )
         patch_response = await client.patch(
             "/api/model-profiles/fast",
-            json={"name": "Fast profile v2"},
+            json={"name": "Fast profile v2", "provider": "custom"},
             headers={"X-Aithru-Org-Id": "org_1"},
         )
         disable_response = await client.post(
@@ -73,18 +73,43 @@ async def test_model_profile_api_manages_profiles_and_openapi_contracts() -> Non
         )
         openapi = (await client.get("/openapi.json")).json()
 
-    assert created["id"] == "model_profile_org_1_fast"
+    assert created["id"].startswith("model_profile_")
     assert created["capabilities"] == {"vision": True, "thinking": True}
     assert list_response.json()[0]["key"] == "fast"
     assert detail_response.json()["model"] == "openai:gpt-4.1-mini"
     assert org_2_detail_response.status_code == 404
     assert conflict_response.status_code == 403
     assert patch_response.json()["name"] == "Fast profile v2"
+    assert patch_response.json()["provider"] == "custom"
     assert disable_response.json()["enabled"] is False
     assert enable_response.json()["enabled"] is True
     assert "AgentModelProfileEntry" in openapi["components"]["schemas"]
     assert "CreateModelProfileRequest" in openapi["components"]["schemas"]
     assert "/api/model-profiles" in openapi["paths"]
+
+
+@pytest.mark.asyncio
+async def test_model_profile_api_avoids_concatenated_org_key_id_collisions() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first_payload = model_profile_payload(key="c", org_id="a_b")
+        second_payload = model_profile_payload(key="b_c", org_id="a")
+        first = await client.post(
+            "/api/model-profiles",
+            json=first_payload,
+            headers={"X-Aithru-Org-Id": "a_b"},
+        )
+        second = await client.post(
+            "/api/model-profiles",
+            json=second_payload,
+            headers={"X-Aithru-Org-Id": "a"},
+        )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] != second.json()["id"]
 
 
 @pytest.mark.asyncio
@@ -116,6 +141,8 @@ async def test_run_creation_selects_model_profile_and_applies_policy_defaults() 
     assert harness_options["model"] == "openai:gpt-4.1-mini"
     assert harness_options["model_capabilities"] == {"vision": True, "thinking": True}
     assert harness_options["budget_policy"]["max_total_tokens"] == 2_000
+    assert harness_options["model_cost_policy"]["input_cost_per_million_tokens_usd"] == 0.15
+    assert harness_options["model_cost_policy"]["output_cost_per_million_tokens_usd"] == 0.6
     assert harness_options["model_cost_policy"]["max_cost_usd"] == 0.5
 
 
@@ -136,7 +163,39 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
                 "goal": "No scope",
+                "scopes": ["agent.workspace.read"],
                 "harness_options": {"model_profile_key": "fast"},
+            },
+            headers={"X-Aithru-Org-Id": "org_1", "X-Aithru-User-Id": "user_1"},
+        )
+        wildcard_scope = await client.post(
+            "/api/runs",
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "goal": "Wildcard scope",
+                "scopes": ["*"],
+                "harness_options": {"model_profile_key": "fast"},
+            },
+            headers={"X-Aithru-Org-Id": "org_1", "X-Aithru-User-Id": "user_1"},
+        )
+        raw_model = await client.post(
+            "/api/runs",
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "goal": "Raw model",
+                "harness_options": {"model": "openai:gpt-4.1"},
+            },
+            headers={"X-Aithru-Org-Id": "org_1", "X-Aithru-User-Id": "user_1"},
+        )
+        default_model = await client.post(
+            "/api/runs",
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "goal": "Default model",
+                "harness_options": {"model": "test"},
             },
             headers={"X-Aithru-Org-Id": "org_1", "X-Aithru-User-Id": "user_1"},
         )
@@ -236,6 +295,9 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
         )
 
     assert no_scope.status_code == 403
+    assert wildcard_scope.status_code == 201
+    assert raw_model.status_code == 403
+    assert default_model.status_code == 201
     assert token_over.status_code == 403
     assert cost_over.status_code == 403
     assert model_conflict.status_code == 409
