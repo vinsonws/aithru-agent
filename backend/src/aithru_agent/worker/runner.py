@@ -33,6 +33,7 @@ from aithru_agent.domain.base import AithruBaseModel
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import ContextBuilder, ContextPacketBuilder
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
+from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
 from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
 from aithru_agent.stream import AgentEventWriter
 from aithru_agent.worker.recovery import RunRecoveryDecision, decide_run_recovery
@@ -58,6 +59,7 @@ class AgentWorkerRunner:
         event_store: AgentEventStore | None = None,
         agent_runtime: AgentRuntime | None = None,
         skill_resolver: AgentSkillResolver | None = None,
+        processor_runner: AgentRuntimeProcessorRunner | None = None,
     ) -> None:
         self._store = store
         self._event_writer = event_writer
@@ -65,6 +67,7 @@ class AgentWorkerRunner:
         self._capability_router = capability_router
         self._agent_runtime = agent_runtime or AgentRuntime()
         self._skill_resolver = skill_resolver or EmptySkillResolver()
+        self._processor_runner = processor_runner or AgentRuntimeProcessorRunner()
         self._context_builder = ContextBuilder()
         self._context_packet_builder = ContextPacketBuilder()
 
@@ -171,6 +174,18 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload={"status": "running"},
         )
+        decision = await self._processor_runner.before_model(
+            run=run,
+            store=self._store,
+            event_writer=self._event_writer,
+            event_store=self._event_store,
+            skill=skill,
+        )
+        if decision.paused_run is not None:
+            return decision.paused_run
+        if decision.replaced_run is not None:
+            run = decision.replaced_run
+            thread_id = run.thread_id
         await self._event_writer.write(
             run_id=run.id,
             thread_id=thread_id,
@@ -184,7 +199,7 @@ class AgentWorkerRunner:
             result = await self._agent_runtime.run(run.goal, deps)
             if result.pending_approval is not None:
                 return await self._get_existing_run(run.id)
-            return await self._complete_run(run, thread_id, "msg_1", [result.content])
+            return await self._complete_run(run, thread_id, "msg_1", [result.content], skill=skill)
         except RunPausedForApproval:
             return await self._get_existing_run(run.id)
         except RunPausedForExternalApproval:
@@ -204,9 +219,9 @@ class AgentWorkerRunner:
                 "RUN_PAUSED_FOR_SUBAGENT",
             }:
                 return await self._get_existing_run(run.id)
-            return await self._fail_run(run, thread_id, exc)
+            return await self._fail_run(run, thread_id, exc, skill=skill)
         except Exception as exc:
-            return await self._retry_or_fail_run(run, thread_id, exc)
+            return await self._retry_or_fail_run(run, thread_id, exc, skill=skill)
 
     async def _build_deps(self, run: AgentRun, skill: AgentSkill | None) -> PydanticAgentDeps:
         context_packet = await self._context_packet_builder.build(
@@ -566,6 +581,7 @@ class AgentWorkerRunner:
                 source={"kind": "harness"},
                 payload={"status": "failed", "error": {"message": "Approval rejected"}},
             )
+            await self._after_terminal(failed)
             return failed
 
         try:
@@ -601,7 +617,13 @@ class AgentWorkerRunner:
             )
             if result.pending_approval is not None:
                 return await self._get_existing_run(run_id)
-            return await self._complete_run(resumed, run.thread_id, "msg_1", [result.content])
+            return await self._complete_run(
+                resumed,
+                run.thread_id,
+                "msg_1",
+                [result.content],
+                skill=skill,
+            )
         except RunPausedForApproval:
             return await self._get_existing_run(run_id)
         except RunPausedForExternalApproval:
@@ -621,9 +643,9 @@ class AgentWorkerRunner:
                 "RUN_PAUSED_FOR_SUBAGENT",
             }:
                 return await self._get_existing_run(run_id)
-            return await self._fail_run(resumed, run.thread_id, exc)
+            return await self._fail_run(resumed, run.thread_id, exc, skill=skill)
         except Exception as exc:
-            return await self._fail_run(resumed, run.thread_id, exc)
+            return await self._fail_run(resumed, run.thread_id, exc, skill=skill)
 
     async def resume_after_external_approval(
         self,
@@ -700,6 +722,7 @@ class AgentWorkerRunner:
                 source={"kind": "harness"},
                 payload={"status": "failed", "error": error},
             )
+            await self._after_terminal(failed)
             return failed
 
         resumed = await self._store.update_run(
@@ -824,6 +847,7 @@ class AgentWorkerRunner:
                 source={"kind": "harness"},
                 payload={"status": "failed", "error": error_payload},
             )
+            await self._after_terminal(failed)
             return failed
 
         if status == "cancelled":
@@ -858,6 +882,7 @@ class AgentWorkerRunner:
                 source={"kind": "harness"},
                 payload={"status": "cancelled"},
             )
+            await self._after_terminal(cancelled)
             return cancelled
 
         raise AgentError("BAD_REQUEST", f"Unsupported external run status: {status}")
@@ -938,7 +963,13 @@ class AgentWorkerRunner:
             )
             if result.pending_approval is not None:
                 return await self._get_existing_run(run_id)
-            return await self._complete_run(resumed, run.thread_id, "msg_1", [result.content])
+            return await self._complete_run(
+                resumed,
+                run.thread_id,
+                "msg_1",
+                [result.content],
+                skill=skill,
+            )
         except RunPausedForApproval:
             return await self._get_existing_run(run_id)
         except RunPausedForExternalApproval:
@@ -958,9 +989,9 @@ class AgentWorkerRunner:
                 "RUN_PAUSED_FOR_SUBAGENT",
             }:
                 return await self._get_existing_run(run_id)
-            return await self._fail_run(resumed, run.thread_id, exc)
+            return await self._fail_run(resumed, run.thread_id, exc, skill=skill)
         except Exception as exc:
-            return await self._fail_run(resumed, run.thread_id, exc)
+            return await self._fail_run(resumed, run.thread_id, exc, skill=skill)
 
     async def fail_after_subagent(
         self,
@@ -988,6 +1019,8 @@ class AgentWorkerRunner:
         thread_id: str | None,
         message_id: str,
         final_content: list[str],
+        *,
+        skill: AgentSkill | None = None,
     ) -> AgentRun:
         latest = await self._store.get_run(run.id)
         if latest is not None and latest.status == AgentRunStatus.CANCELLED:
@@ -1041,6 +1074,7 @@ class AgentWorkerRunner:
             payload={"status": "completed", "result": result.model_dump(mode="json")},
         )
         await self._emit_parent_subagent_completed(run, content)
+        await self._after_terminal(run, skill=skill)
         return run
 
     async def _fail_run(
@@ -1049,6 +1083,8 @@ class AgentWorkerRunner:
         thread_id: str | None,
         error: Exception,
         retry_state: AgentRunRetryState | None = None,
+        *,
+        skill: AgentSkill | None = None,
     ) -> AgentRun:
         latest = await self._store.get_run(run.id)
         if latest is not None and latest.status == AgentRunStatus.CANCELLED:
@@ -1080,6 +1116,7 @@ class AgentWorkerRunner:
             payload={"status": "failed", "error": error_payload},
         )
         await self._emit_parent_subagent_failed(failed, error_payload)
+        await self._after_terminal(failed, skill=skill)
         return failed
 
     async def _retry_or_fail_run(
@@ -1087,6 +1124,8 @@ class AgentWorkerRunner:
         run: AgentRun,
         thread_id: str | None,
         error: Exception,
+        *,
+        skill: AgentSkill | None = None,
     ) -> AgentRun:
         latest = await self._store.get_run(run.id)
         if latest is not None and latest.status == AgentRunStatus.CANCELLED:
@@ -1113,7 +1152,7 @@ class AgentWorkerRunner:
                         "error": error_payload,
                     },
                 )
-            return await self._fail_run(current, thread_id, error, retry_state=retry_state)
+            return await self._fail_run(current, thread_id, error, retry_state=retry_state, skill=skill)
 
         failed_at = current.claim.claimed_at if current.claim else None
         retry_state = AgentRunRetryState(
@@ -1154,6 +1193,21 @@ class AgentWorkerRunner:
             },
         )
         return scheduled
+
+    async def _after_terminal(
+        self,
+        run: AgentRun,
+        *,
+        skill: AgentSkill | None = None,
+    ) -> None:
+        await self._processor_runner.after_terminal(
+            run=run,
+            store=self._store,
+            event_writer=self._event_writer,
+            event_store=self._event_store,
+            skill=skill,
+            terminal_status=run.status,
+        )
 
     async def _emit_parent_subagent_completed(self, run: AgentRun, result: str) -> None:
         if run.source != AgentRunSource.DELEGATED_TASK:
@@ -1237,6 +1291,7 @@ class AgentWorkerRunner:
             payload={"status": "cancelled"},
         )
         await self._emit_parent_subagent_cancelled(cancelled)
+        await self._after_terminal(cancelled)
         return cancelled
 
     async def _emit_parent_subagent_cancelled(self, run: AgentRun) -> None:

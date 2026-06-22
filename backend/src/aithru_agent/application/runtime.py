@@ -38,6 +38,7 @@ from aithru_agent.capabilities.web_http import ControlledHTTPWebExecutor
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
+from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
 from aithru_agent.sandbox import LocalPythonSandboxProvider
 from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import AgentSkillResolver, BuiltInResearchSkillResolver
@@ -57,6 +58,7 @@ class AgentApplication:
     worker: AgentWorkerService
     skill_resolver: AgentSkillResolver
     agent_runtime: NativeAgentRuntime
+    processor_runner: AgentRuntimeProcessorRunner
 
 
 AgentRuntime = AgentApplication
@@ -113,6 +115,7 @@ def create_agent_application(
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )
     resolved_agent_runtime = agent_runtime or _create_native_agent_runtime(resolved_settings)
+    processor_runner = _create_processor_runner(resolved_settings)
     runner = AgentWorkerRunner(
         store=resolved_store,
         event_writer=event_writer,
@@ -120,6 +123,7 @@ def create_agent_application(
         event_store=resolved_event_store,
         agent_runtime=resolved_agent_runtime,
         skill_resolver=resolved_skill_resolver,
+        processor_runner=processor_runner,
     )
     subagent_tool.set_task_runner(runner.execute_child_run_for_task)
     run_queue = InProcessRunQueue()
@@ -135,6 +139,7 @@ def create_agent_application(
         worker=worker,
         skill_resolver=resolved_skill_resolver,
         agent_runtime=resolved_agent_runtime,
+        processor_runner=processor_runner,
     )
 
 
@@ -164,6 +169,11 @@ def _create_native_agent_runtime(settings: AgentSettings) -> NativeAgentRuntime:
         ),
         instructions=settings.instructions,
     )
+
+
+def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRunner:
+    del settings
+    return AgentRuntimeProcessorRunner(processors=[])
 
 
 def _create_external_tool_providers(settings: AgentSettings) -> list[ExternalToolProvider]:
