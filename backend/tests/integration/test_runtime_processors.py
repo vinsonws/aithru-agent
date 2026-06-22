@@ -16,6 +16,7 @@ from aithru_agent.runtime.processors import (
 )
 from aithru_agent.runtime.processors.clarification import ClarificationPreflightProcessor
 from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
+from aithru_agent.runtime.processors.title import ThreadTitleProcessor
 from aithru_agent.settings import AgentSettings
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 from aithru_agent.worker.runner import AgentWorkerRunner
@@ -149,6 +150,8 @@ def test_application_wires_runtime_processors_from_settings() -> None:
             processors={
                 "clarification_enabled": False,
                 "clarification_min_goal_words": 4,
+                "title_generation_enabled": False,
+                "title_max_words": 6,
                 "summarization_enabled": False,
                 "summarization_min_message_count": 9,
             },
@@ -159,6 +162,7 @@ def test_application_wires_runtime_processors_from_settings() -> None:
         type(processor) for processor in enabled.processor_runner.processors
     ] == [
         ClarificationPreflightProcessor,
+        ThreadTitleProcessor,
         ContextSummarizationProcessor,
     ]
     assert disabled.processor_runner.processors == []

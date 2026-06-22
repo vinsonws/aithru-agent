@@ -41,6 +41,7 @@ from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentSt
 from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
 from aithru_agent.runtime.processors.clarification import ClarificationPreflightProcessor
 from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
+from aithru_agent.runtime.processors.title import ThreadTitleProcessor
 from aithru_agent.sandbox import LocalPythonSandboxProvider
 from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import AgentSkillResolver, BuiltInResearchSkillResolver
@@ -179,6 +180,12 @@ def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRu
         processors.append(
             ClarificationPreflightProcessor(
                 min_goal_words=settings.processors.clarification_min_goal_words,
+            )
+        )
+    if settings.processors.title_generation_enabled:
+        processors.append(
+            ThreadTitleProcessor(
+                max_words=settings.processors.title_max_words,
             )
         )
     if settings.processors.summarization_enabled:
