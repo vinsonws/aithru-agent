@@ -17,6 +17,7 @@ from aithru_agent.domain import (
     AgentApproval,
     AgentApprovalDecision,
     AgentApprovalStatus,
+    AgentContextSummary,
     AgentMemoryEntry,
     AgentMemoryForgetResult,
     AgentMemoryRecall,
@@ -218,6 +219,32 @@ def test_subagent_result_summary_derives_output_and_artifact_counts() -> None:
 def test_subagent_result_summary_rejects_blank_artifact_ids() -> None:
     with pytest.raises(ValidationError):
         AgentSubagentResultSummary(artifact_ids=[" "])
+
+
+def test_context_summary_requires_thread_or_run_and_nonblank_content() -> None:
+    summary = AgentContextSummary(
+        id=" summary_1 ",
+        org_id=" org_1 ",
+        thread_id="thread_1",
+        summary=" Durable context. ",
+        source="manual",
+        created_at=" 2026-06-22T00:00:00Z ",
+    )
+
+    assert summary.id == "summary_1"
+    assert summary.org_id == "org_1"
+    assert summary.summary == "Durable context."
+    assert summary.created_at == "2026-06-22T00:00:00Z"
+
+    with pytest.raises(ValidationError, match="thread or run"):
+        AgentContextSummary(
+            id="summary_2",
+            org_id="org_1",
+            thread_id=" ",
+            summary="No anchor.",
+            source="manual",
+            created_at="2026-06-22T00:00:00Z",
+        )
 
 
 def test_platform_governance_models_are_pydantic_contracts() -> None:

@@ -4,6 +4,7 @@ from aithru_agent.domain import (
     AgentApprovalDecision,
     AgentApprovalStatus,
     AgentArtifactRetentionPolicy,
+    AgentContextSummary,
     AgentMemoryRetentionPolicy,
     AgentRunStatus,
 )
@@ -54,6 +55,43 @@ async def test_memory_store_manages_threads_messages_runs_and_approvals() -> Non
     assert resolved.decision == AgentApprovalDecision.APPROVED
     assert resolved.metadata == {"harness_driver": "pydantic_ai"}
     assert await store.list_approvals(status=AgentApprovalStatus.RESOLVED) == [resolved]
+
+
+@pytest.mark.asyncio
+async def test_memory_store_round_trips_context_summaries() -> None:
+    store = InMemoryAgentStore()
+    first = AgentContextSummary(
+        id="summary_run_1",
+        org_id="org_1",
+        thread_id="thread_1",
+        run_id="run_1",
+        summary="Earlier discussion established the report scope.",
+        source="semantic_processor",
+        source_sequence=3,
+        message_count=8,
+        token_estimate=24,
+        created_at="2026-06-22T01:00:00Z",
+    )
+    second = AgentContextSummary(
+        id="summary_run_2",
+        org_id="org_1",
+        thread_id="thread_1",
+        run_id="run_2",
+        summary="Later discussion chose the output format.",
+        source="manual",
+        message_count=2,
+        created_at="2026-06-22T02:00:00Z",
+    )
+
+    created = await store.create_context_summary(first)
+    await store.create_context_summary(second)
+
+    assert created == first
+    assert await store.list_context_summaries(org_id="org_1", thread_id="thread_1") == [
+        first,
+        second,
+    ]
+    assert await store.list_context_summaries(org_id="org_1", run_id="run_2") == [second]
 
 
 @pytest.mark.asyncio

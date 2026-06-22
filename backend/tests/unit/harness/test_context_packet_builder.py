@@ -1,6 +1,7 @@
 import pytest
 
 from aithru_agent.domain import (
+    AgentContextSummary,
     AgentRunHarnessOptions,
     AgentRunResearchContinuationOptions,
     AgentRunStatus,
@@ -187,6 +188,112 @@ async def test_context_packet_builder_tracks_budget_and_compresses_dropped_conte
     assert packet.budget.dropped_todos == 1
     assert packet.budget.dropped_artifacts == 1
     assert packet.has_dropped_context is True
+
+
+@pytest.mark.asyncio
+async def test_context_packet_builder_includes_latest_summary_when_thread_messages_are_dropped() -> None:
+    store = InMemoryAgentStore()
+    thread = await store.create_thread(
+        org_id="org_1",
+        owner_user_id="user_1",
+        title="Long Research",
+    )
+    for index in range(4):
+        await store.append_message(
+            thread_id=thread.id,
+            role="user" if index % 2 == 0 else "assistant",
+            content=f"message {index}",
+        )
+    await store.create_context_summary(
+        AgentContextSummary(
+            id="summary_old",
+            org_id="org_1",
+            thread_id=thread.id,
+            run_id="run_old",
+            summary="Older durable summary should lose to the latest one.",
+            source="semantic_processor",
+            message_count=4,
+            created_at="2026-06-22T01:00:00Z",
+        )
+    )
+    await store.create_context_summary(
+        AgentContextSummary(
+            id="summary_latest",
+            org_id="org_1",
+            thread_id=thread.id,
+            run_id="run_latest",
+            summary="Earlier thread decided APAC scope and markdown output.",
+            source="semantic_processor",
+            message_count=4,
+            created_at="2026-06-22T02:00:00Z",
+        )
+    )
+    workspace = await store.create_workspace(org_id="org_1", thread_id=thread.id)
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Continue a long research run.",
+        workspace_id=workspace.id,
+        thread_id=thread.id,
+        scopes=["*"],
+    )
+
+    packet = await ContextPacketBuilder(
+        max_thread_messages=2,
+        max_content_chars=120,
+        max_total_chars=300,
+    ).build(run, store)
+
+    assert packet.compressed_context is not None
+    assert packet.compressed_context.counts.thread_messages == 2
+    assert "Earlier thread decided APAC scope and markdown output." in packet.compressed_context.summary
+    assert "Older durable summary" not in packet.compressed_context.summary
+    assert packet.budget is not None
+    assert packet.budget.dropped_thread_messages == 2
+
+
+@pytest.mark.asyncio
+async def test_context_packet_builder_does_not_force_summary_when_no_thread_messages_are_dropped() -> None:
+    store = InMemoryAgentStore()
+    thread = await store.create_thread(
+        org_id="org_1",
+        owner_user_id="user_1",
+        title="Short Research",
+    )
+    await store.append_message(
+        thread_id=thread.id,
+        role="user",
+        content="Keep the visible message.",
+    )
+    await store.create_context_summary(
+        AgentContextSummary(
+            id="summary_latest",
+            org_id="org_1",
+            thread_id=thread.id,
+            run_id="run_latest",
+            summary="This summary exists but should not be injected yet.",
+            source="semantic_processor",
+            message_count=1,
+            created_at="2026-06-22T02:00:00Z",
+        )
+    )
+    workspace = await store.create_workspace(org_id="org_1", thread_id=thread.id)
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Continue a short thread.",
+        workspace_id=workspace.id,
+        thread_id=thread.id,
+        scopes=["*"],
+    )
+
+    packet = await ContextPacketBuilder(max_thread_messages=4).build(run, store)
+
+    assert packet.compressed_context is None
+    assert packet.budget is not None
+    assert packet.budget.dropped_thread_messages == 0
 
 
 @pytest.mark.asyncio

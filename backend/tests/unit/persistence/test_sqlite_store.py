@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 
 from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.domain import AgentArtifactRetentionPolicy, AgentMemoryRetentionPolicy, AgentRunStatus
+from aithru_agent.domain import (
+    AgentArtifactRetentionPolicy,
+    AgentContextSummary,
+    AgentMemoryRetentionPolicy,
+    AgentRunStatus,
+)
 from tests.utils.step_runtime import Step, StepAgentRuntime
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
 from aithru_agent.stream import AgentEventWriter
@@ -62,6 +67,44 @@ async def test_sqlite_store_persists_runs_workspace_files_and_events(tmp_path: P
     assert persisted_approval is not None
     assert persisted_approval.metadata == {"harness_driver": "pydantic_ai"}
     assert [event.type for event in events] == ["run.completed"]
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_round_trips_context_summaries(tmp_path: Path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    store = SQLiteAgentStore(db_path)
+    first = AgentContextSummary(
+        id="summary_run_1",
+        org_id="org_1",
+        thread_id="thread_1",
+        run_id="run_1",
+        summary="Earlier discussion established the report scope.",
+        source="semantic_processor",
+        source_sequence=3,
+        message_count=8,
+        token_estimate=24,
+        created_at="2026-06-22T01:00:00Z",
+    )
+    second = AgentContextSummary(
+        id="summary_run_2",
+        org_id="org_1",
+        thread_id="thread_1",
+        run_id="run_2",
+        summary="Later discussion chose the output format.",
+        source="manual",
+        message_count=2,
+        created_at="2026-06-22T02:00:00Z",
+    )
+
+    await store.create_context_summary(first)
+    await store.create_context_summary(second)
+    reopened = SQLiteAgentStore(db_path)
+
+    assert await reopened.list_context_summaries(org_id="org_1", thread_id="thread_1") == [
+        first,
+        second,
+    ]
+    assert await reopened.list_context_summaries(org_id="org_1", run_id="run_2") == [second]
 
 
 @pytest.mark.asyncio

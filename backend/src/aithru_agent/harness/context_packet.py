@@ -3,6 +3,7 @@ import json
 
 from aithru_agent.domain import (
     AgentArtifact,
+    AgentContextSummary,
     AgentMemoryRecall,
     AgentMemoryRecallItem,
     AgentMemoryVisibilityPolicy,
@@ -79,6 +80,11 @@ class ContextPacketBuilder:
             event_store=event_store,
         )
         dropped_research_evidence = research.dropped_evidence if research else 0
+        latest_context_summary = await self._latest_context_summary(
+            run,
+            store,
+            dropped_thread_messages=dropped_thread_messages,
+        )
         compressed_context = _compressed_context(
             dropped_thread_messages=dropped_thread_messages,
             dropped_todos=dropped_todos,
@@ -86,6 +92,7 @@ class ContextPacketBuilder:
             dropped_tool_results=dropped_tool_results,
             dropped_memory=dropped_memory,
             dropped_research_evidence=dropped_research_evidence,
+            durable_summary=latest_context_summary.summary if latest_context_summary else None,
         )
         thread_messages, todos, artifacts, tool_results, memory, research, compressed_context, budget = _apply_budget(
             thread_messages=thread_messages,
@@ -178,6 +185,21 @@ class ContextPacketBuilder:
             ],
             dropped,
         )
+
+    async def _latest_context_summary(
+        self,
+        run: AgentRun,
+        store: AgentStore,
+        *,
+        dropped_thread_messages: int,
+    ) -> AgentContextSummary | None:
+        if dropped_thread_messages <= 0 or not run.thread_id:
+            return None
+        summaries = await store.list_context_summaries(
+            org_id=run.org_id,
+            thread_id=run.thread_id,
+        )
+        return summaries[-1] if summaries else None
 
     def _artifact_context(self, artifact: AgentArtifact) -> AgentRunContextArtifact:
         summary, truncated = _artifact_summary(
@@ -374,6 +396,7 @@ def _compressed_context(
     dropped_tool_results: int,
     dropped_memory: int,
     dropped_research_evidence: int,
+    durable_summary: str | None = None,
 ) -> AgentRunCompressedContext | None:
     if not any(
         (
@@ -400,6 +423,8 @@ def _compressed_context(
     if dropped_research_evidence:
         parts.append(_plural(dropped_research_evidence, "additional research evidence row", "additional research evidence rows"))
     summary = "Compressed context: " + "; ".join(parts) + "."
+    if durable_summary:
+        summary += f"\nDurable context summary: {durable_summary}"
     return AgentRunCompressedContext(
         summary=summary,
         counts=AgentRunContextCounts(

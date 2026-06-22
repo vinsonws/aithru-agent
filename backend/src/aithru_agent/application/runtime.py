@@ -39,6 +39,7 @@ from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
 from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
+from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
 from aithru_agent.sandbox import LocalPythonSandboxProvider
 from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import AgentSkillResolver, BuiltInResearchSkillResolver
@@ -172,8 +173,14 @@ def _create_native_agent_runtime(settings: AgentSettings) -> NativeAgentRuntime:
 
 
 def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRunner:
-    del settings
-    return AgentRuntimeProcessorRunner(processors=[])
+    processors = []
+    if settings.processors.summarization_enabled:
+        processors.append(
+            ContextSummarizationProcessor(
+                min_message_count=settings.processors.summarization_min_message_count,
+            )
+        )
+    return AgentRuntimeProcessorRunner(processors=processors)
 
 
 def _create_external_tool_providers(settings: AgentSettings) -> list[ExternalToolProvider]:

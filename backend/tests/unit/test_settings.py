@@ -4,6 +4,7 @@ import pytest
 
 from aithru_agent.settings import (
     AgentExternalToolsSettings,
+    AgentProcessorSettings,
     AgentSettings,
     AgentWorkflowCapabilitiesSettings,
 )
@@ -19,6 +20,14 @@ def test_settings_is_pydantic_model() -> None:
     settings = AgentSettings()
 
     assert settings.model_dump()["driver"] == "pydantic_ai"
+
+
+def test_processor_settings_default_to_deterministic_summarization_enabled() -> None:
+    settings = AgentSettings()
+
+    assert isinstance(settings.processors, AgentProcessorSettings)
+    assert settings.processors.summarization_enabled is True
+    assert settings.processors.summarization_min_message_count == 6
 
 
 def test_external_tool_settings_are_pydantic_validated() -> None:
@@ -276,6 +285,8 @@ def test_settings_load_driver_model_and_instructions_from_env(monkeypatch) -> No
     monkeypatch.setenv("AITHRU_AGENT_INSTRUCTIONS", "Use controlled tools only.")
     monkeypatch.setenv("AITHRU_AGENT_PERSISTENCE_BACKEND", "sqlite")
     monkeypatch.setenv("AITHRU_AGENT_SQLITE_PATH", "/tmp/aithru-agent.sqlite")
+    monkeypatch.setenv("AITHRU_AGENT_PROCESSOR_SUMMARIZATION_ENABLED", "false")
+    monkeypatch.setenv("AITHRU_AGENT_PROCESSOR_SUMMARIZATION_MIN_MESSAGE_COUNT", "12")
     monkeypatch.setenv("AITHRU_AGENT_API_TOKEN", "secret-token")
     monkeypatch.setenv("AITHRU_AGENT_API_SCOPES", "agent.workspace.read, agent.memory.read")
     monkeypatch.setenv("AITHRU_AGENT_EXTERNAL_WEB_ENABLED", "true")
@@ -340,6 +351,8 @@ def test_settings_load_driver_model_and_instructions_from_env(monkeypatch) -> No
     assert settings.instructions == "Use controlled tools only."
     assert settings.persistence_backend == "sqlite"
     assert settings.sqlite_path == "/tmp/aithru-agent.sqlite"
+    assert settings.processors.summarization_enabled is False
+    assert settings.processors.summarization_min_message_count == 12
     assert settings.api_token == "secret-token"
     assert settings.api_scopes == ["agent.workspace.read", "agent.memory.read"]
     assert settings.external_tools.web_enabled is True

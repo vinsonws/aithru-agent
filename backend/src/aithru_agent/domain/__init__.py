@@ -91,6 +91,7 @@ from .subagent import (
     AgentSubagentRunStatus,
     AgentSubagentSpec,
 )
+from .summary import AgentContextSummary, AgentContextSummarySource
 from .thread import AgentThread, AgentThreadStatus
 from .todo import AgentTodo, AgentTodoCreatorType, AgentTodoStatus
 from .tool import (
@@ -153,6 +154,8 @@ __all__ = [
     "AgentCapabilityAuditEvent",
     "AgentCapabilityAuditLog",
     "AgentCapabilityAuditLogEntry",
+    "AgentContextSummary",
+    "AgentContextSummarySource",
     "AgentRunCompressedContext",
     "AgentRunContextBudgetUsage",
     "AgentRunContextArtifact",

@@ -12,6 +12,7 @@ from aithru_agent.domain import (
     AgentArtifact,
     AgentArtifactPromotionResult,
     AgentArtifactRetentionPolicy,
+    AgentContextSummary,
     AgentMemoryEntry,
     AgentMemoryForgetResult,
     AgentMemoryRetentionPolicy,
@@ -85,6 +86,21 @@ class AgentStore(Protocol):
         ...
 
     async def list_messages(self, thread_id: str) -> list[AgentMessage]:
+        ...
+
+    async def create_context_summary(
+        self,
+        summary: AgentContextSummary,
+    ) -> AgentContextSummary:
+        ...
+
+    async def list_context_summaries(
+        self,
+        *,
+        org_id: str,
+        thread_id: str | None = None,
+        run_id: str | None = None,
+    ) -> list[AgentContextSummary]:
         ...
 
     async def create_workspace(

@@ -823,11 +823,16 @@ for older context dropped by count limits. Prior tool outputs enter as
 summaries projected from `tool.completed` events; memory enters as bounded
 `AgentMemoryRecall` items only when the run has readable memory scope
 (`agent.memory.read` or `*`) and only for current user/thread/workspace,
-organization, and skill identities. Models do not gain a direct execution path
-through this context. The packet can emit a debug `context.packet.built` event
-with counts, budget usage, dropped-context counts including memory, and
-truncation status. It is an internal context-engineering projection, not a
-public Aithru API contract, persisted plan, scheduler input, or WorkflowSpec.
+organization, and skill identities. Completed threaded runs may also persist
+bounded semantic context summaries through runtime processors so future context
+packets can reuse the latest durable summary when older thread messages are
+dropped. Those summaries are harness facts for prompt continuity, not workflow
+checkpoints, graph state, branch semantics, scheduler input, or model-side
+execution grants. Models do not gain a direct execution path through this
+context. The packet can emit a debug `context.packet.built` event with counts,
+budget usage, dropped-context counts including memory, and truncation status.
+It is an internal context-engineering projection, not a public Aithru API
+contract, persisted plan, scheduler input, or WorkflowSpec.
 A read-only run inspection endpoint may expose the `AgentMemoryRecall`
 projection itself so UI/debug tools can see which scoped memory items would be
 available to the run; that endpoint must reuse the same run-identity and scope

@@ -14,6 +14,7 @@ from aithru_agent.domain import (
     AgentArtifact,
     AgentArtifactPromotionResult,
     AgentArtifactRetentionPolicy,
+    AgentContextSummary,
     AgentMemoryEntry,
     AgentMemoryForgetResult,
     AgentMemoryRetentionPolicy,
@@ -403,6 +404,29 @@ class SQLiteAgentStore:
             for message in self._list_docs("message", AgentMessage)
             if message.thread_id == thread_id
         ]
+
+    async def create_context_summary(
+        self,
+        summary: AgentContextSummary,
+    ) -> AgentContextSummary:
+        self._save_doc("context_summary", summary.id, summary)
+        return summary
+
+    async def list_context_summaries(
+        self,
+        *,
+        org_id: str,
+        thread_id: str | None = None,
+        run_id: str | None = None,
+    ) -> list[AgentContextSummary]:
+        summaries = [
+            summary
+            for summary in self._list_docs("context_summary", AgentContextSummary)
+            if summary.org_id == org_id
+            and (thread_id is None or summary.thread_id == thread_id)
+            and (run_id is None or summary.run_id == run_id)
+        ]
+        return sorted(summaries, key=lambda summary: (summary.created_at, summary.id))
 
     async def create_workspace(
         self,

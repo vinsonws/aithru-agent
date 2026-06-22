@@ -157,6 +157,11 @@ class AgentWorkflowCapabilitiesSettings(AithruBaseModel):
         return self
 
 
+class AgentProcessorSettings(AithruBaseModel):
+    summarization_enabled: bool = True
+    summarization_min_message_count: int = Field(default=6, ge=1, le=100)
+
+
 class AgentSettings(AithruBaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -174,6 +179,7 @@ class AgentSettings(AithruBaseModel):
     workflow_capabilities: AgentWorkflowCapabilitiesSettings = Field(
         default_factory=AgentWorkflowCapabilitiesSettings
     )
+    processors: AgentProcessorSettings = Field(default_factory=AgentProcessorSettings)
 
     @field_validator("model")
     @classmethod
@@ -323,6 +329,18 @@ class AgentSettings(AithruBaseModel):
                     os.getenv("AITHRU_AGENT_WORKFLOW_CAPABILITIES_JSON")
                 ),
             ),
+            processors=AgentProcessorSettings(
+                summarization_enabled=_env_bool_default(
+                    os.getenv("AITHRU_AGENT_PROCESSOR_SUMMARIZATION_ENABLED"),
+                    default=True,
+                    name="AITHRU_AGENT_PROCESSOR_SUMMARIZATION_ENABLED",
+                ),
+                summarization_min_message_count=_env_int(
+                    os.getenv("AITHRU_AGENT_PROCESSOR_SUMMARIZATION_MIN_MESSAGE_COUNT"),
+                    default=6,
+                    name="AITHRU_AGENT_PROCESSOR_SUMMARIZATION_MIN_MESSAGE_COUNT",
+                ),
+            ),
         )
 
 
@@ -344,6 +362,12 @@ def _env_bool(raw: str | None, *, name: str) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"{name} must be a boolean")
+
+
+def _env_bool_default(raw: str | None, *, default: bool, name: str) -> bool:
+    if raw is None:
+        return default
+    return _env_bool(raw, name=name)
 
 
 def _env_int(raw: str | None, *, default: int, name: str) -> int:

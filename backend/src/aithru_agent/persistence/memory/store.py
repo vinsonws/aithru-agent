@@ -10,6 +10,7 @@ from aithru_agent.domain import (
     AgentArtifact,
     AgentArtifactPromotionResult,
     AgentArtifactRetentionPolicy,
+    AgentContextSummary,
     AgentMemoryEntry,
     AgentMemoryForgetResult,
     AgentMemoryRetentionPolicy,
@@ -268,6 +269,7 @@ class InMemoryAgentStore:
         self._threads: dict[str, AgentThread] = {}
         self._messages: dict[str, AgentMessage] = {}
         self._messages_by_thread: dict[str, list[str]] = defaultdict(list)
+        self._context_summaries: dict[str, AgentContextSummary] = {}
         self._runs: dict[str, AgentRun] = {}
         self._todos: dict[str, AgentTodo] = {}
         self._todos_by_run: dict[str, list[str]] = defaultdict(list)
@@ -359,6 +361,29 @@ class InMemoryAgentStore:
             self._messages[message_id]
             for message_id in self._messages_by_thread.get(thread_id, [])
         ]
+
+    async def create_context_summary(
+        self,
+        summary: AgentContextSummary,
+    ) -> AgentContextSummary:
+        self._context_summaries[summary.id] = summary
+        return summary
+
+    async def list_context_summaries(
+        self,
+        *,
+        org_id: str,
+        thread_id: str | None = None,
+        run_id: str | None = None,
+    ) -> list[AgentContextSummary]:
+        summaries = [
+            summary
+            for summary in self._context_summaries.values()
+            if summary.org_id == org_id
+            and (thread_id is None or summary.thread_id == thread_id)
+            and (run_id is None or summary.run_id == run_id)
+        ]
+        return sorted(summaries, key=lambda summary: (summary.created_at, summary.id))
 
     async def create_workspace(
         self,
