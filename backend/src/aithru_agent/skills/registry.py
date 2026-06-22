@@ -179,7 +179,7 @@ class SQLiteSkillRegistry:
                 source=seed_source,
                 read_only=seed_read_only,
             )
-            existing = self.get_entry(entry.org_id, entry.id) or self.get_entry(entry.org_id, entry.key)
+            existing = self._get_seed_entry(entry)
             if existing is None:
                 self._save_entry(entry)
             elif existing.read_only and entry.read_only:
@@ -282,6 +282,17 @@ class SQLiteSkillRegistry:
 
     def _list_all_entries(self) -> list[AgentSkillRegistryEntry]:
         return _list_docs(self._db, "skill_registry_entry", AgentSkillRegistryEntry)
+
+    def _get_seed_entry(self, entry: AgentSkillRegistryEntry) -> AgentSkillRegistryEntry | None:
+        existing_by_id = self._get_entry_by_id(entry.id)
+        if existing_by_id is not None:
+            if existing_by_id.org_id != entry.org_id:
+                raise SkillRegistryConflictError(
+                    "Skill registry seed id collision: "
+                    f"{entry.id} belongs to org {existing_by_id.org_id}, not {entry.org_id}"
+                )
+            return existing_by_id
+        return self.get_entry(entry.org_id, entry.key)
 
 
 def _entry_from_skill(

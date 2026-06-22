@@ -1,5 +1,7 @@
+import pytest
+
 from aithru_agent.domain import AgentSkill
-from aithru_agent.skills import SQLiteSkillRegistry
+from aithru_agent.skills import SQLiteSkillRegistry, SkillRegistryConflictError
 
 
 def test_sqlite_skill_registry_reconciles_read_only_seed_entries(tmp_path) -> None:
@@ -75,3 +77,45 @@ def test_sqlite_skill_registry_persists_managed_entries_and_runtime_enablement(t
     runtime_skill = enabled_reload.resolve("file-report")
     assert runtime_skill is not None
     assert runtime_skill.key == "file-report"
+
+
+def test_sqlite_skill_registry_rejects_builtin_seed_id_collision_across_orgs(tmp_path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    registry = SQLiteSkillRegistry(db_path, seed_skills=[])
+    registry.register_skill(
+        AgentSkill(
+            id="skill_deep_research",
+            org_id="org_2",
+            key="org-2-deep-research",
+            name="Org 2 Deep Research",
+            instructions="Managed org 2 instructions.",
+            allowed_tools=[],
+            allowed_subagents=[],
+            version="9.9.9",
+            status="published",
+        )
+    )
+
+    with pytest.raises(SkillRegistryConflictError, match="skill_deep_research"):
+        SQLiteSkillRegistry(
+            db_path,
+            seed_skills=[
+                AgentSkill(
+                    id="skill_deep_research",
+                    org_id="org_1",
+                    key="deep-research",
+                    name="Deep Research",
+                    instructions="Built-in org 1 instructions.",
+                    allowed_tools=["research.create_plan"],
+                    allowed_subagents=[],
+                    version="0.1.0",
+                    status="published",
+                )
+            ],
+        )
+
+    reloaded = SQLiteSkillRegistry(db_path, seed_skills=[])
+    entry = reloaded.get_entry("org_2", "skill_deep_research")
+    assert entry is not None
+    assert entry.key == "org-2-deep-research"
+    assert entry.configuration.instructions == "Managed org 2 instructions."

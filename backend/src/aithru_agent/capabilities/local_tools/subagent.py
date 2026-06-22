@@ -13,6 +13,7 @@ from aithru_agent.domain import (
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.persistence.protocols import AgentStore
 from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
+from aithru_agent.skills.resolver import resolve_skill_for_org
 from aithru_agent.stream import AgentEventWriter
 
 from ..descriptors import AgentRunContext
@@ -265,7 +266,7 @@ class SubagentLocalTool:
     ) -> AgentSkill | None:
         if skill_id is None:
             return None
-        child_skill = self._skill_resolver.resolve(skill_id)
+        child_skill = resolve_skill_for_org(self._skill_resolver, context.org_id, skill_id)
         if child_skill is None:
             return None
         if context.allowed_subagents is not None and not _is_allowed_subagent(

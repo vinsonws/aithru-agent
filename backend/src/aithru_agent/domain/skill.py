@@ -4,6 +4,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator
 
 from .base import AithruBaseModel
+from .tool import AgentToolRiskLevel
 
 
 class AgentSkillStatus(StrEnum):
@@ -66,12 +67,14 @@ class AgentSandboxPolicy(AithruBaseModel):
 
 class AgentApprovalPolicy(AithruBaseModel):
     default_decision: Literal["require_approval"] = "require_approval"
-    require_approval_for_risk: list[str] = Field(default_factory=list)
+    require_approval_for_risk: list[AgentToolRiskLevel] = Field(default_factory=list)
 
-    @field_validator("require_approval_for_risk")
+    @field_validator("require_approval_for_risk", mode="before")
     @classmethod
-    def _risk_levels_must_not_be_blank(cls, value: list[str]) -> list[str]:
-        stripped = [item.strip() for item in value]
+    def _risk_levels_must_not_be_blank(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        stripped = [item.strip() if isinstance(item, str) else item for item in value]
         if any(not item for item in stripped):
             raise ValueError("approval policy risk entries cannot be blank")
         return stripped

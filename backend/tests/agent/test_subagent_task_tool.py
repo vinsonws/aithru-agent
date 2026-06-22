@@ -4,7 +4,7 @@ from aithru_agent.agent import AgentRuntime, AgentRuntimeResult, PydanticAgentDe
 from aithru_agent.agent.tools import PydanticAIToolBridge
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import AgentRunSource, AgentRunStatus, AgentSkill, AgentSubagentRunStatus
-from aithru_agent.skills import InMemorySkillResolver
+from aithru_agent.skills import InMemorySkillRegistry, InMemorySkillResolver
 
 
 class ToolContext:
@@ -47,12 +47,17 @@ class TaskCallingRuntime(AgentRuntime):
         return AgentRuntimeResult(content=content)
 
 
-def child_skill() -> AgentSkill:
+def child_skill(
+    *,
+    id: str = "skill_child",
+    org_id: str = "org_1",
+    name: str = "Child Researcher",
+) -> AgentSkill:
     return AgentSkill(
-        id="skill_child",
-        org_id="org_1",
+        id=id,
+        org_id=org_id,
         key="child-researcher",
-        name="Child Researcher",
+        name=name,
         instructions="Handle delegated research tasks.",
         allowed_tools=[],
         allowed_subagents=[],
@@ -91,3 +96,34 @@ async def test_task_tool_creates_visible_child_run_and_returns_joined_result() -
     assert child.skill_id == "child-researcher"
     assert event_types.index("subagent.started") < event_types.index("subagent.completed")
     assert event_types.index("subagent.completed") < event_types.index("tool.completed")
+
+
+@pytest.mark.asyncio
+async def test_task_tool_resolves_duplicate_child_skill_key_within_parent_org() -> None:
+    runtime = create_agent_runtime(
+        agent_runtime=TaskCallingRuntime(),
+        skill_resolver=InMemorySkillRegistry(
+            seed_skills=[
+                child_skill(id="skill_child_org_1", org_id="org_1", name="Org 1 Child"),
+                child_skill(id="skill_child_org_2", org_id="org_2", name="Org 2 Child"),
+            ],
+        ),
+    )
+
+    parent = await runtime.runner.start_run(
+        org_id="org_2",
+        actor_user_id="user_2",
+        goal="Delegate with org-scoped task.",
+        scopes=["*"],
+    )
+    subagent_runs = await runtime.store.list_subagent_runs(parent_run_id=parent.id)
+
+    assert parent.status == AgentRunStatus.COMPLETED
+    assert parent.result is not None
+    assert parent.result.content == "Parent saw: Child result."
+    assert len(subagent_runs) == 1
+    child = await runtime.store.get_run(subagent_runs[0].child_run_id)
+    assert subagent_runs[0].name == "Org 2 Child"
+    assert child is not None
+    assert child.org_id == "org_2"
+    assert child.skill_id == "child-researcher"

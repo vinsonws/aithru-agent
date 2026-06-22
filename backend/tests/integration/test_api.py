@@ -5853,7 +5853,7 @@ async def test_agent_api_registers_marketplace_skill_with_typed_config_and_org_f
         "sandbox_policy": {"enabled": False, "network": "none"},
         "approval_policy": {
             "default_decision": "require_approval",
-            "require_approval_for_risk": ["high"],
+            "require_approval_for_risk": ["dangerous"],
         },
         "version": "1.2.3",
         "status": "draft",
@@ -5899,7 +5899,7 @@ async def test_agent_api_registers_marketplace_skill_with_typed_config_and_org_f
     assert created["configuration"]["denied_tools"] == ["web.fetch"]
     assert created["configuration"]["allowed_subagents"] == ["citation-checker"]
     assert created["configuration"]["memory_policy"]["scopes"] == ["organization"]
-    assert created["configuration"]["approval_policy"]["require_approval_for_risk"] == ["high"]
+    assert created["configuration"]["approval_policy"]["require_approval_for_risk"] == ["dangerous"]
     assert [entry["key"] for entry in listed.json()] == ["research-brief"]
     assert own_detail.status_code == 200
     assert external_detail.status_code == 404
@@ -5910,6 +5910,7 @@ async def test_agent_api_registers_marketplace_skill_with_typed_config_and_org_f
     [
         {"memory_policy": {"read": True, "scopes": ["org"]}},
         {"approval_policy": {"default_decision": "auto_approve"}},
+        {"approval_policy": {"require_approval_for_risk": ["high"]}},
         {"approval_policy": {"require_approval_for_risk": ["write", " "]}},
         {"sandbox_policy": {"enabled": True, "network": "allowlist"}},
         {"sandbox_policy": {"enabled": True, "allowed_commands": ["python"]}},
