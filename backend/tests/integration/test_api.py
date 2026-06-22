@@ -4385,6 +4385,12 @@ async def test_agent_api_exposes_control_plane_resource_contract_schemas() -> No
     assert "AgentMemoryForgetResult" in schemas
     assert "AgentMessage" in schemas
     assert "AgentSkill" in schemas
+    assert "AgentSkillConfiguration" in schemas
+    assert "AgentSkillEnablementResult" in schemas
+    assert "AgentSkillMarketplaceMetadata" in schemas
+    assert "AgentSkillRegistryEntry" in schemas
+    assert "RegisterSkillRegistryEntryRequest" in schemas
+    assert "UpdateSkillRegistryEntryRequest" in schemas
 
     approval_schema = {"$ref": "#/components/schemas/AgentApproval"}
     run_schema = {"$ref": "#/components/schemas/AgentRun"}
@@ -4392,6 +4398,10 @@ async def test_agent_api_exposes_control_plane_resource_contract_schemas() -> No
     forget_schema = {"$ref": "#/components/schemas/AgentMemoryForgetResult"}
     message_schema = {"$ref": "#/components/schemas/AgentMessage"}
     skill_schema = {"$ref": "#/components/schemas/AgentSkill"}
+    registry_entry_schema = {"$ref": "#/components/schemas/AgentSkillRegistryEntry"}
+    enablement_schema = {"$ref": "#/components/schemas/AgentSkillEnablementResult"}
+    register_request_schema = {"$ref": "#/components/schemas/RegisterSkillRegistryEntryRequest"}
+    update_request_schema = {"$ref": "#/components/schemas/UpdateSkillRegistryEntryRequest"}
 
     approvals_schema = openapi["paths"]["/api/approvals"]["get"]["responses"]["200"][
         "content"
@@ -4463,6 +4473,54 @@ async def test_agent_api_exposes_control_plane_resource_contract_schemas() -> No
             "content"
         ]["application/json"]["schema"]
         == skill_schema
+    )
+
+    registry_list_schema = openapi["paths"]["/api/skill-registry"]["get"]["responses"][
+        "200"
+    ]["content"]["application/json"]["schema"]
+    assert registry_list_schema["type"] == "array"
+    assert registry_list_schema["items"] == registry_entry_schema
+    assert (
+        openapi["paths"]["/api/skill-registry"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+        == register_request_schema
+    )
+    assert (
+        openapi["paths"]["/api/skill-registry"]["post"]["responses"]["201"]["content"][
+            "application/json"
+        ]["schema"]
+        == registry_entry_schema
+    )
+    assert (
+        openapi["paths"]["/api/skill-registry/{entry_id_or_key}"]["get"]["responses"][
+            "200"
+        ]["content"]["application/json"]["schema"]
+        == registry_entry_schema
+    )
+    assert (
+        openapi["paths"]["/api/skill-registry/{entry_id_or_key}"]["patch"]["requestBody"][
+            "content"
+        ]["application/json"]["schema"]
+        == update_request_schema
+    )
+    assert (
+        openapi["paths"]["/api/skill-registry/{entry_id_or_key}"]["patch"]["responses"][
+            "200"
+        ]["content"]["application/json"]["schema"]
+        == registry_entry_schema
+    )
+    assert (
+        openapi["paths"]["/api/skill-registry/{entry_id_or_key}/enable"]["post"][
+            "responses"
+        ]["200"]["content"]["application/json"]["schema"]
+        == enablement_schema
+    )
+    assert (
+        openapi["paths"]["/api/skill-registry/{entry_id_or_key}/disable"]["post"][
+            "responses"
+        ]["200"]["content"]["application/json"]["schema"]
+        == enablement_schema
     )
 
 
@@ -5718,6 +5776,256 @@ async def test_agent_api_exposes_default_deep_research_skill_and_filtered_tools(
         "research.create_plan",
         "research.create_report",
     ]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_exposes_builtin_deep_research_as_read_only_registry_entry() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        registry_entries = (await client.get("/api/skill-registry")).json()
+        detail = (await client.get("/api/skill-registry/deep-research")).json()
+        disable_response = await client.post("/api/skill-registry/deep-research/disable")
+
+    assert [entry["key"] for entry in registry_entries] == ["deep-research"]
+    assert detail["source"] == "builtin"
+    assert detail["read_only"] is True
+    assert "research.create_plan" in detail["configuration"]["allowed_tools"]
+    assert disable_response.status_code == 409
+    assert "read-only" in disable_response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_registers_disabled_skill_as_manageable_but_not_runtime_visible() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([]))
+    app = create_app(runtime)
+    skill_payload = {
+        "id": "skill_file_report",
+        "org_id": "org_1",
+        "key": "file-report",
+        "name": "File Report",
+        "instructions": "Read files and write a report.",
+        "allowed_tools": ["workspace.read_file"],
+        "allowed_subagents": [],
+        "workspace_policy": {"read": True, "write": False, "allowed_paths": ["/workspace"]},
+        "version": "0.1.0",
+        "status": "published",
+        "enabled": False,
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created_response = await client.post(
+            "/api/skill-registry",
+            json={"skill": skill_payload, "source": "managed"},
+        )
+        registry_response = await client.get("/api/skill-registry")
+        runtime_response = await client.get("/api/skills")
+        runtime_detail = await client.get("/api/skills/file-report")
+
+    assert created_response.status_code == 201
+    created = created_response.json()
+    assert created["id"] == "skill_file_report"
+    assert created["key"] == "file-report"
+    assert created["configuration"]["allowed_tools"] == ["workspace.read_file"]
+    assert created["configuration"]["workspace_policy"]["allowed_paths"] == ["/workspace"]
+    assert created["enabled"] is False
+    assert [entry["key"] for entry in registry_response.json()] == ["file-report"]
+    assert runtime_response.json() == []
+    assert runtime_detail.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_agent_api_registers_marketplace_skill_with_typed_config_and_org_filtering() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([]))
+    app = create_app(runtime)
+    org_skill = {
+        "id": "skill_research_brief",
+        "org_id": "org_1",
+        "key": "research-brief",
+        "name": "Research Brief",
+        "description": "Summarize collected evidence.",
+        "instructions": "Read workspace sources and produce a concise brief.",
+        "allowed_tools": ["workspace.read_file", "artifact.create"],
+        "denied_tools": ["web.fetch"],
+        "allowed_subagents": ["citation-checker"],
+        "memory_policy": {"read": True, "write": False, "scopes": ["org"]},
+        "sandbox_policy": {"enabled": False, "network": "none"},
+        "approval_policy": {
+            "default_decision": "require_approval",
+            "require_approval_for_risk": ["high"],
+        },
+        "version": "1.2.3",
+        "status": "draft",
+    }
+    external_skill = {
+        **org_skill,
+        "id": "skill_external_brief",
+        "org_id": "org_2",
+        "key": "external-brief",
+        "name": "External Brief",
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created_response = await client.post(
+            "/api/skill-registry",
+            json={
+                "skill": org_skill,
+                "source": "marketplace",
+                "marketplace": {
+                    "listing_id": "listing_research_brief",
+                    "publisher": "Aithru Labs",
+                    "homepage_url": "https://example.com/skills/research-brief",
+                    "categories": ["research"],
+                    "tags": ["brief", "evidence"],
+                },
+            },
+        )
+        await client.post("/api/skill-registry", json={"skill": external_skill, "source": "managed"})
+        listed = await client.get("/api/skill-registry", headers={"X-Aithru-Org-Id": "org_1"})
+        own_detail = await client.get(
+            "/api/skill-registry/research-brief",
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+        external_detail = await client.get(
+            "/api/skill-registry/external-brief",
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
+    assert created_response.status_code == 201
+    created = created_response.json()
+    assert created["source"] == "marketplace"
+    assert created["marketplace"]["listing_id"] == "listing_research_brief"
+    assert created["configuration"]["denied_tools"] == ["web.fetch"]
+    assert created["configuration"]["allowed_subagents"] == ["citation-checker"]
+    assert created["configuration"]["memory_policy"]["scopes"] == ["org"]
+    assert created["configuration"]["approval_policy"]["require_approval_for_risk"] == ["high"]
+    assert [entry["key"] for entry in listed.json()] == ["research-brief"]
+    assert own_detail.status_code == 200
+    assert external_detail.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_agent_api_enable_disable_controls_runtime_skill_visibility_and_runs() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([]))
+    app = create_app(runtime)
+    skill_payload = {
+        "id": "skill_file_report",
+        "org_id": "org_1",
+        "key": "file-report",
+        "name": "File Report",
+        "instructions": "Read files and write a report.",
+        "allowed_tools": ["workspace.read_file"],
+        "allowed_subagents": [],
+        "version": "0.1.0",
+        "status": "published",
+        "enabled": False,
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/skill-registry", json={"skill": skill_payload, "source": "managed"})
+        disabled_run = await client.post(
+            "/api/runs",
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "goal": "Use disabled skill",
+                "skill_id": "file-report",
+                "scopes": ["*"],
+            },
+        )
+        enabled_response = await client.post("/api/skill-registry/file-report/enable")
+        runtime_skills_after_enable = (await client.get("/api/skills")).json()
+        enabled_run = await client.post(
+            "/api/runs",
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "goal": "Use enabled skill",
+                "skill_id": "file-report",
+                "scopes": ["*"],
+            },
+        )
+        disabled_response = await client.post("/api/skill-registry/file-report/disable")
+        runtime_skills_after_disable = (await client.get("/api/skills")).json()
+
+    assert disabled_run.status_code == 404
+    assert disabled_run.json()["detail"] == "Skill not found: file-report"
+    assert enabled_response.status_code == 200
+    enabled = enabled_response.json()
+    assert enabled["enabled"] is True
+    assert enabled["runtime_visible"] is True
+    assert [skill["key"] for skill in runtime_skills_after_enable] == ["file-report"]
+    assert enabled_run.status_code == 201
+    assert enabled_run.json()["skill_id"] == "file-report"
+    assert disabled_response.status_code == 200
+    disabled = disabled_response.json()
+    assert disabled["enabled"] is False
+    assert disabled["runtime_visible"] is False
+    assert runtime_skills_after_disable == []
+
+
+@pytest.mark.asyncio
+async def test_agent_api_updates_skill_registry_version_and_runtime_policy_config() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"), skill_resolver=InMemorySkillResolver([]))
+    app = create_app(runtime)
+    skill_payload = {
+        "id": "skill_file_report",
+        "org_id": "org_1",
+        "key": "file-report",
+        "name": "File Report",
+        "instructions": "List workspace files.",
+        "allowed_tools": ["workspace.list_files"],
+        "allowed_subagents": [],
+        "workspace_policy": {"read": True, "write": False},
+        "version": "0.1.0",
+        "status": "published",
+        "enabled": True,
+    }
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/skill-registry", json={"skill": skill_payload, "source": "managed"})
+        updated_response = await client.patch(
+            "/api/skill-registry/file-report",
+            json={
+                "name": "Artifact Report",
+                "description": "Create an artifact-only report.",
+                "version": "0.2.0",
+                "configuration": {
+                    "instructions": "Create an artifact report.",
+                    "allowed_tools": ["artifact.create"],
+                    "denied_tools": ["workspace.write_file"],
+                    "allowed_subagents": [],
+                    "workspace_policy": {"read": False, "write": False},
+                },
+            },
+        )
+        runtime_detail = (await client.get("/api/skills/file-report")).json()
+        run = (
+            await client.post(
+                "/api/runs",
+                json={
+                    "org_id": "org_1",
+                    "actor_user_id": "user_1",
+                    "goal": "Create artifact",
+                    "skill_id": "file-report",
+                    "scopes": ["*"],
+                },
+            )
+        ).json()
+        tools = (await client.get(f"/api/runs/{run['id']}/tools")).json()
+
+    assert updated_response.status_code == 200
+    updated = updated_response.json()
+    assert updated["name"] == "Artifact Report"
+    assert updated["description"] == "Create an artifact-only report."
+    assert updated["version"] == "0.2.0"
+    assert updated["configuration"]["allowed_tools"] == ["artifact.create"]
+    assert updated["configuration"]["denied_tools"] == ["workspace.write_file"]
+    assert updated["configuration"]["workspace_policy"]["read"] is False
+    assert runtime_detail["version"] == "0.2.0"
+    assert runtime_detail["allowed_tools"] == ["artifact.create"]
+    assert [tool["name"] for tool in tools] == ["artifact.create"]
 
 
 @pytest.mark.asyncio

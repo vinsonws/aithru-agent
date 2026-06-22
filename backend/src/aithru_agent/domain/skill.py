@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
@@ -10,6 +10,12 @@ class AgentSkillStatus(StrEnum):
     DRAFT = "draft"
     PUBLISHED = "published"
     DEPRECATED = "deprecated"
+
+
+class AgentSkillRegistrySource(StrEnum):
+    BUILTIN = "builtin"
+    MANAGED = "managed"
+    MARKETPLACE = "marketplace"
 
 
 class AgentWorkspacePolicy(AithruBaseModel):
@@ -83,3 +89,119 @@ class AgentSkill(AithruBaseModel):
     output_schema: object | None = None
     version: str
     status: AgentSkillStatus
+
+
+class AgentSkillMarketplaceMetadata(AithruBaseModel):
+    listing_id: str | None = None
+    publisher: str | None = None
+    homepage_url: str | None = None
+    categories: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+
+
+class AgentSkillConfiguration(AithruBaseModel):
+    instructions: str
+    when_to_use: str | None = None
+    allowed_tools: list[str] = Field(default_factory=list)
+    denied_tools: list[str] = Field(default_factory=list)
+    allowed_subagents: list[str] = Field(default_factory=list)
+    workspace_policy: AgentWorkspacePolicy | None = None
+    memory_policy: AgentMemoryPolicy | None = None
+    sandbox_policy: AgentSandboxPolicy | None = None
+    approval_policy: AgentApprovalPolicy | None = None
+    input_schema: dict[str, Any] | None = None
+    output_schema: dict[str, Any] | None = None
+
+    @classmethod
+    def from_skill(cls, skill: AgentSkill) -> "AgentSkillConfiguration":
+        return cls(
+            instructions=skill.instructions,
+            when_to_use=skill.when_to_use,
+            allowed_tools=skill.allowed_tools,
+            denied_tools=skill.denied_tools,
+            allowed_subagents=skill.allowed_subagents,
+            workspace_policy=skill.workspace_policy,
+            memory_policy=skill.memory_policy,
+            sandbox_policy=skill.sandbox_policy,
+            approval_policy=skill.approval_policy,
+            input_schema=skill.input_schema if isinstance(skill.input_schema, dict) else None,
+            output_schema=skill.output_schema if isinstance(skill.output_schema, dict) else None,
+        )
+
+
+class AgentSkillRegistryEntry(AithruBaseModel):
+    id: str
+    org_id: str
+    key: str
+    name: str
+    description: str | None = None
+    version: str
+    status: AgentSkillStatus
+    enabled: bool = True
+    source: AgentSkillRegistrySource = AgentSkillRegistrySource.MANAGED
+    marketplace: AgentSkillMarketplaceMetadata | None = None
+    configuration: AgentSkillConfiguration
+    read_only: bool = False
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_skill(
+        cls,
+        skill: AgentSkill,
+        *,
+        source: AgentSkillRegistrySource,
+        created_at: str,
+        updated_at: str | None = None,
+        marketplace: AgentSkillMarketplaceMetadata | None = None,
+        read_only: bool = False,
+    ) -> "AgentSkillRegistryEntry":
+        return cls(
+            id=skill.id,
+            org_id=skill.org_id,
+            key=skill.key,
+            name=skill.name,
+            description=skill.description,
+            version=skill.version,
+            status=skill.status,
+            enabled=skill.enabled,
+            source=source,
+            marketplace=marketplace,
+            configuration=AgentSkillConfiguration.from_skill(skill),
+            read_only=read_only,
+            created_at=created_at,
+            updated_at=updated_at or created_at,
+        )
+
+    def to_skill(self) -> AgentSkill:
+        return AgentSkill(
+            id=self.id,
+            org_id=self.org_id,
+            key=self.key,
+            name=self.name,
+            description=self.description,
+            instructions=self.configuration.instructions,
+            when_to_use=self.configuration.when_to_use,
+            enabled=self.enabled,
+            allowed_tools=self.configuration.allowed_tools,
+            denied_tools=self.configuration.denied_tools,
+            allowed_subagents=self.configuration.allowed_subagents,
+            workspace_policy=self.configuration.workspace_policy,
+            memory_policy=self.configuration.memory_policy,
+            sandbox_policy=self.configuration.sandbox_policy,
+            approval_policy=self.configuration.approval_policy,
+            input_schema=self.configuration.input_schema,
+            output_schema=self.configuration.output_schema,
+            version=self.version,
+            status=self.status,
+        )
+
+
+class AgentSkillEnablementResult(AithruBaseModel):
+    id: str
+    org_id: str
+    key: str
+    enabled: bool
+    status: AgentSkillStatus
+    runtime_visible: bool
+    entry: AgentSkillRegistryEntry

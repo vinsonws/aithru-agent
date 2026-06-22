@@ -45,7 +45,13 @@ from aithru_agent.runtime.processors.summarization import ContextSummarizationPr
 from aithru_agent.runtime.processors.title import ThreadTitleProcessor
 from aithru_agent.sandbox import LocalPythonSandboxProvider
 from aithru_agent.settings import AgentSettings
-from aithru_agent.skills import AgentSkillResolver, BuiltInResearchSkillResolver
+from aithru_agent.skills import (
+    AgentSkillRegistry,
+    AgentSkillResolver,
+    BuiltInResearchSkillResolver,
+    InMemorySkillRegistry,
+    SQLiteSkillRegistry,
+)
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 from aithru_agent.worker import AgentWorkerRunner, AgentWorkerService, InProcessRunQueue
 
@@ -61,6 +67,7 @@ class AgentApplication:
     run_queue: InProcessRunQueue
     worker: AgentWorkerService
     skill_resolver: AgentSkillResolver
+    skill_registry: AgentSkillRegistry
     agent_runtime: NativeAgentRuntime
     processor_runner: AgentRuntimeProcessorRunner
 
@@ -76,6 +83,7 @@ def create_agent_application(
     policy: ToolPolicy | None = None,
     settings: AgentSettings | None = None,
     skill_resolver: AgentSkillResolver | None = None,
+    skill_registry: AgentSkillRegistry | None = None,
     external_tool_providers: list[ExternalToolProvider] | None = None,
     workflow_capability_providers: list[WorkflowCapabilityProvider] | None = None,
 ) -> AgentApplication:
@@ -83,7 +91,12 @@ def create_agent_application(
     resolved_store = store or _create_store(resolved_settings)
     resolved_event_store = event_store or _create_event_store(resolved_settings)
     event_writer = AgentEventWriter(resolved_event_store)
-    resolved_skill_resolver = skill_resolver or BuiltInResearchSkillResolver()
+    seed_skill_resolver = skill_resolver or BuiltInResearchSkillResolver()
+    resolved_skill_registry = skill_registry or _create_skill_registry(
+        resolved_settings,
+        seed_skill_resolver,
+    )
+    resolved_skill_resolver = resolved_skill_registry
     subagent_tool = SubagentLocalTool(resolved_store, event_writer, resolved_skill_resolver)
     tool_adapters = [
         WorkspaceLocalTool(resolved_store),
@@ -142,6 +155,7 @@ def create_agent_application(
         run_queue=run_queue,
         worker=worker,
         skill_resolver=resolved_skill_resolver,
+        skill_registry=resolved_skill_registry,
         agent_runtime=resolved_agent_runtime,
         processor_runner=processor_runner,
     )
@@ -198,6 +212,16 @@ def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRu
     if settings.processors.memory_extraction_enabled:
         processors.append(MemoryExtractionProcessor())
     return AgentRuntimeProcessorRunner(processors=processors)
+
+
+def _create_skill_registry(
+    settings: AgentSettings,
+    seed_skill_resolver: AgentSkillResolver,
+) -> AgentSkillRegistry:
+    seed_skills = seed_skill_resolver.list_skills()
+    if settings.persistence_backend == "sqlite":
+        return SQLiteSkillRegistry(settings.sqlite_path, seed_skills=seed_skills)
+    return InMemorySkillRegistry(seed_skills=seed_skills)
 
 
 def _create_external_tool_providers(settings: AgentSettings) -> list[ExternalToolProvider]:
