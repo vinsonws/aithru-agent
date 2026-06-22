@@ -8,22 +8,6 @@ from .base import (
 
 TITLE_STRIP_CHARS = ".,:;!?()[]{}"
 DEFAULT_THREAD_TITLE = "New Agent Thread"
-TRAILING_TITLE_CONNECTORS = {
-    "A",
-    "An",
-    "And",
-    "As",
-    "At",
-    "By",
-    "For",
-    "From",
-    "In",
-    "Of",
-    "On",
-    "Or",
-    "The",
-    "To",
-}
 
 
 class ThreadTitleProcessor(AgentRuntimeProcessor):
@@ -69,7 +53,4 @@ def _title_from_goal(goal: str, *, max_words: int) -> str:
     ]
     if not words:
         return DEFAULT_THREAD_TITLE
-    title_words = words[:max_words]
-    while title_words and title_words[-1] in TRAILING_TITLE_CONNECTORS:
-        title_words = title_words[:-1]
-    return " ".join(title_words) or DEFAULT_THREAD_TITLE
+    return " ".join(words[:max_words]) or DEFAULT_THREAD_TITLE

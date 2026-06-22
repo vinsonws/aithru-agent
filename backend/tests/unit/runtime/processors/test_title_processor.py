@@ -19,12 +19,12 @@ async def test_generates_title_from_untitled_thread_goal() -> None:
     events = await context.event_store.list_by_run(context.run.id)
     assert decision.should_stop is False
     assert thread is not None
-    assert thread.title == "Compare Aithru Agent With Deerflow"
+    assert thread.title == "Compare Aithru Agent With Deerflow For"
     assert [event.type for event in events] == ["thread.title.generated"]
     assert events[0].visibility == "debug"
     assert events[0].payload == {
         "thread_id": thread.id,
-        "title": "Compare Aithru Agent With Deerflow",
+        "title": "Compare Aithru Agent With Deerflow For",
     }
 
 
@@ -42,6 +42,18 @@ async def test_does_not_overwrite_existing_thread_title() -> None:
     assert thread is not None
     assert thread.title == "Manual Research Title"
     assert await context.event_store.list_by_run(context.run.id) == []
+
+
+@pytest.mark.asyncio
+async def test_preserves_trailing_word_within_max_word_limit() -> None:
+    context = await _make_context(goal="research cats and")
+
+    decision = await ThreadTitleProcessor(max_words=3).before_model(context)
+
+    thread = await context.store.get_thread(context.run.thread_id or "")
+    assert decision.should_stop is False
+    assert thread is not None
+    assert thread.title == "Research Cats And"
 
 
 @pytest.mark.asyncio

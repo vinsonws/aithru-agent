@@ -33,12 +33,12 @@ async def test_thread_title_is_generated_before_model_for_untitled_thread() -> N
     title_events = [event for event in events if event.type == "thread.title.generated"]
     assert result.status == AgentRunStatus.COMPLETED
     assert updated_thread is not None
-    assert updated_thread.title == "Compare Aithru Agent With Deerflow"
+    assert updated_thread.title == "Compare Aithru Agent With Deerflow For"
     assert len(title_events) == 1
     assert title_events[0].visibility == "debug"
     assert title_events[0].payload == {
         "thread_id": thread.id,
-        "title": "Compare Aithru Agent With Deerflow",
+        "title": "Compare Aithru Agent With Deerflow For",
     }
     assert event_types.index("thread.title.generated") < event_types.index("model.started")
 
