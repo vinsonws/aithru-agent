@@ -23,7 +23,6 @@ from aithru_agent.domain import (
     AgentRun,
     AgentRunHarnessOptions,
     AgentRunRetryPolicy,
-    AgentRunStatus,
     AgentThread,
     AgentThreadStatus,
     AgentWorkspace,
@@ -266,13 +265,18 @@ class ApiDependencies:
         while True:
             events = await self.runtime.event_store.list_after_sequence(run_id, cursor)
             if events:
+                saw_terminal_event = False
                 for event in events:
                     cursor = event.sequence
                     yield format_sse_event(event)
+                    if event.type in TERMINAL_RUN_EVENT_TYPES:
+                        saw_terminal_event = True
+                if saw_terminal_event:
+                    break
                 continue
 
             run = await self.runtime.store.get_run(run_id)
-            if run is None or run.status in TERMINAL_RUN_STATUSES:
+            if run is None:
                 break
             if asyncio.get_running_loop().time() >= deadline:
                 break
@@ -299,11 +303,7 @@ class ApiDependencies:
             raise HTTPException(status_code=409, detail=err.message) from err
 
 
-TERMINAL_RUN_STATUSES = {
-    AgentRunStatus.COMPLETED,
-    AgentRunStatus.FAILED,
-    AgentRunStatus.CANCELLED,
-}
+TERMINAL_RUN_EVENT_TYPES = frozenset({"run.completed", "run.failed", "run.cancelled"})
 
 
 def api_deps(request: Request) -> ApiDependencies:

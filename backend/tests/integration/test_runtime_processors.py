@@ -1,6 +1,10 @@
+import asyncio
+
 import pytest
 
 from aithru_agent.agent import AgentRuntime, AgentRuntimeResult, PydanticAgentDeps
+from aithru_agent.api.dependencies import ApiDependencies
+from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
 from aithru_agent.domain import AgentRunRetryPolicy, AgentRunStatus
 from aithru_agent.persistence.memory import InMemoryAgentStore
@@ -204,3 +208,72 @@ async def test_after_terminal_processor_exception_is_recorded_without_raising() 
     assert failure_event.payload["hook"] == "after_terminal"
     assert failure_event.payload["processor"] == "FailingAfterTerminalProcessor"
     assert failure_event.payload["error"]["message"] == "after terminal failed"
+
+
+@pytest.mark.asyncio
+async def test_follow_run_events_waits_for_terminal_stream_event_after_terminal_state() -> None:
+    runtime = create_agent_runtime(agent_runtime=DoneRuntime())
+    deps = ApiDependencies(runtime)
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    run = await runtime.store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Stream terminal race",
+        workspace_id=workspace.id,
+        scopes=["*"],
+    )
+    await runtime.store.update_run(run.id, status=AgentRunStatus.RUNNING)
+    await runtime.event_writer.write(
+        run_id=run.id,
+        thread_id=run.thread_id,
+        type="run.started",
+        source={"kind": "harness"},
+        payload={"status": "running"},
+    )
+
+    async def collect_followed_events() -> list[str]:
+        return [
+            chunk
+            async for chunk in deps.follow_run_events(
+                run.id,
+                after_sequence=1,
+                poll_interval_seconds=0.01,
+                timeout_seconds=1,
+            )
+        ]
+
+    stream_task = asyncio.create_task(collect_followed_events())
+    await asyncio.sleep(0.03)
+    assert not stream_task.done()
+
+    await runtime.store.update_run(
+        run.id,
+        status=AgentRunStatus.COMPLETED,
+        completed_at="2026-06-22T00:00:00Z",
+    )
+    await asyncio.sleep(0.05)
+    assert not stream_task.done()
+
+    await runtime.event_writer.write(
+        run_id=run.id,
+        thread_id=run.thread_id,
+        type="runtime.processor.recorded",
+        source={"kind": "harness"},
+        visibility="debug",
+        payload={"status": "completed"},
+    )
+    await runtime.event_writer.write(
+        run_id=run.id,
+        thread_id=run.thread_id,
+        type="run.completed",
+        source={"kind": "harness"},
+        payload={"status": "completed"},
+    )
+    stream_text = "".join(await asyncio.wait_for(stream_task, timeout=1))
+
+    assert "event: runtime.processor.recorded" in stream_text
+    assert "event: run.completed" in stream_text
+    assert stream_text.index("event: runtime.processor.recorded") < stream_text.index(
+        "event: run.completed"
+    )
