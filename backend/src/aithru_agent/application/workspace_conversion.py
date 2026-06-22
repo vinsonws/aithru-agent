@@ -14,6 +14,11 @@ from aithru_agent.persistence.protocols import AgentStore
 CONVERTER_NAME = "builtin_document_text"
 OUTPUT_MEDIA_TYPE = "text/markdown"
 MAX_CONVERTED_TEXT_CHARS = 200_000
+MAX_CONVERSION_SOURCE_BYTES = 10 * 1024 * 1024
+MAX_PDF_EXTRACT_BYTES = 10 * 1024 * 1024
+MAX_ARCHIVE_FILE_COUNT = 256
+MAX_ARCHIVE_MEMBER_BYTES = 2 * 1024 * 1024
+MAX_ARCHIVE_TOTAL_UNCOMPRESSED_BYTES = 8 * 1024 * 1024
 
 PDF_MEDIA_TYPE = "application/pdf"
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -33,6 +38,8 @@ MODEL_READABLE_MEDIA_TYPES = frozenset({"text/plain", "text/markdown", "applicat
 _PDF_TJ_RE = re.compile(rb"\(((?:\\.|[^\\()])*)\)\s*Tj", re.DOTALL)
 _PDF_TJ_ARRAY_RE = re.compile(rb"\[(.*?)\]\s*TJ", re.DOTALL)
 _PDF_HEADER_RE = re.compile(rb"%PDF-\d\.\d")
+_PDF_OBJECT_RE = re.compile(rb"\b\d+\s+\d+\s+obj\b")
+_PDF_STREAM_RE = re.compile(rb"\bstream\r?\n?(.*?)\r?\n?endstream\b", re.DOTALL)
 _PRINTABLE_RE = re.compile(r"[A-Za-z0-9][ -~]{4,}")
 _PDF_ESCAPE_BYTES = {
     ord("n"): 10,
@@ -52,22 +59,40 @@ async def convert_workspace_file(
     source = await _workspace_file_metadata(store, workspace_id=workspace_id, path=path)
     media_type = _normalized_media_type(source.media_type)
     if media_type in MODEL_READABLE_MEDIA_TYPES:
-        return _non_converted_result(
+        return await _non_converted_result_and_remove_stale_output(
+            store,
             source,
             status="skipped",
             reason="File is already model-readable.",
         )
     if media_type not in SUPPORTED_DOCUMENT_MEDIA_TYPES:
-        return _non_converted_result(
+        return await _non_converted_result_and_remove_stale_output(
+            store,
             source,
             status="unsupported",
             reason="Unsupported workspace file media type.",
         )
+    if source.size > MAX_CONVERSION_SOURCE_BYTES:
+        return await _non_converted_result_and_remove_stale_output(
+            store,
+            source,
+            status="failed",
+            reason="Workspace file exceeds conversion size limit.",
+        )
 
     content = await store.read_workspace_file(workspace_id, source.path)
-    text = _extract_text(_content_bytes(content.content), media_type)
+    content_bytes = _content_bytes(content.content)
+    if len(content_bytes) > MAX_CONVERSION_SOURCE_BYTES:
+        return await _non_converted_result_and_remove_stale_output(
+            store,
+            source,
+            status="failed",
+            reason="Workspace file exceeds conversion size limit.",
+        )
+    text = _extract_text(content_bytes, media_type)
     if text is None:
-        return _non_converted_result(
+        return await _non_converted_result_and_remove_stale_output(
+            store,
             source,
             status="failed",
             reason="Could not extract text from workspace file.",
@@ -142,6 +167,25 @@ def _non_converted_result(
     )
 
 
+async def _non_converted_result_and_remove_stale_output(
+    store: AgentStore,
+    source: AgentWorkspaceFile,
+    *,
+    status: str,
+    reason: str,
+) -> AgentWorkspaceConversionResult:
+    await _remove_stale_converted_output(store, source)
+    return _non_converted_result(source, status=status, reason=reason)
+
+
+async def _remove_stale_converted_output(store: AgentStore, source: AgentWorkspaceFile) -> None:
+    try:
+        await store.delete_workspace_file(source.workspace_id, _converted_output_path(source.path))
+    except AgentError as exc:
+        if exc.code != "NOT_FOUND":
+            raise
+
+
 def _normalized_media_type(media_type: str | None) -> str | None:
     if media_type is None:
         return None
@@ -186,6 +230,7 @@ def _extract_text(content: bytes, media_type: str | None) -> str | None:
 
 def _extract_docx_text(content: bytes) -> str:
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        _validate_archive_limits(archive)
         root = _xml_root(archive, "word/document.xml")
         paragraphs = _paragraph_texts(root)
         if paragraphs:
@@ -196,6 +241,7 @@ def _extract_docx_text(content: bytes) -> str:
 def _extract_pptx_text(content: bytes) -> str:
     sections: list[str] = []
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        _validate_archive_limits(archive)
         slide_names = sorted(
             (name for name in archive.namelist() if _is_slide_xml(name)),
             key=_slide_sort_key,
@@ -211,6 +257,7 @@ def _extract_pptx_text(content: bytes) -> str:
 def _extract_xlsx_text(content: bytes) -> str:
     sections: list[str] = []
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        _validate_archive_limits(archive)
         shared_strings = _xlsx_shared_strings(archive)
         sheet_names = sorted(
             (name for name in archive.namelist() if _is_sheet_xml(name)),
@@ -225,7 +272,9 @@ def _extract_xlsx_text(content: bytes) -> str:
 
 
 def _extract_pdf_text(content: bytes) -> str:
-    if not _has_basic_pdf_structure(content):
+    if len(content) > MAX_PDF_EXTRACT_BYTES:
+        raise ValueError("PDF exceeds conversion size limit.")
+    if not _has_pdf_envelope(content):
         raise ValueError("Content does not look like a PDF.")
 
     lines: list[str] = []
@@ -250,13 +299,36 @@ def _extract_pdf_text(content: bytes) -> str:
     return _extract_printable_pdf_text(content)
 
 
-def _has_basic_pdf_structure(content: bytes) -> bool:
+def _has_pdf_envelope(content: bytes) -> bool:
     return bool(_PDF_HEADER_RE.search(content[:1024])) and b"%%EOF" in content[-1024:]
 
 
 def _xml_root(archive: zipfile.ZipFile, name: str) -> ElementTree.Element:
-    with archive.open(name) as handle:
-        return ElementTree.fromstring(handle.read())
+    return ElementTree.fromstring(_read_archive_member(archive, name))
+
+
+def _validate_archive_limits(archive: zipfile.ZipFile) -> None:
+    infos = [info for info in archive.infolist() if not info.is_dir()]
+    if len(infos) > MAX_ARCHIVE_FILE_COUNT:
+        raise ValueError("Archive contains too many files.")
+    total_size = 0
+    for info in infos:
+        if info.file_size > MAX_ARCHIVE_MEMBER_BYTES:
+            raise ValueError("Archive member exceeds conversion size limit.")
+        total_size += info.file_size
+        if total_size > MAX_ARCHIVE_TOTAL_UNCOMPRESSED_BYTES:
+            raise ValueError("Archive exceeds conversion size limit.")
+
+
+def _read_archive_member(archive: zipfile.ZipFile, name: str) -> bytes:
+    info = archive.getinfo(name)
+    if info.file_size > MAX_ARCHIVE_MEMBER_BYTES:
+        raise ValueError("Archive member exceeds conversion size limit.")
+    with archive.open(info) as handle:
+        data = handle.read(MAX_ARCHIVE_MEMBER_BYTES + 1)
+    if len(data) > MAX_ARCHIVE_MEMBER_BYTES:
+        raise ValueError("Archive member exceeds conversion size limit.")
+    return data
 
 
 def _paragraph_texts(root: ElementTree.Element) -> list[str]:
@@ -406,19 +478,42 @@ def _pdf_literal_parts(raw: bytes) -> Iterable[bytes]:
 
 
 def _extract_printable_pdf_text(content: bytes) -> str:
-    decoded = content.decode("latin-1", errors="ignore")
+    if not _has_printable_pdf_fallback_structure(content):
+        return ""
     lines: list[str] = []
-    for chunk in _PRINTABLE_RE.findall(decoded):
-        compact = " ".join(chunk.split())
-        if _looks_like_pdf_syntax(compact):
-            continue
-        if re.search(r"[A-Za-z]{3}", compact):
-            lines.append(compact)
+    for stream in _pdf_streams(content):
+        decoded = stream.decode("latin-1", errors="ignore")
+        for chunk in _PRINTABLE_RE.findall(decoded):
+            compact = " ".join(chunk.split())
+            if _is_meaningful_pdf_fallback_text(compact):
+                lines.append(compact)
     return "\n".join(lines[:100])
 
 
+def _has_printable_pdf_fallback_structure(content: bytes) -> bool:
+    return (
+        _has_pdf_envelope(content)
+        and bool(_PDF_OBJECT_RE.search(content))
+        and b"endobj" in content
+        and b"stream" in content
+        and b"endstream" in content
+    )
+
+
+def _pdf_streams(content: bytes) -> Iterable[bytes]:
+    for match in _PDF_STREAM_RE.finditer(content):
+        stream = match.group(1).strip()
+        if len(stream) > MAX_PDF_EXTRACT_BYTES:
+            raise ValueError("PDF stream exceeds conversion size limit.")
+        yield stream
+
+
+def _is_meaningful_pdf_fallback_text(value: str) -> bool:
+    return not _looks_like_pdf_syntax(value) and re.search(r"[A-Za-z]{3}", value) is not None
+
+
 def _looks_like_pdf_syntax(value: str) -> bool:
-    markers = ("%PDF", " obj", "endobj", "stream", "endstream", "xref", "trailer", "%%EOF")
+    markers = ("%PDF", "PDF-", " obj", "endobj", "stream", "endstream", "xref", "trailer", "%%EOF")
     return any(marker in value for marker in markers)
 
 

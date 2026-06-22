@@ -3,6 +3,7 @@ import zipfile
 
 import pytest
 
+from aithru_agent.application import workspace_conversion
 from aithru_agent.application.workspace_conversion import convert_workspace_file
 from aithru_agent.persistence.memory import InMemoryAgentStore
 
@@ -187,6 +188,58 @@ async def test_converts_simple_pdf_text_operators() -> None:
 
 
 @pytest.mark.asyncio
+async def test_header_only_pdf_fails_without_writing_output() -> None:
+    store = InMemoryAgentStore()
+    workspace = await store.create_workspace(org_id="org_1")
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/header.pdf",
+        content=b"%PDF-1.4\n%%EOF",
+        media_type=PDF_MEDIA_TYPE,
+    )
+
+    result = await convert_workspace_file(
+        store,
+        workspace_id=workspace.id,
+        path="/uploads/header.pdf",
+    )
+
+    assert result.status == "failed"
+    assert result.output_path is None
+    assert result.output_file is None
+    assert result.reason == "Could not extract text from workspace file."
+    assert [file.path for file in await store.list_workspace_files(workspace.id)] == [
+        "/uploads/header.pdf",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_printable_header_footer_pdf_fails_without_writing_output() -> None:
+    store = InMemoryAgentStore()
+    workspace = await store.create_workspace(org_id="org_1")
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/printable.pdf",
+        content=b"%PDF-1.4\narbitrary printable text\n%%EOF",
+        media_type=PDF_MEDIA_TYPE,
+    )
+
+    result = await convert_workspace_file(
+        store,
+        workspace_id=workspace.id,
+        path="/uploads/printable.pdf",
+    )
+
+    assert result.status == "failed"
+    assert result.output_path is None
+    assert result.output_file is None
+    assert result.reason == "Could not extract text from workspace file."
+    assert [file.path for file in await store.list_workspace_files(workspace.id)] == [
+        "/uploads/printable.pdf",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_invalid_printable_pdf_fails_without_writing_output() -> None:
     store = InMemoryAgentStore()
     workspace = await store.create_workspace(org_id="org_1")
@@ -311,6 +364,114 @@ async def test_invalid_supported_file_fails_without_writing_empty_output() -> No
     assert result.reason == "Could not extract text from workspace file."
     assert [file.path for file in await store.list_workspace_files(workspace.id)] == [
         "/uploads/broken.docx",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_failed_reconversion_removes_stale_markdown_and_preserves_source() -> None:
+    store = InMemoryAgentStore()
+    workspace = await store.create_workspace(org_id="org_1")
+    valid_docx = _zip_bytes(
+        {
+            "word/document.xml": """
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body><w:p><w:r><w:t>Original report</w:t></w:r></w:p></w:body>
+                </w:document>
+                """,
+        }
+    )
+    invalid_docx = b"not a zip file"
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/source.docx",
+        content=valid_docx,
+        media_type=DOCX_MEDIA_TYPE,
+    )
+    converted = await convert_workspace_file(
+        store,
+        workspace_id=workspace.id,
+        path="/uploads/source.docx",
+    )
+    assert converted.status == "converted"
+    assert converted.output_path == "/converted/uploads/source.docx.md"
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/source.docx",
+        content=invalid_docx,
+        media_type=DOCX_MEDIA_TYPE,
+    )
+
+    failed = await convert_workspace_file(
+        store,
+        workspace_id=workspace.id,
+        path="/uploads/source.docx",
+    )
+
+    source = await store.read_workspace_file(workspace.id, "/uploads/source.docx")
+    assert failed.status == "failed"
+    assert failed.output_path is None
+    assert failed.output_file is None
+    assert source.content == invalid_docx
+    assert sorted(file.path for file in await store.list_workspace_files(workspace.id)) == [
+        "/uploads/source.docx",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_oversized_source_fails_without_writing_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workspace_conversion, "MAX_CONVERSION_SOURCE_BYTES", 16)
+    store = InMemoryAgentStore()
+    workspace = await store.create_workspace(org_id="org_1")
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/large.pdf",
+        content=b"%PDF-1.4\n(Readable) Tj\n%%EOF",
+        media_type=PDF_MEDIA_TYPE,
+    )
+
+    result = await convert_workspace_file(
+        store,
+        workspace_id=workspace.id,
+        path="/uploads/large.pdf",
+    )
+
+    assert result.status == "failed"
+    assert result.output_path is None
+    assert result.output_file is None
+    assert result.reason == "Workspace file exceeds conversion size limit."
+    assert [file.path for file in await store.list_workspace_files(workspace.id)] == [
+        "/uploads/large.pdf",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_oversized_archive_member_fails_without_writing_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workspace_conversion, "MAX_ARCHIVE_MEMBER_BYTES", 16)
+    store = InMemoryAgentStore()
+    workspace = await store.create_workspace(org_id="org_1")
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/large-member.docx",
+        content=_zip_bytes({"word/document.xml": "x" * 17}),
+        media_type=DOCX_MEDIA_TYPE,
+    )
+
+    result = await convert_workspace_file(
+        store,
+        workspace_id=workspace.id,
+        path="/uploads/large-member.docx",
+    )
+
+    assert result.status == "failed"
+    assert result.output_path is None
+    assert result.output_file is None
+    assert result.reason == "Could not extract text from workspace file."
+    assert [file.path for file in await store.list_workspace_files(workspace.id)] == [
+        "/uploads/large-member.docx",
     ]
 
 
