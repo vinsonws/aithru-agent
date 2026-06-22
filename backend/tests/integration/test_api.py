@@ -1,6 +1,8 @@
 import asyncio
 import base64
+import io
 import json
+import zipfile
 
 import pytest
 from pydantic_ai.models.test import TestModel
@@ -30,6 +32,9 @@ from tests.utils.step_runtime import Step, StepAgentRuntime, ToolContext
 from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import InMemorySkillResolver
 from aithru_agent.stream import AgentEventWriter
+
+
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 def file_report_driver() -> StepAgentRuntime:
@@ -224,6 +229,22 @@ class ViewImageRuntime(AgentRuntime):
         assert isinstance(output, dict)
         assert "content_base64" in output
         return AgentRuntimeResult(content="Viewed image.")
+
+
+def _docx_bytes(*paragraphs: str) -> bytes:
+    body = "".join(
+        f"<w:p><w:r><w:t>{paragraph}</w:t></w:r></w:p>"
+        for paragraph in paragraphs
+    )
+    document = (
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{body}</w:body>"
+        "</w:document>"
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("word/document.xml", document)
+    return buffer.getvalue()
 
 
 class RunningWorkflowCapabilityProvider:
@@ -2317,6 +2338,10 @@ async def test_agent_api_rejects_workspace_access_outside_trusted_identity() -> 
                 "media_type": "text/plain",
             },
         )
+        hidden_convert = await client.post(
+            f"/api/workspaces/{user_b_run['workspace_id']}/files/reports/report.md/convert",
+            headers=user_a_headers,
+        )
         hidden_delete = await client.delete(
             f"/api/workspaces/{user_b_run['workspace_id']}/files/reports/report.md",
             headers=user_a_headers,
@@ -2333,6 +2358,8 @@ async def test_agent_api_rejects_workspace_access_outside_trusted_identity() -> 
     assert hidden_patch.json()["detail"] == "Workspace not found"
     assert hidden_upload.status_code == 404
     assert hidden_upload.json()["detail"] == "Workspace not found"
+    assert hidden_convert.status_code == 404
+    assert hidden_convert.json()["detail"] == "Workspace not found"
     assert hidden_delete.status_code == 404
     assert hidden_delete.json()["detail"] == "Workspace not found"
 
@@ -2424,6 +2451,7 @@ async def test_agent_api_uploads_workspace_file_with_pydantic_contract() -> None
     assert result["content_encoding"] == "base64"
     assert result["source"] == "api"
     assert result["overwritten"] is False
+    assert result["conversion"] is None
     assert result["file"]["path"] == "/uploads/source.txt"
     assert result["file"]["size"] == len(b"Hello upload\n")
     assert read_back.json()["content"] == "Hello upload\n"
@@ -2432,6 +2460,8 @@ async def test_agent_api_uploads_workspace_file_with_pydantic_contract() -> None
     schemas = openapi["components"]["schemas"]
     assert "UploadWorkspaceFileRequest" in schemas
     assert "AgentWorkspaceUploadResult" in schemas
+    assert "AgentWorkspaceConversionResult" in schemas
+    assert "conversion" in schemas["AgentWorkspaceUploadResult"]["properties"]
     path = openapi["paths"]["/api/workspaces/{workspace_id}/uploads"]["post"]
     assert (
         path["requestBody"]["content"]["application/json"]["schema"]
@@ -2441,6 +2471,103 @@ async def test_agent_api_uploads_workspace_file_with_pydantic_contract() -> None
         path["responses"]["201"]["content"]["application/json"]["schema"]
         == {"$ref": "#/components/schemas/AgentWorkspaceUploadResult"}
     )
+    convert_path = openapi["paths"]["/api/workspaces/{workspace_id}/files/{path}/convert"]["post"]
+    assert (
+        convert_path["responses"]["200"]["content"]["application/json"]["schema"]
+        == {"$ref": "#/components/schemas/AgentWorkspaceConversionResult"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_agent_api_auto_converts_supported_upload_to_managed_markdown() -> None:
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
+    app = create_app(runtime)
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    docx = _docx_bytes("Uploaded report", "Revenue increased.")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        uploaded = await client.post(
+            f"/api/workspaces/{workspace.id}/uploads",
+            json={
+                "path": "/uploads/report.docx",
+                "content_base64": base64.b64encode(docx).decode("ascii"),
+                "media_type": DOCX_MEDIA_TYPE,
+            },
+        )
+        converted = await client.get(
+            f"/api/workspaces/{workspace.id}/files/converted/uploads/report.docx.md"
+        )
+        listed = await client.get(f"/api/workspaces/{workspace.id}/files")
+
+    original = await runtime.store.read_workspace_file(workspace.id, "/uploads/report.docx")
+    assert uploaded.status_code == 201
+    result = uploaded.json()
+    conversion = result["conversion"]
+    assert conversion["status"] == "converted"
+    assert conversion["source_path"] == "/uploads/report.docx"
+    assert conversion["output_path"] == "/converted/uploads/report.docx.md"
+    assert conversion["output_media_type"] == "text/markdown"
+    assert conversion["output_file"]["path"] == "/converted/uploads/report.docx.md"
+    assert converted.status_code == 200
+    assert "Uploaded report" in converted.json()["content"]
+    assert "Revenue increased." in converted.json()["content"]
+    assert original.content == docx
+    assert original.media_type == DOCX_MEDIA_TYPE
+    assert sorted(file["path"] for file in listed.json()) == [
+        "/converted/uploads/report.docx.md",
+        "/uploads/report.docx",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_api_manually_converts_workspace_file_and_reports_controlled_statuses() -> None:
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
+    app = create_app(runtime)
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    await runtime.store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/simple.pdf",
+        content=b"%PDF-1.4\nBT\n(Manual PDF) Tj\nET\n%%EOF",
+        media_type="application/pdf",
+    )
+    await runtime.store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/chart.png",
+        content=b"image bytes",
+        media_type="image/png",
+    )
+    await runtime.store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/broken.docx",
+        content=b"not a zip file",
+        media_type=DOCX_MEDIA_TYPE,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        converted = await client.post(
+            f"/api/workspaces/{workspace.id}/files/uploads/simple.pdf/convert"
+        )
+        unsupported = await client.post(
+            f"/api/workspaces/{workspace.id}/files/uploads/chart.png/convert"
+        )
+        failed = await client.post(
+            f"/api/workspaces/{workspace.id}/files/uploads/broken.docx/convert"
+        )
+        missing = await client.post(
+            f"/api/workspaces/{workspace.id}/files/uploads/missing.pdf/convert"
+        )
+
+    assert converted.status_code == 200
+    assert converted.json()["status"] == "converted"
+    assert converted.json()["output_path"] == "/converted/uploads/simple.pdf.md"
+    assert unsupported.status_code == 200
+    assert unsupported.json()["status"] == "unsupported"
+    assert unsupported.json()["output_path"] is None
+    assert failed.status_code == 200
+    assert failed.json()["status"] == "failed"
+    assert failed.json()["output_path"] is None
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "Workspace file not found: /uploads/missing.pdf"
 
 
 @pytest.mark.asyncio

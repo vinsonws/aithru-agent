@@ -1,6 +1,6 @@
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .base import AithruBaseModel
 
@@ -11,6 +11,7 @@ AgentWorkspaceFileDiffOperation = Literal["added", "modified", "deleted"]
 AgentWorkspaceRestoreOperation = Literal["restored", "deleted", "unchanged"]
 AgentWorkspaceUploadSource = Literal["api"]
 AgentWorkspaceUploadContentEncoding = Literal["base64"]
+AgentWorkspaceConversionStatus = Literal["converted", "skipped", "unsupported", "failed"]
 
 
 class AgentWorkspace(AithruBaseModel):
@@ -171,6 +172,59 @@ class AgentWorkspacePatchResult(AithruBaseModel):
         return self
 
 
+class AgentWorkspaceConversionResult(AithruBaseModel):
+    workspace_id: str = Field(min_length=1)
+    source_path: str = Field(min_length=1)
+    source_media_type: str | None = None
+    source_size: int = Field(ge=0)
+    source_content_hash: str | None = None
+    status: AgentWorkspaceConversionStatus
+    output_path: str | None = None
+    output_media_type: str | None = None
+    output_file: AgentWorkspaceFile | None = None
+    reason: str | None = None
+    converter: str = Field(default="builtin_document_text", min_length=1)
+
+    @field_validator("workspace_id", "source_path", "converter")
+    @classmethod
+    def _strip_required_strings(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("conversion fields must not be blank")
+        return stripped
+
+    @field_validator(
+        "source_media_type",
+        "source_content_hash",
+        "output_path",
+        "output_media_type",
+        "reason",
+    )
+    @classmethod
+    def _strip_optional_strings(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @model_validator(mode="after")
+    def _converted_results_have_output(self) -> Self:
+        if self.status == "converted":
+            if (
+                self.output_path is None
+                or self.output_media_type is None
+                or self.output_file is None
+            ):
+                raise ValueError("converted results require output file metadata")
+            if self.output_file.workspace_id != self.workspace_id:
+                raise ValueError("converted output file workspace must match conversion workspace")
+            if self.output_file.path != self.output_path:
+                raise ValueError("converted output file path must match output_path")
+        elif self.reason is None:
+            raise ValueError("non-converted results require a reason")
+        return self
+
+
 class AgentWorkspaceUploadResult(AithruBaseModel):
     workspace_id: str
     path: str
@@ -180,6 +234,7 @@ class AgentWorkspaceUploadResult(AithruBaseModel):
     content_encoding: AgentWorkspaceUploadContentEncoding = "base64"
     source: AgentWorkspaceUploadSource = "api"
     overwritten: bool = False
+    conversion: AgentWorkspaceConversionResult | None = None
 
     @model_validator(mode="after")
     def _file_metadata_matches_upload(self) -> Self:

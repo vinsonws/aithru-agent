@@ -119,6 +119,8 @@ from .usage import (
 )
 from .workspace import (
     AgentWorkspace,
+    AgentWorkspaceConversionResult,
+    AgentWorkspaceConversionStatus,
     AgentWorkspaceDiff,
     AgentWorkspaceFile,
     AgentWorkspaceFileDeleteResult,
@@ -259,6 +261,8 @@ __all__ = [
     "AgentToolRiskLevel",
     "AgentUsageCounters",
     "AgentWorkspace",
+    "AgentWorkspaceConversionResult",
+    "AgentWorkspaceConversionStatus",
     "AgentWorkspaceDiff",
     "AgentWorkspaceFile",
     "AgentWorkspaceFileDeleteResult",

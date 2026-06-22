@@ -5,6 +5,11 @@ from pathlib import PurePosixPath
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 
+from aithru_agent.application.workspace_conversion import (
+    convert_workspace_file,
+    failed_workspace_conversion_result,
+    should_attempt_workspace_upload_conversion,
+)
 from aithru_agent.api.dependencies import (
     ApiDependencies,
     PatchWorkspaceFileRequest,
@@ -16,6 +21,7 @@ from aithru_agent.api.dependencies import (
 )
 from aithru_agent.domain import (
     AgentArtifactPromotionResult,
+    AgentWorkspaceConversionResult,
     AgentWorkspaceDiff,
     AgentWorkspaceFile,
     AgentWorkspaceFileDeleteResult,
@@ -136,6 +142,16 @@ async def upload_workspace_file(
         content=body.content_bytes(),
         media_type=body.media_type,
     )
+    conversion: AgentWorkspaceConversionResult | None = None
+    if should_attempt_workspace_upload_conversion(file.media_type):
+        try:
+            conversion = await convert_workspace_file(
+                deps.runtime.store,
+                workspace_id=workspace_id,
+                path=file.path,
+            )
+        except Exception:
+            conversion = failed_workspace_conversion_result(file)
     return AgentWorkspaceUploadResult(
         workspace_id=workspace_id,
         path=file.path,
@@ -143,6 +159,7 @@ async def upload_workspace_file(
         size=file.size,
         media_type=file.media_type,
         overwritten=existing is not None,
+        conversion=conversion,
     )
 
 
@@ -175,6 +192,29 @@ async def view_workspace_image(
         raise _workspace_image_http_error(err) from err
     except ValueError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
+
+
+@router.post(
+    "/api/workspaces/{workspace_id}/files/{path:path}/convert",
+    response_model=AgentWorkspaceConversionResult,
+)
+async def convert_workspace_file_to_markdown(
+    request: Request,
+    workspace_id: str,
+    path: str,
+    deps: ApiDependencies = Depends(api_deps),
+) -> AgentWorkspaceConversionResult:
+    await deps.require_workspace(request, workspace_id)
+    try:
+        return await convert_workspace_file(
+            deps.runtime.store,
+            workspace_id=workspace_id,
+            path=path,
+        )
+    except AgentError as err:
+        if err.code == "NOT_FOUND":
+            raise HTTPException(status_code=404, detail=err.message) from err
+        raise HTTPException(status_code=409, detail=err.message) from err
 
 
 @router.post(
