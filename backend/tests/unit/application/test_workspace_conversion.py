@@ -7,6 +7,7 @@ from aithru_agent.application.workspace_conversion import convert_workspace_file
 from aithru_agent.persistence.memory import InMemoryAgentStore
 
 
+PDF_MEDIA_TYPE = "application/pdf"
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -169,7 +170,7 @@ async def test_converts_simple_pdf_text_operators() -> None:
         workspace_id=workspace.id,
         path="/uploads/report.pdf",
         content=content,
-        media_type="application/pdf",
+        media_type=PDF_MEDIA_TYPE,
     )
 
     result = await convert_workspace_file(
@@ -183,6 +184,58 @@ async def test_converts_simple_pdf_text_operators() -> None:
     assert isinstance(converted.content, str)
     assert "Hello PDF" in converted.content
     assert "Second line" in converted.content
+
+
+@pytest.mark.asyncio
+async def test_invalid_printable_pdf_fails_without_writing_output() -> None:
+    store = InMemoryAgentStore()
+    workspace = await store.create_workspace(org_id="org_1")
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/fake.pdf",
+        content=b"This is plain printable text, not a real PDF document.",
+        media_type=PDF_MEDIA_TYPE,
+    )
+
+    result = await convert_workspace_file(
+        store,
+        workspace_id=workspace.id,
+        path="/uploads/fake.pdf",
+    )
+
+    assert result.status == "failed"
+    assert result.output_path is None
+    assert result.output_file is None
+    assert result.reason == "Could not extract text from workspace file."
+    assert [file.path for file in await store.list_workspace_files(workspace.id)] == [
+        "/uploads/fake.pdf",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_empty_pdf_fails_without_writing_output() -> None:
+    store = InMemoryAgentStore()
+    workspace = await store.create_workspace(org_id="org_1")
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/uploads/empty.pdf",
+        content=b"",
+        media_type=PDF_MEDIA_TYPE,
+    )
+
+    result = await convert_workspace_file(
+        store,
+        workspace_id=workspace.id,
+        path="/uploads/empty.pdf",
+    )
+
+    assert result.status == "failed"
+    assert result.output_path is None
+    assert result.output_file is None
+    assert result.reason == "Could not extract text from workspace file."
+    assert [file.path for file in await store.list_workspace_files(workspace.id)] == [
+        "/uploads/empty.pdf",
+    ]
 
 
 @pytest.mark.asyncio

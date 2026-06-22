@@ -32,6 +32,7 @@ MODEL_READABLE_MEDIA_TYPES = frozenset({"text/plain", "text/markdown", "applicat
 
 _PDF_TJ_RE = re.compile(rb"\(((?:\\.|[^\\()])*)\)\s*Tj", re.DOTALL)
 _PDF_TJ_ARRAY_RE = re.compile(rb"\[(.*?)\]\s*TJ", re.DOTALL)
+_PDF_HEADER_RE = re.compile(rb"%PDF-\d\.\d")
 _PRINTABLE_RE = re.compile(r"[A-Za-z0-9][ -~]{4,}")
 _PDF_ESCAPE_BYTES = {
     ord("n"): 10,
@@ -224,6 +225,9 @@ def _extract_xlsx_text(content: bytes) -> str:
 
 
 def _extract_pdf_text(content: bytes) -> str:
+    if not _has_basic_pdf_structure(content):
+        raise ValueError("Content does not look like a PDF.")
+
     lines: list[str] = []
     for match in _PDF_TJ_RE.finditer(content):
         decoded = _decode_pdf_literal(match.group(1)).strip()
@@ -244,6 +248,10 @@ def _extract_pdf_text(content: bytes) -> str:
     if lines:
         return "\n".join(lines)
     return _extract_printable_pdf_text(content)
+
+
+def _has_basic_pdf_structure(content: bytes) -> bool:
+    return bool(_PDF_HEADER_RE.search(content[:1024])) and b"%%EOF" in content[-1024:]
 
 
 def _xml_root(archive: zipfile.ZipFile, name: str) -> ElementTree.Element:
