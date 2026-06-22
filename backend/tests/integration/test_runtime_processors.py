@@ -277,3 +277,61 @@ async def test_follow_run_events_waits_for_terminal_stream_event_after_terminal_
     assert stream_text.index("event: runtime.processor.recorded") < stream_text.index(
         "event: run.completed"
     )
+
+
+@pytest.mark.asyncio
+async def test_follow_run_events_returns_promptly_when_cursor_has_seen_terminal_event() -> None:
+    runtime = create_agent_runtime(agent_runtime=DoneRuntime())
+    deps = ApiDependencies(runtime)
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    run = await runtime.store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        goal="Reconnect after terminal event",
+        workspace_id=workspace.id,
+        scopes=["*"],
+    )
+    await runtime.store.update_run(run.id, status=AgentRunStatus.RUNNING)
+    await runtime.store.update_run(
+        run.id,
+        status=AgentRunStatus.COMPLETED,
+        completed_at="2026-06-22T00:00:00Z",
+    )
+    terminal_event = await runtime.event_writer.write(
+        run_id=run.id,
+        thread_id=run.thread_id,
+        type="run.completed",
+        source={"kind": "harness"},
+        payload={"status": "completed"},
+    )
+
+    chunks = await asyncio.wait_for(
+        _collect_followed_events(
+            deps,
+            run.id,
+            after_sequence=terminal_event.sequence,
+            timeout_seconds=5,
+        ),
+        timeout=0.2,
+    )
+
+    assert chunks == []
+
+
+async def _collect_followed_events(
+    deps: ApiDependencies,
+    run_id: str,
+    *,
+    after_sequence: int,
+    timeout_seconds: float,
+) -> list[str]:
+    return [
+        chunk
+        async for chunk in deps.follow_run_events(
+            run_id,
+            after_sequence=after_sequence,
+            poll_interval_seconds=0.01,
+            timeout_seconds=timeout_seconds,
+        )
+    ]

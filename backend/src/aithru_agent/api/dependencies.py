@@ -263,6 +263,8 @@ class ApiDependencies:
         interval = max(0.01, poll_interval_seconds)
         deadline = asyncio.get_running_loop().time() + max(0.0, timeout_seconds)
         while True:
+            if await self._has_terminal_run_event_at_or_before(run_id, cursor):
+                break
             events = await self.runtime.event_store.list_after_sequence(run_id, cursor)
             if events:
                 saw_terminal_event = False
@@ -281,6 +283,14 @@ class ApiDependencies:
             if asyncio.get_running_loop().time() >= deadline:
                 break
             await asyncio.sleep(interval)
+
+    async def _has_terminal_run_event_at_or_before(self, run_id: str, sequence: int) -> bool:
+        if sequence <= 0:
+            return False
+        return any(
+            event.sequence <= sequence and event.type in TERMINAL_RUN_EVENT_TYPES
+            for event in await self.runtime.event_store.list_by_run(run_id)
+        )
 
     async def wait_for_run(
         self,
