@@ -22,7 +22,7 @@ export function AppShell() {
   const [runId, setRunId] = React.useState<string | null>(null);
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
+    <div className="flex h-full w-full overflow-hidden bg-muted/30">
       <ManagerDialogs>
         <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((v) => !v)} />
       </ManagerDialogs>

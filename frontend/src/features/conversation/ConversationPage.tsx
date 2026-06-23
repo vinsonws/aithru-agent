@@ -50,7 +50,7 @@ export function ConversationPage({
   });
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col">
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-background">
       <ConversationHeader
         title={threadQuery.data?.title}
         fallbackTitle={t("chat:newConversation")}
@@ -59,11 +59,9 @@ export function ConversationPage({
         modelName={activeRun?.harness_options?.model_profile_key ?? activeRun?.harness_options?.model}
         onRename={(title) => renameMutation.mutate(title)}
       />
-
       <div className="min-h-0 flex-1">
         <ChatPanel state={streamState} />
       </div>
-
       <ChatComposer
         threadId={threadId}
         activeRunId={activeRunId}

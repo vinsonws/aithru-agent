@@ -35,7 +35,7 @@ function MessageBubble({ message, locale }: { message: ChatMessage; locale: stri
       >
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
-      <div className={cn("max-w-[80%] space-y-2", isUser && "items-end")}>
+      <div className={cn("max-w-[min(80%,42rem)] space-y-2", isUser && "items-end")}>
         <div
           className={cn(
             "rounded-lg px-3 py-2 text-sm",
@@ -47,7 +47,7 @@ function MessageBubble({ message, locale }: { message: ChatMessage; locale: stri
           {isUser ? (
             <p className="whitespace-pre-wrap break-words">{message.content}</p>
           ) : message.content ? (
-            <div className="relative">
+            <div className="relative min-w-0">
               <Markdown variant="chat">{message.content}</Markdown>
               {message.streaming && (
                 <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-accent align-text-bottom" />

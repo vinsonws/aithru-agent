@@ -35,7 +35,7 @@ export function RunCompanion({
 
   if (collapsed) {
     return (
-      <aside className="flex w-12 shrink-0 flex-col items-center gap-3 border-l bg-card py-3">
+      <aside className="hidden w-12 shrink-0 flex-col items-center gap-3 border-l bg-card py-3 lg:flex">
         <Button variant="ghost" size="icon" onClick={onToggle} title={t("inspection:expand")}>
           <PanelRightOpen className="h-4 w-4" />
         </Button>
@@ -57,7 +57,7 @@ export function RunCompanion({
   }
 
   return (
-    <aside className="flex w-[342px] shrink-0 flex-col border-l bg-card">
+    <aside className="hidden w-[342px] shrink-0 flex-col border-l bg-card lg:flex">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         <span className="text-sm font-semibold">{t("chat:runCompanion")}</span>
         {runStatus && <StatusBadge status={runStatus} />}
