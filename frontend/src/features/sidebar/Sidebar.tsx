@@ -52,7 +52,7 @@ export function Sidebar({
 
   if (collapsed) {
     return (
-      <aside className="flex w-14 shrink-0 flex-col items-center gap-2 border-r bg-card py-3">
+      <aside className="hidden w-14 shrink-0 flex-col items-center gap-2 border-r bg-card py-3 md:flex">
         <Button variant="ghost" size="icon" onClick={onToggleCollapse} title={t("expand")}>
           <PanelLeft className="h-4 w-4" />
         </Button>
@@ -77,7 +77,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-r bg-card">
+    <aside className="hidden w-72 shrink-0 flex-col border-r bg-card md:flex">
       <div className="flex items-center gap-2 px-3 py-3">
         <MessagesSquare className="h-5 w-5 text-accent" />
         <span className="text-sm font-semibold">{t("threads")}</span>
