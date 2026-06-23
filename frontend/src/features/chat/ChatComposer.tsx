@@ -1,0 +1,180 @@
+import * as React from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Paperclip, Send, Square } from "lucide-react";
+import { Textarea } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { runsApi, skillsApi, modelProfilesApi } from "@/lib/api";
+import type { CreateRunRequest, AgentRunHarnessOptions } from "@/lib/api";
+import { useHost } from "@/lib/host/HostProvider";
+import { useTranslation } from "react-i18next";
+
+export function ChatComposer({
+  threadId,
+  activeRunId,
+  onRunCreated,
+}: {
+  threadId: string | null;
+  activeRunId: string | null;
+  onRunCreated: (runId: string) => void;
+}) {
+  const { t } = useTranslation(["chat", "common"]);
+  const { context } = useHost();
+  const [goal, setGoal] = React.useState("");
+  const [mode, setMode] = React.useState<string>("auto");
+  const [skillId, setSkillId] = React.useState<string>("__none__");
+  const [profileKey, setProfileKey] = React.useState<string>("__default__");
+  const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const skillsQuery = useQuery({ queryKey: ["skills"], queryFn: skillsApi.list });
+  const profilesQuery = useQuery({
+    queryKey: ["model-profiles"],
+    queryFn: modelProfilesApi.list,
+  });
+
+  const createRun = useMutation({
+    mutationFn: async (vars: { goal: string; skillId: string | null; profileKey: string | null }) => {
+      const harnessOptions: AgentRunHarnessOptions | undefined =
+        vars.profileKey && vars.profileKey !== "__default__"
+          ? { model_profile_key: vars.profileKey }
+          : undefined;
+      const body: CreateRunRequest = {
+        goal: vars.goal,
+        org_id: context.org?.id ?? "org_1",
+        actor_user_id: context.user?.id ?? "user_1",
+        scopes: ["*"],
+        thread_id: threadId,
+        skill_id: vars.skillId,
+        harness_options: harnessOptions ?? null,
+        wait_for_completion: false,
+        persist_goal_message: true,
+      };
+      const run = threadId
+        ? await runsApi.create(body)
+        : await runsApi.create(body);
+      return run;
+    },
+    onSuccess: (run) => onRunCreated(run.id),
+  });
+
+  const cancelRun = useMutation({ mutationFn: (id: string) => runsApi.cancel(id) });
+
+  const handleSend = () => {
+    const trimmed = goal.trim();
+    if (!trimmed || createRun.isPending) return;
+    createRun.mutate({
+      goal: trimmed,
+      skillId: skillId === "__none__" ? null : skillId,
+      profileKey,
+    });
+    setGoal("");
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  return (
+    <div className="border-t bg-background px-4 py-3">
+      <div className="mx-auto max-w-3xl">
+        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <Textarea
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={t("chat:goalPlaceholder")}
+            className="min-h-[64px] max-h-40 resize-none rounded-none border-0 bg-transparent px-3 py-3 shadow-none focus-visible:ring-0"
+            rows={2}
+          />
+          <div className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-2 py-2">
+            <Select value={mode} onValueChange={setMode}>
+              <SelectTrigger aria-label={t("chat:composerMode")} className="h-7 w-[104px] border-0 bg-background text-xs shadow-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t("chat:modeAuto")}</SelectItem>
+                <SelectItem value="plan">{t("chat:modePlan")}</SelectItem>
+                <SelectItem value="chat">{t("chat:modeChat")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={profileKey} onValueChange={setProfileKey}>
+              <SelectTrigger aria-label={t("chat:selectModelProfile")} className="h-7 w-[150px] border-0 bg-background text-xs shadow-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default__">{t("common:default")}</SelectItem>
+                {profilesQuery.data?.map((p) => (
+                  <SelectItem key={p.key} value={p.key} disabled={!p.enabled}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={skillId} onValueChange={setSkillId}>
+              <SelectTrigger aria-label={t("chat:selectSkill")} className="h-7 w-[130px] border-0 bg-background text-xs shadow-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">{t("common:default")}</SelectItem>
+                {skillsQuery.data?.map((s) => (
+                  <SelectItem key={s.key} value={s.key}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <input
+              ref={fileRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                e.target.value = "";
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-auto h-8 w-8"
+              onClick={() => fileRef.current?.click()}
+              title={t("chat:attachFile")}
+              aria-label={t("chat:attachFile")}
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+            {activeRunId && (
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => cancelRun.mutate(activeRunId)}
+                title={t("chat:cancelRun")}
+                aria-label={t("chat:cancelRun")}
+              >
+                <Square className="h-4 w-4" />
+              </Button>
+            )}
+            <Button
+              size="icon"
+              className="h-8 w-8"
+              onClick={handleSend}
+              disabled={!goal.trim() || createRun.isPending}
+              title={t("chat:sendMessage")}
+              aria-label={t("chat:sendMessage")}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
