@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { RunHeaderView } from "./runHeaderView";
+import { useTranslation } from "react-i18next";
 
 const ACTION_ICONS: Record<string, React.ReactNode> = {
   stop: <Square className="h-3.5 w-3.5" />,
@@ -34,6 +35,7 @@ export function ConversationHeader({
   onRename: (title: string) => void;
   onAction: (kind: string) => void;
 }) {
+  const { t } = useTranslation("chat");
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(view.title);
 
@@ -59,7 +61,7 @@ export function ConversationHeader({
             onChange={(event) => setDraft(event.target.value)}
             className="h-8 w-72 max-w-[50vw]"
           />
-          <Button type="submit" size="icon" variant="ghost" className="h-8 w-8" aria-label="Save title">
+          <Button type="submit" size="icon" variant="ghost" className="h-8 w-8" aria-label={t("saveTitle", "Save title")}>
             <Check className="h-4 w-4" />
           </Button>
         </form>
@@ -82,26 +84,34 @@ export function ConversationHeader({
         </div>
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
-        <StatusChip tone={view.status.tone} label={view.status.fallback} />
+        <StatusChip tone={view.status.tone} label={t(view.status.labelKey, view.status.fallback)} />
         {view.modelLabel && (
           <span className="hidden max-w-32 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">
             {view.modelLabel}
           </span>
         )}
-        {view.actions.map((action) => (
-          <Button
-            key={action.kind}
-            variant={action.kind === "stop" ? "destructive" : "ghost"}
-            size="sm"
-            className="h-7 gap-1 px-2 text-xs"
-            onClick={() => onAction(action.kind)}
-            title={action.fallback}
-            aria-label={action.fallback}
-          >
-            {ACTION_ICONS[action.kind]}
-            <span className="hidden sm:inline">{action.fallback}</span>
-          </Button>
-        ))}
+        {view.permissionLabel && view.permissionLabelKey && (
+          <span className="hidden max-w-28 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground md:inline">
+            {t(view.permissionLabelKey, view.permissionLabel)}
+          </span>
+        )}
+        {view.actions.map((action) => {
+          const actionLabel = t(action.labelKey, action.fallback);
+          return (
+            <Button
+              key={action.kind}
+              variant={action.kind === "stop" ? "destructive" : "ghost"}
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs"
+              onClick={() => onAction(action.kind)}
+              title={actionLabel}
+              aria-label={actionLabel}
+            >
+              {ACTION_ICONS[action.kind]}
+              <span className="hidden sm:inline">{actionLabel}</span>
+            </Button>
+          );
+        })}
       </div>
     </div>
   );

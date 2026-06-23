@@ -22,10 +22,14 @@ async function loadRunHeaderView() {
             path: "mock-run-status-copy",
             namespace: "mock",
           }));
+          build.onResolve({ filter: /^@\/features\/chat\/composerState$/ }, () => ({
+            path: "mock-composer-state",
+            namespace: "mock",
+          }));
           build.onLoad({ filter: /^mock-api$/, namespace: "mock" }, () => ({
             contents: `
               export type AgentRunStatus = "queued" | "running" | "waiting_approval" | "waiting_subagent" | "waiting_input" | "waiting_external_run" | "completed" | "failed" | "cancelled";
-              export type AgentRun = { id: string; status: AgentRunStatus; goal: string; harness_options?: { model?: string | null; model_profile_key?: string | null } | null };
+              export type AgentRun = { id: string; status: AgentRunStatus; goal: string; scopes: string[]; harness_options?: { model?: string | null; model_profile_key?: string | null } | null };
               export type AgentThread = { id: string; title?: string | null };
             `,
             loader: "js",
@@ -73,6 +77,24 @@ async function loadRunHeaderView() {
             `,
             loader: "js",
           }));
+          build.onLoad({ filter: /^mock-composer-state$/, namespace: "mock" }, () => ({
+            contents: `
+              export function inferPermissionPolicyFromScopes(scopes) {
+                if ((scopes || []).includes("*")) return "auto_safe";
+                if ((scopes || []).some((scope) => scope.endsWith(".write"))) return "ask";
+                return "read_only";
+              }
+              export function getPermissionPolicy(id) {
+                const map = {
+                  ask: { labelKey: "chat:permission.ask", fallback: "Ask" },
+                  auto_safe: { labelKey: "chat:permission.autoSafe", fallback: "Auto-safe" },
+                  read_only: { labelKey: "chat:permission.readOnly", fallback: "Read-only" },
+                };
+                return map[id] || map.ask;
+              }
+            `,
+            loader: "js",
+          }));
         },
       },
     ],
@@ -86,7 +108,7 @@ function makeThread(overrides = {}) {
 }
 
 function makeRun(overrides = {}) {
-  return { id: "run_123456789", status: "running", goal: "Fix the bug", harness_options: { model_profile_key: "gpt-4", model: "gpt-4" }, ...overrides };
+  return { id: "run_123456789", status: "running", goal: "Fix the bug", scopes: ["agent.workspace.read", "agent.workspace.write"], harness_options: { model_profile_key: "gpt-4", model: "gpt-4" }, ...overrides };
 }
 
 test("running run exposes stop action", async () => {
@@ -138,6 +160,20 @@ test("subline includes short run id, short thread id, and mode label", async () 
   assert.match(view.subline, /run_1234/);
   assert.match(view.subline, /thread_abc/);
   assert.match(view.subline, /Plan/);
+});
+
+test("permission label is inferred from run scopes", async () => {
+  const { buildRunHeaderView } = await loadRunHeaderView();
+  const view = buildRunHeaderView({
+    thread: makeThread(),
+    activeRun: makeRun({ scopes: ["agent.workspace.read", "agent.memory.read"] }),
+    streamStatus: "running",
+    threadId: "thread_abcdef",
+    modeLabel: "Auto",
+  });
+
+  assert.equal(view.permissionLabel, "Read-only");
+  assert.equal(view.permissionLabelKey, "chat:permission.readOnly");
 });
 
 test("model label uses model_profile_key then model then Default model", async () => {

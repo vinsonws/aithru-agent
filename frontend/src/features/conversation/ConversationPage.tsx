@@ -4,9 +4,13 @@ import { ChatPanel } from "@/features/chat/ChatPanel";
 import { ChatComposer } from "@/features/chat/ChatComposer";
 import { threadsApi, runsApi } from "@/lib/api";
 import { ConversationHeader } from "./ConversationHeader";
-import { buildRunHeaderView } from "./runHeaderView";
+import { RunGoalBar } from "./RunGoalBar";
+import { buildRunHeaderView, getRunMode } from "./runHeaderView";
+import { buildRunTaskLoopView } from "./runTaskLoopView";
 import type { RunStreamState } from "@/features/chat/useRunStream";
 import type { AgentRun } from "@/lib/api";
+import { useManager } from "@/features/manager/ManagerDialogs";
+import { useTranslation } from "react-i18next";
 
 export function ConversationPage({
   threadId,
@@ -21,6 +25,8 @@ export function ConversationPage({
   streamState: RunStreamState;
   onSelectInspectionTab: (tab: string) => void;
 }) {
+  const { t } = useTranslation(["chat", "settings"]);
+  const manager = useManager();
   const qc = useQueryClient();
   const [composerDraft, setComposerDraft] = React.useState("");
   const [composerFocusKey, setComposerFocusKey] = React.useState(0);
@@ -53,13 +59,24 @@ export function ConversationPage({
     mutationFn: (id: string) => runsApi.cancel(id),
   });
 
+  const modeLabel = modeLabelForRun(getRunMode(activeRun), t);
+  const defaultModelLabel = t("settings:defaultModel", "Default model");
+
   const view = buildRunHeaderView({
     thread: threadQuery.data ?? null,
     activeRun: activeRun ?? null,
     streamStatus: streamState.status,
     streamError: streamState.error,
     threadId: threadId ?? "",
-    modeLabel: "Auto",
+    modeLabel,
+    defaultModelLabel,
+  });
+
+  const goalBarView = buildRunTaskLoopView({
+    activeRun: activeRun ?? null,
+    streamState,
+    modeLabel,
+    defaultModelLabel,
   });
 
   const handleHeaderAction = (kind: string) => {
@@ -77,17 +94,17 @@ export function ConversationPage({
         onSelectInspectionTab("trace");
         break;
       case "openModelSettings":
-        window.dispatchEvent(new CustomEvent("aithru:open-settings"));
+        manager.open("settings");
         break;
       case "newFollowUp":
-        setComposerDraft("Follow up on this run: ");
+        setComposerDraft(t("chat:followUpPrompt", "Follow up on this run: "));
         setComposerFocusKey((k) => k + 1);
         break;
       case "retry":
         if (activeRun?.goal) {
-          setComposerDraft(`Retry this task: ${activeRun.goal}`);
+          setComposerDraft(t("chat:retryPromptWithGoal", "Retry this task: {{goal}}", { goal: activeRun.goal }));
         } else {
-          setComposerDraft("Retry the last task with the same intent.");
+          setComposerDraft(t("chat:retryPrompt", "Retry the last task with the same intent."));
         }
         setComposerFocusKey((k) => k + 1);
         break;
@@ -106,6 +123,7 @@ export function ConversationPage({
         onRename={(title) => renameMutation.mutate(title)}
         onAction={handleHeaderAction}
       />
+      <RunGoalBar view={goalBarView} />
       <div className="min-h-0 flex-1">
         <ChatPanel
           state={streamState}
@@ -116,6 +134,8 @@ export function ConversationPage({
       <ChatComposer
         threadId={threadId}
         activeRunId={activeRunId}
+        activeRunGoal={activeRun?.goal ?? null}
+        onRequestStatus={() => onSelectInspectionTab("activity")}
         onRunCreated={(id) => {
           onRunIdChange(id);
           qc.invalidateQueries({ queryKey: ["threads", threadId, "runs"] });
@@ -128,4 +148,10 @@ export function ConversationPage({
       />
     </div>
   );
+}
+
+function modeLabelForRun(mode: "auto" | "plan" | "chat", t: (key: string, fallback: string) => string): string {
+  if (mode === "plan") return t("chat:modePlan", "Plan");
+  if (mode === "chat") return t("chat:modeChat", "Chat");
+  return t("chat:modeAuto", "Auto");
 }

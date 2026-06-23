@@ -5,6 +5,7 @@ import {
   type ProductActionKind,
   type ProductRunStatusCopy,
 } from "@/features/chat/runStatusCopy";
+import { getPermissionPolicy, inferPermissionPolicyFromScopes } from "@/features/chat/composerState";
 
 export interface RunHeaderActionView {
   kind: ProductActionKind;
@@ -19,6 +20,8 @@ export interface RunHeaderView {
   status: ProductRunStatusCopy;
   subline: string;
   modelLabel: string;
+  permissionLabel?: string;
+  permissionLabelKey?: string;
   actions: RunHeaderActionView[];
 }
 
@@ -29,6 +32,7 @@ export interface RunHeaderInput {
   streamError?: string | null;
   threadId: string;
   modeLabel?: string;
+  defaultModelLabel?: string;
 }
 
 export function buildRunHeaderView(input: RunHeaderInput): RunHeaderView {
@@ -46,7 +50,10 @@ export function buildRunHeaderView(input: RunHeaderInput): RunHeaderView {
     mode: modeLabel,
   });
 
-  const modelLabel = getModelLabel(activeRun);
+  const modelLabel = getModelLabel(activeRun, input.defaultModelLabel);
+  const permission = activeRun
+    ? getPermissionPolicy(inferPermissionPolicyFromScopes(activeRun.scopes))
+    : null;
 
   const actions = buildRunHeaderActions({
     status,
@@ -61,13 +68,23 @@ export function buildRunHeaderView(input: RunHeaderInput): RunHeaderView {
     status,
     subline,
     modelLabel,
+    permissionLabel: permission?.fallback,
+    permissionLabelKey: permission?.labelKey,
     actions,
   };
 }
 
-function getModelLabel(activeRun?: AgentRun | null): string {
+function getModelLabel(activeRun?: AgentRun | null, defaultModelLabel = "Default model"): string {
   const opts = activeRun?.harness_options;
-  return opts?.model_profile_key ?? opts?.model ?? "Default model";
+  return opts?.model_profile_key ?? opts?.model ?? defaultModelLabel;
+}
+
+export function getRunMode(activeRun?: AgentRun | null): "auto" | "plan" | "chat" {
+  const instructions = activeRun?.harness_options?.instructions ?? "";
+  const match = /\[Aithru mode: (auto|plan|chat)\]/i.exec(instructions);
+  const mode = match?.[1]?.toLowerCase();
+  if (mode === "plan" || mode === "chat") return mode;
+  return "auto";
 }
 
 function buildRunHeaderActions(input: {
