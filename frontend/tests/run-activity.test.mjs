@@ -135,3 +135,95 @@ test("buildRunCompanionBadges marks approvals, files, and trace attention", asyn
   assert.equal(badges.files, 1);
   assert.equal(badges.trace, 1);
 });
+
+test("running with no todos returns narrative 'Agent is working'", async () => {
+  const { buildRunActivity } = await loadRunActivity();
+  const activity = buildRunActivity(baseState({ status: "running" }));
+  assert.equal(activity.narrative.title, "Agent is working");
+  assert.equal(activity.narrative.nextAction, "none");
+});
+
+test("waiting input returns next action Reply to continue", async () => {
+  const { buildRunActivity } = await loadRunActivity();
+  const activity = buildRunActivity(
+    baseState({
+      status: "waiting_input",
+      inlineRequests: [{ kind: "input", id: "i1", prompt: "What next?", runId: "r1" }],
+    }),
+  );
+  assert.equal(activity.narrative.nextAction, "reply");
+  assert.equal(activity.narrative.title, "What next?");
+});
+
+test("waiting approval returns next action Review approval", async () => {
+  const { buildRunActivity } = await loadRunActivity();
+  const activity = buildRunActivity(
+    baseState({
+      status: "waiting_approval",
+      inlineRequests: [{ kind: "approval", id: "a1", prompt: "Allow?", approvalId: "a1", runId: "r1" }],
+    }),
+  );
+  assert.equal(activity.narrative.nextAction, "reviewApproval");
+});
+
+test("completed with artifacts and file tools increments file badge", async () => {
+  const { buildRunActivity, buildRunCompanionBadges } = await loadRunActivity();
+  const activity = buildRunActivity(
+    baseState({
+      status: "completed",
+      toolCalls: [
+        { id: "t1", toolName: "workspace.write", status: "completed", outputSummary: "wrote file.ts" },
+        { id: "t2", toolName: "read", status: "completed", outputSummary: "read file.ts" },
+      ],
+    }),
+  );
+  assert.equal(activity.narrative.title, "Run completed");
+  assert.match(activity.narrative.detail ?? "", /files/);
+  const badges = buildRunCompanionBadges(
+    baseState({
+      status: "completed",
+      toolCalls: [
+        { id: "t1", toolName: "workspace.write", status: "completed", outputSummary: "wrote file.ts" },
+      ],
+    }),
+  );
+  assert.ok(badges.files > 0);
+});
+
+test("failed tool appears in activity items before passive completed tools", async () => {
+  const { buildRunActivity } = await loadRunActivity();
+  const activity = buildRunActivity(
+    baseState({
+      status: "running",
+      toolCalls: [
+        { id: "t1", toolName: "read", status: "completed", outputSummary: "ok" },
+        { id: "t2", toolName: "write", status: "failed", error: "error" },
+      ],
+    }),
+  );
+  const failedItem = activity.items.find((i) => i.status === "failed");
+  assert.ok(failedItem);
+  assert.equal(failedItem?.title, "write");
+});
+
+test("token usage label still formats as 125 tokens", async () => {
+  const { buildRunActivity } = await loadRunActivity();
+  const activity = buildRunActivity(baseState({ status: "completed", tokenUsage: { total: 125 } }));
+  assert.equal(activity.usageLabel, "125 tokens");
+});
+
+test("toolCounts are populated correctly", async () => {
+  const { buildRunActivity } = await loadRunActivity();
+  const activity = buildRunActivity(
+    baseState({
+      toolCalls: [
+        { id: "t1", toolName: "read", status: "completed" },
+        { id: "t2", toolName: "write", status: "failed", error: "err" },
+        { id: "t3", toolName: "search", status: "started" },
+      ],
+    }),
+  );
+  assert.equal(activity.toolCounts.completed, 1);
+  assert.equal(activity.toolCounts.failed, 1);
+  assert.equal(activity.toolCounts.running, 1);
+});

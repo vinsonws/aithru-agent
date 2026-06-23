@@ -16,6 +16,16 @@ export interface RunActivitySummary {
   current: RunActivityItem | null;
   items: RunActivityItem[];
   usageLabel: string | null;
+  narrative: {
+    title: string;
+    detail?: string;
+    nextAction?: "reply" | "reviewApproval" | "inspectTrace" | "none";
+  };
+  toolCounts: {
+    completed: number;
+    failed: number;
+    running: number;
+  };
 }
 
 export interface RunCompanionBadges {
@@ -58,13 +68,73 @@ export function buildRunActivity(state: RunStreamState): RunActivitySummary {
   const progressTotal = state.todos.length;
   const progressDone = state.todos.filter((todo) => DONE_STATUSES.has(todo.status)).length;
 
+  const toolCounts = {
+    completed: state.toolCalls.filter((t) => t.status === "completed").length,
+    failed: state.toolCalls.filter((t) => t.status === "failed").length,
+    running: state.toolCalls.filter((t) => t.status === "started" || t.status === "proposed").length,
+  };
+
   return {
     status: state.status,
     progress: { done: progressDone, total: progressTotal },
     current,
     items: items.length > 0 ? items : runItem ? [runItem] : [],
     usageLabel: formatUsage(state.tokenUsage?.total),
+    narrative: buildNarrative(state, current),
+    toolCounts,
   };
+}
+
+function buildNarrative(
+  state: RunStreamState,
+  current: RunActivityItem | null,
+): RunActivitySummary["narrative"] {
+  if (state.status === "idle") {
+    return { title: "Not started" };
+  }
+  if (state.status === "running" && state.todos.length === 0 && state.inlineRequests.length === 0) {
+    return { title: "Agent is working", nextAction: "none" };
+  }
+  if (state.status === "waiting_input") {
+    const req = state.inlineRequests.find((r) => r.kind === "input");
+    return {
+      title: req?.prompt ?? "Waiting for your input",
+      nextAction: "reply",
+    };
+  }
+  if (state.status === "waiting_approval") {
+    return {
+      title: "Approval needed",
+      detail: current?.detail,
+      nextAction: "reviewApproval",
+    };
+  }
+  if (state.status === "failed") {
+    return {
+      title: current?.title ?? "Run failed",
+      detail: current?.detail ?? state.error,
+      nextAction: "inspectTrace",
+    };
+  }
+  if (state.status === "completed") {
+    const detailParts: string[] = [];
+    const fileTools = state.toolCalls.filter(toolLooksFileRelated);
+    if (fileTools.length > 0) {
+      detailParts.push(`${fileTools.length} file${fileTools.length > 1 ? "s" : ""} changed`);
+    }
+    if (state.toolCalls.some((t) => t.status === "completed" && !toolLooksFileRelated(t))) {
+      detailParts.push(`${state.toolCalls.filter((t) => t.status === "completed").length} actions`);
+    }
+    return {
+      title: "Run completed",
+      detail: detailParts.length > 0 ? detailParts.join(" · ") : undefined,
+      nextAction: "none",
+    };
+  }
+  if (current) {
+    return { title: current.title, detail: current.detail };
+  }
+  return { title: "Agent is working", nextAction: "none" };
 }
 
 export function buildRunCompanionBadges(state: RunStreamState): RunCompanionBadges {

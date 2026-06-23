@@ -12,7 +12,7 @@ export function ActivityTab({ state }: { state: RunStreamState }) {
     ? Math.round((activity.progress.done / activity.progress.total) * 100)
     : 0;
 
-  if (activity.items.length === 0) {
+  if (activity.items.length === 0 && state.status === "idle") {
     return (
       <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
         {t("chat:noRunActivity")}
@@ -24,11 +24,21 @@ export function ActivityTab({ state }: { state: RunStreamState }) {
     <div className="h-full overflow-y-auto p-3">
       <section className="rounded-lg border bg-muted/30 p-3">
         <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="font-semibold text-foreground">{t("chat:currentRun")}</span>
+          <span className="font-semibold text-foreground">{activity.narrative.title}</span>
           <span className="text-muted-foreground">
             {t(`common:status.${activity.status}`, { defaultValue: activity.status })}
           </span>
         </div>
+        {activity.narrative.detail && (
+          <div className="mt-1 text-[11px] text-muted-foreground">{activity.narrative.detail}</div>
+        )}
+        {activity.narrative.nextAction && activity.narrative.nextAction !== "none" && (
+          <div className="mt-1 text-[11px] font-medium text-warning">
+            {activity.narrative.nextAction === "reply" && "Reply to continue"}
+            {activity.narrative.nextAction === "reviewApproval" && "Review approval"}
+            {activity.narrative.nextAction === "inspectTrace" && "View trace for details"}
+          </div>
+        )}
         {hasProgress && (
           <>
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
@@ -47,11 +57,13 @@ export function ActivityTab({ state }: { state: RunStreamState }) {
         )}
       </section>
 
-      <div className="mt-3 space-y-3">
-        {activity.items.map((item) => (
-          <ActivityRow key={`${item.source}:${item.id}`} item={item} />
-        ))}
-      </div>
+      {activity.items.length > 0 && (
+        <div className="mt-3 space-y-3">
+          {activity.items.map((item) => (
+            <ActivityRow key={`${item.source}:${item.id}`} item={item} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
