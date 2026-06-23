@@ -190,6 +190,11 @@ export function ChatComposer({
             className="min-h-[64px] max-h-40 resize-none rounded-none border-0 bg-transparent px-3 py-3 shadow-none focus-visible:ring-0"
             rows={2}
           />
+          {goal.trim().startsWith("/") && (
+            <div className="border-t px-3 py-1 text-[11px] text-muted-foreground">
+              {t("chat:commandHint")}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-2 py-2">
             <Select value={mode} onValueChange={setMode}>
               <SelectTrigger aria-label={t("chat:composerMode")} className="h-7 w-[104px] border-0 bg-background text-xs shadow-sm">
@@ -223,6 +228,28 @@ export function ChatComposer({
                 {skillsQuery.data?.map((s) => (
                   <SelectItem key={s.key} value={s.key}>
                     {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={permissionPolicy}
+              onValueChange={(value) =>
+                setPermissionPolicy(value as ComposerPermissionPolicyId)
+              }
+            >
+              <SelectTrigger
+                aria-label={t("chat:permission.label")}
+                className="h-7 w-[122px] border-0 bg-background text-xs shadow-sm"
+                title={t("chat:permission.label")}
+              >
+                <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PERMISSION_POLICIES.map((policy) => (
+                  <SelectItem key={policy.id} value={policy.id}>
+                    {t(policy.labelKey, policy.fallback)}
                   </SelectItem>
                 ))}
               </SelectContent>
