@@ -40,19 +40,18 @@ const STATUS_MAP: Record<string, ProductRunStatusCopy> = {
   waiting_input: { status: "waiting_input", labelKey: "chat:status.awaitingReply", fallback: "Awaiting reply", tone: "waiting", primaryAction: "reply" },
   waiting_approval: { status: "waiting_approval", labelKey: "chat:status.approvalNeeded", fallback: "Approval needed", tone: "waiting", primaryAction: "reviewApproval" },
   waiting_subagent: { status: "waiting_subagent", labelKey: "chat:status.awaitingReply", fallback: "Awaiting reply", tone: "waiting", primaryAction: "reply" },
-  waiting_external_approval: { status: "waiting_external_approval", labelKey: "chat:status.externalApproval", fallback: "External approval", tone: "waiting", primaryAction: "reviewApproval" },
   waiting_external_run: { status: "waiting_external_run", labelKey: "chat:status.waitingExternalRun", fallback: "Waiting on external run", tone: "waiting" },
-  paused: { status: "paused", labelKey: "chat:status.paused", fallback: "Paused", tone: "waiting", primaryAction: "reply" },
   completed: { status: "completed", labelKey: "chat:status.completed", fallback: "Completed", tone: "success", primaryAction: "newFollowUp" },
   failed: { status: "failed", labelKey: "chat:status.failed", fallback: "Failed", tone: "danger", primaryAction: "retry" },
   cancelled: { status: "cancelled", labelKey: "chat:status.cancelled", fallback: "Cancelled", tone: "cancelled", primaryAction: "retry" },
 };
 
 export function humanizeRunStatus(
-  status?: AgentRunStatus | "idle" | null,
+  status?: string | null,
   options?: { error?: string | null },
 ): ProductRunStatusCopy {
-  const result = STATUS_MAP[status ?? "idle"] ?? STATUS_MAP.idle;
+  const key = status ?? "idle";
+  const result = STATUS_MAP[key] ?? STATUS_MAP.idle;
   if (result.status === "failed" && options?.error) {
     const failureCategory = classifyRunFailure(options.error);
     return {
@@ -115,8 +114,6 @@ export function isActiveRunStatus(status?: AgentRunStatus | "idle" | null): bool
     status === "waiting_input" ||
     status === "waiting_approval" ||
     status === "waiting_subagent" ||
-    status === "waiting_external_approval" ||
-    status === "waiting_external_run" ||
-    status === "paused"
+    status === "waiting_external_run"
   );
 }

@@ -101,13 +101,12 @@ export function getReadableThreadTitle(item: AgentThreadDashboardItem): string {
 }
 
 export function getLatestRunStatus(item: AgentThreadDashboardItem): string {
-  const status =
+  const status: string | undefined =
     (item as Record<string, unknown>).latest_run_status as string | undefined ??
     (item.latest_run as Record<string, unknown>)?.status as string | undefined ??
     ((item.latest_run as Record<string, unknown>)?.run as Record<string, unknown>)?.status as string | undefined ??
-    item.summary?.latest_run?.status ??
-    "idle";
-  return status;
+    item.summary?.latest_run?.status;
+  return status ?? "idle";
 }
 
 export function getLatestRunGoal(item: AgentThreadDashboardItem): string | undefined {
