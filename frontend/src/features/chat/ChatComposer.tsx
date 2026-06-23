@@ -72,7 +72,7 @@ export function ChatComposer({
 
   React.useEffect(() => {
     if (templateMode) {
-      setMode(templateMode);
+      setMode(templateMode as ComposerMode);
       setTemplateMode(null);
     }
   }, [templateMode]);
@@ -196,7 +196,7 @@ export function ChatComposer({
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-2 py-2">
-            <Select value={mode} onValueChange={setMode}>
+            <Select value={mode} onValueChange={(value) => setMode(value as ComposerMode)}>
               <SelectTrigger aria-label={t("chat:composerMode")} className="h-7 w-[104px] border-0 bg-background text-xs shadow-sm">
                 <SelectValue />
               </SelectTrigger>
