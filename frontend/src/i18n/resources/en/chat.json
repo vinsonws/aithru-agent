@@ -63,5 +63,17 @@
   "inbox.groups.earlier": "Earlier",
   "inbox.untitled": "Untitled conversation",
   "inbox.noMatches": "No matching conversations",
-  "inbox.noConversations": "No conversations yet"
+  "inbox.noConversations": "No conversations yet",
+  "templates.build.title": "Build",
+  "templates.build.description": "Change or add code to a project",
+  "templates.debug.title": "Debug",
+  "templates.debug.description": "Investigate and fix a failure",
+  "templates.summarize.title": "Summarize",
+  "templates.summarize.description": "Read and summarize files",
+  "templates.plan.title": "Plan",
+  "templates.plan.description": "Design an implementation plan",
+  "templates.research.title": "Research",
+  "templates.research.description": "Research with evidence and sources",
+  "newChat.subtitle": "Describe a task or choose a template below",
+  "newChat.startButton": "Start"
 }

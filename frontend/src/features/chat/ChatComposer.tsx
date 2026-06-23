@@ -14,6 +14,7 @@ import { runsApi, skillsApi, modelProfilesApi } from "@/lib/api";
 import type { CreateRunRequest, AgentRunHarnessOptions } from "@/lib/api";
 import { useHost } from "@/lib/host/HostProvider";
 import { useTranslation } from "react-i18next";
+import { getPromptTemplates } from "./promptTemplates";
 
 export function ChatComposer({
   threadId,
@@ -37,6 +38,7 @@ export function ChatComposer({
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [internalGoal, setInternalGoal] = React.useState("");
   const [mode, setMode] = React.useState<string>("auto");
+  const [templateMode, setTemplateMode] = React.useState<string | null>(null);
   const [skillId, setSkillId] = React.useState<string>("__none__");
   const [profileKey, setProfileKey] = React.useState<string>("__default__");
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -52,6 +54,13 @@ export function ChatComposer({
       textareaRef.current?.focus();
     }
   }, [focusKey]);
+
+  React.useEffect(() => {
+    if (templateMode) {
+      setMode(templateMode);
+      setTemplateMode(null);
+    }
+  }, [templateMode]);
 
   const skillsQuery = useQuery({ queryKey: ["skills"], queryFn: skillsApi.list });
   const profilesQuery = useQuery({
@@ -76,9 +85,7 @@ export function ChatComposer({
         wait_for_completion: false,
         persist_goal_message: true,
       };
-      const run = threadId
-        ? await runsApi.create(body)
-        : await runsApi.create(body);
+      const run = await runsApi.create(body);
       return run;
     },
     onSuccess: (run) => onRunCreated(run.id),
@@ -112,9 +119,31 @@ export function ChatComposer({
     }
   };
 
+  const handleTemplateClick = (template: { prompt: string; mode: string }) => {
+    setGoal(template.prompt);
+    setTemplateMode(template.mode);
+    textareaRef.current?.focus();
+  };
+
+  const templates = getPromptTemplates();
+
   return (
     <div className="border-t bg-background px-4 py-3">
       <div className="mx-auto max-w-3xl">
+        {!goal.trim() && !activeRunId && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {templates.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => handleTemplateClick(t)}
+                className="rounded-full border bg-card px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                {t.fallbackTitle}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <Textarea
             ref={textareaRef}

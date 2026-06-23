@@ -63,5 +63,17 @@
   "inbox.groups.earlier": "更早",
   "inbox.untitled": "未命名对话",
   "inbox.noMatches": "没有匹配的对话",
-  "inbox.noConversations": "暂无对话"
+  "inbox.noConversations": "暂无对话",
+  "templates.build.title": "构建",
+  "templates.build.description": "更改或向项目添加代码",
+  "templates.debug.title": "调试",
+  "templates.debug.description": "调查并修复失败",
+  "templates.summarize.title": "总结",
+  "templates.summarize.description": "读取并总结文件",
+  "templates.plan.title": "计划",
+  "templates.plan.description": "设计实施计划",
+  "templates.research.title": "研究",
+  "templates.research.description": "用证据和来源进行研究",
+  "newChat.subtitle": "描述任务或在下方选择模板",
+  "newChat.startButton": "开始"
 }
