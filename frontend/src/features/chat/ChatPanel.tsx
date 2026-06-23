@@ -8,6 +8,8 @@ import type { ChatMessage, RunStreamState } from "./useRunStream";
 import { ToolCallCard } from "./ToolCallCard";
 import { InlineRequestCard } from "./InlineRequestCard";
 import { AgentActivityCard } from "./AgentActivityCard";
+import { buildMessageActions, buildEditAndRerunPrompt, buildContinuePrompt } from "./messageActions";
+import { MessageActions } from "./MessageActionsComponent";
 
 function LoadingDots() {
   return (
@@ -23,10 +25,34 @@ function LoadingDots() {
   );
 }
 
-function MessageBubble({ message, locale }: { message: ChatMessage; locale: string }) {
+function MessageBubble({
+  message,
+  locale,
+  onPrefillComposer,
+  onOpenTrace,
+}: {
+  message: ChatMessage;
+  locale: string;
+  onPrefillComposer?: (text: string) => void;
+  onOpenTrace?: () => void;
+}) {
   const isUser = message.role === "user";
+  const actions = buildMessageActions(message);
+
+  const handleMessageAction = (kind: string, _messageId: string) => {
+    if (kind === "copy") {
+      navigator.clipboard.writeText(message.content).catch(() => {});
+    } else if (kind === "editAndRerun") {
+      onPrefillComposer?.(buildEditAndRerunPrompt(message));
+    } else if (kind === "continue") {
+      onPrefillComposer?.(buildContinuePrompt(message));
+    } else if (kind === "viewTrace") {
+      onOpenTrace?.();
+    }
+  };
+
   return (
-    <div className={cn("flex gap-3 px-4 py-3", isUser ? "flex-row-reverse" : "flex-row")}>
+    <div className={cn("group flex gap-3 px-4 py-3", isUser ? "flex-row-reverse" : "flex-row")}>
       <div
         className={cn(
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
@@ -57,17 +83,34 @@ function MessageBubble({ message, locale }: { message: ChatMessage; locale: stri
             <LoadingDots />
           ) : null}
         </div>
-        {message.createdAt && (
-          <p className={cn("text-xs text-muted-foreground", isUser && "text-right")}>
-            {relativeTime(message.createdAt, locale)}
-          </p>
-        )}
+        <div className="flex items-center justify-between gap-2">
+          {message.createdAt && (
+            <p className={cn("text-xs text-muted-foreground", isUser && "text-right")}>
+              {relativeTime(message.createdAt, locale)}
+            </p>
+          )}
+          {actions.length > 0 && (
+            <MessageActions
+              actions={actions}
+              messageId={message.id}
+              onAction={handleMessageAction}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-export function ChatPanel({ state }: { state: RunStreamState }) {
+export function ChatPanel({
+  state,
+  onPrefillComposer,
+  onOpenTrace,
+}: {
+  state: RunStreamState;
+  onPrefillComposer?: (text: string) => void;
+  onOpenTrace?: () => void;
+}) {
   const { context } = useHost();
   const { t } = useTranslation(["chat", "common"]);
   const locale = context.locale.language;
@@ -101,7 +144,13 @@ export function ChatPanel({ state }: { state: RunStreamState }) {
           )}
 
           {state.messages.map((m) => (
-            <MessageBubble key={m.id} message={m} locale={locale} />
+            <MessageBubble
+              key={m.id}
+              message={m}
+              locale={locale}
+              onPrefillComposer={onPrefillComposer}
+              onOpenTrace={onOpenTrace}
+            />
           ))}
 
           {state.messages.length > 0 && <AgentActivityCard state={state} />}

@@ -82,5 +82,10 @@
   "files.emptyDescription": "该运行暂无输出或文件。",
   "files.refresh": "刷新",
   "files.preview": "预览",
-  "files.download": "下载"
+  "files.download": "下载",
+  "messageActions.copy": "复制",
+  "messageActions.copied": "已复制！",
+  "messageActions.editAndRerun": "编辑并重运行",
+  "messageActions.continue": "继续",
+  "messageActions.viewTrace": "查看轨迹"
 }

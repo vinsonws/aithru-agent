@@ -109,7 +109,8 @@ export function ConversationPage({
       <div className="min-h-0 flex-1">
         <ChatPanel
           state={streamState}
-          {...({ onPrefillComposer: handlePrefillComposer, onOpenTrace: () => onSelectInspectionTab("trace") } as any)}
+          onPrefillComposer={handlePrefillComposer}
+          onOpenTrace={() => onSelectInspectionTab("trace")}
         />
       </div>
       <ChatComposer
