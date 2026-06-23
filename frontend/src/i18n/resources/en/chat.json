@@ -55,5 +55,13 @@
   "actions.retry": "Retry",
   "actions.viewTrace": "View trace",
   "actions.openModelSettings": "Open model settings",
-  "actions.newFollowUp": "New follow-up"
+  "actions.newFollowUp": "New follow-up",
+  "inbox.searchPlaceholder": "Search conversations…",
+  "inbox.groups.pinned": "Pinned",
+  "inbox.groups.attention": "Attention",
+  "inbox.groups.today": "Today",
+  "inbox.groups.earlier": "Earlier",
+  "inbox.untitled": "Untitled conversation",
+  "inbox.noMatches": "No matching conversations",
+  "inbox.noConversations": "No conversations yet"
 }

@@ -19,7 +19,7 @@ import { useHost } from "@/lib/host/HostProvider";
 import { useTranslation } from "react-i18next";
 import { threadsApi, approvalsApi } from "@/lib/api";
 import { useManager, type ManagerKind } from "@/features/manager/ManagerDialogs";
-import { ConversationInbox, type ConversationInboxItem } from "./ConversationInbox";
+import { ConversationInbox } from "./ConversationInbox";
 
 export function Sidebar({
   collapsed,
@@ -33,6 +33,7 @@ export function Sidebar({
   const locale = context.locale.language;
   const location = useLocation();
   const manager = useManager();
+  const [conversationQuery, setConversationQuery] = React.useState("");
 
   const dashboardQuery = useQuery({
     queryKey: ["threads", "dashboard"],
@@ -46,7 +47,7 @@ export function Sidebar({
     refetchInterval: 15_000,
   });
 
-  const items = (dashboardQuery.data?.items ?? []) as ConversationInboxItem[];
+  const items = dashboardQuery.data?.items ?? [];
 
   const open = (kind: ManagerKind) => manager.open(kind);
 
@@ -80,7 +81,7 @@ export function Sidebar({
     <aside className="hidden w-72 shrink-0 flex-col border-r bg-card md:flex">
       <div className="flex items-center gap-2 px-3 py-3">
         <MessagesSquare className="h-5 w-5 text-accent" />
-        <span className="text-sm font-semibold">{t("threads")}</span>
+        <span className="text-sm font-semibold">Aithru Agent</span>
         <Button variant="ghost" size="icon" className="ml-auto h-7 w-7" onClick={onToggleCollapse} title={t("collapse")}>
           <PanelLeftClose className="h-4 w-4" />
         </Button>
@@ -99,6 +100,8 @@ export function Sidebar({
         locale={locale}
         loading={dashboardQuery.isLoading}
         emptyLabel={t("empty")}
+        query={conversationQuery}
+        onQueryChange={setConversationQuery}
       />
       <Separator />
       <div className="space-y-0.5 p-2">

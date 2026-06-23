@@ -55,5 +55,13 @@
   "actions.retry": "重试",
   "actions.viewTrace": "查看轨迹",
   "actions.openModelSettings": "打开模型设置",
-  "actions.newFollowUp": "新建跟进"
+  "actions.newFollowUp": "新建跟进",
+  "inbox.searchPlaceholder": "搜索对话…",
+  "inbox.groups.pinned": "已置顶",
+  "inbox.groups.attention": "需关注",
+  "inbox.groups.today": "今天",
+  "inbox.groups.earlier": "更早",
+  "inbox.untitled": "未命名对话",
+  "inbox.noMatches": "没有匹配的对话",
+  "inbox.noConversations": "暂无对话"
 }
