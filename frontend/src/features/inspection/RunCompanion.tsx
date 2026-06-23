@@ -8,8 +8,7 @@ import { buildRunCompanionBadges } from "@/features/chat/runActivity";
 import type { RunStreamState } from "@/features/chat/useRunStream";
 import { useTranslation } from "react-i18next";
 import { ActivityTab } from "./tabs/ActivityTab";
-import { WorkspaceTab } from "./tabs/WorkspaceTab";
-import { ArtifactsTab } from "./tabs/ArtifactsTab";
+import { RunFilesTab } from "./tabs/RunFilesTab";
 import { ApprovalsTab } from "./tabs/ApprovalsTab";
 import { RunTab } from "./tabs/RunTab";
 
@@ -84,8 +83,7 @@ export function RunCompanion({
           <ActivityTab state={streamState} />
         </TabsContent>
         <TabsContent value="files" className="mt-0 min-h-0 flex-1 overflow-hidden">
-          <WorkspaceTab workspaceId={workspaceId} />
-          <ArtifactsTab runId={runId} />
+          <RunFilesTab runId={runId} workspaceId={workspaceId} />
         </TabsContent>
         <TabsContent value="approvals" className="mt-0 min-h-0 flex-1 overflow-hidden">
           <ApprovalsTab runId={runId} />

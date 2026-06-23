@@ -75,5 +75,12 @@
   "templates.research.title": "Research",
   "templates.research.description": "Research with evidence and sources",
   "newChat.subtitle": "Describe a task or choose a template below",
-  "newChat.startButton": "Start"
+  "newChat.startButton": "Start",
+  "files.outputs": "Outputs",
+  "files.workspaceFiles": "Workspace files",
+  "files.emptyTitle": "No files",
+  "files.emptyDescription": "No outputs or files from this run yet.",
+  "files.refresh": "Refresh",
+  "files.preview": "Preview",
+  "files.download": "Download"
 }

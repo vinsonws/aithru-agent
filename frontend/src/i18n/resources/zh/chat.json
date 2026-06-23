@@ -75,5 +75,12 @@
   "templates.research.title": "研究",
   "templates.research.description": "用证据和来源进行研究",
   "newChat.subtitle": "描述任务或在下方选择模板",
-  "newChat.startButton": "开始"
+  "newChat.startButton": "开始",
+  "files.outputs": "输出",
+  "files.workspaceFiles": "工作区文件",
+  "files.emptyTitle": "无文件",
+  "files.emptyDescription": "该运行暂无输出或文件。",
+  "files.refresh": "刷新",
+  "files.preview": "预览",
+  "files.download": "下载"
 }
