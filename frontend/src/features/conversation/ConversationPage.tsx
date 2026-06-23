@@ -1,9 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatPanel } from "@/features/chat/ChatPanel";
 import { ChatComposer } from "@/features/chat/ChatComposer";
-import { StatusBadge } from "@/components/shared/StatusBadge";
 import { threadsApi } from "@/lib/api";
 import { useTranslation } from "react-i18next";
+import { ConversationHeader } from "./ConversationHeader";
 import type { RunStreamState } from "@/features/chat/useRunStream";
 import type { AgentRun } from "@/lib/api";
 
@@ -44,16 +44,21 @@ export function ConversationPage({
   const activeRun = runsQuery.data?.find((r) => r.id === activeRunId);
   const runStatus = streamState.status !== "idle" ? streamState.status : activeRun?.status;
 
+  const renameMutation = useMutation({
+    mutationFn: (title: string) => threadsApi.update(threadId!, { title }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["threads"] }),
+  });
+
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      {/* Page-local toolbar (not a global top bar) */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-        <span className="truncate text-sm font-medium">{threadQuery.data?.title ?? t("chat:newConversation")}</span>
-        {runStatus && <StatusBadge status={runStatus} />}
-        {streaming && (
-          <span className="text-xs text-accent">● live</span>
-        )}
-      </div>
+      <ConversationHeader
+        title={threadQuery.data?.title}
+        fallbackTitle={t("chat:newConversation")}
+        runStatus={runStatus}
+        streaming={streaming}
+        modelName={activeRun?.harness_options?.model_profile_key ?? activeRun?.harness_options?.model}
+        onRename={(title) => renameMutation.mutate(title)}
+      />
 
       <div className="min-h-0 flex-1">
         <ChatPanel state={streamState} />
