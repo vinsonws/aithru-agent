@@ -127,6 +127,14 @@ A chat thread can:
 - call a Workbench workflow as a tool;
 - create a `WorkflowSpec` draft artifact that opens in Workbench.
 
+The Platform-hosted chat surface should stay chat-first. The current UI
+productization direction is documented in
+`docs/superpowers/specs/2026-06-24-agent-chat-quiet-workbench-design.md`: the
+center conversation is the primary work surface, while run activity, files,
+approvals, and trace are available through a quiet right-side companion. This is
+a harness UI projection over Agent Thread and Agent Run state, not workflow
+graph editing or persisted workflow semantics.
+
 ### Skills
 
 Skills are real reusable agent capabilities.
