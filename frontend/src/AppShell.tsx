@@ -18,7 +18,10 @@ export function AppShell() {
     "aithru-agent:inspection-collapsed",
     false,
   );
-  // Per-thread selected run id (URL-driven in the route).
+  const [inspectionTab, setInspectionTab] = useLocalStorage(
+    "aithru-agent:inspection-tab",
+    "activity",
+  );
   const [runId, setRunId] = React.useState<string | null>(null);
 
   return (
@@ -32,6 +35,8 @@ export function AppShell() {
           onRunIdChange={setRunId}
           inspectionCollapsed={inspectionCollapsed}
           onToggleInspection={() => setInspectionCollapsed((v) => !v)}
+          inspectionTab={inspectionTab}
+          onSelectInspectionTab={setInspectionTab}
         />
       </div>
     </div>
@@ -43,11 +48,15 @@ function RouteContent({
   onRunIdChange,
   inspectionCollapsed,
   onToggleInspection,
+  inspectionTab,
+  onSelectInspectionTab,
 }: {
   runId: string | null;
   onRunIdChange: (id: string | null) => void;
   inspectionCollapsed: boolean;
   onToggleInspection: () => void;
+  inspectionTab: string;
+  onSelectInspectionTab: (tab: string) => void;
 }) {
   const { pathname: path } = useLocation();
   const segments = React.useMemo(() => path.split("/").filter(Boolean), [path]);
@@ -80,7 +89,7 @@ function RouteContent({
     return runs[runs.length - 1].id;
   }, [runId, runsQuery.data]);
 
-  const { state: streamState, streaming } = useRunStream(activeRunId);
+  const { state: streamState } = useRunStream(activeRunId);
 
   return (
     <>
@@ -89,13 +98,15 @@ function RouteContent({
         activeRunId={activeRunId}
         onRunIdChange={onRunIdChange}
         streamState={streamState}
-        streaming={streaming}
+        onSelectInspectionTab={onSelectInspectionTab}
       />
       <InspectionConnector
         runId={activeRunId}
         collapsed={inspectionCollapsed}
         onToggle={onToggleInspection}
         streamState={streamState}
+        activeTab={inspectionTab}
+        onTabChange={onSelectInspectionTab}
       />
     </>
   );
@@ -106,13 +117,13 @@ function ConversationRoute({
   activeRunId,
   onRunIdChange,
   streamState,
-  streaming,
+  onSelectInspectionTab,
 }: {
   threadId: string | null;
   activeRunId: string | null;
   onRunIdChange: (id: string | null) => void;
   streamState: RunStreamState;
-  streaming: boolean;
+  onSelectInspectionTab: (tab: string) => void;
 }) {
   if (!threadId) {
     return <NewThreadPage />;
@@ -123,7 +134,7 @@ function ConversationRoute({
       activeRunId={activeRunId}
       onRunIdChange={onRunIdChange}
       streamState={streamState}
-      streaming={streaming}
+      onSelectInspectionTab={onSelectInspectionTab}
     />
   );
 }
@@ -133,13 +144,16 @@ function InspectionConnector({
   collapsed,
   onToggle,
   streamState,
+  activeTab,
+  onTabChange,
 }: {
   runId: string | null;
   collapsed: boolean;
   onToggle: () => void;
   streamState: RunStreamState;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
 }) {
-  // Resolve workspace id + run status + todo progress for the rail/panel header.
   const runQuery = useQuery({
     queryKey: ["runs", runId],
     queryFn: () => runsApi.get(runId!),
@@ -169,6 +183,8 @@ function InspectionConnector({
       runStatus={runStatus}
       todoProgress={todoProgress}
       streamState={streamState}
+      activeTab={activeTab}
+      onTabChange={onTabChange}
     />
   );
 }

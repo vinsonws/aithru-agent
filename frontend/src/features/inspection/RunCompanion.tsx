@@ -21,6 +21,8 @@ export function RunCompanion({
   runStatus,
   todoProgress,
   streamState,
+  activeTab,
+  onTabChange,
 }: {
   runId: string | null;
   workspaceId: string | null;
@@ -29,9 +31,15 @@ export function RunCompanion({
   runStatus?: string;
   todoProgress?: { done: number; total: number };
   streamState: RunStreamState;
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
 }) {
   const { t } = useTranslation(["chat", "inspection", "common"]);
   const badges = buildRunCompanionBadges(streamState);
+
+  const defaultTab = badges.approvals > 0 ? "approvals" : "activity";
+  const tabValue = activeTab ?? defaultTab;
+  const setTabValue = onTabChange ?? (() => {});
 
   if (collapsed) {
     return (
@@ -65,7 +73,7 @@ export function RunCompanion({
           <PanelRightClose className="h-4 w-4" />
         </Button>
       </div>
-      <Tabs defaultValue={badges.approvals > 0 ? "approvals" : "activity"} className="flex min-h-0 flex-1 flex-col">
+      <Tabs value={tabValue} onValueChange={setTabValue} className="flex min-h-0 flex-1 flex-col">
         <TabsList className="m-2 grid h-9 grid-cols-4">
           <CompanionTab value="activity" icon={<Activity className="h-3.5 w-3.5" />} label={t("chat:tabActivity")} badge={badges.activity} />
           <CompanionTab value="files" icon={<FileText className="h-3.5 w-3.5" />} label={t("chat:tabFiles")} badge={badges.files} disabled={!workspaceId && badges.files === 0} />

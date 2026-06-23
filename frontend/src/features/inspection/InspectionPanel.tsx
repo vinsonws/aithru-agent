@@ -9,6 +9,8 @@ export function InspectionPanel(props: {
   runStatus?: string;
   todoProgress?: { done: number; total: number };
   streamState?: RunStreamState;
+  activeTab?: string;
+  onTabChange?: (tab: string) => void;
 }) {
   return (
     <RunCompanion

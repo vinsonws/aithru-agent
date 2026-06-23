@@ -1,9 +1,10 @@
+import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatPanel } from "@/features/chat/ChatPanel";
 import { ChatComposer } from "@/features/chat/ChatComposer";
-import { threadsApi } from "@/lib/api";
-import { useTranslation } from "react-i18next";
+import { threadsApi, runsApi } from "@/lib/api";
 import { ConversationHeader } from "./ConversationHeader";
+import { buildRunHeaderView } from "./runHeaderView";
 import type { RunStreamState } from "@/features/chat/useRunStream";
 import type { AgentRun } from "@/lib/api";
 
@@ -12,16 +13,17 @@ export function ConversationPage({
   activeRunId,
   onRunIdChange,
   streamState,
-  streaming,
+  onSelectInspectionTab,
 }: {
   threadId: string | null;
   activeRunId: string | null;
   onRunIdChange: (id: string | null) => void;
   streamState: RunStreamState;
-  streaming: boolean;
+  onSelectInspectionTab: (tab: string) => void;
 }) {
-  const { t } = useTranslation(["chat", "common"]);
   const qc = useQueryClient();
+  const [composerDraft, setComposerDraft] = React.useState("");
+  const [composerFocusKey, setComposerFocusKey] = React.useState(0);
 
   const threadQuery = useQuery({
     queryKey: ["threads", threadId],
@@ -40,27 +42,75 @@ export function ConversationPage({
     },
   });
 
-  // Resolve the active run object for status display.
   const activeRun = runsQuery.data?.find((r) => r.id === activeRunId);
-  const runStatus = streamState.status !== "idle" ? streamState.status : activeRun?.status;
 
   const renameMutation = useMutation({
     mutationFn: (title: string) => threadsApi.update(threadId!, { title }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["threads"] }),
   });
 
+  const cancelRunMutation = useMutation({
+    mutationFn: (id: string) => runsApi.cancel(id),
+  });
+
+  const view = buildRunHeaderView({
+    thread: threadQuery.data ?? null,
+    activeRun: activeRun ?? null,
+    streamStatus: streamState.status,
+    streamError: streamState.error,
+    threadId: threadId ?? "",
+    modeLabel: "Auto",
+  });
+
+  const handleHeaderAction = (kind: string) => {
+    switch (kind) {
+      case "stop":
+        if (activeRunId) cancelRunMutation.mutate(activeRunId);
+        break;
+      case "reply":
+        setComposerFocusKey((k) => k + 1);
+        break;
+      case "reviewApproval":
+        onSelectInspectionTab("approvals");
+        break;
+      case "viewTrace":
+        onSelectInspectionTab("trace");
+        break;
+      case "openModelSettings":
+        window.dispatchEvent(new CustomEvent("aithru:open-settings"));
+        break;
+      case "newFollowUp":
+        setComposerDraft("Follow up on this run: ");
+        setComposerFocusKey((k) => k + 1);
+        break;
+      case "retry":
+        if (activeRun?.goal) {
+          setComposerDraft(`Retry this task: ${activeRun.goal}`);
+        } else {
+          setComposerDraft("Retry the last task with the same intent.");
+        }
+        setComposerFocusKey((k) => k + 1);
+        break;
+    }
+  };
+
+  const handlePrefillComposer = (text: string) => {
+    setComposerDraft(text);
+    setComposerFocusKey((k) => k + 1);
+  };
+
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-background">
       <ConversationHeader
-        title={threadQuery.data?.title}
-        fallbackTitle={t("chat:newConversation")}
-        runStatus={runStatus}
-        streaming={streaming}
-        modelName={activeRun?.harness_options?.model_profile_key ?? activeRun?.harness_options?.model}
+        view={view}
         onRename={(title) => renameMutation.mutate(title)}
+        onAction={handleHeaderAction}
       />
       <div className="min-h-0 flex-1">
-        <ChatPanel state={streamState} />
+        <ChatPanel
+          state={streamState}
+          {...({ onPrefillComposer: handlePrefillComposer, onOpenTrace: () => onSelectInspectionTab("trace") } as any)}
+        />
       </div>
       <ChatComposer
         threadId={threadId}
@@ -68,7 +118,12 @@ export function ConversationPage({
         onRunCreated={(id) => {
           onRunIdChange(id);
           qc.invalidateQueries({ queryKey: ["threads", threadId, "runs"] });
+          setComposerDraft("");
         }}
+        draft={composerDraft}
+        onDraftChange={setComposerDraft}
+        focusKey={composerFocusKey}
+        onCancelRun={() => cancelRunMutation.mutate(activeRunId!)}
       />
     </div>
   );

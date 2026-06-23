@@ -19,18 +19,39 @@ export function ChatComposer({
   threadId,
   activeRunId,
   onRunCreated,
+  draft: externalDraft,
+  onDraftChange: externalDraftChange,
+  focusKey,
+  onCancelRun,
 }: {
   threadId: string | null;
   activeRunId: string | null;
   onRunCreated: (runId: string) => void;
+  draft?: string;
+  onDraftChange?: (text: string) => void;
+  focusKey?: number;
+  onCancelRun?: () => void;
 }) {
   const { t } = useTranslation(["chat", "common"]);
   const { context } = useHost();
-  const [goal, setGoal] = React.useState("");
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const [internalGoal, setInternalGoal] = React.useState("");
   const [mode, setMode] = React.useState<string>("auto");
   const [skillId, setSkillId] = React.useState<string>("__none__");
   const [profileKey, setProfileKey] = React.useState<string>("__default__");
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const isControlled = externalDraft !== undefined;
+  const goal = isControlled ? externalDraft! : internalGoal;
+  const setGoal = isControlled
+    ? (text: string) => externalDraftChange?.(text)
+    : setInternalGoal;
+
+  React.useEffect(() => {
+    if (focusKey && focusKey > 0) {
+      textareaRef.current?.focus();
+    }
+  }, [focusKey]);
 
   const skillsQuery = useQuery({ queryKey: ["skills"], queryFn: skillsApi.list });
   const profilesQuery = useQuery({
@@ -65,6 +86,14 @@ export function ChatComposer({
 
   const cancelRun = useMutation({ mutationFn: (id: string) => runsApi.cancel(id) });
 
+  const handleCancel = () => {
+    if (onCancelRun) {
+      onCancelRun();
+    } else if (activeRunId) {
+      cancelRun.mutate(activeRunId);
+    }
+  };
+
   const handleSend = () => {
     const trimmed = goal.trim();
     if (!trimmed || createRun.isPending) return;
@@ -88,6 +117,7 @@ export function ChatComposer({
       <div className="mx-auto max-w-3xl">
         <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
           <Textarea
+            ref={textareaRef}
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
             onKeyDown={onKeyDown}
@@ -155,7 +185,7 @@ export function ChatComposer({
                 variant="outline"
                 size="icon"
                 className="h-8 w-8"
-                onClick={() => cancelRun.mutate(activeRunId)}
+                onClick={handleCancel}
                 title={t("chat:cancelRun")}
                 aria-label={t("chat:cancelRun")}
               >
