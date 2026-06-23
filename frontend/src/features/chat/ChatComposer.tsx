@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Paperclip, Send, Square } from "lucide-react";
+import { Paperclip, Send, ShieldCheck, Square } from "lucide-react";
 import { Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,14 +11,26 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { runsApi, skillsApi, modelProfilesApi } from "@/lib/api";
-import type { CreateRunRequest, AgentRunHarnessOptions } from "@/lib/api";
+import type { CreateRunRequest } from "@/lib/api";
 import { useHost } from "@/lib/host/HostProvider";
 import { useTranslation } from "react-i18next";
 import { getPromptTemplates } from "./promptTemplates";
+import {
+  buildComposerHarnessOptions,
+  buildComposerScopes,
+  type ComposerMode,
+  type ComposerPermissionPolicyId,
+  PERMISSION_POLICIES,
+} from "./composerState";
+import { parseSlashCommand } from "./slashCommands";
+
+export { buildComposerHarnessOptions } from "./composerState";
 
 export function ChatComposer({
   threadId,
   activeRunId,
+  activeRunGoal,
+  onRequestStatus,
   onRunCreated,
   draft: externalDraft,
   onDraftChange: externalDraftChange,
@@ -27,6 +39,8 @@ export function ChatComposer({
 }: {
   threadId: string | null;
   activeRunId: string | null;
+  activeRunGoal?: string | null;
+  onRequestStatus?: () => void;
   onRunCreated: (runId: string) => void;
   draft?: string;
   onDraftChange?: (text: string) => void;
@@ -37,10 +51,11 @@ export function ChatComposer({
   const { context } = useHost();
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [internalGoal, setInternalGoal] = React.useState("");
-  const [mode, setMode] = React.useState<string>("auto");
+  const [mode, setMode] = React.useState<ComposerMode>("auto");
   const [templateMode, setTemplateMode] = React.useState<string | null>(null);
   const [skillId, setSkillId] = React.useState<string>("__none__");
   const [profileKey, setProfileKey] = React.useState<string>("__default__");
+  const [permissionPolicy, setPermissionPolicy] = React.useState<ComposerPermissionPolicyId>("ask");
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const isControlled = externalDraft !== undefined;
@@ -69,16 +84,19 @@ export function ChatComposer({
   });
 
   const createRun = useMutation({
-    mutationFn: async (vars: { goal: string; skillId: string | null; profileKey: string | null }) => {
-      const harnessOptions: AgentRunHarnessOptions | undefined =
-        vars.profileKey && vars.profileKey !== "__default__"
-          ? { model_profile_key: vars.profileKey }
-          : undefined;
+    mutationFn: async (vars: {
+      goal: string;
+      skillId: string | null;
+      profileKey: string | null;
+      mode: ComposerMode;
+      permissionPolicy: ComposerPermissionPolicyId;
+    }) => {
+      const harnessOptions = buildComposerHarnessOptions(vars.profileKey, vars.mode);
       const body: CreateRunRequest = {
         goal: vars.goal,
         org_id: context.org?.id ?? "org_1",
         actor_user_id: context.user?.id ?? "user_1",
-        scopes: ["*"],
+        scopes: buildComposerScopes(vars.permissionPolicy),
         thread_id: threadId,
         skill_id: vars.skillId,
         harness_options: harnessOptions ?? null,
@@ -104,12 +122,30 @@ export function ChatComposer({
   const handleSend = () => {
     const trimmed = goal.trim();
     if (!trimmed || createRun.isPending) return;
+
+    const command = parseSlashCommand(trimmed, { activeRunGoal });
+    if (command.kind === "local") {
+      if (command.action === "clear") setGoal("");
+      if (command.action === "status") onRequestStatus?.();
+      return;
+    }
+    if (command.kind === "draft") {
+      setGoal(command.draft);
+      if (command.modeOverride) setMode(command.modeOverride);
+      textareaRef.current?.focus();
+      return;
+    }
+
+    const nextMode = command.modeOverride ?? mode;
     createRun.mutate({
-      goal: trimmed,
+      goal: command.goal,
       skillId: skillId === "__none__" ? null : skillId,
       profileKey,
+      mode: nextMode,
+      permissionPolicy,
     });
     setGoal("");
+    if (command.modeOverride) setMode(command.modeOverride);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -132,14 +168,14 @@ export function ChatComposer({
       <div className="mx-auto max-w-3xl">
         {!goal.trim() && !activeRunId && (
           <div className="mb-2 flex flex-wrap gap-1.5">
-            {templates.map((t) => (
+            {templates.map((template) => (
               <button
-                key={t.id}
+                key={template.id}
                 type="button"
-                onClick={() => handleTemplateClick(t)}
+                onClick={() => handleTemplateClick(template)}
                 className="rounded-full border bg-card px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
-                {t.fallbackTitle}
+                {t(template.titleKey, template.fallbackTitle)}
               </button>
             ))}
           </div>
