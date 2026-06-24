@@ -114,11 +114,6 @@ function RouteContent({
 
   const rightSidebar = activeRunId ? (
     <>
-      <RightRail
-        activePanel={rightPanel}
-        onPanelChange={onRightPanelChange}
-        badges={badges}
-      />
       {rightPanel === "preview" && (
         <FilePreviewPanel
           runId={activeRunId}
@@ -146,6 +141,11 @@ function RouteContent({
       {rightPanel === "trace" && (
         <TracePanel runId={activeRunId} onClose={() => onRightPanelChange(null)} />
       )}
+      <RightRail
+        activePanel={rightPanel}
+        onPanelChange={onRightPanelChange}
+        badges={badges}
+      />
     </>
   ) : null;
 
