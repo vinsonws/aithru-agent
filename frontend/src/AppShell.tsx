@@ -5,7 +5,7 @@ import { Sidebar } from "@/features/sidebar/Sidebar";
 import { ConversationPage } from "@/features/conversation/ConversationPage";
 import { ManagerDialogs } from "@/features/manager/ManagerDialogs";
 import { NewThreadPage } from "@/features/conversation/NewThreadPage";
-import { runsApi, threadsApi } from "@/lib/api";
+import { threadsApi } from "@/lib/api";
 import { useRunStream } from "@/features/chat/useRunStream";
 import type { RunStreamState } from "@/features/chat/useRunStream";
 import type { AgentRun } from "@/lib/api";
@@ -102,23 +102,6 @@ function RouteContent({
 
   const { state: streamState } = useRunStream(activeRunId);
 
-  // Fetch run snapshot to determine if output files exist
-  const snapshotQuery = useQuery({
-    queryKey: ["runs", activeRunId, "snapshot"],
-    queryFn: () => runsApi.snapshot(activeRunId!),
-    enabled: !!activeRunId,
-    refetchInterval: 3000,
-  });
-
-  const hasOutputFiles = React.useMemo(() => {
-    const snapshot = snapshotQuery.data;
-    if (!snapshot) return false;
-    const workspaceFiles = (snapshot as Record<string, unknown>).workspace_files as unknown[];
-    const artifacts = (snapshot as Record<string, unknown>).artifacts as unknown[];
-    return (Array.isArray(workspaceFiles) && workspaceFiles.length > 0) ||
-           (Array.isArray(artifacts) && artifacts.length > 0);
-  }, [snapshotQuery.data]);
-
   const badges = buildRunCompanionBadges(streamState);
 
   const activeRun = runsQuery.data?.find((r: AgentRun) => r.id === activeRunId);
@@ -129,7 +112,7 @@ function RouteContent({
     onRightPanelChange("preview");
   };
 
-  const rightSidebar = hasOutputFiles ? (
+  const rightSidebar = activeRunId ? (
     <>
       <RightRail
         activePanel={rightPanel}
