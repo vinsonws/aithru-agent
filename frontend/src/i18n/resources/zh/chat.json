@@ -111,5 +111,12 @@
   "messageActions.copied": "已复制！",
   "messageActions.editAndRerun": "编辑并重运行",
   "messageActions.continue": "继续",
-  "messageActions.viewTrace": "查看轨迹"
+  "messageActions.viewTrace": "查看轨迹",
+  "composerSummary": "输入设置",
+  "composerContext": "上下文",
+  "composerSettings": "设置",
+  "defaultModel": "默认模型",
+  "defaultSkill": "默认技能",
+  "expandComposerSettings": "调整模式、模型、技能和权限",
+  "collapseComposerSettings": "隐藏输入设置"
 }

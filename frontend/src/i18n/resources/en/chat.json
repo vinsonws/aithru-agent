@@ -111,5 +111,12 @@
   "messageActions.copied": "Copied!",
   "messageActions.editAndRerun": "Edit and rerun",
   "messageActions.continue": "Continue",
-  "messageActions.viewTrace": "View trace"
+  "messageActions.viewTrace": "View trace",
+  "composerSummary": "Composer settings",
+  "composerContext": "Context",
+  "composerSettings": "Settings",
+  "defaultModel": "Default model",
+  "defaultSkill": "Default skill",
+  "expandComposerSettings": "Adjust mode, model, skill, and permission",
+  "collapseComposerSettings": "Hide composer settings"
 }

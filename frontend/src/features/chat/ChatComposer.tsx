@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Paperclip, Send, ShieldCheck, Square } from "lucide-react";
+import { AtSign, ChevronDown, ChevronUp, Paperclip, Send, ShieldCheck, Square } from "lucide-react";
 import { Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,8 @@ import { getPromptTemplates } from "./promptTemplates";
 import {
   buildComposerHarnessOptions,
   buildComposerScopes,
+  buildComposerSummaryLabel,
+  buildComposerSummaryParts,
   type ComposerMode,
   type ComposerPermissionPolicyId,
   PERMISSION_POLICIES,
@@ -56,6 +58,7 @@ export function ChatComposer({
   const [skillId, setSkillId] = React.useState<string>("__none__");
   const [profileKey, setProfileKey] = React.useState<string>("__default__");
   const [permissionPolicy, setPermissionPolicy] = React.useState<ComposerPermissionPolicyId>("ask");
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const isControlled = externalDraft !== undefined;
@@ -81,6 +84,26 @@ export function ChatComposer({
   const profilesQuery = useQuery({
     queryKey: ["model-profiles"],
     queryFn: modelProfilesApi.list,
+  });
+
+  const selectedProfile = profilesQuery.data?.find((profile) => profile.key === profileKey);
+  const selectedSkill = skillsQuery.data?.find((skill) => skill.key === skillId);
+  const summaryParts = buildComposerSummaryParts({
+    mode,
+    profileKey,
+    profileName: selectedProfile?.name ?? null,
+    skillId,
+    skillName: selectedSkill?.name ?? null,
+    permissionPolicy,
+  });
+  const summaryLabel = buildComposerSummaryLabel({
+    modeLabel: t(summaryParts.modeLabelKey, summaryParts.modeFallback),
+    modelLabel:
+      profileKey === "__default__"
+        ? t("chat:defaultModel", summaryParts.modelLabel)
+        : summaryParts.modelLabel,
+    skillLabel: summaryParts.skillLabel,
+    permissionLabel: t(summaryParts.permissionLabelKey, summaryParts.permissionFallback),
   });
 
   const createRun = useMutation({
@@ -195,105 +218,139 @@ export function ChatComposer({
               {t("chat:commandHint")}
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-2 py-2">
-            <Select value={mode} onValueChange={(value) => setMode(value as ComposerMode)}>
-              <SelectTrigger aria-label={t("chat:composerMode")} className="h-7 w-[104px] border-0 bg-background text-xs shadow-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">{t("chat:modeAuto")}</SelectItem>
-                <SelectItem value="plan">{t("chat:modePlan")}</SelectItem>
-                <SelectItem value="chat">{t("chat:modeChat")}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={profileKey} onValueChange={setProfileKey}>
-              <SelectTrigger aria-label={t("chat:selectModelProfile")} className="h-7 w-[150px] border-0 bg-background text-xs shadow-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__default__">{t("common:default")}</SelectItem>
-                {profilesQuery.data?.map((p) => (
-                  <SelectItem key={p.key} value={p.key} disabled={!p.enabled}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={skillId} onValueChange={setSkillId}>
-              <SelectTrigger aria-label={t("chat:selectSkill")} className="h-7 w-[130px] border-0 bg-background text-xs shadow-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">{t("common:default")}</SelectItem>
-                {skillsQuery.data?.map((s) => (
-                  <SelectItem key={s.key} value={s.key}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={permissionPolicy}
-              onValueChange={(value) =>
-                setPermissionPolicy(value as ComposerPermissionPolicyId)
-              }
-            >
-              <SelectTrigger
-                aria-label={t("chat:permission.label")}
-                className="h-7 w-[122px] border-0 bg-background text-xs shadow-sm"
-                title={t("chat:permission.label")}
-              >
-                <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PERMISSION_POLICIES.map((policy) => (
-                  <SelectItem key={policy.id} value={policy.id}>
-                    {t(policy.labelKey, policy.fallback)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <input
-              ref={fileRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => {
-                e.target.value = "";
-              }}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="ml-auto h-8 w-8"
-              onClick={() => fileRef.current?.click()}
-              title={t("chat:attachFile")}
-              aria-label={t("chat:attachFile")}
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            {activeRunId && (
+          <div className="border-t bg-muted/30 px-2 py-2">
+            <div className="flex items-center gap-2">
               <Button
-                variant="outline"
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 min-w-0 max-w-[min(22rem,60vw)] gap-1.5 px-2 text-xs"
+                onClick={() => setSettingsOpen((open) => !open)}
+                title={settingsOpen ? t("chat:collapseComposerSettings") : t("chat:expandComposerSettings")}
+                aria-label={settingsOpen ? t("chat:collapseComposerSettings") : t("chat:expandComposerSettings")}
+                aria-expanded={settingsOpen}
+              >
+                <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{summaryLabel}</span>
+                {settingsOpen ? (
+                  <ChevronUp className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                onClick={handleCancel}
-                title={t("chat:cancelRun")}
-                aria-label={t("chat:cancelRun")}
+                title={t("chat:composerContext")}
+                aria-label={t("chat:composerContext")}
               >
-                <Square className="h-4 w-4" />
+                <AtSign className="h-4 w-4" />
               </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="ml-auto h-8 w-8"
+                onClick={() => fileRef.current?.click()}
+                title={t("chat:attachFile")}
+                aria-label={t("chat:attachFile")}
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
+              {activeRunId && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={handleCancel}
+                  title={t("chat:cancelRun")}
+                  aria-label={t("chat:cancelRun")}
+                >
+                  <Square className="h-4 w-4" />
+                </Button>
+              )}
+              <Button
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleSend}
+                disabled={!goal.trim() || createRun.isPending}
+                title={t("chat:sendMessage")}
+                aria-label={t("chat:sendMessage")}
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+            {settingsOpen && (
+              <div className="mt-2 grid gap-2 border-t pt-2 sm:grid-cols-2 lg:grid-cols-4">
+                <Select value={mode} onValueChange={(value) => setMode(value as ComposerMode)}>
+                  <SelectTrigger aria-label={t("chat:composerMode")} className="h-8 bg-background text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">{t("chat:modeAuto")}</SelectItem>
+                    <SelectItem value="plan">{t("chat:modePlan")}</SelectItem>
+                    <SelectItem value="chat">{t("chat:modeChat")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={profileKey} onValueChange={setProfileKey}>
+                  <SelectTrigger aria-label={t("chat:selectModelProfile")} className="h-8 bg-background text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__default__">{t("chat:defaultModel")}</SelectItem>
+                    {profilesQuery.data?.map((p) => (
+                      <SelectItem key={p.key} value={p.key} disabled={!p.enabled}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={skillId} onValueChange={setSkillId}>
+                  <SelectTrigger aria-label={t("chat:selectSkill")} className="h-8 bg-background text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t("chat:defaultSkill")}</SelectItem>
+                    {skillsQuery.data?.map((s) => (
+                      <SelectItem key={s.key} value={s.key}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={permissionPolicy}
+                  onValueChange={(value) =>
+                    setPermissionPolicy(value as ComposerPermissionPolicyId)
+                  }
+                >
+                  <SelectTrigger
+                    aria-label={t("chat:permission.label")}
+                    className="h-8 bg-background text-xs"
+                    title={t("chat:permission.label")}
+                  >
+                    <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PERMISSION_POLICIES.map((policy) => (
+                      <SelectItem key={policy.id} value={policy.id}>
+                        {t(policy.labelKey, policy.fallback)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             )}
-            <Button
-              size="icon"
-              className="h-8 w-8"
-              onClick={handleSend}
-              disabled={!goal.trim() || createRun.isPending}
-              title={t("chat:sendMessage")}
-              aria-label={t("chat:sendMessage")}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
           </div>
         </div>
       </div>
