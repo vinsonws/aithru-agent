@@ -8,7 +8,6 @@ import {
   RotateCcw,
   GitBranch,
   Settings,
-  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +22,6 @@ const ACTION_ICONS: Record<string, React.ReactNode> = {
   retry: <RotateCcw className="h-3.5 w-3.5" />,
   viewTrace: <GitBranch className="h-3.5 w-3.5" />,
   openModelSettings: <Settings className="h-3.5 w-3.5" />,
-  newFollowUp: <Plus className="h-3.5 w-3.5" />,
 };
 
 export function ConversationHeader({
@@ -35,7 +33,7 @@ export function ConversationHeader({
   onRename: (title: string) => void;
   onAction: (kind: string) => void;
 }) {
-  const { t } = useTranslation("chat");
+  const { t } = useTranslation(["chat"]);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(view.title);
 
@@ -78,23 +76,10 @@ export function ConversationHeader({
             <span className="truncate">{view.title || view.fallbackTitle}</span>
             <Edit3 className="h-3.5 w-3.5 shrink-0 opacity-50" />
           </button>
-          <span className="hidden text-[10px] text-muted-foreground sm:inline">
-            {view.subline}
-          </span>
         </div>
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         <StatusChip tone={view.status.tone} label={t(view.status.labelKey, view.status.fallback)} />
-        {view.modelLabel && (
-          <span className="hidden max-w-32 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">
-            {view.modelLabel}
-          </span>
-        )}
-        {view.permissionLabel && view.permissionLabelKey && (
-          <span className="hidden max-w-28 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground md:inline">
-            {t(view.permissionLabelKey, view.permissionLabel)}
-          </span>
-        )}
         {view.actions.map((action) => {
           const actionLabel = t(action.labelKey, action.fallback);
           return (

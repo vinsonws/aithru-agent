@@ -4,11 +4,17 @@ import { test } from "node:test";
 
 const appShellPath = new URL("../src/AppShell.tsx", import.meta.url);
 
-test("inspection companion defaults to collapsed", async () => {
+test("right panel and selected file are session-only React state, not localStorage", async () => {
   const source = await readFile(appShellPath, "utf8");
 
-  assert.match(
+  // No inspection localStorage keys — replaced with React.useState for session-only state
+  assert.doesNotMatch(
     source,
-    /useLocalStorage\(\s*"aithru-agent:inspection-collapsed",\s*true,\s*\)/,
+    /aithru-agent:inspection-collapsed/,
   );
+  assert.doesNotMatch(
+    source,
+    /aithru-agent:inspection-tab/,
+  );
+  assert.match(source, /React\.useState/);
 });

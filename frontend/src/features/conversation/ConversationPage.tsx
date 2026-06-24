@@ -4,10 +4,9 @@ import { ChatPanel } from "@/features/chat/ChatPanel";
 import { ChatComposer } from "@/features/chat/ChatComposer";
 import { threadsApi, runsApi } from "@/lib/api";
 import { ConversationHeader } from "./ConversationHeader";
-import { RunGoalBar } from "./RunGoalBar";
 import { buildRunHeaderView, getRunMode } from "./runHeaderView";
-import { buildRunTaskLoopView } from "./runTaskLoopView";
-import type { RunStreamState } from "@/features/chat/useRunStream";
+import { isActiveRunStatus } from "@/features/chat/runStatusCopy";
+import { buildRunStreamState, type RunStreamState } from "@/features/chat/useRunStream";
 import type { AgentRun } from "@/lib/api";
 import { useManager } from "@/features/manager/ManagerDialogs";
 import { useTranslation } from "react-i18next";
@@ -17,13 +16,15 @@ export function ConversationPage({
   activeRunId,
   onRunIdChange,
   streamState,
-  onSelectInspectionTab,
+  onOpenRightPanel,
+  onPreviewFile,
 }: {
   threadId: string | null;
   activeRunId: string | null;
   onRunIdChange: (id: string | null) => void;
   streamState: RunStreamState;
-  onSelectInspectionTab: (tab: string) => void;
+  onOpenRightPanel: (panel: string | null) => void;
+  onPreviewFile: (fileId: string) => void;
 }) {
   const { t } = useTranslation(["chat", "settings"]);
   const manager = useManager();
@@ -48,7 +49,33 @@ export function ConversationPage({
     },
   });
 
+  const messagesQuery = useQuery({
+    queryKey: ["threads", threadId, "messages"],
+    queryFn: () => threadsApi.messages(threadId!),
+    enabled: !!threadId,
+  });
+
+  const runIds = React.useMemo(() => runsQuery.data?.map((run) => run.id) ?? [], [runsQuery.data]);
+  const historicalRunStatesQuery = useQuery({
+    queryKey: ["threads", threadId, "run-states", runIds.join("|")],
+    queryFn: async () => {
+      const pairs = await Promise.all(
+        runIds.map(async (runId) => {
+          try {
+            return [runId, buildRunStreamState(await runsApi.events(runId))] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return Object.fromEntries(pairs.filter((pair): pair is [string, RunStreamState] => pair !== null));
+    },
+    enabled: !!threadId && runIds.length > 0,
+  });
+
   const activeRun = runsQuery.data?.find((r) => r.id === activeRunId);
+  const cancellableRunId =
+    activeRun && isActiveRunStatus(activeRun.status) ? activeRunId : null;
 
   const renameMutation = useMutation({
     mutationFn: (title: string) => threadsApi.update(threadId!, { title }),
@@ -60,7 +87,6 @@ export function ConversationPage({
   });
 
   const modeLabel = modeLabelForRun(getRunMode(activeRun), t);
-  const defaultModelLabel = t("settings:defaultModel", "Default model");
 
   const view = buildRunHeaderView({
     thread: threadQuery.data ?? null,
@@ -69,14 +95,6 @@ export function ConversationPage({
     streamError: streamState.error,
     threadId: threadId ?? "",
     modeLabel,
-    defaultModelLabel,
-  });
-
-  const goalBarView = buildRunTaskLoopView({
-    activeRun: activeRun ?? null,
-    streamState,
-    modeLabel,
-    defaultModelLabel,
   });
 
   const handleHeaderAction = (kind: string) => {
@@ -88,10 +106,10 @@ export function ConversationPage({
         setComposerFocusKey((k) => k + 1);
         break;
       case "reviewApproval":
-        onSelectInspectionTab("approvals");
+        onOpenRightPanel("approvals");
         break;
       case "viewTrace":
-        onSelectInspectionTab("trace");
+        onOpenRightPanel("trace");
         break;
       case "openModelSettings":
         manager.open("settings");
@@ -101,8 +119,8 @@ export function ConversationPage({
         setComposerFocusKey((k) => k + 1);
         break;
       case "retry":
-        if (activeRun?.goal) {
-          setComposerDraft(t("chat:retryPromptWithGoal", "Retry this task: {{goal}}", { goal: activeRun.goal }));
+        if (activeRun?.task_msg) {
+          setComposerDraft(t("chat:retryPromptWithTaskMsg", "Retry this task: {{task}}", { task: activeRun.task_msg }));
         } else {
           setComposerDraft(t("chat:retryPrompt", "Retry the last task with the same intent."));
         }
@@ -116,6 +134,13 @@ export function ConversationPage({
     setComposerFocusKey((k) => k + 1);
   };
 
+  React.useEffect(() => {
+    if (["completed", "failed", "cancelled"].includes(streamState.status)) {
+      void qc.invalidateQueries({ queryKey: ["threads", threadId, "messages"] });
+      void qc.invalidateQueries({ queryKey: ["threads", threadId, "run-states"] });
+    }
+  }, [qc, streamState.status, threadId]);
+
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-background">
       <ConversationHeader
@@ -123,29 +148,41 @@ export function ConversationPage({
         onRename={(title) => renameMutation.mutate(title)}
         onAction={handleHeaderAction}
       />
-      <RunGoalBar view={goalBarView} />
-      <div className="min-h-0 flex-1">
-        <ChatPanel
-          state={streamState}
-          onPrefillComposer={handlePrefillComposer}
-          onOpenTrace={() => onSelectInspectionTab("trace")}
-        />
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1">
+            <ChatPanel
+              state={streamState}
+              threadMessages={messagesQuery.data ?? []}
+              activeRunId={activeRunId}
+              historicalRunStates={historicalRunStatesQuery.data ?? {}}
+              onPrefillComposer={handlePrefillComposer}
+              onOpenTrace={() => onOpenRightPanel("trace")}
+              onPreviewFile={onPreviewFile}
+            />
+          </div>
+          <ChatComposer
+            threadId={threadId}
+            activeRunId={activeRunId}
+            cancellableRunId={cancellableRunId}
+            activeRunTaskMsg={activeRun?.task_msg ?? null}
+            onRequestStatus={() => onOpenRightPanel("activity")}
+            onRunCreated={(id) => {
+              onRunIdChange(id);
+              qc.invalidateQueries({ queryKey: ["threads", threadId, "runs"] });
+              qc.invalidateQueries({ queryKey: ["threads", threadId, "messages"] });
+              qc.invalidateQueries({ queryKey: ["threads", threadId, "run-states"] });
+              setComposerDraft("");
+            }}
+            draft={composerDraft}
+            onDraftChange={setComposerDraft}
+            focusKey={composerFocusKey}
+            onCancelRun={() => {
+              if (cancellableRunId) cancelRunMutation.mutate(cancellableRunId);
+            }}
+          />
+        </div>
       </div>
-      <ChatComposer
-        threadId={threadId}
-        activeRunId={activeRunId}
-        activeRunGoal={activeRun?.goal ?? null}
-        onRequestStatus={() => onSelectInspectionTab("activity")}
-        onRunCreated={(id) => {
-          onRunIdChange(id);
-          qc.invalidateQueries({ queryKey: ["threads", threadId, "runs"] });
-          setComposerDraft("");
-        }}
-        draft={composerDraft}
-        onDraftChange={setComposerDraft}
-        focusKey={composerFocusKey}
-        onCancelRun={() => cancelRunMutation.mutate(activeRunId!)}
-      />
     </div>
   );
 }

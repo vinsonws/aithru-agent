@@ -3,7 +3,6 @@ import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Sidebar } from "@/features/sidebar/Sidebar";
 import { ConversationPage } from "@/features/conversation/ConversationPage";
-import { InspectionPanel } from "@/features/inspection/InspectionPanel";
 import { ManagerDialogs } from "@/features/manager/ManagerDialogs";
 import { NewThreadPage } from "@/features/conversation/NewThreadPage";
 import { runsApi, threadsApi } from "@/lib/api";
@@ -11,52 +10,54 @@ import { useRunStream } from "@/features/chat/useRunStream";
 import type { RunStreamState } from "@/features/chat/useRunStream";
 import type { AgentRun } from "@/lib/api";
 import { useLocalStorage } from "@/lib/useLocalStorage";
+import { resolveActiveRunId, type SelectedRunRef } from "@/features/conversation/activeRunSelection";
+import { RightRail } from "@/features/sidebar/RightRail";
+import { FilePreviewPanel } from "@/features/sidebar/panels/FilePreviewPanel";
+import { FileListPanel } from "@/features/sidebar/panels/FileListPanel";
+import { ActivityPanel } from "@/features/sidebar/panels/ActivityPanel";
+import { ApprovalsPanel } from "@/features/sidebar/panels/ApprovalsPanel";
+import { TracePanel } from "@/features/sidebar/panels/TracePanel";
+import { buildRunCompanionBadges } from "@/features/chat/runActivity";
 
 export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage("aithru-agent:sidebar-collapsed", false);
-  const [inspectionCollapsed, setInspectionCollapsed] = useLocalStorage(
-    "aithru-agent:inspection-collapsed",
-    true,
-  );
-  const [inspectionTab, setInspectionTab] = useLocalStorage(
-    "aithru-agent:inspection-tab",
-    "activity",
-  );
-  const [runId, setRunId] = React.useState<string | null>(null);
+  const [rightPanel, setRightPanel] = React.useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = React.useState<string | null>(null);
+  const [selectedRun, setSelectedRun] = React.useState<SelectedRunRef | null>(null);
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-muted/30">
       <ManagerDialogs>
         <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((v) => !v)} />
+        <div className="flex min-w-0 flex-1">
+          <RouteContent
+            selectedRun={selectedRun}
+            onSelectedRunChange={setSelectedRun}
+            rightPanel={rightPanel}
+            onRightPanelChange={setRightPanel}
+            selectedFile={selectedFile}
+            onSelectedFileChange={setSelectedFile}
+          />
+        </div>
       </ManagerDialogs>
-      <div className="flex min-w-0 flex-1">
-        <RouteContent
-          runId={runId}
-          onRunIdChange={setRunId}
-          inspectionCollapsed={inspectionCollapsed}
-          onToggleInspection={() => setInspectionCollapsed((v) => !v)}
-          inspectionTab={inspectionTab}
-          onSelectInspectionTab={setInspectionTab}
-        />
-      </div>
     </div>
   );
 }
 
 function RouteContent({
-  runId,
-  onRunIdChange,
-  inspectionCollapsed,
-  onToggleInspection,
-  inspectionTab,
-  onSelectInspectionTab,
+  selectedRun,
+  onSelectedRunChange,
+  rightPanel,
+  onRightPanelChange,
+  selectedFile,
+  onSelectedFileChange,
 }: {
-  runId: string | null;
-  onRunIdChange: (id: string | null) => void;
-  inspectionCollapsed: boolean;
-  onToggleInspection: () => void;
-  inspectionTab: string;
-  onSelectInspectionTab: (tab: string) => void;
+  selectedRun: SelectedRunRef | null;
+  onSelectedRunChange: (run: SelectedRunRef | null) => void;
+  rightPanel: string | null;
+  onRightPanelChange: (panel: string | null) => void;
+  selectedFile: string | null;
+  onSelectedFileChange: (fileId: string | null) => void;
 }) {
   const { pathname: path } = useLocation();
   const segments = React.useMemo(() => path.split("/").filter(Boolean), [path]);
@@ -68,8 +69,14 @@ function RouteContent({
     threadId && segments[2] === "runs" && segments[3] ? decodeURIComponent(segments[3]) : null;
 
   React.useEffect(() => {
-    onRunIdChange(routeRunId);
-  }, [onRunIdChange, routeRunId]);
+    if (!threadId) {
+      onSelectedRunChange(null);
+      return;
+    }
+    if (routeRunId) {
+      onSelectedRunChange({ threadId, runId: routeRunId });
+    }
+  }, [onSelectedRunChange, routeRunId, threadId]);
 
   const runsQuery = useQuery({
     queryKey: ["threads", threadId, "runs"],
@@ -82,32 +89,92 @@ function RouteContent({
     },
   });
 
-  const activeRunId = React.useMemo(() => {
-    if (runId) return runId;
-    const runs = runsQuery.data;
-    if (!runs?.length) return null;
-    return runs[runs.length - 1].id;
-  }, [runId, runsQuery.data]);
+  const activeRunId = React.useMemo(
+    () =>
+      resolveActiveRunId({
+        threadId,
+        routeRunId,
+        selectedRun,
+        runs: runsQuery.data,
+      }),
+    [routeRunId, runsQuery.data, selectedRun, threadId],
+  );
 
   const { state: streamState } = useRunStream(activeRunId);
+
+  // Fetch run snapshot to determine if output files exist
+  const snapshotQuery = useQuery({
+    queryKey: ["runs", activeRunId, "snapshot"],
+    queryFn: () => runsApi.snapshot(activeRunId!),
+    enabled: !!activeRunId,
+    refetchInterval: 3000,
+  });
+
+  const hasOutputFiles = React.useMemo(() => {
+    const snapshot = snapshotQuery.data;
+    if (!snapshot) return false;
+    const workspaceFiles = (snapshot as Record<string, unknown>).workspace_files as unknown[];
+    const artifacts = (snapshot as Record<string, unknown>).artifacts as unknown[];
+    return (Array.isArray(workspaceFiles) && workspaceFiles.length > 0) ||
+           (Array.isArray(artifacts) && artifacts.length > 0);
+  }, [snapshotQuery.data]);
+
+  const badges = buildRunCompanionBadges(streamState);
+
+  const activeRun = runsQuery.data?.find((r: AgentRun) => r.id === activeRunId);
+  const workspaceId = (activeRun?.workspace_id as string | undefined) ?? null;
+
+  const handlePreviewFile = (fileId: string) => {
+    onSelectedFileChange(fileId);
+    onRightPanelChange("preview");
+  };
 
   return (
     <>
       <ConversationRoute
         threadId={threadId}
         activeRunId={activeRunId}
-        onRunIdChange={onRunIdChange}
+        onRunIdChange={(id) => onSelectedRunChange(id && threadId ? { threadId, runId: id } : null)}
         streamState={streamState}
-        onSelectInspectionTab={onSelectInspectionTab}
+        onOpenRightPanel={onRightPanelChange}
+        onPreviewFile={handlePreviewFile}
       />
-      <InspectionConnector
-        runId={activeRunId}
-        collapsed={inspectionCollapsed}
-        onToggle={onToggleInspection}
-        streamState={streamState}
-        activeTab={inspectionTab}
-        onTabChange={onSelectInspectionTab}
-      />
+      {hasOutputFiles && (
+        <>
+          <RightRail
+            activePanel={rightPanel}
+            onPanelChange={onRightPanelChange}
+            badges={badges}
+          />
+          {rightPanel === "preview" && (
+            <FilePreviewPanel
+              runId={activeRunId}
+              workspaceId={workspaceId}
+              selectedFileId={selectedFile}
+              onSelectFile={handlePreviewFile}
+              onClearFile={() => onSelectedFileChange(null)}
+              onClose={() => onRightPanelChange(null)}
+            />
+          )}
+          {rightPanel === "files" && (
+            <FileListPanel
+              runId={activeRunId}
+              workspaceId={workspaceId}
+              onSelectFile={handlePreviewFile}
+              onClose={() => onRightPanelChange(null)}
+            />
+          )}
+          {rightPanel === "activity" && (
+            <ActivityPanel streamState={streamState} onClose={() => onRightPanelChange(null)} />
+          )}
+          {rightPanel === "approvals" && (
+            <ApprovalsPanel runId={activeRunId} onClose={() => onRightPanelChange(null)} />
+          )}
+          {rightPanel === "trace" && (
+            <TracePanel runId={activeRunId} onClose={() => onRightPanelChange(null)} />
+          )}
+        </>
+      )}
     </>
   );
 }
@@ -117,13 +184,15 @@ function ConversationRoute({
   activeRunId,
   onRunIdChange,
   streamState,
-  onSelectInspectionTab,
+  onOpenRightPanel,
+  onPreviewFile,
 }: {
   threadId: string | null;
   activeRunId: string | null;
   onRunIdChange: (id: string | null) => void;
   streamState: RunStreamState;
-  onSelectInspectionTab: (tab: string) => void;
+  onOpenRightPanel: (panel: string | null) => void;
+  onPreviewFile: (fileId: string) => void;
 }) {
   if (!threadId) {
     return <NewThreadPage />;
@@ -134,57 +203,8 @@ function ConversationRoute({
       activeRunId={activeRunId}
       onRunIdChange={onRunIdChange}
       streamState={streamState}
-      onSelectInspectionTab={onSelectInspectionTab}
-    />
-  );
-}
-
-function InspectionConnector({
-  runId,
-  collapsed,
-  onToggle,
-  streamState,
-  activeTab,
-  onTabChange,
-}: {
-  runId: string | null;
-  collapsed: boolean;
-  onToggle: () => void;
-  streamState: RunStreamState;
-  activeTab: string;
-  onTabChange: (tab: string) => void;
-}) {
-  const runQuery = useQuery({
-    queryKey: ["runs", runId],
-    queryFn: () => runsApi.get(runId!),
-    enabled: !!runId,
-  });
-  const snapshotQuery = useQuery({
-    queryKey: ["runs", runId, "snapshot"],
-    queryFn: () => runsApi.snapshot(runId!),
-    enabled: !!runId,
-    refetchInterval: 3000,
-  });
-
-  const workspaceId = (runQuery.data?.workspace_id as string | undefined) ?? null;
-  const runStatus = runQuery.data?.status;
-  const todos = (snapshotQuery.data?.todos as Array<{ status: string }>) ?? [];
-  const todoProgress = {
-    done: todos.filter((t) => t.status === "done").length,
-    total: todos.length,
-  };
-
-  return (
-    <InspectionPanel
-      runId={runId}
-      workspaceId={workspaceId}
-      collapsed={collapsed}
-      onToggle={onToggle}
-      runStatus={runStatus}
-      todoProgress={todoProgress}
-      streamState={streamState}
-      activeTab={activeTab}
-      onTabChange={onTabChange}
+      onOpenRightPanel={onOpenRightPanel}
+      onPreviewFile={onPreviewFile}
     />
   );
 }
