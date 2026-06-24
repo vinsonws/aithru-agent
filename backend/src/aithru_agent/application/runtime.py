@@ -46,6 +46,7 @@ from aithru_agent.model_profiles import (
     InMemoryModelProfileRegistry,
     SQLiteModelProfileRegistry,
 )
+from aithru_agent.model_profiles.factory import create_model_from_profile
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
@@ -55,6 +56,7 @@ from aithru_agent.runtime.processors.memory_extraction import MemoryExtractionPr
 from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
 from aithru_agent.runtime.processors.title import ThreadTitleProcessor
 from aithru_agent.sandbox import LocalPythonSandboxProvider
+from aithru_agent.secrets import AgentSecretStore, InMemorySecretStore, SQLiteSecretStore
 from aithru_agent.settings import AgentSettings
 from aithru_agent.skills import (
     AgentSkillRegistry,
@@ -81,6 +83,7 @@ class AgentApplication:
     skill_registry: AgentSkillRegistry
     external_tool_config_registry: AgentExternalToolConfigRegistry
     model_profile_registry: AgentModelProfileRegistry
+    secret_store: AgentSecretStore
     agent_runtime: NativeAgentRuntime
     processor_runner: AgentRuntimeProcessorRunner
 
@@ -111,6 +114,7 @@ def create_agent_application(
     )
     external_tool_config_registry = _create_external_tool_config_registry(resolved_settings)
     model_profile_registry = _create_model_profile_registry(resolved_settings)
+    secret_store = _create_secret_store(resolved_settings)
     resolved_skill_resolver = resolved_skill_registry
     subagent_tool = SubagentLocalTool(resolved_store, event_writer, resolved_skill_resolver)
     tool_adapters = [
@@ -147,7 +151,11 @@ def create_agent_application(
         adapters=tool_adapters,
         policy=policy or ToolPolicy(require_approval_for_risk=[]),
     )
-    resolved_agent_runtime = agent_runtime or _create_native_agent_runtime(resolved_settings)
+    resolved_agent_runtime = agent_runtime or _create_native_agent_runtime(
+        resolved_settings,
+        model_profile_registry=model_profile_registry,
+        secret_store=secret_store,
+    )
     processor_runner = _create_processor_runner(resolved_settings)
     runner = AgentWorkerRunner(
         store=resolved_store,
@@ -174,6 +182,7 @@ def create_agent_application(
         skill_registry=resolved_skill_registry,
         external_tool_config_registry=external_tool_config_registry,
         model_profile_registry=model_profile_registry,
+        secret_store=secret_store,
         agent_runtime=resolved_agent_runtime,
         processor_runner=processor_runner,
     )
@@ -182,7 +191,12 @@ def create_agent_application(
 create_agent_runtime = create_agent_application
 
 
-def _create_native_agent_runtime(settings: AgentSettings) -> NativeAgentRuntime:
+def _create_native_agent_runtime(
+    settings: AgentSettings,
+    *,
+    model_profile_registry: AgentModelProfileRegistry,
+    secret_store: AgentSecretStore,
+) -> NativeAgentRuntime:
     if settings.model == "test":
         model: object | str = TestModel(
             call_tools=[],
@@ -202,6 +216,12 @@ def _create_native_agent_runtime(settings: AgentSettings) -> NativeAgentRuntime:
             TestModel(call_tools=[], custom_output_text=settings.test_model_output)
             if model_name == "test"
             else model_name
+        ),
+        model_profile_resolver=model_profile_registry.get_profile,
+        profile_model_factory=lambda profile: create_model_from_profile(
+            profile,
+            secret_store=secret_store,
+            test_model_output=settings.test_model_output,
         ),
         instructions=settings.instructions,
     )
@@ -254,6 +274,12 @@ def _create_model_profile_registry(settings: AgentSettings) -> AgentModelProfile
     if settings.persistence_backend == "sqlite":
         return SQLiteModelProfileRegistry(settings.sqlite_path)
     return InMemoryModelProfileRegistry()
+
+
+def _create_secret_store(settings: AgentSettings) -> AgentSecretStore:
+    if settings.persistence_backend == "sqlite":
+        return SQLiteSecretStore(settings.sqlite_path)
+    return InMemorySecretStore()
 
 
 def _create_external_tool_providers(settings: AgentSettings) -> list[ExternalToolProvider]:
