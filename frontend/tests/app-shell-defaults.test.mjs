@@ -17,4 +17,16 @@ test("right panel and selected file are session-only React state, not localStora
     /aithru-agent:inspection-tab/,
   );
   assert.match(source, /React\.useState/);
+
+  // rightPanel defaults to null
+  assert.match(
+    source,
+    /rightPanel[^;]*React\.useState<string\s*\|\s*null\s*>\s*\(null\)/,
+  );
+
+  // selectedFile defaults to null
+  assert.match(
+    source,
+    /selectedFile[^;]*React\.useState<string\s*\|\s*null\s*>\s*\(null\)/,
+  );
 });

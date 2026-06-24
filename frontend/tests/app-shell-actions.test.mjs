@@ -6,7 +6,6 @@ const appShellPath = new URL("../src/AppShell.tsx", import.meta.url);
 const conversationPagePath = new URL("../src/features/conversation/ConversationPage.tsx", import.meta.url);
 const conversationHeaderPath = new URL("../src/features/conversation/ConversationHeader.tsx", import.meta.url);
 const sidebarPath = new URL("../src/features/sidebar/Sidebar.tsx", import.meta.url);
-const runCompanionPath = new URL("../src/features/inspection/RunCompanion.tsx", import.meta.url);
 const rightRailPath = new URL("../src/features/sidebar/RightRail.tsx", import.meta.url);
 
 test("manager dialogs wrap both sidebar and conversation routes", async () => {
@@ -107,4 +106,27 @@ test("collapsed rail uses the same quiet surface as surrounding chrome", async (
   assert.match(collapsedClass, /bg-background/);
   assert.doesNotMatch(collapsedClass, /bg-card/);
   assert.doesNotMatch(source, /bg-warning\/\[/);
+});
+
+test("right panel toggle sets panel id and clears on double-click", async () => {
+  const source = await readFile(rightRailPath, "utf8");
+
+  // RightRail exposes an onClick that toggles: active → null, inactive → id
+  assert.match(source, /onPanelChange\(isActive \? null : item\.id\)/);
+
+  // Active state is determined by comparing activePanel to item.id
+  assert.match(source, /isActive\s*=\s*activePanel\s*===\s*item\.id/);
+});
+
+test("right panel is stored as session-only React state in AppShell", async () => {
+  const source = await readFile(appShellPath, "utf8");
+
+  // rightPanel uses React.useState, not localStorage
+  assert.match(
+    source,
+    /const \[rightPanel,\s*setRightPanel\]\s*=\s*React\.useState<string\s*\|\s*null\s*>\s*\(null\)/,
+  );
+
+  // RouteContent wires setRightPanel as onRightPanelChange
+  assert.match(source, /onRightPanelChange=\{setRightPanel\}/);
 });
