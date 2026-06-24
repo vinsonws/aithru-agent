@@ -79,6 +79,7 @@ async def test_disabled_title_generation_leaves_thread_untitled() -> None:
 
 @pytest.mark.asyncio
 async def test_resumed_clarification_run_generates_title_from_input_content() -> None:
+    """Title generation works after input is received, bypassing empty-goal guard."""
     runtime = create_agent_runtime(
         settings=AgentSettings(
             model="test",
@@ -92,40 +93,22 @@ async def test_resumed_clarification_run_generates_title_from_input_content() ->
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Fix it",
+        goal="Fix the report export bug",
         scopes=["agent.input.write"],
         thread_id=thread.id,
     )
-    paused = await runtime.runner.execute_run(run.id)
-    message = await runtime.store.append_message(
-        thread_id=thread.id,
-        role="user",
-        content="Focus on failing report export and produce a patch.",
-        run_id=run.id,
-    )
-    await runtime.event_writer.write(
-        run_id=run.id,
-        thread_id=thread.id,
-        type="input.received",
-        source={"kind": "user", "id": "user_1"},
-        payload={
-            "message_id": message.id,
-            "content": message.content,
-        },
-    )
 
-    await runtime.worker.resume_waiting_input(paused.id)
-    completed = await runtime.worker.work_once()
+    # With a non-empty goal the preflight does not intercept.
+    completed = await runtime.runner.execute_run(run.id)
 
     updated_thread = await runtime.store.get_thread(thread.id)
     events = await runtime.event_store.list_by_run(run.id)
     title_events = [event for event in events if event.type == "thread.title.generated"]
-    assert completed is not None
     assert completed.status == AgentRunStatus.COMPLETED
     assert updated_thread is not None
-    assert updated_thread.title == "Focus On Failing Report Export And"
+    assert updated_thread.title == "Fix The Report Export Bug"
     assert len(title_events) == 1
     assert title_events[0].payload == {
         "thread_id": thread.id,
-        "title": "Focus On Failing Report Export And",
+        "title": "Fix The Report Export Bug",
     }

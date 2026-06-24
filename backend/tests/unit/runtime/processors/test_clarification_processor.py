@@ -9,7 +9,7 @@ from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 
 @pytest.mark.asyncio
 async def test_short_threaded_goal_with_input_scope_pauses_and_emits_events() -> None:
-    context = await _make_context(goal="Fix it", scopes=["agent.input.write"])
+    context = await _make_context(goal="", scopes=["agent.input.write"])
 
     decision = await ClarificationPreflightProcessor().before_model(context)
 
@@ -18,10 +18,10 @@ async def test_short_threaded_goal_with_input_scope_pauses_and_emits_events() ->
     assert decision.paused_run.status == AgentRunStatus.WAITING_INPUT
     assert [event.type for event in events] == ["input.requested", "run.paused"]
     assert events[0].payload == {
-        "input_request_id": f"clarify_{context.run.id}",
-        "tool_call_id": f"clarify_{context.run.id}",
-        "prompt": "What should the agent focus on, and what result should it produce?",
-        "reason": "The run goal is too short to execute safely.",
+        "input_request_id": f"empty_goal_{context.run.id}",
+        "tool_call_id": f"empty_goal_{context.run.id}",
+        "prompt": "What should the agent help you with?",
+        "reason": "The run goal is empty.",
     }
     assert events[1].payload == {
         "status": "waiting_input",

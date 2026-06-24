@@ -159,7 +159,6 @@ class AgentWorkflowCapabilitiesSettings(AithruBaseModel):
 
 class AgentProcessorSettings(AithruBaseModel):
     clarification_enabled: bool = True
-    clarification_min_goal_words: int = Field(default=4, ge=1, le=20)
     title_generation_enabled: bool = True
     title_max_words: int = Field(default=6, ge=1, le=12)
     summarization_enabled: bool = True
@@ -339,11 +338,6 @@ class AgentSettings(AithruBaseModel):
                     os.getenv("AITHRU_AGENT_PROCESSOR_CLARIFICATION_ENABLED"),
                     default=True,
                     name="AITHRU_AGENT_PROCESSOR_CLARIFICATION_ENABLED",
-                ),
-                clarification_min_goal_words=_env_int(
-                    os.getenv("AITHRU_AGENT_PROCESSOR_CLARIFICATION_MIN_GOAL_WORDS"),
-                    default=4,
-                    name="AITHRU_AGENT_PROCESSOR_CLARIFICATION_MIN_GOAL_WORDS",
                 ),
                 title_generation_enabled=_env_bool_default(
                     os.getenv("AITHRU_AGENT_PROCESSOR_TITLE_GENERATION_ENABLED"),

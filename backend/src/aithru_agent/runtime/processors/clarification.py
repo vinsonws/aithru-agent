@@ -10,10 +10,13 @@ from .base import (
 
 
 class ClarificationPreflightProcessor(AgentRuntimeProcessor):
-    name: str = "clarification_preflight"
+    """Guard against completely empty goals.
 
-    def __init__(self, *, min_goal_words: int = 4) -> None:
-        self.min_goal_words = min_goal_words
+    Model-driven clarification is now handled by the ask_clarification tool.
+    This processor only intercepts truly empty goals to avoid sending blank
+    input to the model.
+    """
+    name: str = "clarification_preflight"
 
     async def before_model(
         self,
@@ -21,19 +24,15 @@ class ClarificationPreflightProcessor(AgentRuntimeProcessor):
     ) -> AgentRuntimeProcessorDecision:
         if context.run.thread_id is None:
             return AgentRuntimeProcessorDecision()
-        if "agent.input.write" not in context.run.scopes and "*" not in context.run.scopes:
-            return AgentRuntimeProcessorDecision()
-        if _word_count(context.run.goal) >= self.min_goal_words:
-            return AgentRuntimeProcessorDecision()
-        if await _has_received_input(context):
+        if not _is_empty(context.run.goal):
             return AgentRuntimeProcessorDecision()
 
-        input_request_id = f"clarify_{context.run.id}"
+        input_request_id = f"empty_goal_{context.run.id}"
         payload = {
             "input_request_id": input_request_id,
             "tool_call_id": input_request_id,
-            "prompt": "What should the agent focus on, and what result should it produce?",
-            "reason": "The run goal is too short to execute safely.",
+            "prompt": "What should the agent help you with?",
+            "reason": "The run goal is empty.",
         }
         await context.event_writer.write(
             run_id=context.run.id,
@@ -56,12 +55,5 @@ class ClarificationPreflightProcessor(AgentRuntimeProcessor):
         return AgentRuntimeProcessorDecision(paused_run=paused)
 
 
-def _word_count(value: str) -> int:
-    return len([word for word in value.split() if word.strip()])
-
-
-async def _has_received_input(context: AgentRuntimeProcessorContext) -> bool:
-    if context.event_store is None:
-        return False
-    events = await context.event_store.list_by_run(context.run.id)
-    return any(event.type == "input.received" for event in events)
+def _is_empty(value: str) -> bool:
+    return not value or not value.strip()

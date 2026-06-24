@@ -150,7 +150,6 @@ def test_application_wires_runtime_processors_from_settings() -> None:
             model="test",
             processors={
                 "clarification_enabled": False,
-                "clarification_min_goal_words": 4,
                 "title_generation_enabled": False,
                 "title_max_words": 6,
                 "summarization_enabled": False,

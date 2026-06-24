@@ -230,11 +230,7 @@ def _create_native_agent_runtime(
 def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRunner:
     processors = []
     if settings.processors.clarification_enabled:
-        processors.append(
-            ClarificationPreflightProcessor(
-                min_goal_words=settings.processors.clarification_min_goal_words,
-            )
-        )
+        processors.append(ClarificationPreflightProcessor())
     if settings.processors.title_generation_enabled:
         processors.append(
             ThreadTitleProcessor(

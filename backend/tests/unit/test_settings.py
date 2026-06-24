@@ -27,7 +27,6 @@ def test_processor_settings_default_to_deterministic_summarization_enabled() -> 
 
     assert isinstance(settings.processors, AgentProcessorSettings)
     assert settings.processors.clarification_enabled is True
-    assert settings.processors.clarification_min_goal_words == 4
     assert settings.processors.title_generation_enabled is True
     assert settings.processors.title_max_words == 6
     assert settings.processors.summarization_enabled is True
@@ -303,7 +302,6 @@ def test_settings_load_driver_model_and_instructions_from_env(monkeypatch) -> No
     monkeypatch.setenv("AITHRU_AGENT_PERSISTENCE_BACKEND", "sqlite")
     monkeypatch.setenv("AITHRU_AGENT_SQLITE_PATH", "/tmp/aithru-agent.sqlite")
     monkeypatch.setenv("AITHRU_AGENT_PROCESSOR_CLARIFICATION_ENABLED", "false")
-    monkeypatch.setenv("AITHRU_AGENT_PROCESSOR_CLARIFICATION_MIN_GOAL_WORDS", "9")
     monkeypatch.setenv("AITHRU_AGENT_PROCESSOR_SUMMARIZATION_ENABLED", "false")
     monkeypatch.setenv("AITHRU_AGENT_PROCESSOR_SUMMARIZATION_MIN_MESSAGE_COUNT", "12")
     monkeypatch.setenv("AITHRU_AGENT_API_TOKEN", "secret-token")
@@ -371,7 +369,6 @@ def test_settings_load_driver_model_and_instructions_from_env(monkeypatch) -> No
     assert settings.persistence_backend == "sqlite"
     assert settings.sqlite_path == "/tmp/aithru-agent.sqlite"
     assert settings.processors.clarification_enabled is False
-    assert settings.processors.clarification_min_goal_words == 9
     assert settings.processors.summarization_enabled is False
     assert settings.processors.summarization_min_message_count == 12
     assert settings.api_token == "secret-token"
