@@ -157,7 +157,7 @@ export function ChatPanel({
 
           {/* Tool calls rendered inline, grouped after the latest assistant message. */}
           {state.toolCalls.length > 0 && (
-            <div className="mx-auto max-w-3xl space-y-2 px-4 py-2">
+            <div className="mx-auto max-w-3xl space-y-1.5 px-4 py-1.5">
               {state.toolCalls.map((tc) => (
                 <ToolCallCard key={tc.id} entry={tc} />
               ))}
