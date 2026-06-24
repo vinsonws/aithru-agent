@@ -108,3 +108,65 @@ export function inferPermissionPolicyFromScopes(
 export function permissionPolicyLabelKey(policyId: string | null | undefined): string {
   return getPermissionPolicy(policyId).labelKey;
 }
+
+export interface ComposerSummaryInput {
+  mode: string | null | undefined;
+  profileKey: string | null | undefined;
+  profileName: string | null | undefined;
+  skillId: string | null | undefined;
+  skillName: string | null | undefined;
+  permissionPolicy: string | null | undefined;
+}
+
+export interface ComposerSummaryParts {
+  modeLabelKey: string;
+  modeFallback: string;
+  modelLabel: string;
+  skillLabel: string | null;
+  permissionLabelKey: string;
+  permissionFallback: string;
+}
+
+const MODE_LABELS: Record<ComposerMode, { labelKey: string; fallback: string }> = {
+  auto: { labelKey: "chat:modeAuto", fallback: "Auto" },
+  plan: { labelKey: "chat:modePlan", fallback: "Plan" },
+  chat: { labelKey: "chat:modeChat", fallback: "Chat" },
+};
+
+export function buildComposerSummaryParts(input: ComposerSummaryInput): ComposerSummaryParts {
+  const mode = normalizeComposerMode(input.mode);
+  const permission = getPermissionPolicy(input.permissionPolicy);
+  const profileKey = input.profileKey ?? "__default__";
+  const skillId = input.skillId ?? "__none__";
+
+  return {
+    modeLabelKey: MODE_LABELS[mode].labelKey,
+    modeFallback: MODE_LABELS[mode].fallback,
+    modelLabel:
+      profileKey === "__default__"
+        ? "Default model"
+        : input.profileName?.trim() || profileKey,
+    skillLabel:
+      skillId === "__none__"
+        ? null
+        : input.skillName?.trim() || skillId,
+    permissionLabelKey: permission.labelKey,
+    permissionFallback: permission.fallback,
+  };
+}
+
+export function buildComposerSummaryLabel(input: {
+  modeLabel: string;
+  modelLabel: string;
+  skillLabel: string | null;
+  permissionLabel: string;
+}): string {
+  return [
+    input.modeLabel,
+    input.modelLabel,
+    input.skillLabel,
+    input.permissionLabel,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" / ");
+}
