@@ -1,11 +1,24 @@
 import type * as React from "react";
-import { Activity, FileText, GitBranch, PanelRightClose, PanelRightOpen, ShieldCheck } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Clock3,
+  FileText,
+  GitBranch,
+  PanelRightClose,
+  PanelRightOpen,
+  ShieldCheck,
+} from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { buildRunCompanionBadges } from "@/features/chat/runActivity";
 import type { RunStreamState } from "@/features/chat/useRunStream";
+import { cn } from "@/lib/utils";
+import { buildRunCompanionRailView } from "./runCompanionView";
 import { useTranslation } from "react-i18next";
 import { ActivityTab } from "./tabs/ActivityTab";
 import { RunFilesTab } from "./tabs/RunFilesTab";
@@ -35,6 +48,11 @@ export function RunCompanion({
 }) {
   const { t } = useTranslation(["chat", "inspection", "common"]);
   const badges = buildRunCompanionBadges(streamState);
+  const railView = buildRunCompanionRailView({
+    runStatus,
+    todoProgress,
+    streamState,
+  });
 
   const defaultTab = badges.approvals > 0 ? "approvals" : "activity";
   const tabValue = activeTab ?? defaultTab;
@@ -42,21 +60,35 @@ export function RunCompanion({
 
   if (collapsed) {
     return (
-      <aside className="hidden w-12 shrink-0 flex-col items-center gap-3 border-l bg-card py-3 lg:flex">
+      <aside
+        className={cn(
+          "hidden w-12 shrink-0 flex-col items-center gap-3 border-l bg-card py-3 lg:flex",
+          railView.hasAttention && "bg-warning/5",
+        )}
+      >
         <Button variant="ghost" size="icon" onClick={onToggle} title={t("inspection:expand")}>
           <PanelRightOpen className="h-4 w-4" />
         </Button>
-        <Activity className="h-4 w-4 text-muted-foreground" />
-        {runStatus && (
-          <div className="rotate-90 whitespace-nowrap text-[10px] text-muted-foreground">
-            {t(`common:status.${runStatus}`, { defaultValue: runStatus })}
-          </div>
-        )}
-        {todoProgress && todoProgress.total > 0 && (
-          <div className="flex flex-col items-center text-[10px] text-muted-foreground">
-            <span className="font-mono">
-              {todoProgress.done}/{todoProgress.total}
-            </span>
+        <div
+          className={cn(
+            "relative flex h-8 w-8 items-center justify-center rounded-full border",
+            railToneClass(railView.statusTone),
+          )}
+          title={railView.status ? t(`common:status.${railView.status}`, { defaultValue: railView.status }) : undefined}
+        >
+          <RailStatusIcon tone={railView.statusTone} />
+          {railView.attentionCount > 0 && (
+            <Badge
+              variant="secondary"
+              className="absolute -right-1 -top-1 h-4 min-w-4 justify-center px-1 text-[10px]"
+            >
+              {railView.attentionCount > 9 ? "9+" : railView.attentionCount}
+            </Badge>
+          )}
+        </div>
+        {railView.progressLabel && (
+          <div className="rounded-full bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            {railView.progressLabel}
           </div>
         )}
       </aside>
@@ -120,4 +152,24 @@ function CompanionTab({
       )}
     </TabsTrigger>
   );
+}
+
+function RailStatusIcon({ tone }: { tone: ReturnType<typeof buildRunCompanionRailView>["statusTone"] }) {
+  if (tone === "live") return <Activity className="h-4 w-4" />;
+  if (tone === "waiting") return <Clock3 className="h-4 w-4" />;
+  if (tone === "success") return <CheckCircle2 className="h-4 w-4" />;
+  if (tone === "danger") return <AlertTriangle className="h-4 w-4" />;
+  return <Circle className="h-4 w-4" />;
+}
+
+function railToneClass(tone: ReturnType<typeof buildRunCompanionRailView>["statusTone"]): string {
+  const classes = {
+    muted: "border-border text-muted-foreground",
+    live: "border-accent/30 bg-accent/10 text-accent",
+    waiting: "border-warning/40 bg-warning/10 text-warning",
+    success: "border-success/30 bg-success/10 text-success",
+    danger: "border-destructive/35 bg-destructive/10 text-destructive",
+    cancelled: "border-border bg-muted text-muted-foreground",
+  };
+  return classes[tone];
 }
