@@ -16,7 +16,7 @@ export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage("aithru-agent:sidebar-collapsed", false);
   const [inspectionCollapsed, setInspectionCollapsed] = useLocalStorage(
     "aithru-agent:inspection-collapsed",
-    false,
+    true,
   );
   const [inspectionTab, setInspectionTab] = useLocalStorage(
     "aithru-agent:inspection-tab",
