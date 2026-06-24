@@ -5,7 +5,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelMessagesTypeAdapter, PartDeltaEvent, TextPartDelta
+from pydantic_ai.messages import (
+    ModelMessagesTypeAdapter,
+    PartDeltaEvent,
+    TextPartDelta,
+    ToolCallPart,
+)
 from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults
 
@@ -19,7 +24,13 @@ from aithru_agent.agent.deps import PydanticAgentDeps
 from aithru_agent.agent.instructions import InstructionBuilder
 from aithru_agent.agent.skills import ProgressiveSkill, SkillActivator, SkillRegistry
 from aithru_agent.agent.tools.bridge import PydanticAIToolBridge
-from aithru_agent.domain import AgentArtifactSummary, AgentRun, AgentRunStatus, AgentToolDescriptor
+from aithru_agent.domain import (
+    AgentArtifactSummary,
+    AgentModelProfileEntry,
+    AgentRun,
+    AgentRunStatus,
+    AgentToolDescriptor,
+)
 from aithru_agent.domain.errors import AgentError
 
 
@@ -48,14 +59,18 @@ class AgentRuntime:
     model: str | object = "test"
     instructions: str = "You are Aithru Agent. Help the user complete the task."
     model_factory: Callable[[str], str | object] = field(default_factory=lambda: _default_model_factory)
+    model_profile_resolver: Callable[[str, str], AgentModelProfileEntry | None] | None = None
+    profile_model_factory: Callable[[AgentModelProfileEntry], str | object] | None = None
     skill_registry: SkillRegistry | None = None
     _pending_approvals: dict[tuple[str, str], PendingApprovalState] = field(default_factory=dict)
+    _pending_clarifications: dict[str, PendingApprovalState] = field(default_factory=dict)
 
     async def build_agent(
         self,
         deps: PydanticAgentDeps,
     ) -> Agent[PydanticAgentDeps, str | DeferredToolRequests]:
         """Build a Pydantic AI agent configured for this run."""
+        model = self._model_for_run(deps.run)
         descriptors = await deps.capability_router.list_tools(deps.run_context)
         active_skills = await self._activate_progressive_skills(deps)
         descriptors = self._apply_progressive_skill_tool_policy(descriptors, active_skills)
@@ -75,6 +90,7 @@ class AgentRuntime:
                 toolset=AithruToolset(
                     tool_specs=tool_specs,
                     tool_callback=bridge.call_tool,
+                    expose_safe_tool_names=_requires_model_safe_tool_names(model),
                 ),
             )
         ]
@@ -92,7 +108,7 @@ class AgentRuntime:
             )
 
         return Agent[PydanticAgentDeps, str | DeferredToolRequests](
-            self._model_for_run(deps.run),
+            model,
             deps_type=PydanticAgentDeps,
             instructions=system_prompt,
             output_type=str | DeferredToolRequests,
@@ -296,6 +312,17 @@ class AgentRuntime:
 
     def _model_for_run(self, run: AgentRun | None) -> object:
         if run and run.harness_options and run.harness_options.model:
+            if (
+                run.harness_options.model_profile_key
+                and self.model_profile_resolver
+                and self.profile_model_factory
+            ):
+                profile = self.model_profile_resolver(
+                    run.org_id,
+                    run.harness_options.model_profile_key,
+                )
+                if profile is not None:
+                    return self.profile_model_factory(profile)
             return self.model_factory(run.harness_options.model)
         if self.model == "test":
             return self.model_factory("test")
@@ -307,12 +334,28 @@ class AgentRuntime:
         requests: DeferredToolRequests,
         message_history: list[Any],
     ) -> PendingApprovalState:
-        """Persist a deferred tool approval request and pause the run."""
+        """Persist a deferred tool approval request and pause the run.
+
+        Handles ask_clarification deferred tool calls by writing input.requested
+        events and pausing as waiting_input, before falling through to standard
+        approval handling.
+        """
+        # --- Handle clarification calls ---
+        clarification_call = next(
+            (c for c in requests.calls if c.tool_name == "ask_clarification"),
+            None,
+        )
+        if clarification_call is not None:
+            return await self._handle_clarification_request(
+                deps, clarification_call, message_history,
+            )
+
         if not requests.approvals:
             raise AgentError("BAD_REQUEST", "Deferred tool calls without approval are not supported")
 
         tool_call = requests.approvals[0]
         tool_input = tool_call.args_as_dict(raise_if_invalid=True)
+        tool_name = deps.tool_name_aliases.get(tool_call.tool_name, tool_call.tool_name)
         await deps.event_writer.write(
             run_id=deps.run.id,
             thread_id=deps.run.thread_id,
@@ -320,7 +363,7 @@ class AgentRuntime:
             source={"kind": "tool"},
             payload={
                 "tool_call_id": tool_call.tool_call_id,
-                "tool_name": tool_call.tool_name,
+                "tool_name": tool_name,
                 "input": tool_input,
             },
         )
@@ -329,7 +372,7 @@ class AgentRuntime:
         approval = await deps.store.create_approval(
             run_id=deps.run.id,
             tool_call_id=tool_call.tool_call_id,
-            tool_name=tool_call.tool_name,
+            tool_name=tool_name,
             tool_input=tool_input,
             metadata={
                 "driver": PYDANTIC_APPROVAL_METADATA_DRIVER,
@@ -354,7 +397,7 @@ class AgentRuntime:
             payload={
                 "approval_id": approval.id,
                 "tool_call_id": tool_call.tool_call_id,
-                "tool_name": tool_call.tool_name,
+                "tool_name": tool_name,
                 "status": "pending",
             },
         )
@@ -372,10 +415,126 @@ class AgentRuntime:
                 "status": "waiting_approval",
                 "approval_id": approval.id,
                 "tool_call_id": tool_call.tool_call_id,
-                "tool_name": tool_call.tool_name,
+                "tool_name": tool_name,
             },
         )
         return pending_state
+
+    async def _handle_clarification_request(
+        self,
+        deps: PydanticAgentDeps,
+        tool_call: ToolCallPart,
+        message_history: list[Any],
+    ) -> PendingApprovalState:
+        """Handle an ask_clarification deferred tool call: write input.requested, pause as waiting_input."""
+        args = tool_call.args_as_dict(raise_if_invalid=True)
+        question = str(args.get("question", ""))
+        clarification_type = str(args.get("clarification_type", "missing_info"))
+        context_str = str(args.get("context", "")) if args.get("context") else None
+        options = args.get("options")
+
+        input_request_id = f"clarify_{deps.run.id}_{tool_call.tool_call_id}"
+        await deps.event_writer.write(
+            run_id=deps.run.id,
+            thread_id=deps.run.thread_id,
+            type="input.requested",
+            source={"kind": "harness"},
+            payload={
+                "input_request_id": input_request_id,
+                "tool_call_id": tool_call.tool_call_id,
+                "prompt": question,
+                "reason": context_str or "The agent needs more information to proceed.",
+                "clarification_type": clarification_type,
+                "options": options if isinstance(options, list) else None,
+            },
+        )
+
+        pending_state = PendingApprovalState(
+            approval_id=input_request_id,
+            tool_call_id=tool_call.tool_call_id,
+            message_history=message_history,
+        )
+        self._pending_clarifications[deps.run.id] = pending_state
+
+        await deps.store.update_run(
+            deps.run.id,
+            status=AgentRunStatus.WAITING_INPUT,
+        )
+        await deps.event_writer.write(
+            run_id=deps.run.id,
+            thread_id=deps.run.thread_id,
+            type="run.paused",
+            source={"kind": "harness"},
+            payload={
+                "status": "waiting_input",
+                "pause_reason": "clarification_requested",
+                "input_request_id": input_request_id,
+            },
+        )
+        return pending_state
+
+    def has_pending_clarification(self, run_id: str) -> bool:
+        """Return True if the given run has a pending clarification request."""
+        return run_id in self._pending_clarifications
+
+    async def resume_clarification(
+        self,
+        *,
+        run_id: str,
+        input_text: str,
+        deps: PydanticAgentDeps,
+    ) -> AgentRuntimeResult:
+        """Resume a run after the user responded to a clarification request."""
+        pending = self._pending_clarifications.pop(run_id, None)
+        if pending is None:
+            raise AgentError("RUN_NOT_RESUMABLE", f"No pending clarification for run {run_id}")
+
+        agent = await self.build_agent(deps)
+        content_parts: list[str] = []
+        final_output: str | None = None
+        message_id = "msg_1"
+
+        from pydantic_ai.messages import ToolReturn
+
+        deferred_tool_results = DeferredToolResults(
+            calls={pending.tool_call_id: ToolReturn(input_text)}
+        )
+
+        async with agent.run_stream_events(
+            message_history=pending.message_history,
+            deferred_tool_results=deferred_tool_results,
+            deps=deps,
+        ) as stream:
+            async for event in stream:
+                if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                    if event.delta.content_delta:
+                        content_parts.append(event.delta.content_delta)
+                        await deps.event_writer.write(
+                            run_id=deps.run.id,
+                            thread_id=deps.run.thread_id,
+                            type="message.delta",
+                            source={"kind": "model"},
+                            payload={"message_id": message_id, "delta": event.delta.content_delta},
+                        )
+                elif isinstance(event, AgentRunResultEvent):
+                    await self._emit_usage_event(deps, event.result.usage)
+                    if isinstance(event.result.output, DeferredToolRequests):
+                        new_pending = await self._pause_for_deferred_approval(
+                            deps,
+                            event.result.output,
+                            event.result.all_messages(),
+                        )
+                        return AgentRuntimeResult(
+                            content=_result_content(content_parts, final_output),
+                            pending_approval=new_pending,
+                        )
+                    if isinstance(event.result.output, str):
+                        final_output = event.result.output
+
+        return AgentRuntimeResult(
+            content=_result_content(content_parts, final_output),
+            pending_approval=None,
+        )
 
     async def _emit_usage_event(self, deps: PydanticAgentDeps, usage: object) -> None:
         await deps.event_writer.write(
@@ -433,3 +592,12 @@ def _default_model_factory(model: str) -> str | object:
 
         return TestModel(call_tools=[], custom_output_text="Done.")
     return model
+
+
+def _requires_model_safe_tool_names(model: object) -> bool:
+    """Use OpenAI-compatible tool names for real providers while preserving TestModel tests."""
+    model_class = model.__class__
+    return not (
+        model_class.__module__ == "pydantic_ai.models.test"
+        and model_class.__name__ == "TestModel"
+    )
