@@ -28,6 +28,9 @@ class InstructionBuilder:
         """Build a full system prompt from store-backed run context."""
         sections = [self._base]
 
+        # Add clarification guidance
+        sections.append(_CLARIFICATION_GUIDANCE)
+
         if deps.run.harness_options and deps.run.harness_options.instructions:
             sections.append(f"Run instructions:\n{deps.run.harness_options.instructions}")
 
@@ -389,3 +392,18 @@ def _memory_scope_id(scope: str, deps: PydanticAgentDeps) -> str | None:
             return deps.run.skill_id
         case _:
             return None
+
+
+_CLARIFICATION_GUIDANCE = """## When to Ask for Clarification
+
+You have access to the `ask_clarification` tool. Use it before taking tool actions when:
+- The user's goal is too vague to proceed safely
+- You need to choose between different approaches — provide `options` (2-5 choices)
+- A requested action has important implications that need user confirmation
+
+When providing options, keep them concise. When there are no clear discrete options, ask a focused open-ended question without providing options.
+
+Do NOT use `ask_clarification` for:
+- Simple informational questions you can answer directly
+- Tasks where the goal is clear enough to start working
+- Situations where you already have enough context from the workspace or memory"""

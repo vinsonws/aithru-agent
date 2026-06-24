@@ -78,6 +78,18 @@ async def test_instruction_builder_combines_base_and_skill_instructions() -> Non
 
     assert instructions == (
         "Base instructions.\n\n"
+        "## When to Ask for Clarification\n\n"
+        "You have access to the `ask_clarification` tool. Use it before taking tool actions when:\n"
+        "- The user's goal is too vague to proceed safely\n"
+        "- You need to choose between different approaches — provide `options` (2-5 choices)\n"
+        "- A requested action has important implications that need user confirmation\n"
+        "\n"
+        "When providing options, keep them concise. When there are no clear discrete options, ask a focused open-ended question without providing options.\n"
+        "\n"
+        "Do NOT use `ask_clarification` for:\n"
+        "- Simple informational questions you can answer directly\n"
+        "- Tasks where the goal is clear enough to start working\n"
+        "- Situations where you already have enough context from the workspace or memory\n\n"
         "Skill instructions:\nRead files first. Then write a report."
     )
 
@@ -115,7 +127,22 @@ async def test_instruction_builder_adds_run_harness_instructions() -> None:
 
     instructions = await InstructionBuilder("Base instructions.").build(deps)
 
-    assert instructions == "Base instructions.\n\nRun instructions:\nUse terse bullet points."
+    assert instructions == (
+        "Base instructions.\n\n"
+        "## When to Ask for Clarification\n\n"
+        "You have access to the `ask_clarification` tool. Use it before taking tool actions when:\n"
+        "- The user's goal is too vague to proceed safely\n"
+        "- You need to choose between different approaches — provide `options` (2-5 choices)\n"
+        "- A requested action has important implications that need user confirmation\n"
+        "\n"
+        "When providing options, keep them concise. When there are no clear discrete options, ask a focused open-ended question without providing options.\n"
+        "\n"
+        "Do NOT use `ask_clarification` for:\n"
+        "- Simple informational questions you can answer directly\n"
+        "- Tasks where the goal is clear enough to start working\n"
+        "- Situations where you already have enough context from the workspace or memory\n\n"
+        "Run instructions:\nUse terse bullet points."
+    )
 
 
 @pytest.mark.asyncio
