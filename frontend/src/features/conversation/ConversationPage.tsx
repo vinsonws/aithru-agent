@@ -18,6 +18,7 @@ export function ConversationPage({
   streamState,
   onOpenRightPanel,
   onPreviewFile,
+  rightSidebar,
 }: {
   threadId: string | null;
   activeRunId: string | null;
@@ -25,6 +26,7 @@ export function ConversationPage({
   streamState: RunStreamState;
   onOpenRightPanel: (panel: string | null) => void;
   onPreviewFile: (fileId: string) => void;
+  rightSidebar?: React.ReactNode;
 }) {
   const { t } = useTranslation(["chat", "settings"]);
   const manager = useManager();
@@ -182,6 +184,7 @@ export function ConversationPage({
             }}
           />
         </div>
+        {rightSidebar}
       </div>
     </div>
   );

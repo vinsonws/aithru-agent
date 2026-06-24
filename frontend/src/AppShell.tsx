@@ -129,53 +129,53 @@ function RouteContent({
     onRightPanelChange("preview");
   };
 
-  return (
+  const rightSidebar = hasOutputFiles ? (
     <>
-      <ConversationRoute
-        threadId={threadId}
-        activeRunId={activeRunId}
-        onRunIdChange={(id) => onSelectedRunChange(id && threadId ? { threadId, runId: id } : null)}
-        streamState={streamState}
-        onOpenRightPanel={onRightPanelChange}
-        onPreviewFile={handlePreviewFile}
+      <RightRail
+        activePanel={rightPanel}
+        onPanelChange={onRightPanelChange}
+        badges={badges}
       />
-      {hasOutputFiles && (
-        <>
-          <RightRail
-            activePanel={rightPanel}
-            onPanelChange={onRightPanelChange}
-            badges={badges}
-          />
-          {rightPanel === "preview" && (
-            <FilePreviewPanel
-              runId={activeRunId}
-              workspaceId={workspaceId}
-              selectedFileId={selectedFile}
-              onSelectFile={handlePreviewFile}
-              onClearFile={() => onSelectedFileChange(null)}
-              onClose={() => onRightPanelChange(null)}
-            />
-          )}
-          {rightPanel === "files" && (
-            <FileListPanel
-              runId={activeRunId}
-              workspaceId={workspaceId}
-              onSelectFile={handlePreviewFile}
-              onClose={() => onRightPanelChange(null)}
-            />
-          )}
-          {rightPanel === "activity" && (
-            <ActivityPanel streamState={streamState} onClose={() => onRightPanelChange(null)} />
-          )}
-          {rightPanel === "approvals" && (
-            <ApprovalsPanel runId={activeRunId} onClose={() => onRightPanelChange(null)} />
-          )}
-          {rightPanel === "trace" && (
-            <TracePanel runId={activeRunId} onClose={() => onRightPanelChange(null)} />
-          )}
-        </>
+      {rightPanel === "preview" && (
+        <FilePreviewPanel
+          runId={activeRunId}
+          workspaceId={workspaceId}
+          selectedFileId={selectedFile}
+          onSelectFile={handlePreviewFile}
+          onClearFile={() => onSelectedFileChange(null)}
+          onClose={() => onRightPanelChange(null)}
+        />
+      )}
+      {rightPanel === "files" && (
+        <FileListPanel
+          runId={activeRunId}
+          workspaceId={workspaceId}
+          onSelectFile={handlePreviewFile}
+          onClose={() => onRightPanelChange(null)}
+        />
+      )}
+      {rightPanel === "activity" && (
+        <ActivityPanel streamState={streamState} onClose={() => onRightPanelChange(null)} />
+      )}
+      {rightPanel === "approvals" && (
+        <ApprovalsPanel runId={activeRunId} onClose={() => onRightPanelChange(null)} />
+      )}
+      {rightPanel === "trace" && (
+        <TracePanel runId={activeRunId} onClose={() => onRightPanelChange(null)} />
       )}
     </>
+  ) : null;
+
+  return (
+    <ConversationRoute
+      threadId={threadId}
+      activeRunId={activeRunId}
+      onRunIdChange={(id) => onSelectedRunChange(id && threadId ? { threadId, runId: id } : null)}
+      streamState={streamState}
+      onOpenRightPanel={onRightPanelChange}
+      onPreviewFile={handlePreviewFile}
+      rightSidebar={rightSidebar}
+    />
   );
 }
 
@@ -186,6 +186,7 @@ function ConversationRoute({
   streamState,
   onOpenRightPanel,
   onPreviewFile,
+  rightSidebar,
 }: {
   threadId: string | null;
   activeRunId: string | null;
@@ -193,6 +194,7 @@ function ConversationRoute({
   streamState: RunStreamState;
   onOpenRightPanel: (panel: string | null) => void;
   onPreviewFile: (fileId: string) => void;
+  rightSidebar: React.ReactNode;
 }) {
   if (!threadId) {
     return <NewThreadPage />;
@@ -205,6 +207,7 @@ function ConversationRoute({
       streamState={streamState}
       onOpenRightPanel={onOpenRightPanel}
       onPreviewFile={onPreviewFile}
+      rightSidebar={rightSidebar}
     />
   );
 }
