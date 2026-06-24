@@ -25,6 +25,7 @@ from aithru_agent.capabilities import (
 )
 from aithru_agent.capabilities.local_tools import (
     ArtifactLocalTool,
+    ClarificationLocalTool,
     InputLocalTool,
     MemoryLocalTool,
     ResearchLocalTool,
@@ -116,6 +117,7 @@ def create_agent_application(
         WorkspaceLocalTool(resolved_store),
         TodoLocalTool(resolved_store),
         ArtifactLocalTool(resolved_store),
+        ClarificationLocalTool(),
         InputLocalTool(),
         MemoryLocalTool(resolved_store),
         ResearchLocalTool(resolved_store),
