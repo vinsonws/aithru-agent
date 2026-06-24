@@ -1,0 +1,101 @@
+# Agent Chat Reference Composer Design
+
+Date: 2026-06-24
+
+## Goal
+
+Redesign the chat composer so it feels like a calm, natural agent input surface
+similar to the approved reference: a large rounded input container with quiet
+tool controls along the bottom edge.
+
+This is a frontend-only refinement. It keeps Aithru Agent as an AI harness and
+does not introduce workflow graph editing, Agent-owned workflow semantics,
+workflow scheduling, or persisted AgentPlan-as-workflow behavior.
+
+## Approved Direction
+
+Use the **Reference Composer** direction approved in the visual companion.
+
+The composer should have:
+
+- a wide white input shell;
+- large rounded corners;
+- a subtle border and soft shadow;
+- one spacious multiline input area;
+- low-noise bottom controls split left and right;
+- a circular send button on the far right.
+
+The reference intent is calm and tactile rather than console-like. The input
+itself is the dominant element.
+
+## Default Surface
+
+The default composer surface contains:
+
+- multiline text input;
+- attachment button;
+- context button;
+- skill or capability summary on the left;
+- context budget or count on the right when available;
+- current model profile as a two-line label on the right;
+- circular send button;
+- stop button in the send position while a run is active.
+
+Detailed mode, model, skill, and permission controls remain available, but they
+do not occupy the default toolbar. They expand from the model/configuration
+summary area.
+
+## Visual Rules
+
+- The composer sits in the existing bottom chat area.
+- The outer wrapper should look like a single input object, not a stack of
+  cards.
+- Use a white surface on light theme and the existing card/dark surface on dark
+  theme.
+- Keep border and shadow subtle enough that the composer feels integrated with
+  the chat.
+- Use stable dimensions so hover, slash command hints, disabled states, and
+  running states do not resize the surrounding layout.
+- Avoid nested cards, decorative gradients, badges, and heavy toolbar rows.
+
+## Interaction Rules
+
+- `Enter` sends and `Shift+Enter` inserts a newline.
+- Empty input disables send.
+- Pending run creation disables send.
+- Active runs show stop/cancel in the primary action position.
+- Slash command hints remain available when the input starts with `/`, but they
+  render as a lightweight hint inside the composer.
+- Prompt template chips may still appear above the composer only when the input
+  is empty and no run is active.
+- Clicking the configuration/model area toggles the detailed controls.
+- Detailed controls preserve the existing fields: mode, model profile, skill,
+  and permission policy.
+
+## Responsive Rules
+
+- On desktop, bottom controls stay in one row with left tools and right status.
+- On narrow screens, controls may wrap into two compact rows.
+- The model label truncates before controls overflow.
+- The circular primary action remains visible and reachable.
+- The composer must not cause horizontal scrolling.
+
+## Implementation Scope
+
+Primary code changes should stay in:
+
+- `frontend/src/features/chat/ChatComposer.tsx`;
+- related i18n resources if visible copy changes;
+- focused tests for composer rendering or existing composer state helpers.
+
+Do not change backend APIs or capability boundaries for this design.
+
+## Verification
+
+Verify:
+
+- desktop composer visual shape matches the approved reference direction;
+- narrow viewport has no horizontal overflow;
+- send, disabled send, stop/cancel, slash hint, template click, and settings
+  expansion still work;
+- existing frontend tests for composer and chat still pass.
