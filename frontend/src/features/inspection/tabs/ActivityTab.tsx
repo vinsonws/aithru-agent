@@ -3,10 +3,15 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { buildRunActivity, type RunActivityItem } from "@/features/chat/runActivity";
 import type { RunStreamState } from "@/features/chat/useRunStream";
+import { ClarificationOptions } from "@/features/chat/ClarificationOptions";
 
 export function ActivityTab({ state }: { state: RunStreamState }) {
   const { t } = useTranslation(["chat", "common"]);
   const activity = buildRunActivity(state);
+  const handleOptionSelect = (option: string) => {
+    // TODO in a follow-up: dispatch option text to chat composer
+    console.log("Selected option:", option);
+  };
   const hasProgress = activity.progress.total > 0;
   const progressValue = hasProgress
     ? Math.round((activity.progress.done / activity.progress.total) * 100)
@@ -38,6 +43,12 @@ export function ActivityTab({ state }: { state: RunStreamState }) {
             {activity.narrative.nextAction === "reviewApproval" && "Review approval"}
             {activity.narrative.nextAction === "inspectTrace" && "View trace for details"}
           </div>
+        )}
+        {activity.current?.options && activity.current.options.length > 0 && (
+          <ClarificationOptions
+            options={activity.current.options}
+            onSelect={handleOptionSelect}
+          />
         )}
         {hasProgress && (
           <>
