@@ -1,4 +1,5 @@
 from .artifact import ArtifactLocalTool
+from .clarification import ClarificationLocalTool
 from .input import InputLocalTool
 from .memory import MemoryLocalTool
 from .research import ResearchLocalTool
@@ -10,6 +11,7 @@ from .workspace import WorkspaceLocalTool
 
 __all__ = [
     "ArtifactLocalTool",
+    "ClarificationLocalTool",
     "InputLocalTool",
     "MemoryLocalTool",
     "ResearchLocalTool",
