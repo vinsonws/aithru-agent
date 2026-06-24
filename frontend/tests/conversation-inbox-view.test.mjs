@@ -124,7 +124,7 @@ test("missing title falls back to latest message content preview", async () => {
       active_run_count: 0,
       waiting_input_run_count: 0,
       latest_message: { message_id: "m1", role: "user", content_preview: "Fix the login bug", truncated: false, created_at: "2026-06-23T00:00:00Z" },
-      latest_run: { run_id: "run_1", status: "completed", goal: "Fix bug", started_at: "2026-06-23T00:00:00Z" },
+      latest_run: { run_id: "run_1", status: "completed", task_msg: "Fix bug", started_at: "2026-06-23T00:00:00Z" },
       last_activity_at: "2026-06-23T00:00:00Z",
     },
   });
@@ -142,7 +142,7 @@ test("no message preview falls back to latest run goal", async () => {
       active_run_count: 0,
       waiting_input_run_count: 0,
       latest_message: null,
-      latest_run: { run_id: "run_1", status: "completed", goal: "Design the command center", started_at: "2026-06-23T00:00:00Z" },
+      latest_run: { run_id: "run_1", status: "completed", task_msg: "Design the command center", started_at: "2026-06-23T00:00:00Z" },
       last_activity_at: "2026-06-23T00:00:00Z",
     },
   });
@@ -234,4 +234,30 @@ test("raw thread IDs are not used as primary titles when any readable signal exi
   const title = getReadableThreadTitle(item);
   assert.equal(title, "some content");
   assert.notEqual(title, "thread_with_readable_data");
+});
+
+test("thread run subroutes are marked active for the parent conversation", async () => {
+  const { buildConversationInboxRow } = await loadInboxView();
+  const item = makeDashboardItem({
+    thread: { id: "thread_17", title: "Active run page" },
+  });
+
+  const row = buildConversationInboxRow(item, {
+    activePath: "/threads/thread_17/runs/run_22",
+    now: new Date("2026-06-23T12:00:00Z"),
+  });
+
+  assert.equal(row.active, true);
+});
+
+test("compact inbox time uses single-letter unit abbreviations", async () => {
+  const { compactConversationTime } = await loadInboxView();
+  const now = new Date("2026-06-23T12:00:00Z");
+
+  assert.equal(compactConversationTime("2026-06-23T11:59:45Z", now), "15s");
+  assert.equal(compactConversationTime("2026-06-23T11:57:00Z", now), "3m");
+  assert.equal(compactConversationTime("2026-06-23T10:00:00Z", now), "2h");
+  assert.equal(compactConversationTime("2026-06-20T12:00:00Z", now), "3d");
+  assert.equal(compactConversationTime("2026-06-09T12:00:00Z", now), "2w");
+  assert.equal(compactConversationTime(null, now), "—");
 });

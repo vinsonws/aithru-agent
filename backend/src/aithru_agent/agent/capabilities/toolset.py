@@ -27,6 +27,7 @@ class AithruToolset(AbstractToolset[PydanticAgentDeps]):
     tool_specs: Sequence[tuple[AgentToolDescriptor, bool]] | None = None
     tool_callback: ToolCallback | None = None
     toolset_id: str | None = "aithru"
+    expose_safe_tool_names: bool = False
 
     @property
     def id(self) -> str | None:
@@ -56,8 +57,15 @@ class AithruToolset(AbstractToolset[PydanticAgentDeps]):
     ) -> FunctionToolset[PydanticAgentDeps]:
         tool_specs = await self._tool_specs(ctx)
         tool_callback = self.tool_callback or PydanticAIToolBridge(deps=ctx.deps).call_tool
-        tools = build_pydantic_tools(list(tool_specs), tool_callback)
+        tools = build_pydantic_tools(
+            list(tool_specs),
+            tool_callback,
+            expose_safe_tool_names=self.expose_safe_tool_names,
+        )
         for tool, (descriptor, requires_approval) in zip(tools, tool_specs, strict=True):
+            aliases = getattr(ctx.deps, "tool_name_aliases", None)
+            if aliases is not None:
+                aliases[tool.name] = descriptor.name
             tool.metadata = metadata_for_descriptor(
                 descriptor,
                 requires_approval=requires_approval,

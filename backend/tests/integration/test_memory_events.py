@@ -28,7 +28,7 @@ async def test_memory_tools_emit_events_and_trace() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Remember and search memory.",
+        task_msg="Remember and search memory.",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)

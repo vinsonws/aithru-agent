@@ -30,6 +30,7 @@ from aithru_agent.api.snapshots import (
 )
 from aithru_agent.domain import (
     AgentModelCapabilities,
+    AgentModelReasoningEffort,
     AgentModelProfileCostPolicy,
     AgentMemoryRecall,
     AgentMessage,
@@ -140,7 +141,7 @@ class OperatorFollowUpRunResult(BaseModel):
 
 class CreateResearchContinuationRunRequest(BaseModel):
     action_ids: list[str] | None = None
-    goal: str | None = Field(default=None, min_length=1)
+    task_msg: str | None = Field(default=None, min_length=1)
     instructions: str | None = Field(default=None, min_length=1)
     scopes: list[str] | None = None
 
@@ -153,7 +154,7 @@ class CreateResearchContinuationRunRequest(BaseModel):
 
 class CreateOperatorActionFollowUpRunRequest(BaseModel):
     action_kind: RunSandboxOperatorActionKind
-    goal: str | None = Field(default=None, min_length=1)
+    task_msg: str | None = Field(default=None, min_length=1)
     instructions: str | None = Field(default=None, min_length=1)
     scopes: list[str] | None = None
 
@@ -661,12 +662,13 @@ async def _create_run(
     run_kwargs = {
         "org_id": org_id,
         "actor_user_id": actor_user_id,
-        "goal": body.goal,
+        "task_msg": body.task_msg,
         "scopes": scopes,
         "harness_options": harness_options,
         "retry_policy": body.retry_policy,
         "thread_id": resolved_thread_id,
         "skill_id": body.skill_id,
+        "persist_task_msg_message": body.persist_task_msg_message,
     }
     try:
         if force_wait or body.wait_for_completion:
@@ -718,7 +720,14 @@ def _resolve_model_profile_harness_options(
     requested_capabilities = harness_options.model_capabilities or AgentModelCapabilities()
     if requested_capabilities.vision and not profile.capabilities.vision:
         raise HTTPException(status_code=403, detail="Model profile does not allow vision")
-    if requested_capabilities.thinking and not profile.capabilities.thinking:
+    reasoning_requires_thinking = harness_options.model_reasoning_effort not in {
+        None,
+        AgentModelReasoningEffort.NONE,
+    }
+    if (
+        (requested_capabilities.thinking or reasoning_requires_thinking)
+        and not profile.capabilities.thinking
+    ):
         raise HTTPException(status_code=403, detail="Model profile does not allow thinking")
 
     budget_policy = _resolve_model_profile_budget_policy(
@@ -865,7 +874,7 @@ async def _create_research_continuation_run(
         org_id=source_run.org_id,
         actor_user_id=source_run.actor_user_id,
         source="api",
-        goal=body.goal or _continuation_goal(source_run, continuation),
+        task_msg=body.task_msg or _continuation_goal(source_run, continuation),
         workspace_id=source_run.workspace_id,
         scopes=scopes,
         harness_options=harness_options,
@@ -939,7 +948,7 @@ async def _create_operator_action_follow_up_run(
         org_id=source_run.org_id,
         actor_user_id=source_run.actor_user_id,
         source="api",
-        goal=body.goal or _operator_follow_up_goal(source_run, follow_up),
+        task_msg=body.task_msg or _operator_follow_up_goal(source_run, follow_up),
         workspace_id=source_run.workspace_id,
         scopes=scopes,
         harness_options=harness_options,

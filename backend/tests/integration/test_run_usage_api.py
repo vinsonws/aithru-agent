@@ -14,7 +14,7 @@ async def test_get_run_usage_projects_model_usage_events() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Track usage",
+        task_msg="Track usage",
         workspace_id=workspace.id,
     )
     await runtime.event_writer.write(
@@ -63,7 +63,7 @@ async def test_thread_scoped_run_usage_route_enforces_thread_run_relationship() 
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Track usage",
+        task_msg="Track usage",
         workspace_id=workspace.id,
         thread_id=thread.id,
     )
@@ -95,14 +95,14 @@ async def test_tree_usage_route_includes_subagent_child_usage() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Root task",
+        task_msg="Root task",
         workspace_id=workspace.id,
     )
     child = await runtime.store.create_run(
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        goal="Child task",
+        task_msg="Child task",
         workspace_id=workspace.id,
     )
     await runtime.store.create_subagent_run(
@@ -163,7 +163,7 @@ async def test_thread_scoped_tree_usage_route_enforces_thread_run_relationship()
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Track usage",
+        task_msg="Track usage",
         workspace_id=workspace.id,
         thread_id=thread.id,
     )

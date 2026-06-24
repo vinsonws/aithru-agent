@@ -16,8 +16,8 @@ class ToolContext:
 
 
 class JoiningRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         if deps.run.source == AgentRunSource.DELEGATED_TASK:
             return AgentRuntimeResult(content="Joined child output.")
         result = await PydanticAIToolBridge(deps=deps).call_tool(
@@ -68,9 +68,9 @@ class ChildApprovalRuntime(AgentRuntime):
             model=TestModel(call_tools=["workspace.write_file"], custom_output_text="child done")
         )
 
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
         if deps.run.source == AgentRunSource.DELEGATED_TASK:
-            return await self._child_runtime.run(goal, deps)
+            return await self._child_runtime.run(task_msg, deps)
         result = await PydanticAIToolBridge(deps=deps).call_tool(
             ToolContext("task_call_1"),
             "task",
@@ -93,7 +93,7 @@ async def test_inline_child_run_join_marks_parent_waiting_then_resumes() -> None
     parent = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Join child.",
+        task_msg="Join child.",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(parent.id)
@@ -119,7 +119,7 @@ async def test_child_run_approval_pause_keeps_parent_waiting_for_subagent() -> N
     parent = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Delegate a write.",
+        task_msg="Delegate a write.",
         scopes=["*"],
     )
     subagent_run = (await runtime.store.list_subagent_runs(parent_run_id=parent.id))[0]

@@ -182,7 +182,7 @@ async def test_runtime_uses_configured_pydantic_ai_driver_without_injected_drive
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Return configured output",
+        task_msg="Return configured output",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)
@@ -214,7 +214,7 @@ async def test_runtime_resolves_run_model_override_from_settings() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Return run model output",
+        task_msg="Return run model output",
         scopes=["*"],
         harness_options={"model": "test"},
     )
@@ -236,7 +236,7 @@ async def test_runtime_uses_configured_sqlite_persistence(tmp_path) -> None:
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Persist via settings",
+        task_msg="Persist via settings",
         scopes=["*"],
     )
     await runtime.worker.drain()

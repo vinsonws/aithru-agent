@@ -29,7 +29,7 @@ async function loadRunHeaderView() {
           build.onLoad({ filter: /^mock-api$/, namespace: "mock" }, () => ({
             contents: `
               export type AgentRunStatus = "queued" | "running" | "waiting_approval" | "waiting_subagent" | "waiting_input" | "waiting_external_run" | "completed" | "failed" | "cancelled";
-              export type AgentRun = { id: string; status: AgentRunStatus; goal: string; scopes: string[]; harness_options?: { model?: string | null; model_profile_key?: string | null } | null };
+              export type AgentRun = { id: string; status: AgentRunStatus; taskMsg: string; scopes: string[]; harness_options?: { model?: string | null; model_profile_key?: string | null } | null };
               export type AgentThread = { id: string; title?: string | null };
             `,
             loader: "js",
@@ -147,11 +147,10 @@ test("failed non-configuration run exposes retry and viewTrace", async () => {
   assert.ok(view.actions.find((a) => a.kind === "viewTrace"));
 });
 
-test("completed run exposes newFollowUp and retry", async () => {
+test("completed run does not expose header actions", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
   const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "completed", goal: "task" }), streamStatus: "completed", threadId: "thread_abcdef", modeLabel: "Auto" });
-  assert.ok(view.actions.find((a) => a.kind === "newFollowUp"));
-  assert.ok(view.actions.find((a) => a.kind === "retry"));
+  assert.deepEqual(view.actions, []);
 });
 
 test("subline includes short run id, short thread id, and mode label", async () => {
@@ -176,12 +175,12 @@ test("permission label is inferred from run scopes", async () => {
   assert.equal(view.permissionLabelKey, "chat:permission.readOnly");
 });
 
-test("model label uses model_profile_key then model then Default model", async () => {
+test("model label uses model_profile_key then model then empty string", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
   const view1 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_profile_key: "my-profile", model: "gpt-4" } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
   assert.equal(view1.modelLabel, "my-profile");
   const view2 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_profile_key: null, model: "gpt-4-turbo" } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
   assert.equal(view2.modelLabel, "gpt-4-turbo");
   const view3 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_profile_key: null, model: null } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
-  assert.equal(view3.modelLabel, "Default model");
+  assert.equal(view3.modelLabel, "");
 });

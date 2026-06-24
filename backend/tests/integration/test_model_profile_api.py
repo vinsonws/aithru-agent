@@ -89,6 +89,62 @@ async def test_model_profile_api_manages_profiles_and_openapi_contracts() -> Non
 
 
 @pytest.mark.asyncio
+async def test_model_profile_api_saves_write_only_api_key_without_returning_secret() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
+    app = create_app(runtime)
+    payload = model_profile_payload()
+    payload["auth_secret"] = {"write_only_value": "sk-super-secret-model-key"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/model-profiles",
+            json=payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+        assert create_response.status_code == 201
+        list_response = await client.get(
+            "/api/model-profiles",
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+        detail_response = await client.get(
+            "/api/model-profiles/fast",
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
+    expected_secret = {
+        "has_secret": True,
+        "secret_ref": "secret://model-profiles/org_1/fast/api-key",
+        "redacted": True,
+    }
+    assert create_response.json()["auth_secret"] == expected_secret
+    assert list_response.json()[0]["auth_secret"] == expected_secret
+    assert detail_response.json()["auth_secret"] == expected_secret
+    assert "sk-super-secret-model-key" not in create_response.text
+    assert "sk-super-secret-model-key" not in list_response.text
+    assert runtime.secret_store.get_secret(expected_secret["secret_ref"]) == (
+        "sk-super-secret-model-key"
+    )
+
+
+@pytest.mark.asyncio
+async def test_model_profile_api_rejects_invalid_secret_ref() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
+    app = create_app(runtime)
+    payload = model_profile_payload()
+    payload["auth_secret"] = {"secret_ref": "not-a-secret-ref"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/model-profiles",
+            json=payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
+    assert response.status_code == 422
+    assert "secret://" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_model_profile_api_avoids_concatenated_org_key_id_collisions() -> None:
     runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
@@ -128,7 +184,7 @@ async def test_run_creation_selects_model_profile_and_applies_policy_defaults() 
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Use managed model",
+                "task_msg": "Use managed model",
                 "scopes": ["agent.model.fast"],
                 "harness_options": {"model_profile_key": "fast"},
             },
@@ -162,7 +218,7 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "No scope",
+                "task_msg": "No scope",
                 "scopes": ["agent.workspace.read"],
                 "harness_options": {"model_profile_key": "fast"},
             },
@@ -173,7 +229,7 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Wildcard scope",
+                "task_msg": "Wildcard scope",
                 "scopes": ["*"],
                 "harness_options": {"model_profile_key": "fast"},
             },
@@ -184,7 +240,7 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Raw model",
+                "task_msg": "Raw model",
                 "harness_options": {"model": "openai:gpt-4.1"},
             },
             headers={"X-Aithru-Org-Id": "org_1", "X-Aithru-User-Id": "user_1"},
@@ -194,7 +250,7 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Default model",
+                "task_msg": "Default model",
                 "harness_options": {"model": "test"},
             },
             headers={"X-Aithru-Org-Id": "org_1", "X-Aithru-User-Id": "user_1"},
@@ -204,7 +260,7 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Too many tokens",
+                "task_msg": "Too many tokens",
                 "scopes": ["agent.model.fast"],
                 "harness_options": {
                     "model_profile_key": "fast",
@@ -218,7 +274,7 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Too much cost",
+                "task_msg": "Too much cost",
                 "scopes": ["agent.model.fast"],
                 "harness_options": {
                     "model_profile_key": "fast",
@@ -232,7 +288,7 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Wrong model",
+                "task_msg": "Wrong model",
                 "scopes": ["agent.model.fast"],
                 "harness_options": {
                     "model_profile_key": "fast",
@@ -255,7 +311,7 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Need vision",
+                "task_msg": "Need vision",
                 "scopes": ["agent.model.limited"],
                 "harness_options": {
                     "model_profile_key": "limited",
@@ -269,11 +325,11 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Need thinking",
+                "task_msg": "Need thinking",
                 "scopes": ["agent.model.limited"],
                 "harness_options": {
                     "model_profile_key": "limited",
-                    "model_capabilities": {"thinking": True},
+                    "model_reasoning_effort": "medium",
                 },
             },
             headers={"X-Aithru-Org-Id": "org_1", "X-Aithru-User-Id": "user_1"},
@@ -287,7 +343,7 @@ async def test_run_creation_rejects_model_profile_policy_violations() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Disabled",
+                "task_msg": "Disabled",
                 "scopes": ["agent.model.fast"],
                 "harness_options": {"model_profile_key": "fast"},
             },
@@ -336,3 +392,41 @@ async def test_model_profile_api_persists_profiles_in_sqlite_mode(tmp_path) -> N
 
     assert detail_response.status_code == 200
     assert detail_response.json()["model"] == "openai:gpt-4.1-mini"
+
+
+@pytest.mark.asyncio
+async def test_model_profile_api_persists_write_only_api_key_in_sqlite_mode(tmp_path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    settings = AgentSettings(
+        model="test",
+        persistence_backend="sqlite",
+        sqlite_path=str(db_path),
+    )
+    runtime = create_agent_runtime(settings=settings)
+    app = create_app(runtime)
+    payload = model_profile_payload()
+    payload["auth_secret"] = {"write_only_value": "sk-sqlite-secret-model-key"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create_response = await client.post(
+            "/api/model-profiles",
+            json=payload,
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+        assert create_response.status_code == 201
+
+    reloaded_runtime = create_agent_runtime(settings=settings)
+    reloaded_app = create_app(reloaded_runtime)
+    async with AsyncClient(
+        transport=ASGITransport(app=reloaded_app),
+        base_url="http://test",
+    ) as client:
+        detail_response = await client.get(
+            "/api/model-profiles/fast",
+            headers={"X-Aithru-Org-Id": "org_1"},
+        )
+
+    secret_ref = detail_response.json()["auth_secret"]["secret_ref"]
+    assert detail_response.status_code == 200
+    assert "sk-sqlite-secret-model-key" not in detail_response.text
+    assert reloaded_runtime.secret_store.get_secret(secret_ref) == "sk-sqlite-secret-model-key"

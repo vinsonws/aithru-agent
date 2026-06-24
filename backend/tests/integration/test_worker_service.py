@@ -32,8 +32,8 @@ def report_driver() -> StepAgentRuntime:
 
 
 class SlowRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal, deps
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg, deps
         await asyncio.sleep(0.1)
         return AgentRuntimeResult(content="done")
 
@@ -43,8 +43,8 @@ class FailsOnceRuntime(AgentRuntime):
         super().__init__()
         self.calls = 0
 
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal, deps
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg, deps
         self.calls += 1
         if self.calls == 1:
             raise RuntimeError("temporary model outage")
@@ -52,14 +52,14 @@ class FailsOnceRuntime(AgentRuntime):
 
 
 class AlwaysFailsRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal, deps
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg, deps
         raise RuntimeError("still unavailable")
 
 
 class AgentErrorRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal, deps
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg, deps
         raise AgentError("TOOL_DENIED", "Tool denied")
 
 
@@ -85,7 +85,7 @@ async def test_worker_service_queues_run_until_work_once_executes_it() -> None:
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write a report",
+        task_msg="Write a report",
         scopes=["*"],
     )
     before_events = await runtime.event_store.list_by_run(queued.id)
@@ -118,7 +118,7 @@ async def test_worker_service_schedules_retry_then_completes_after_backoff() -> 
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Retry once",
+        task_msg="Retry once",
         scopes=["*"],
         retry_policy=AgentRunRetryPolicy(
             max_attempts=2,
@@ -162,7 +162,7 @@ async def test_worker_service_loop_picks_up_delayed_retry_when_backoff_expires()
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Retry after loop waits",
+        task_msg="Retry after loop waits",
         scopes=["*"],
         retry_policy=AgentRunRetryPolicy(max_attempts=2, initial_delay_seconds=1),
     )
@@ -217,7 +217,7 @@ async def test_worker_service_does_not_retry_agent_error_failures() -> None:
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Do not retry policy failures",
+        task_msg="Do not retry policy failures",
         scopes=["*"],
         retry_policy=AgentRunRetryPolicy(max_attempts=3, initial_delay_seconds=1),
     )
@@ -237,7 +237,7 @@ async def test_worker_service_emits_retry_exhausted_before_terminal_failure() ->
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Exhaust retries",
+        task_msg="Exhaust retries",
         scopes=["*"],
         retry_policy=AgentRunRetryPolicy(max_attempts=2, initial_delay_seconds=0),
     )
@@ -263,7 +263,7 @@ async def test_worker_service_claim_uses_worker_identity() -> None:
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Track worker identity",
+        task_msg="Track worker identity",
         scopes=["*"],
     )
 
@@ -288,7 +288,7 @@ async def test_worker_service_can_renew_active_claim_with_worker_identity() -> N
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Renew active claim",
+        task_msg="Renew active claim",
         scopes=["*"],
     )
     claimed = await runtime.store.claim_run(
@@ -321,7 +321,7 @@ async def test_worker_service_auto_renews_active_claim_while_run_executes() -> N
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Renew while running",
+        task_msg="Renew while running",
         scopes=["*"],
     )
 
@@ -365,7 +365,7 @@ async def test_worker_service_heartbeat_renew_failure_does_not_fail_run() -> Non
     await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Keep running when heartbeat fails",
+        task_msg="Keep running when heartbeat fails",
         scopes=["*"],
     )
 
@@ -381,7 +381,7 @@ async def test_worker_service_emits_audit_event_when_reclaiming_stale_claim() ->
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Reclaim stale work",
+        task_msg="Reclaim stale work",
         scopes=["*"],
     )
     claimed = await runtime.store.claim_run(
@@ -420,7 +420,7 @@ async def test_worker_service_rejects_run_thread_from_another_org() -> None:
         await runtime.worker.submit_run(
             org_id="org_1",
             actor_user_id="user_1",
-            goal="Attach to another org thread",
+            task_msg="Attach to another org thread",
             scopes=["*"],
             thread_id=thread.id,
         )
@@ -445,7 +445,7 @@ async def test_worker_service_rejects_run_thread_owned_by_another_user() -> None
         await runtime.worker.submit_run(
             org_id="org_1",
             actor_user_id="user_1",
-            goal="Attach to another user's thread",
+            task_msg="Attach to another user's thread",
             scopes=["*"],
             thread_id=thread.id,
         )

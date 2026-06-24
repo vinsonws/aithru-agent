@@ -223,6 +223,7 @@ def _updated_entry(
         "capabilities",
         "cost_policy",
         "selection_policy",
+        "auth_secret",
         "metadata",
     }
     unexpected = set(updates) - allowed

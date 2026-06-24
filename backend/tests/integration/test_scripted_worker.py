@@ -54,7 +54,7 @@ async def test_scripted_worker_executes_tools_writes_events_and_completes_run() 
     run = await runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write a report",
+        task_msg="Write a report",
         scopes=["*"],
     )
 
@@ -106,7 +106,7 @@ async def test_scripted_worker_emits_artifact_finalized_event_and_trace() -> Non
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Finalize artifact",
+        task_msg="Finalize artifact",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -151,7 +151,7 @@ async def test_worker_can_cancel_a_stored_run() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Cancel me",
+        task_msg="Cancel me",
         workspace_id=workspace.id,
     )
 
@@ -168,7 +168,7 @@ async def test_worker_rejects_cancelling_terminal_run() -> None:
     completed = await runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Already done",
+        task_msg="Already done",
         scopes=["*"],
     )
 

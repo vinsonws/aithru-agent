@@ -18,7 +18,7 @@ async def test_completed_threaded_run_creates_context_summary_and_event() -> Non
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Summarize durable context",
+        task_msg="Summarize durable context",
         workspace_id=workspace.id,
         thread_id=thread.id,
     )
@@ -77,7 +77,7 @@ async def test_processor_no_ops_without_thread_or_with_too_few_messages() -> Non
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="No thread",
+        task_msg="No thread",
         workspace_id=workspace.id,
     )
     thread = await store.create_thread(org_id="org_1", owner_user_id="user_1")
@@ -85,7 +85,7 @@ async def test_processor_no_ops_without_thread_or_with_too_few_messages() -> Non
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Too few messages",
+        task_msg="Too few messages",
         workspace_id=workspace.id,
         thread_id=thread.id,
     )
@@ -125,7 +125,7 @@ async def test_processor_no_ops_for_failed_or_cancelled_terminal_runs() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Failed run",
+        task_msg="Failed run",
         workspace_id=workspace.id,
         thread_id=thread.id,
     )
@@ -133,7 +133,7 @@ async def test_processor_no_ops_for_failed_or_cancelled_terminal_runs() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Cancelled run",
+        task_msg="Cancelled run",
         workspace_id=workspace.id,
         thread_id=thread.id,
     )

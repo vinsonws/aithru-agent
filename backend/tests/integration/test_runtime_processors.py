@@ -24,14 +24,14 @@ from aithru_agent.worker.runner import AgentWorkerRunner
 
 
 class ShouldNotRunRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal, deps
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg, deps
         raise AssertionError("model should not run after a before_model pause")
 
 
 class DoneRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal, deps
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg, deps
         return AgentRuntimeResult(content="done")
 
 
@@ -125,7 +125,7 @@ async def test_before_model_processor_can_pause_before_model_started() -> None:
     run = await runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Pause before model",
+        task_msg="Pause before model",
         scopes=["*"],
     )
     event_types = [event.type for event in await event_store.list_by_run(run.id)]
@@ -182,7 +182,7 @@ async def test_before_model_processor_exception_uses_retry_failure_path() -> Non
     run = await runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Retry processor failure",
+        task_msg="Retry processor failure",
         scopes=["*"],
         retry_policy=AgentRunRetryPolicy(max_attempts=2, initial_delay_seconds=30),
     )
@@ -207,7 +207,7 @@ async def test_after_terminal_processor_event_precedes_run_completed() -> None:
     run = await runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Record after terminal",
+        task_msg="Record after terminal",
         scopes=["*"],
     )
     events = await event_store.list_by_run(run.id)
@@ -229,7 +229,7 @@ async def test_after_terminal_processor_exception_is_recorded_without_raising() 
     run = await runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Complete despite processor failure",
+        task_msg="Complete despite processor failure",
         scopes=["*"],
     )
     stored = await store.get_run(run.id)
@@ -255,7 +255,7 @@ async def test_follow_run_events_waits_for_terminal_stream_event_after_terminal_
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Stream terminal race",
+        task_msg="Stream terminal race",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -324,7 +324,7 @@ async def test_follow_run_events_returns_promptly_when_cursor_has_seen_terminal_
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Reconnect after terminal event",
+        task_msg="Reconnect after terminal event",
         workspace_id=workspace.id,
         scopes=["*"],
     )

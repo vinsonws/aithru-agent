@@ -1,0 +1,12 @@
+{
+  "AITHRU_UNAUTHORIZED": "需要登录。",
+  "AITHRU_FORBIDDEN": "你没有权限执行该操作。",
+  "AITHRU_NOT_FOUND": "未找到请求的资源。",
+  "AITHRU_VALIDATION": "部分字段无效。",
+  "AITHRU_CONFLICT": "该操作与当前状态冲突。",
+  "AITHRU_RUN_TERMINAL": "该运行已结束。",
+  "AITHRU_APPROVAL_EXPIRED": "该审批已过期。",
+  "AITHRU_SCOPE_DENIED": "所需的权限范围被拒绝。",
+  "AITHRU_SKILL_UNKNOWN": "未知技能。",
+  "AITHRU_MODEL_PROFILE_POLICY": "模型配置策略拒绝了该选择。"
+}

@@ -126,7 +126,7 @@ class AgentStore(Protocol):
         org_id: str,
         actor_user_id: str,
         source: AgentRunSource | str,
-        goal: str,
+        task_msg: str,
         workspace_id: str,
         scopes: list[str] | None = None,
         harness_options: AgentRunHarnessOptions | None = None,

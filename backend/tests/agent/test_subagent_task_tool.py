@@ -15,8 +15,8 @@ class ToolContext:
 
 
 class TaskCallingRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         if deps.run.source == AgentRunSource.DELEGATED_TASK:
             return AgentRuntimeResult(content="Child result.")
 
@@ -76,7 +76,7 @@ async def test_task_tool_creates_visible_child_run_and_returns_joined_result() -
     parent = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Delegate with task.",
+        task_msg="Delegate with task.",
         scopes=["*"],
     )
     subagent_runs = await runtime.store.list_subagent_runs(parent_run_id=parent.id)
@@ -113,7 +113,7 @@ async def test_task_tool_resolves_duplicate_child_skill_key_within_parent_org() 
     parent = await runtime.runner.start_run(
         org_id="org_2",
         actor_user_id="user_2",
-        goal="Delegate with org-scoped task.",
+        task_msg="Delegate with org-scoped task.",
         scopes=["*"],
     )
     subagent_runs = await runtime.store.list_subagent_runs(parent_run_id=parent.id)

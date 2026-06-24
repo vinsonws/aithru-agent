@@ -1,0 +1,16 @@
+{
+  "title": "技能",
+  "registry": "技能注册表",
+  "builtin": "内置",
+  "managed": "托管",
+  "marketplace": "市场",
+  "enable": "启用",
+  "disable": "禁用",
+  "enabled": "已启用",
+  "version": "版本",
+  "owner": "所有者",
+  "allowedTools": "允许的工具",
+  "instructions": "指令",
+  "whenToUse": "适用场景",
+  "noSkills": "未安装技能"
+}

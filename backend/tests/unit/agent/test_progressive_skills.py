@@ -53,7 +53,7 @@ async def test_agent_runtime_activates_progressive_skill_and_filters_tools() -> 
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Create a report.",
+        task_msg="Create a report.",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)

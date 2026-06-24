@@ -124,7 +124,7 @@ async def _make_context(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Extract memory candidate",
+        task_msg="Extract memory candidate",
         workspace_id=workspace.id,
         thread_id=thread.id if thread else None,
         scopes=scopes,

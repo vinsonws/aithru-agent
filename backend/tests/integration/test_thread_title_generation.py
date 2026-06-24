@@ -6,11 +6,11 @@ from aithru_agent.settings import AgentSettings
 
 
 @pytest.mark.asyncio
-async def test_thread_title_is_generated_before_model_for_untitled_thread() -> None:
+async def test_thread_title_is_generated_after_first_assistant_response() -> None:
     runtime = create_agent_runtime(
         settings=AgentSettings(
             model="test",
-            test_model_output="title generation completed",
+            test_model_output="Aithru DeerFlow Research",
         )
     )
     thread = await runtime.store.create_thread(
@@ -20,7 +20,7 @@ async def test_thread_title_is_generated_before_model_for_untitled_thread() -> N
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Compare Aithru Agent with DeerFlow for long running research tasks",
+        task_msg="Compare Aithru Agent with DeerFlow for long running research tasks",
         scopes=["agent.workspace.read"],
         thread_id=thread.id,
     )
@@ -33,14 +33,17 @@ async def test_thread_title_is_generated_before_model_for_untitled_thread() -> N
     title_events = [event for event in events if event.type == "thread.title.generated"]
     assert result.status == AgentRunStatus.COMPLETED
     assert updated_thread is not None
-    assert updated_thread.title == "Compare Aithru Agent With Deerflow For"
+    assert updated_thread.title == "Aithru DeerFlow Research"
     assert len(title_events) == 1
     assert title_events[0].visibility == "debug"
     assert title_events[0].payload == {
         "thread_id": thread.id,
-        "title": "Compare Aithru Agent With Deerflow For",
+        "title": "Aithru DeerFlow Research",
     }
-    assert event_types.index("thread.title.generated") < event_types.index("model.started")
+    assert event_types.index("message.completed") < event_types.index(
+        "thread.title.generated"
+    )
+    assert event_types.index("thread.title.generated") < event_types.index("run.completed")
 
 
 @pytest.mark.asyncio
@@ -62,7 +65,7 @@ async def test_disabled_title_generation_leaves_thread_untitled() -> None:
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Fix it",
+        task_msg="Fix it",
         scopes=["agent.input.write"],
         thread_id=thread.id,
     )
@@ -78,12 +81,11 @@ async def test_disabled_title_generation_leaves_thread_untitled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resumed_clarification_run_generates_title_from_input_content() -> None:
-    """Title generation works after input is received, bypassing empty-goal guard."""
+async def test_thread_title_uses_title_model_not_raw_user_input() -> None:
     runtime = create_agent_runtime(
         settings=AgentSettings(
             model="test",
-            test_model_output="clarified title generation completed",
+            test_model_output="Report Export Fix",
         )
     )
     thread = await runtime.store.create_thread(
@@ -93,7 +95,7 @@ async def test_resumed_clarification_run_generates_title_from_input_content() ->
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Fix the report export bug",
+        task_msg="Fix the report export bug",
         scopes=["agent.input.write"],
         thread_id=thread.id,
     )
@@ -106,9 +108,9 @@ async def test_resumed_clarification_run_generates_title_from_input_content() ->
     title_events = [event for event in events if event.type == "thread.title.generated"]
     assert completed.status == AgentRunStatus.COMPLETED
     assert updated_thread is not None
-    assert updated_thread.title == "Fix The Report Export Bug"
+    assert updated_thread.title == "Report Export Fix"
     assert len(title_events) == 1
     assert title_events[0].payload == {
         "thread_id": thread.id,
-        "title": "Fix The Report Export Bug",
+        "title": "Report Export Fix",
     }

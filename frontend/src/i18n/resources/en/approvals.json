@@ -1,0 +1,14 @@
+{
+  "title": "Approvals",
+  "queue": "Pending approvals",
+  "tool": "Tool",
+  "run": "Run",
+  "riskLevel": "Risk",
+  "decision": "Decision",
+  "comment": "Comment",
+  "approve": "Approve",
+  "reject": "Reject",
+  "external": "External approval",
+  "noApprovals": "No pending approvals",
+  "commentPlaceholder": "Optional comment…"
+}

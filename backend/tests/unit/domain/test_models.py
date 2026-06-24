@@ -28,6 +28,7 @@ from aithru_agent.domain import (
     AgentMemoryVisibilityPolicy,
     AgentMessage,
     AgentModelCapabilities,
+    AgentModelReasoningEffort,
     AgentRun,
     AgentRunExportArtifactResult,
     AgentRunExportBundle,
@@ -100,7 +101,7 @@ def test_domain_models_serialize_with_stable_string_values() -> None:
         thread_id=thread.id,
         skill_id="skill_1",
         workspace_id=workspace.id,
-        goal="Analyze files",
+        task_msg="Analyze files",
         status=AgentRunStatus.RUNNING,
         started_at="2026-06-16T00:00:00Z",
     )
@@ -297,6 +298,18 @@ def test_workspace_image_contracts_validate_media_and_size() -> None:
             media_type="image/png",
             size=10,
         )
+
+
+def test_run_harness_options_accept_model_reasoning_effort() -> None:
+    options = AgentRunHarnessOptions(model_reasoning_effort="medium")
+
+    assert options.model_reasoning_effort == AgentModelReasoningEffort.MEDIUM
+    assert options.model_dump(mode="json", exclude_none=True) == {
+        "model_reasoning_effort": "medium"
+    }
+
+    with pytest.raises(ValidationError):
+        AgentRunHarnessOptions(model_reasoning_effort="extreme")
 
 
 def test_subagent_result_summary_rejects_blank_artifact_ids() -> None:
@@ -708,7 +721,7 @@ def test_run_export_bundle_models_are_pydantic_contracts() -> None:
         actor_user_id="user_1",
         source="api",
         workspace_id="ws_1",
-        goal="Export this",
+        task_msg="Export this",
         status=AgentRunStatus.COMPLETED,
         started_at="2026-06-18T00:00:00Z",
         completed_at="2026-06-18T00:00:05Z",

@@ -17,22 +17,38 @@ async function loadComposerState() {
 
 test("auto mode without a model profile omits harness options", async () => {
   const { buildComposerHarnessOptions } = await loadComposerState();
-  assert.equal(buildComposerHarnessOptions("__default__", "auto"), undefined);
+  assert.deepEqual(buildComposerHarnessOptions("", "auto", "thinking"), {
+    model_capabilities: { vision: false, thinking: true },
+    model_reasoning_effort: "low",
+  });
 });
 
-test("plan mode adds instructions and preserves selected model profile", async () => {
+test("plan mode adds instructions, profile, and reasoning effort", async () => {
   const { buildComposerHarnessOptions } = await loadComposerState();
-  const options = buildComposerHarnessOptions("MiniMax-M2.7", "plan");
+  const options = buildComposerHarnessOptions("MiniMax-M2.7", "plan", "pro");
 
   assert.equal(options.model_profile_key, "MiniMax-M2.7");
   assert.match(options.instructions, /Aithru mode: plan/);
+  assert.deepEqual(options.model_capabilities, { vision: false, thinking: true });
+  assert.equal(options.model_reasoning_effort, "medium");
 });
 
-test("chat mode adds chat instructions", async () => {
+test("chat mode disables model thinking for quick reasoning", async () => {
   const { buildComposerHarnessOptions } = await loadComposerState();
-  const options = buildComposerHarnessOptions("__default__", "chat");
+  const options = buildComposerHarnessOptions("", "chat", "quick");
 
   assert.match(options.instructions, /Aithru mode: chat/);
+  assert.deepEqual(options.model_capabilities, { vision: false, thinking: false });
+  assert.equal(options.model_reasoning_effort, "none");
+});
+
+test("reasoning levels map to model reasoning effort", async () => {
+  const { reasoningEffortForReasoningLevel } = await loadComposerState();
+
+  assert.equal(reasoningEffortForReasoningLevel("quick"), "none");
+  assert.equal(reasoningEffortForReasoningLevel("thinking"), "low");
+  assert.equal(reasoningEffortForReasoningLevel("pro"), "medium");
+  assert.equal(reasoningEffortForReasoningLevel("ultra"), "high");
 });
 
 test("read only permission policy grants only read-oriented scopes", async () => {

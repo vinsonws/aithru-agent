@@ -125,7 +125,7 @@ class AgentThreadSummaryMessage(BaseModel):
 class AgentThreadSummaryRun(BaseModel):
     run_id: str
     status: AgentRunStatus
-    goal: str
+    task_msg: str
     started_at: str
     completed_at: str | None = None
 
@@ -861,7 +861,7 @@ def _run_summary(run: AgentRun) -> AgentThreadSummaryRun:
     return AgentThreadSummaryRun(
         run_id=run.id,
         status=run.status,
-        goal=run.goal,
+        task_msg=run.task_msg,
         started_at=run.started_at,
         completed_at=run.completed_at,
     )

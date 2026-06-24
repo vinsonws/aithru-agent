@@ -42,7 +42,7 @@ async def test_file_report_agent_produces_report_artifact_events_and_trace() -> 
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Analyze workspace files and create a report.",
+        task_msg="Analyze workspace files and create a report.",
         scopes=["*"],
     )
     report = await runtime.store.read_workspace_file(run.workspace_id, "/reports/report.md")

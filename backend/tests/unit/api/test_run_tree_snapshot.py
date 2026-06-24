@@ -25,7 +25,7 @@ def run(
         org_id="org_1",
         actor_user_id="user_1",
         source=source,
-        goal=f"Goal for {run_id}",
+        task_msg=f"Goal for {run_id}",
         workspace_id="workspace_1",
         status=status,
         result=result,

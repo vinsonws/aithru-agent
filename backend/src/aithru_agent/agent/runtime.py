@@ -8,7 +8,10 @@ from pydantic_ai import Agent
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     PartDeltaEvent,
+    PartEndEvent,
     TextPartDelta,
+    ThinkingPart,
+    ThinkingPartDelta,
     ToolCallPart,
 )
 from pydantic_ai.run import AgentRunResultEvent
@@ -27,6 +30,7 @@ from aithru_agent.agent.tools.bridge import PydanticAIToolBridge
 from aithru_agent.domain import (
     AgentArtifactSummary,
     AgentModelProfileEntry,
+    AgentModelReasoningEffort,
     AgentRun,
     AgentRunStatus,
     AgentToolDescriptor,
@@ -120,7 +124,7 @@ class AgentRuntime:
             return []
         activator = SkillActivator(self.skill_registry)
         matches = activator.detect_skills_for_goal(
-            deps.run.goal,
+            deps.run.task_msg,
             skill_id_hint=deps.run.skill_id,
         )
         active: list[ProgressiveSkill] = []
@@ -187,18 +191,19 @@ class AgentRuntime:
             payload={"message_id": message_id, "role": "assistant"},
         )
 
-        async with agent.run_stream_events(goal, deps=deps) as stream:
+        async with agent.run_stream_events(
+            goal,
+            deps=deps,
+            model_settings=_model_settings_for_run(deps.run),
+        ) as stream:
             async for event in stream:
-                if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                    if event.delta.content_delta:
-                        content_parts.append(event.delta.content_delta)
-                        await deps.event_writer.write(
-                            run_id=deps.run.id,
-                            thread_id=deps.run.thread_id,
-                            type="message.delta",
-                            source={"kind": "model"},
-                            payload={"message_id": message_id, "delta": event.delta.content_delta},
-                        )
+                if isinstance(event, PartDeltaEvent | PartEndEvent):
+                    await _emit_model_stream_part_event(
+                        deps,
+                        event=event,
+                        message_id=message_id,
+                        content_parts=content_parts,
+                    )
                 elif isinstance(event, AgentRunResultEvent):
                     await self._emit_usage_event(deps, event.result.usage)
                     if isinstance(event.result.output, DeferredToolRequests):
@@ -253,18 +258,16 @@ class AgentRuntime:
             message_history=pending.message_history,
             deferred_tool_results=deferred_tool_results,
             deps=deps,
+            model_settings=_model_settings_for_run(deps.run),
         ) as stream:
             async for event in stream:
-                if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                    if event.delta.content_delta:
-                        content_parts.append(event.delta.content_delta)
-                        await deps.event_writer.write(
-                            run_id=deps.run.id,
-                            thread_id=deps.run.thread_id,
-                            type="message.delta",
-                            source={"kind": "model"},
-                            payload={"message_id": message_id, "delta": event.delta.content_delta},
-                        )
+                if isinstance(event, PartDeltaEvent | PartEndEvent):
+                    await _emit_model_stream_part_event(
+                        deps,
+                        event=event,
+                        message_id=message_id,
+                        content_parts=content_parts,
+                    )
                 elif isinstance(event, AgentRunResultEvent):
                     await self._emit_usage_event(deps, event.result.usage)
                     if isinstance(event.result.output, DeferredToolRequests):
@@ -299,7 +302,7 @@ class AgentRuntime:
         child_output = child_result or "No textual child result was persisted."
         artifact_context = _render_child_artifact_context(child_artifacts or [])
         prompt = (
-            f"{deps.run.goal}\n\n"
+            f"{deps.run.task_msg}\n\n"
             "A delegated subagent run completed while this parent run was paused.\n"
             f"Parent run id: {run_id}\n"
             f"Subagent run id: {subagent_run_id}\n"
@@ -504,18 +507,16 @@ class AgentRuntime:
             message_history=pending.message_history,
             deferred_tool_results=deferred_tool_results,
             deps=deps,
+            model_settings=_model_settings_for_run(deps.run),
         ) as stream:
             async for event in stream:
-                if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                    if event.delta.content_delta:
-                        content_parts.append(event.delta.content_delta)
-                        await deps.event_writer.write(
-                            run_id=deps.run.id,
-                            thread_id=deps.run.thread_id,
-                            type="message.delta",
-                            source={"kind": "model"},
-                            payload={"message_id": message_id, "delta": event.delta.content_delta},
-                        )
+                if isinstance(event, PartDeltaEvent | PartEndEvent):
+                    await _emit_model_stream_part_event(
+                        deps,
+                        event=event,
+                        message_id=message_id,
+                        content_parts=content_parts,
+                    )
                 elif isinstance(event, AgentRunResultEvent):
                     await self._emit_usage_event(deps, event.result.usage)
                     if isinstance(event.result.output, DeferredToolRequests):
@@ -551,6 +552,66 @@ def _result_content(content_parts: list[str], final_output: str | None) -> str:
     if content_parts:
         return "".join(content_parts)
     return final_output or ""
+
+
+async def _emit_model_stream_part_event(
+    deps: PydanticAgentDeps,
+    *,
+    event: PartDeltaEvent | PartEndEvent,
+    message_id: str,
+    content_parts: list[str],
+) -> None:
+    if isinstance(event, PartDeltaEvent):
+        if isinstance(event.delta, TextPartDelta):
+            if event.delta.content_delta:
+                content_parts.append(event.delta.content_delta)
+                await deps.event_writer.write(
+                    run_id=deps.run.id,
+                    thread_id=deps.run.thread_id,
+                    type="message.delta",
+                    source={"kind": "model"},
+                    payload={"message_id": message_id, "delta": event.delta.content_delta},
+                )
+            return
+
+        if isinstance(event.delta, ThinkingPartDelta) and event.delta.content_delta:
+            await deps.event_writer.write(
+                run_id=deps.run.id,
+                thread_id=deps.run.thread_id,
+                type="reasoning.delta",
+                source={"kind": "model"},
+                payload={
+                    "message_id": message_id,
+                    "reasoning_id": _thinking_part_id(message_id, event.index),
+                    "delta": event.delta.content_delta,
+                },
+            )
+        return
+
+    if isinstance(event.part, ThinkingPart):
+        await deps.event_writer.write(
+            run_id=deps.run.id,
+            thread_id=deps.run.thread_id,
+            type="reasoning.completed",
+            source={"kind": "model"},
+            payload={
+                "message_id": message_id,
+                "reasoning_id": _thinking_part_id(message_id, event.index),
+            },
+        )
+
+
+def _thinking_part_id(message_id: str, part_index: int) -> str:
+    return f"{message_id}:thinking:{part_index}"
+
+
+def _model_settings_for_run(run: AgentRun | None) -> dict[str, bool | str] | None:
+    effort = run.harness_options.model_reasoning_effort if run.harness_options else None
+    if effort is None:
+        return None
+    if effort == AgentModelReasoningEffort.NONE:
+        return {"thinking": False}
+    return {"thinking": effort.value}
 
 
 def _render_child_artifact_context(artifacts: list[AgentArtifactSummary]) -> str:

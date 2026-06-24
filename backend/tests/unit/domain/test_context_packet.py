@@ -49,7 +49,7 @@ def test_context_packet_exposes_counts_and_truncation_status() -> None:
         run_id="run_1",
         thread_id="thread_1",
         skill_id="deep-research",
-        goal="Research Aithru parity.",
+        task_msg="Research Aithru parity.",
         status="running",
         resume=AgentRunResumeContext(reason="input_received", detail="Latest user input is available."),
         thread_messages=[
@@ -101,7 +101,7 @@ def test_context_packet_tracks_budget_and_compressed_context() -> None:
         run_id="run_1",
         thread_id="thread_1",
         skill_id="deep-research",
-        goal="Research Aithru parity.",
+        task_msg="Research Aithru parity.",
         status="running",
         compressed_context=AgentRunCompressedContext(
             summary="Compressed context: 2 older thread messages, 1 additional todo.",
@@ -148,7 +148,7 @@ def test_context_packet_tracks_tool_result_summaries() -> None:
     packet = AgentRunContextPacket(
         run_id="run_1",
         thread_id="thread_1",
-        goal="Continue after fetching sources.",
+        task_msg="Continue after fetching sources.",
         status="running",
         tool_results=[
             AgentRunContextToolResult(
@@ -185,7 +185,7 @@ def test_context_packet_tracks_memory_recall() -> None:
     packet = AgentRunContextPacket(
         run_id="run_1",
         thread_id="thread_1",
-        goal="Use memory.",
+        task_msg="Use memory.",
         status="running",
         memory=AgentMemoryRecall(
             run_id="run_1",
@@ -234,7 +234,7 @@ def test_context_packet_tracks_research_continuation_context() -> None:
         run_id="run_1",
         thread_id="thread_1",
         skill_id="deep-research",
-        goal="Continue research.",
+        task_msg="Continue research.",
         status="running",
         research=AgentRunResearchContinuationContext(
             source_run_id="run_source",

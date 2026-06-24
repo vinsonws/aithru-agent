@@ -8,6 +8,7 @@ export interface RunActivityItem {
   detail?: string;
   status: RunActivityItemStatus;
   source: "todo" | "request" | "tool" | "run";
+  options?: string[];
 }
 
 export interface RunActivitySummary {
@@ -171,6 +172,7 @@ function requestToActivityItem(request: InlineRequest): RunActivityItem {
     detail: request.kind === "input" ? "Reply to continue this run." : "Review this action before the run continues.",
     status: "waiting",
     source: "request",
+    options: request.options,
   };
 }
 

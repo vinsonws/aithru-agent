@@ -1,0 +1,18 @@
+{
+  "title": "记忆",
+  "candidates": "候选",
+  "entries": "条目",
+  "scope": "范围",
+  "key": "键",
+  "value": "值",
+  "source": "来源",
+  "confidence": "置信度",
+  "visibility": "可见性",
+  "retention": "保留",
+  "forget": "遗忘",
+  "approveCandidate": "批准",
+  "rejectCandidate": "拒绝",
+  "noMemory": "无记忆条目",
+  "noCandidates": "无待处理候选",
+  "expiresAt": "过期"
+}

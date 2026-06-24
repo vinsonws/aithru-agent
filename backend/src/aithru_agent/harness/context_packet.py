@@ -115,7 +115,7 @@ class ContextPacketBuilder:
             run_id=run.id,
             thread_id=run.thread_id,
             skill_id=run.skill_id,
-            goal=run.goal,
+            task_msg=run.task_msg,
             status=run.status,
             resume=AgentRunResumeContext.from_run(run, latest_message=latest_message),
             compressed_context=compressed_context,

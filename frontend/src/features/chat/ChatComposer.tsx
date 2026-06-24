@@ -1,16 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AtSign, ChevronDown, ChevronUp, Paperclip, Send, ShieldCheck, Square } from "lucide-react";
-import { Textarea } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { runsApi, skillsApi, modelProfilesApi } from "@/lib/api";
+import { runsApi, modelProfilesApi } from "@/lib/api";
 import type { CreateRunRequest } from "@/lib/api";
 import { useHost } from "@/lib/host/HostProvider";
 import { useTranslation } from "react-i18next";
@@ -18,20 +8,22 @@ import { getPromptTemplates } from "./promptTemplates";
 import {
   buildComposerHarnessOptions,
   buildComposerScopes,
-  buildComposerSummaryLabel,
-  buildComposerSummaryParts,
-  type ComposerMode,
+  composerModeForReasoningLevel,
+  reasoningLevelForComposerMode,
   type ComposerPermissionPolicyId,
-  PERMISSION_POLICIES,
+  type ComposerReasoningLevel,
 } from "./composerState";
 import { parseSlashCommand } from "./slashCommands";
+import { ReferenceComposerSurface } from "./ReferenceComposerSurface";
+import { SLASH_SUGGESTIONS } from "./composerSuggestions";
 
 export { buildComposerHarnessOptions } from "./composerState";
 
 export function ChatComposer({
   threadId,
   activeRunId,
-  activeRunGoal,
+  cancellableRunId,
+  activeRunTaskMsg,
   onRequestStatus,
   onRunCreated,
   draft: externalDraft,
@@ -41,7 +33,8 @@ export function ChatComposer({
 }: {
   threadId: string | null;
   activeRunId: string | null;
-  activeRunGoal?: string | null;
+  cancellableRunId?: string | null;
+  activeRunTaskMsg?: string | null;
   onRequestStatus?: () => void;
   onRunCreated: (runId: string) => void;
   draft?: string;
@@ -52,20 +45,19 @@ export function ChatComposer({
   const { t } = useTranslation(["chat", "common"]);
   const { context } = useHost();
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
-  const [internalGoal, setInternalGoal] = React.useState("");
-  const [mode, setMode] = React.useState<ComposerMode>("auto");
-  const [templateMode, setTemplateMode] = React.useState<string | null>(null);
-  const [skillId, setSkillId] = React.useState<string>("__none__");
-  const [profileKey, setProfileKey] = React.useState<string>("__default__");
-  const [permissionPolicy, setPermissionPolicy] = React.useState<ComposerPermissionPolicyId>("ask");
-  const [settingsOpen, setSettingsOpen] = React.useState(false);
-  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [internalTaskMsg, setInternalTaskMsg] = React.useState("");
+  const [reasoningLevel, setReasoningLevel] =
+    React.useState<ComposerReasoningLevel>("pro");
+  const [profileKey, setProfileKey] = React.useState<string>("");
+  const [permissionPolicy, setPermissionPolicy] =
+    React.useState<ComposerPermissionPolicyId>("ask");
 
   const isControlled = externalDraft !== undefined;
-  const goal = isControlled ? externalDraft! : internalGoal;
-  const setGoal = isControlled
+  const taskMsg = isControlled ? externalDraft! : internalTaskMsg;
+  const setTaskMsg = isControlled
     ? (text: string) => externalDraftChange?.(text)
-    : setInternalGoal;
+    : setInternalTaskMsg;
+  const cancelTargetRunId = cancellableRunId === undefined ? activeRunId : cancellableRunId;
 
   React.useEffect(() => {
     if (focusKey && focusKey > 0) {
@@ -73,58 +65,47 @@ export function ChatComposer({
     }
   }, [focusKey]);
 
-  React.useEffect(() => {
-    if (templateMode) {
-      setMode(templateMode as ComposerMode);
-      setTemplateMode(null);
-    }
-  }, [templateMode]);
-
-  const skillsQuery = useQuery({ queryKey: ["skills"], queryFn: skillsApi.list });
   const profilesQuery = useQuery({
     queryKey: ["model-profiles"],
     queryFn: modelProfilesApi.list,
   });
 
-  const selectedProfile = profilesQuery.data?.find((profile) => profile.key === profileKey);
-  const selectedSkill = skillsQuery.data?.find((skill) => skill.key === skillId);
-  const summaryParts = buildComposerSummaryParts({
-    mode,
-    profileKey,
-    profileName: selectedProfile?.name ?? null,
-    skillId,
-    skillName: selectedSkill?.name ?? null,
-    permissionPolicy,
-  });
-  const summaryLabel = buildComposerSummaryLabel({
-    modeLabel: t(summaryParts.modeLabelKey, summaryParts.modeFallback),
-    modelLabel:
-      profileKey === "__default__"
-        ? t("chat:defaultModel", summaryParts.modelLabel)
-        : summaryParts.modelLabel,
-    skillLabel: summaryParts.skillLabel,
-    permissionLabel: t(summaryParts.permissionLabelKey, summaryParts.permissionFallback),
-  });
+  React.useEffect(() => {
+    const profiles = profilesQuery.data;
+    if (!profiles || profiles.length === 0) {
+      setProfileKey("");
+      return;
+    }
+    if (profileKey && profiles.some((p) => p.key === profileKey && p.enabled)) {
+      return;
+    }
+    const firstEnabled = profiles.find((p) => p.enabled);
+    setProfileKey(firstEnabled?.key ?? "");
+  }, [profilesQuery.data, profileKey]);
 
   const createRun = useMutation({
     mutationFn: async (vars: {
-      goal: string;
-      skillId: string | null;
+      taskMsg: string;
       profileKey: string | null;
-      mode: ComposerMode;
+      reasoningLevel: ComposerReasoningLevel;
       permissionPolicy: ComposerPermissionPolicyId;
     }) => {
-      const harnessOptions = buildComposerHarnessOptions(vars.profileKey, vars.mode);
+      const mode = composerModeForReasoningLevel(vars.reasoningLevel);
+      const harnessOptions = buildComposerHarnessOptions(
+        vars.profileKey,
+        mode,
+        vars.reasoningLevel,
+      );
       const body: CreateRunRequest = {
-        goal: vars.goal,
+        task_msg: vars.taskMsg,
         org_id: context.org?.id ?? "org_1",
         actor_user_id: context.user?.id ?? "user_1",
         scopes: buildComposerScopes(vars.permissionPolicy),
         thread_id: threadId,
-        skill_id: vars.skillId,
+        skill_id: null,
         harness_options: harnessOptions ?? null,
         wait_for_completion: false,
-        persist_goal_message: true,
+        persist_task_msg_message: true,
       };
       const run = await runsApi.create(body);
       return run;
@@ -137,222 +118,107 @@ export function ChatComposer({
   const handleCancel = () => {
     if (onCancelRun) {
       onCancelRun();
-    } else if (activeRunId) {
-      cancelRun.mutate(activeRunId);
+    } else if (cancelTargetRunId) {
+      cancelRun.mutate(cancelTargetRunId);
     }
   };
 
   const handleSend = () => {
-    const trimmed = goal.trim();
+    const trimmed = taskMsg.trim();
     if (!trimmed || createRun.isPending) return;
 
-    const command = parseSlashCommand(trimmed, { activeRunGoal });
+    const command = parseSlashCommand(trimmed, { activeRunTaskMsg });
     if (command.kind === "local") {
-      if (command.action === "clear") setGoal("");
+      if (command.action === "clear") setTaskMsg("");
       if (command.action === "status") onRequestStatus?.();
       return;
     }
     if (command.kind === "draft") {
-      setGoal(command.draft);
-      if (command.modeOverride) setMode(command.modeOverride);
+      setTaskMsg(command.draft);
+      if (command.modeOverride) {
+        setReasoningLevel(reasoningLevelForComposerMode(command.modeOverride));
+      }
       textareaRef.current?.focus();
       return;
     }
 
-    const nextMode = command.modeOverride ?? mode;
+    const nextReasoning = command.modeOverride
+      ? reasoningLevelForComposerMode(command.modeOverride)
+      : reasoningLevel;
     createRun.mutate({
-      goal: command.goal,
-      skillId: skillId === "__none__" ? null : skillId,
+      taskMsg: command.taskMsg,
       profileKey,
-      mode: nextMode,
+      reasoningLevel: nextReasoning,
       permissionPolicy,
     });
-    setGoal("");
-    if (command.modeOverride) setMode(command.modeOverride);
+    setTaskMsg("");
+    if (command.modeOverride) setReasoningLevel(nextReasoning);
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       handleSend();
     }
   };
 
   const handleTemplateClick = (template: { prompt: string; mode: string }) => {
-    setGoal(template.prompt);
-    setTemplateMode(template.mode);
+    setTaskMsg(template.prompt);
+    setReasoningLevel(reasoningLevelForComposerMode(template.mode));
+    textareaRef.current?.focus();
+  };
+
+  const handleSlashSuggestionSelect = (command: string) => {
+    setTaskMsg(`${command} `);
     textareaRef.current?.focus();
   };
 
   const templates = getPromptTemplates();
 
   return (
-    <div className="border-t bg-background px-4 py-3">
-      <div className="mx-auto max-w-3xl">
-        {!goal.trim() && !activeRunId && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
+    <div className="bg-background px-4 pb-3 pt-2">
+      <div className="mx-auto max-w-[46rem]">
+        <ReferenceComposerSurface
+          value={taskMsg}
+          onChange={setTaskMsg}
+          onKeyDown={onKeyDown}
+          onSend={handleSend}
+          sendDisabled={!taskMsg.trim() || !profileKey}
+          sendPending={createRun.isPending}
+          activeRunId={cancelTargetRunId}
+          onCancelRun={handleCancel}
+          placeholder={t("chat:taskMsgPlaceholder")}
+          sendLabel={t("chat:sendMessage")}
+          cancelLabel={t("chat:cancelRun")}
+          attachFileLabel={t("chat:attachFile")}
+          profileKey={profileKey}
+          onProfileKeyChange={setProfileKey}
+          modelProfiles={profilesQuery.data}
+          selectModelLabel={t("chat:selectModelProfile")}
+          reasoningLevel={reasoningLevel}
+          onReasoningLevelChange={setReasoningLevel}
+          permissionPolicy={permissionPolicy}
+          onPermissionPolicyChange={setPermissionPolicy}
+          textareaRef={textareaRef}
+          slashSuggestions={SLASH_SUGGESTIONS}
+          showSlashSuggestions={taskMsg.trim().startsWith("/")}
+          onSlashSuggestionSelect={handleSlashSuggestionSelect}
+        />
+        {!taskMsg.trim() && !activeRunId && (
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
             {templates.map((template) => (
               <button
                 key={template.id}
                 type="button"
+                data-testid="template-stamp"
                 onClick={() => handleTemplateClick(template)}
-                className="rounded-full border bg-card px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                className="rounded-full border border-border/80 bg-card/90 px-3 py-1.5 text-sm text-muted-foreground shadow-sm transition-colors hover:bg-secondary hover:text-foreground"
               >
                 {t(template.titleKey, template.fallbackTitle)}
               </button>
             ))}
           </div>
         )}
-        <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-          <Textarea
-            ref={textareaRef}
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder={t("chat:goalPlaceholder")}
-            className="min-h-[64px] max-h-40 resize-none rounded-none border-0 bg-transparent px-3 py-3 shadow-none focus-visible:ring-0"
-            rows={2}
-          />
-          {goal.trim().startsWith("/") && (
-            <div className="border-t px-3 py-1 text-[11px] text-muted-foreground">
-              {t("chat:commandHint")}
-            </div>
-          )}
-          <div className="border-t bg-muted/30 px-2 py-2">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 min-w-0 max-w-[min(22rem,60vw)] gap-1.5 px-2 text-xs"
-                onClick={() => setSettingsOpen((open) => !open)}
-                title={settingsOpen ? t("chat:collapseComposerSettings") : t("chat:expandComposerSettings")}
-                aria-label={settingsOpen ? t("chat:collapseComposerSettings") : t("chat:expandComposerSettings")}
-                aria-expanded={settingsOpen}
-              >
-                <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{summaryLabel}</span>
-                {settingsOpen ? (
-                  <ChevronUp className="h-3.5 w-3.5 shrink-0" />
-                ) : (
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-                )}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                title={t("chat:composerContext")}
-                aria-label={t("chat:composerContext")}
-              >
-                <AtSign className="h-4 w-4" />
-              </Button>
-              <input
-                ref={fileRef}
-                type="file"
-                className="hidden"
-                onChange={(e) => {
-                  e.target.value = "";
-                }}
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="ml-auto h-8 w-8"
-                onClick={() => fileRef.current?.click()}
-                title={t("chat:attachFile")}
-                aria-label={t("chat:attachFile")}
-              >
-                <Paperclip className="h-4 w-4" />
-              </Button>
-              {activeRunId && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={handleCancel}
-                  title={t("chat:cancelRun")}
-                  aria-label={t("chat:cancelRun")}
-                >
-                  <Square className="h-4 w-4" />
-                </Button>
-              )}
-              <Button
-                size="icon"
-                className="h-8 w-8"
-                onClick={handleSend}
-                disabled={!goal.trim() || createRun.isPending}
-                title={t("chat:sendMessage")}
-                aria-label={t("chat:sendMessage")}
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
-            {settingsOpen && (
-              <div className="mt-2 grid gap-2 border-t pt-2 sm:grid-cols-2 lg:grid-cols-4">
-                <Select value={mode} onValueChange={(value) => setMode(value as ComposerMode)}>
-                  <SelectTrigger aria-label={t("chat:composerMode")} className="h-8 bg-background text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">{t("chat:modeAuto")}</SelectItem>
-                    <SelectItem value="plan">{t("chat:modePlan")}</SelectItem>
-                    <SelectItem value="chat">{t("chat:modeChat")}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={profileKey} onValueChange={setProfileKey}>
-                  <SelectTrigger aria-label={t("chat:selectModelProfile")} className="h-8 bg-background text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__default__">{t("chat:defaultModel")}</SelectItem>
-                    {profilesQuery.data?.map((p) => (
-                      <SelectItem key={p.key} value={p.key} disabled={!p.enabled}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={skillId} onValueChange={setSkillId}>
-                  <SelectTrigger aria-label={t("chat:selectSkill")} className="h-8 bg-background text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">{t("chat:defaultSkill")}</SelectItem>
-                    {skillsQuery.data?.map((s) => (
-                      <SelectItem key={s.key} value={s.key}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={permissionPolicy}
-                  onValueChange={(value) =>
-                    setPermissionPolicy(value as ComposerPermissionPolicyId)
-                  }
-                >
-                  <SelectTrigger
-                    aria-label={t("chat:permission.label")}
-                    className="h-8 bg-background text-xs"
-                    title={t("chat:permission.label")}
-                  >
-                    <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PERMISSION_POLICIES.map((policy) => (
-                      <SelectItem key={policy.id} value={policy.id}>
-                        {t(policy.labelKey, policy.fallback)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

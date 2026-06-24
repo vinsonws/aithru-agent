@@ -26,7 +26,7 @@ async def make_context(store: InMemoryAgentStore) -> AgentRunContext:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Do work",
+        task_msg="Do work",
         workspace_id=workspace.id,
     )
     return AgentRunContext(
@@ -822,7 +822,7 @@ async def test_todo_update_cannot_modify_another_run_todo() -> None:
         org_id=context.org_id,
         actor_user_id=context.actor_user_id,
         source="api",
-        goal="Other run",
+        task_msg="Other run",
         workspace_id=other_workspace.id,
     )
     other_todo = await store.create_todo(
@@ -857,7 +857,7 @@ async def test_artifact_finalize_cannot_modify_another_run_artifact() -> None:
         org_id=context.org_id,
         actor_user_id=context.actor_user_id,
         source="api",
-        goal="Other run",
+        task_msg="Other run",
         workspace_id=other_workspace.id,
     )
     other_artifact = await store.create_artifact(

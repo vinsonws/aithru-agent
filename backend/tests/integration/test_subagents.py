@@ -18,10 +18,10 @@ class SequencedRuntime(AgentRuntime):
         self._runs = runs
         self._index = 0
 
-    async def run(self, goal, deps):  # type: ignore[no-untyped-def]
+    async def run(self, task_msg, deps):  # type: ignore[no-untyped-def]
         index = min(self._index, len(self._runs) - 1)
         self._index += 1
-        return await StepAgentRuntime(self._runs[index]).run(goal, deps)
+        return await StepAgentRuntime(self._runs[index]).run(task_msg, deps)
 
 
 class ToolContext:
@@ -32,8 +32,8 @@ class ToolContext:
 
 
 class DelegatingArtifactRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         if deps.run.source == AgentRunSource.DELEGATED_TASK:
             await deps.store.create_artifact(
                 org_id=deps.run.org_id,
@@ -95,7 +95,7 @@ async def test_subagent_delegate_creates_child_run_and_parent_events() -> None:
     parent = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Delegate research",
+        task_msg="Delegate research",
         scopes=["*"],
     )
     subagent_runs = await runtime.store.list_subagent_runs(parent_run_id=parent.id)
@@ -129,7 +129,7 @@ async def test_completed_subagent_persists_structured_result_summary() -> None:
     parent = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Delegate artifact research",
+        task_msg="Delegate artifact research",
         scopes=["*"],
     )
     subagent_run = (await runtime.store.list_subagent_runs(parent_run_id=parent.id))[0]
@@ -181,7 +181,7 @@ async def test_cancelled_child_run_updates_parent_subagent_state() -> None:
     parent = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Delegate research",
+        task_msg="Delegate research",
         scopes=["*"],
     )
     subagent_run = (await runtime.store.list_subagent_runs(parent_run_id=parent.id))[0]
@@ -238,7 +238,7 @@ async def test_subagent_api_creates_specs_and_lists_run_delegations() -> None:
             await client.post(
                 "/api/runs",
                 json={
-                    "goal": "Delegate research task now",
+                    "task_msg": "Delegate research task now",
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "scopes": ["*"],
@@ -289,7 +289,7 @@ async def test_subagent_run_tree_api_projects_parent_child_inspection_view() -> 
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
                 json={
-                    "goal": "Delegate research task now",
+                    "task_msg": "Delegate research task now",
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "scopes": ["*"],
@@ -364,7 +364,7 @@ async def test_subagent_delegate_rejects_unknown_child_skill() -> None:
     parent = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Delegate research",
+        task_msg="Delegate research",
         scopes=["*"],
     )
     subagent_runs = await runtime.store.list_subagent_runs(parent_run_id=parent.id)
@@ -402,7 +402,7 @@ async def test_subagent_delegate_cannot_expand_child_scopes() -> None:
     parent = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Delegate research",
+        task_msg="Delegate research",
         scopes=["agent.subagent.write"],
     )
     subagent_runs = await runtime.store.list_subagent_runs(parent_run_id=parent.id)

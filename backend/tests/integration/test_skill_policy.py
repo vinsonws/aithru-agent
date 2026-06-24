@@ -63,7 +63,7 @@ async def test_worker_denies_scripted_tool_not_allowed_by_skill() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Try write",
+        task_msg="Try write",
         scopes=["*"],
         skill_id="file-report",
     )
@@ -88,7 +88,7 @@ async def test_worker_denied_tool_event_carries_capability_audit() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Try write",
+        task_msg="Try write",
         scopes=["*"],
         skill_id="file-report",
     )
@@ -116,7 +116,7 @@ async def test_worker_uses_skill_approval_policy_for_risky_tools() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write with approval",
+        task_msg="Write with approval",
         scopes=["*"],
         skill_id="approval-file-report",
     )
@@ -141,7 +141,7 @@ async def test_pydantic_driver_exposes_only_skill_allowed_tools() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Read file",
+        task_msg="Read file",
         scopes=["*"],
         skill_id="file-report",
     )
@@ -166,7 +166,7 @@ async def test_worker_passes_resolved_skill_to_harness_driver() -> None:
     await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Use skill",
+        task_msg="Use skill",
         scopes=["*"],
         skill_id="file-report",
     )
@@ -189,7 +189,7 @@ async def test_worker_fails_queued_run_with_unresolvable_skill_before_tools_exec
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Use missing skill",
+        task_msg="Use missing skill",
         workspace_id=workspace.id,
         scopes=["*"],
         skill_id="missing-skill",

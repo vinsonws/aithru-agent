@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Aithru Slate Intelligence — light: net-white canvas, warm-grey layering */
+    --background: 0 0% 100%;
+    --foreground: 222 18% 16%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 18% 16%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 18% 16%;
+
+    /* Indigo primary */
+    --primary: 240 60% 52%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 18% 22%;
+
+    --muted: 220 18% 97%;
+    --muted-foreground: 220 9% 46%;
+
+    /* Cyan accent (AI/Agent activity) */
+    --accent: 187 85% 43%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 348 80% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 56% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 36 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 240 60% 52%;
+
+    --radius: 0.6rem;
+  }
+
+  .dark {
+    /* Deep slate surfaces, not pure black */
+    --background: 222 24% 11%;
+    --foreground: 220 14% 90%;
+
+    --card: 222 22% 14%;
+    --card-foreground: 220 14% 90%;
+
+    --popover: 222 22% 14%;
+    --popover-foreground: 220 14% 90%;
+
+    --primary: 240 64% 66%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 222 18% 18%;
+    --secondary-foreground: 220 14% 90%;
+
+    --muted: 222 18% 17%;
+    --muted-foreground: 220 10% 64%;
+
+    --accent: 187 80% 52%;
+    --accent-foreground: 222 24% 11%;
+
+    --destructive: 348 76% 62%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 52% 52%;
+    --success-foreground: 222 24% 11%;
+
+    --warning: 36 90% 56%;
+    --warning-foreground: 222 24% 11%;
+
+    --border: 222 16% 22%;
+    --input: 222 16% 22%;
+    --ring: 240 64% 66%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* highlight.js token theming, mapped to Aithru semantic colors.
+   Consumes theme.resolved via the .dark class so light/dark stay consistent. */
+.aithru-markdown .hljs-comment,
+.aithru-markdown .hljs-quote {
+  @apply text-muted-foreground;
+}
+.aithru-markdown .hljs-keyword,
+.aithru-markdown .hljs-selector-tag,
+.aithru-markdown .hljs-built_in,
+.aithru-markdown .hljs-name,
+.aithru-markdown .hljs-tag {
+  @apply text-primary;
+}
+.aithru-markdown .hljs-string,
+.aithru-markdown .hljs-attr,
+.aithru-markdown .hljs-template-string,
+.aithru-markdown .hljs-addition {
+  @apply text-success;
+}
+.aithru-markdown .hljs-number,
+.aithru-markdown .hljs-literal,
+.aithru-markdown .hljs-type,
+.aithru-markdown .hljs-params {
+  @apply text-accent;
+}
+.aithru-markdown .hljs-title,
+.aithru-markdown .hljs-section,
+.aithru-markdown .hljs-function .hljs-title {
+  @apply text-primary;
+}
+.aithru-markdown .hljs-attribute,
+.aithru-markdown .hljs-variable,
+.aithru-markdown .hljs-property {
+  @apply text-foreground;
+}
+.aithru-markdown .hljs-deletion {
+  @apply text-destructive;
+}
+

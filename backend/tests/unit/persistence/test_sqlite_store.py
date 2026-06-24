@@ -29,7 +29,7 @@ async def test_sqlite_store_persists_runs_workspace_files_and_events(tmp_path: P
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Persist this",
+        task_msg="Persist this",
         workspace_id=workspace.id,
         scopes=["agent.workspace.write"],
     )
@@ -225,7 +225,7 @@ async def test_sqlite_store_promotes_workspace_file_to_retained_artifact(tmp_pat
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Promote report",
+        task_msg="Promote report",
         workspace_id=workspace.id,
     )
     written = await store.write_workspace_file(
@@ -287,7 +287,7 @@ async def test_sqlite_store_filters_artifact_listing_by_lifecycle_fields(tmp_pat
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="List artifacts",
+        task_msg="List artifacts",
         workspace_id=workspace.id,
     )
     default_retained = await store.create_artifact(
@@ -544,7 +544,7 @@ async def test_runtime_can_execute_worker_runs_on_sqlite_store(tmp_path: Path) -
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write report",
+        task_msg="Write report",
         scopes=["*"],
     )
     await runtime.worker.drain()
@@ -572,7 +572,7 @@ async def test_worker_discovers_queued_sqlite_runs_across_runtime_instances(tmp_
     queued = await api_runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Execute elsewhere",
+        task_msg="Execute elsewhere",
         scopes=["*"],
     )
 
@@ -599,7 +599,7 @@ async def test_sqlite_workers_claim_queued_runs_once_across_runtime_instances(tm
     queued = await api_runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Claim once",
+        task_msg="Claim once",
         scopes=["*"],
     )
     worker_one = create_agent_runtime(

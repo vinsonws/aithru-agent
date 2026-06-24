@@ -2,6 +2,8 @@ import type { AgentRunHarnessOptions } from "@/lib/api";
 
 export type ComposerMode = "auto" | "plan" | "chat";
 export type ComposerPermissionPolicyId = "ask" | "auto_safe" | "read_only";
+export type ComposerReasoningLevel = "quick" | "thinking" | "pro" | "ultra";
+export type ComposerModelReasoningEffort = "none" | "low" | "medium" | "high";
 
 export interface ComposerPermissionPolicy {
   id: ComposerPermissionPolicyId;
@@ -11,6 +13,45 @@ export interface ComposerPermissionPolicy {
   fallbackDescription: string;
   scopes: string[];
 }
+
+export interface ComposerReasoningOption {
+  id: ComposerReasoningLevel;
+  labelKey: string;
+  fallback: string;
+  descriptionKey: string;
+  fallbackDescription: string;
+}
+
+export const REASONING_LEVELS: ComposerReasoningOption[] = [
+  {
+    id: "quick",
+    labelKey: "chat:reasoning.quick",
+    fallback: "Quick",
+    descriptionKey: "chat:reasoning.quickDescription",
+    fallbackDescription: "Fast responses for direct tasks.",
+  },
+  {
+    id: "thinking",
+    labelKey: "chat:reasoning.thinking",
+    fallback: "Thinking",
+    descriptionKey: "chat:reasoning.thinkingDescription",
+    fallbackDescription: "Balance speed and accuracy before acting.",
+  },
+  {
+    id: "pro",
+    labelKey: "chat:reasoning.pro",
+    fallback: "Pro",
+    descriptionKey: "chat:reasoning.proDescription",
+    fallbackDescription: "Plan before execution for more precise results.",
+  },
+  {
+    id: "ultra",
+    labelKey: "chat:reasoning.ultra",
+    fallback: "Ultra",
+    descriptionKey: "chat:reasoning.ultraDescription",
+    fallbackDescription: "Use the most careful planning for complex work.",
+  },
+];
 
 export const MODE_INSTRUCTIONS: Record<ComposerMode, string | null> = {
   auto: null,
@@ -38,7 +79,7 @@ export const PERMISSION_POLICIES: ComposerPermissionPolicy[] = [
   {
     id: "auto_safe",
     labelKey: "chat:permission.autoSafe",
-    fallback: "Auto-safe",
+    fallback: "Full access",
     descriptionKey: "chat:permission.autoSafeDescription",
     fallbackDescription: "Trusted local mode that requests broad capability access.",
     scopes: ["*"],
@@ -54,9 +95,51 @@ export const PERMISSION_POLICIES: ComposerPermissionPolicy[] = [
 ];
 
 const PERMISSION_POLICY_IDS = new Set(PERMISSION_POLICIES.map((policy) => policy.id));
+const REASONING_LEVEL_IDS = new Set(REASONING_LEVELS.map((level) => level.id));
+const REASONING_EFFORT_BY_LEVEL: Record<
+  ComposerReasoningLevel,
+  ComposerModelReasoningEffort
+> = {
+  quick: "none",
+  thinking: "low",
+  pro: "medium",
+  ultra: "high",
+};
 
 export function normalizeComposerMode(value: string | null | undefined): ComposerMode {
   return value === "plan" || value === "chat" || value === "auto" ? value : "auto";
+}
+
+export function normalizeReasoningLevel(
+  value: string | null | undefined,
+): ComposerReasoningLevel {
+  return REASONING_LEVEL_IDS.has(value as ComposerReasoningLevel)
+    ? (value as ComposerReasoningLevel)
+    : "pro";
+}
+
+export function composerModeForReasoningLevel(
+  value: string | null | undefined,
+): ComposerMode {
+  const level = normalizeReasoningLevel(value);
+  if (level === "quick") return "chat";
+  if (level === "thinking") return "auto";
+  return "plan";
+}
+
+export function reasoningLevelForComposerMode(
+  value: string | null | undefined,
+): ComposerReasoningLevel {
+  const mode = normalizeComposerMode(value);
+  if (mode === "chat") return "quick";
+  if (mode === "auto") return "thinking";
+  return "pro";
+}
+
+export function reasoningEffortForReasoningLevel(
+  value: string | null | undefined,
+): ComposerModelReasoningEffort {
+  return REASONING_EFFORT_BY_LEVEL[normalizeReasoningLevel(value)];
 }
 
 export function normalizePermissionPolicyId(
@@ -77,10 +160,20 @@ export function getPermissionPolicy(
 export function buildComposerHarnessOptions(
   profileKey: string | null,
   mode: string,
+  reasoningLevel: string | null | undefined,
 ): AgentRunHarnessOptions | undefined {
   const normalizedMode = normalizeComposerMode(mode);
-  const harnessOptions: AgentRunHarnessOptions = {};
-  if (profileKey && profileKey !== "__default__") {
+  const reasoningEffort = reasoningEffortForReasoningLevel(reasoningLevel);
+  const harnessOptions: AgentRunHarnessOptions & {
+    model_reasoning_effort?: ComposerModelReasoningEffort;
+  } = {
+    model_capabilities: {
+      vision: false,
+      thinking: reasoningEffort !== "none",
+    },
+    model_reasoning_effort: reasoningEffort,
+  };
+  if (profileKey) {
     harnessOptions.model_profile_key = profileKey;
   }
   const instructions = MODE_INSTRUCTIONS[normalizedMode];
@@ -136,16 +229,16 @@ const MODE_LABELS: Record<ComposerMode, { labelKey: string; fallback: string }> 
 export function buildComposerSummaryParts(input: ComposerSummaryInput): ComposerSummaryParts {
   const mode = normalizeComposerMode(input.mode);
   const permission = getPermissionPolicy(input.permissionPolicy);
-  const profileKey = input.profileKey ?? "__default__";
+  const profileKey = input.profileKey ?? "";
   const skillId = input.skillId ?? "__none__";
 
   return {
     modeLabelKey: MODE_LABELS[mode].labelKey,
     modeFallback: MODE_LABELS[mode].fallback,
     modelLabel:
-      profileKey === "__default__"
-        ? "Default model"
-        : input.profileName?.trim() || profileKey,
+      profileKey
+        ? input.profileName?.trim() || profileKey
+        : "No model",
     skillLabel:
       skillId === "__none__"
         ? null

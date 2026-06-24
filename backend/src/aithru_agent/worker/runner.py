@@ -77,24 +77,24 @@ class AgentWorkerRunner:
         *,
         org_id: str,
         actor_user_id: str,
-        goal: str,
+        task_msg: str,
         scopes: list[str],
         harness_options: AgentRunHarnessOptions | None = None,
         retry_policy: AgentRunRetryPolicy | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
-        persist_goal_message: bool = False,
+        persist_task_msg_message: bool = False,
     ) -> AgentRun:
         run = await self.create_run(
             org_id=org_id,
             actor_user_id=actor_user_id,
-            goal=goal,
+            task_msg=task_msg,
             scopes=scopes,
             harness_options=harness_options,
             retry_policy=retry_policy,
             thread_id=thread_id,
             skill_id=skill_id,
-            persist_goal_message=persist_goal_message,
+            persist_task_msg_message=persist_task_msg_message,
         )
         return await self.execute_run(run.id)
 
@@ -103,13 +103,13 @@ class AgentWorkerRunner:
         *,
         org_id: str,
         actor_user_id: str,
-        goal: str,
+        task_msg: str,
         scopes: list[str],
         harness_options: AgentRunHarnessOptions | None = None,
         retry_policy: AgentRunRetryPolicy | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
-        persist_goal_message: bool = False,
+        persist_task_msg_message: bool = False,
     ) -> AgentRun:
         if thread_id:
             thread = await self._store.get_thread(thread_id)
@@ -121,7 +121,7 @@ class AgentWorkerRunner:
             org_id=org_id,
             actor_user_id=actor_user_id,
             source="api",
-            goal=goal,
+            task_msg=task_msg,
             workspace_id=workspace.id,
             scopes=scopes,
             harness_options=harness_options,
@@ -137,11 +137,11 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload={"status": "queued", "workspace_id": workspace.id},
         )
-        if thread_id and persist_goal_message:
+        if thread_id and persist_task_msg_message:
             message = await self._store.append_message(
                 thread_id=thread_id,
                 role="user",
-                content=goal,
+                content=task_msg,
                 run_id=run.id,
             )
             await self._event_writer.write(
@@ -156,7 +156,7 @@ class AgentWorkerRunner:
                 thread_id=thread_id,
                 type="message.completed",
                 source={"kind": "harness"},
-                payload={"message_id": message.id, "content": goal},
+                payload={"message_id": message.id, "content": task_msg},
             )
         return run
 
@@ -235,14 +235,14 @@ class AgentWorkerRunner:
         deps = await self._build_deps(run, skill)
         try:
             if self._agent_runtime.has_pending_clarification(run.id):
-                input_text = await self._latest_input_text(run.id) or run.goal
+                input_text = await self._latest_input_text(run.id) or run.task_msg
                 result = await self._agent_runtime.resume_clarification(
                     run_id=run.id,
                     input_text=input_text,
                     deps=deps,
                 )
             else:
-                result = await self._agent_runtime.run(run.goal, deps)
+                result = await self._agent_runtime.run(run.task_msg, deps)
             if result.pending_approval is not None:
                 return await self._get_existing_run(run.id)
             return await self._complete_run(run, thread_id, "msg_1", [result.content], skill=skill)

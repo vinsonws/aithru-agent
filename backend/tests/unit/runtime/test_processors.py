@@ -41,7 +41,7 @@ async def test_processor_runner_invokes_hooks_in_order() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Summarize the workspace",
+        task_msg="Summarize the workspace",
         workspace_id=workspace.id,
         scopes=["*"],
     )

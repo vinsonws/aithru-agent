@@ -16,6 +16,7 @@ from aithru_agent.domain import (
     AgentModelProfileEnablementResult,
     AgentModelProfileEntry,
     AgentModelProfileSelectionPolicy,
+    AgentModelProfileSecretStatus,
     AgentModelProviderKind,
 )
 from aithru_agent.model_profiles import (
@@ -23,8 +24,18 @@ from aithru_agent.model_profiles import (
     ModelProfileError,
     ModelProfileNotFoundError,
 )
+from aithru_agent.secrets import model_profile_api_key_secret_ref
 
 router = APIRouter()
+
+
+class ModelProfileSecretInput(BaseModel):
+    secret_ref: str | None = None
+    write_only_value: object | None = Field(
+        default=None,
+        description="Write-only provider API key stored in the Agent secret store.",
+        json_schema_extra={"writeOnly": True},
+    )
 
 
 class CreateModelProfileRequest(BaseModel):
@@ -41,9 +52,15 @@ class CreateModelProfileRequest(BaseModel):
     selection_policy: AgentModelProfileSelectionPolicy = Field(
         default_factory=AgentModelProfileSelectionPolicy
     )
+    auth_secret: ModelProfileSecretInput | None = None
     metadata: dict | None = None
 
-    def to_profile(self, *, org_id: str) -> AgentModelProfileDefinition:
+    def to_profile(
+        self,
+        *,
+        org_id: str,
+        auth_secret: AgentModelProfileSecretStatus | None,
+    ) -> AgentModelProfileDefinition:
         return AgentModelProfileDefinition(
             org_id=org_id,
             key=self.key,
@@ -54,6 +71,7 @@ class CreateModelProfileRequest(BaseModel):
             capabilities=self.capabilities,
             cost_policy=self.cost_policy,
             selection_policy=self.selection_policy,
+            auth_secret=auth_secret,
             metadata=self.metadata,
         )
 
@@ -66,6 +84,7 @@ class UpdateModelProfileRequest(BaseModel):
     capabilities: AgentModelCapabilities | None = None
     cost_policy: AgentModelProfileCostPolicy | None = None
     selection_policy: AgentModelProfileSelectionPolicy | None = None
+    auth_secret: ModelProfileSecretInput | None = None
     metadata: dict | None = None
 
     @model_validator(mode="after")
@@ -78,6 +97,7 @@ class UpdateModelProfileRequest(BaseModel):
             "capabilities",
             "cost_policy",
             "selection_policy",
+            "auth_secret",
             "metadata",
         }
         if not self.model_fields_set.intersection(fields):
@@ -89,12 +109,17 @@ class UpdateModelProfileRequest(BaseModel):
             "capabilities",
             "cost_policy",
             "selection_policy",
+            "auth_secret",
         ):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null")
         return self
 
-    def registry_updates(self) -> dict[str, object]:
+    def registry_updates(
+        self,
+        *,
+        auth_secret: AgentModelProfileSecretStatus | None = None,
+    ) -> dict[str, object]:
         return {
             field: getattr(self, field)
             for field in (
@@ -105,10 +130,13 @@ class UpdateModelProfileRequest(BaseModel):
                 "capabilities",
                 "cost_policy",
                 "selection_policy",
-                "metadata",
             )
             if field in self.model_fields_set
-        }
+        } | (
+            {"auth_secret": auth_secret}
+            if "auth_secret" in self.model_fields_set and auth_secret is not None
+            else {}
+        ) | ({"metadata": self.metadata} if "metadata" in self.model_fields_set else {})
 
 
 @router.post("/api/model-profiles", status_code=201, response_model=AgentModelProfileEntry)
@@ -119,8 +147,16 @@ async def create_model_profile(
 ) -> AgentModelProfileEntry:
     org_id = identity_value(request, body, "org_id", body.org_id, "x-aithru-org-id")
     try:
+        if deps.runtime.model_profile_registry.get_profile(org_id, body.key) is not None:
+            raise ModelProfileConflictError(f"Model profile already exists: {body.key}")
+        auth_secret = _resolve_model_profile_secret(
+            body.auth_secret,
+            deps=deps,
+            org_id=org_id,
+            key=body.key,
+        )
         return deps.runtime.model_profile_registry.create_profile(
-            body.to_profile(org_id=org_id)
+            body.to_profile(org_id=org_id, auth_secret=auth_secret)
         )
     except ModelProfileConflictError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
@@ -165,15 +201,72 @@ async def update_model_profile(
 ) -> AgentModelProfileEntry:
     resolved_org_id = identity_query_value(request, org_id, "org_1", "x-aithru-org-id")
     try:
+        existing = deps.runtime.model_profile_registry.get_profile(
+            resolved_org_id,
+            profile_id_or_key,
+        )
+        if existing is None:
+            raise ModelProfileNotFoundError(
+                f"Model profile not found: {profile_id_or_key}"
+            )
+        auth_secret = (
+            _resolve_model_profile_secret(
+                body.auth_secret,
+                deps=deps,
+                org_id=resolved_org_id,
+                key=existing.key,
+            )
+            if "auth_secret" in body.model_fields_set
+            else None
+        )
         return deps.runtime.model_profile_registry.update_profile(
             resolved_org_id,
             profile_id_or_key,
-            body.registry_updates(),
+            body.registry_updates(auth_secret=auth_secret),
         )
     except ModelProfileNotFoundError as err:
         raise HTTPException(status_code=404, detail="Model profile not found") from err
     except ModelProfileError as err:
         raise HTTPException(status_code=422, detail=str(err)) from err
+
+
+def _resolve_model_profile_secret(
+    secret: ModelProfileSecretInput | None,
+    *,
+    deps: ApiDependencies,
+    org_id: str,
+    key: str,
+) -> AgentModelProfileSecretStatus | None:
+    if secret is None:
+        return None
+    if secret.secret_ref is not None and secret.write_only_value is not None:
+        raise ModelProfileError("provide either secret_ref or write_only_value, not both")
+    if secret.write_only_value is not None:
+        if not isinstance(secret.write_only_value, str) or not secret.write_only_value.strip():
+            raise ModelProfileError("write_only_value must be a nonblank string")
+        secret_ref = model_profile_api_key_secret_ref(org_id=org_id, key=key)
+        try:
+            deps.runtime.secret_store.set_secret(secret_ref, secret.write_only_value)
+            return AgentModelProfileSecretStatus(
+                has_secret=True,
+                secret_ref=secret_ref,
+                redacted=True,
+            )
+        except ValueError as err:
+            raise ModelProfileError(str(err)) from err
+    if secret.secret_ref is not None:
+        secret_ref = secret.secret_ref.strip()
+        if not secret_ref:
+            raise ModelProfileError("secret_ref cannot be blank")
+        try:
+            return AgentModelProfileSecretStatus(
+                has_secret=True,
+                secret_ref=secret_ref,
+                redacted=True,
+            )
+        except ValueError as err:
+            raise ModelProfileError(str(err)) from err
+    return AgentModelProfileSecretStatus()
 
 
 @router.post(

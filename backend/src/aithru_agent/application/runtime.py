@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from pydantic_ai.models.test import TestModel
@@ -47,6 +48,7 @@ from aithru_agent.model_profiles import (
     SQLiteModelProfileRegistry,
 )
 from aithru_agent.model_profiles.factory import create_model_from_profile
+from aithru_agent.domain import AgentModelProfileEntry, AgentRun
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
@@ -54,7 +56,11 @@ from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
 from aithru_agent.runtime.processors.clarification import ClarificationPreflightProcessor
 from aithru_agent.runtime.processors.memory_extraction import MemoryExtractionProcessor
 from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
-from aithru_agent.runtime.processors.title import ThreadTitleProcessor
+from aithru_agent.runtime.processors.title import (
+    PydanticAITitleProvider,
+    ThreadTitleProcessor,
+    TitleProvider,
+)
 from aithru_agent.sandbox import LocalPythonSandboxProvider
 from aithru_agent.secrets import AgentSecretStore, InMemorySecretStore, SQLiteSecretStore
 from aithru_agent.settings import AgentSettings
@@ -156,7 +162,11 @@ def create_agent_application(
         model_profile_registry=model_profile_registry,
         secret_store=secret_store,
     )
-    processor_runner = _create_processor_runner(resolved_settings)
+    processor_runner = _create_processor_runner(
+        resolved_settings,
+        model_profile_registry=model_profile_registry,
+        secret_store=secret_store,
+    )
     runner = AgentWorkerRunner(
         store=resolved_store,
         event_writer=event_writer,
@@ -227,7 +237,12 @@ def _create_native_agent_runtime(
     )
 
 
-def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRunner:
+def _create_processor_runner(
+    settings: AgentSettings,
+    *,
+    model_profile_registry: AgentModelProfileRegistry | None = None,
+    secret_store: AgentSecretStore | None = None,
+) -> AgentRuntimeProcessorRunner:
     processors = []
     if settings.processors.clarification_enabled:
         processors.append(ClarificationPreflightProcessor())
@@ -235,6 +250,11 @@ def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRu
         processors.append(
             ThreadTitleProcessor(
                 max_words=settings.processors.title_max_words,
+                provider=_create_title_provider(
+                    settings,
+                    model_profile_registry=model_profile_registry,
+                    secret_store=secret_store,
+                ),
             )
         )
     if settings.processors.summarization_enabled:
@@ -246,6 +266,76 @@ def _create_processor_runner(settings: AgentSettings) -> AgentRuntimeProcessorRu
     if settings.processors.memory_extraction_enabled:
         processors.append(MemoryExtractionProcessor())
     return AgentRuntimeProcessorRunner(processors=processors)
+
+
+def _create_title_provider(
+    settings: AgentSettings,
+    *,
+    model_profile_registry: AgentModelProfileRegistry | None = None,
+    secret_store: AgentSecretStore | None = None,
+) -> TitleProvider | None:
+    if settings.model is None and model_profile_registry is None:
+        return None
+    return PydanticAITitleProvider(
+        model_resolver=lambda run: _resolve_title_model_for_run(
+            run,
+            settings=settings,
+            model_profile_resolver=(
+                model_profile_registry.get_profile
+                if model_profile_registry is not None
+                else None
+            ),
+            profile_model_factory=(
+                lambda profile: create_model_from_profile(
+                    profile,
+                    secret_store=secret_store or InMemorySecretStore(),
+                    test_model_output=settings.test_model_output,
+                )
+            ),
+        )
+    )
+
+
+def _resolve_title_model_for_run(
+    run: AgentRun,
+    *,
+    settings: AgentSettings,
+    model_profile_resolver: (
+        Callable[[str, str], AgentModelProfileEntry | None] | None
+    ) = None,
+    profile_model_factory: Callable[[AgentModelProfileEntry], str | object] | None = None,
+) -> str | object | None:
+    if run.harness_options and run.harness_options.model:
+        if (
+            run.harness_options.model_profile_key
+            and model_profile_resolver is not None
+            and profile_model_factory is not None
+        ):
+            profile = model_profile_resolver(
+                run.org_id,
+                run.harness_options.model_profile_key,
+            )
+            if profile is not None:
+                return profile_model_factory(profile)
+        if run.harness_options.model == "test":
+            return _test_model_for_settings(settings)
+        return run.harness_options.model
+    return _create_processor_model(settings)
+
+
+def _create_processor_model(settings: AgentSettings) -> str | object | None:
+    if settings.model == "test":
+        return _test_model_for_settings(settings)
+    if settings.model:
+        return settings.model
+    return None
+
+
+def _test_model_for_settings(settings: AgentSettings) -> TestModel:
+    return TestModel(
+        call_tools=[],
+        custom_output_text=settings.test_model_output,
+    )
 
 
 def _create_skill_registry(

@@ -34,16 +34,21 @@ The default composer surface contains:
 
 - multiline text input;
 - attachment button;
-- context button;
-- skill or capability summary on the left;
-- context budget or count on the right when available;
-- current model profile as a two-line label on the right;
+- execution permission selector on the left;
+- combined model and reasoning selector on the right;
 - circular send button;
 - stop button in the send position while a run is active.
 
-Detailed mode, model, skill, and permission controls remain available, but they
-do not occupy the default toolbar. They expand from the model/configuration
-summary area.
+There is no default skill selector and no `@` context button in this composer.
+Detailed permission, reasoning, and model controls open in compact popovers
+above the input surface instead of expanding below it.
+
+## Initial Thread State
+
+The new-thread screen uses the same composer surface as the in-thread composer.
+The greeting text and composer are centered in the main content area, and prompt
+templates render as small stamp-like pills below the composer instead of cards
+above it.
 
 ## Visual Rules
 
@@ -64,13 +69,15 @@ summary area.
 - Empty input disables send.
 - Pending run creation disables send.
 - Active runs show stop/cancel in the primary action position.
-- Slash command hints remain available when the input starts with `/`, but they
-  render as a lightweight hint inside the composer.
-- Prompt template chips may still appear above the composer only when the input
-  is empty and no run is active.
-- Clicking the configuration/model area toggles the detailed controls.
-- Detailed controls preserve the existing fields: mode, model profile, skill,
-  and permission policy.
+- Slash command suggestions remain available when the input starts with `/`, and
+  they render above the composer.
+- Prompt template chips appear below the composer when the input is empty and no
+  run is active.
+- Clicking the permission area opens the permission popover above the composer.
+- Clicking the model/reasoning area opens the combined reasoning and model
+  popover above the composer.
+- Reasoning levels map to existing harness modes and do not introduce new
+  backend workflow or scheduling semantics.
 
 ## Responsive Rules
 
@@ -85,6 +92,8 @@ summary area.
 Primary code changes should stay in:
 
 - `frontend/src/features/chat/ChatComposer.tsx`;
+- `frontend/src/features/conversation/NewThreadPage.tsx` when the empty/new
+  thread input uses its own composer surface;
 - related i18n resources if visible copy changes;
 - focused tests for composer rendering or existing composer state helpers.
 

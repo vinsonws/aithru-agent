@@ -148,7 +148,7 @@ class RunTreeNode(AithruBaseModel):
     depth: int = Field(ge=0)
     status: str
     source: str
-    goal: str
+    task_msg: str
     skill_id: str | None = None
     workspace_id: str
     subagent_run_id: str | None = None
@@ -512,7 +512,7 @@ class ResearchContinuationChildLink(AithruBaseModel):
     query: str | None = None
     source_event_sequence: int = Field(ge=0)
     child_run_status: str | None = None
-    child_run_goal: str | None = None
+    child_run_task_msg: str | None = None
 
 
 class ResearchContinuationSourceLink(AithruBaseModel):
@@ -523,7 +523,7 @@ class ResearchContinuationSourceLink(AithruBaseModel):
     query: str | None = None
     source_event_sequence: int = Field(ge=0)
     source_run_status: str | None = None
-    source_run_goal: str | None = None
+    source_run_task_msg: str | None = None
 
 
 class ResearchContinuationLineageCounts(AithruBaseModel):
@@ -722,7 +722,7 @@ class OperatorFollowUpChildLink(AithruBaseModel):
     operator_follow_up: AgentRunOperatorFollowUpOptions
     source_event_sequence: int = Field(ge=0)
     child_run_status: str | None = None
-    child_run_goal: str | None = None
+    child_run_task_msg: str | None = None
 
 
 class OperatorFollowUpSourceLink(AithruBaseModel):
@@ -731,7 +731,7 @@ class OperatorFollowUpSourceLink(AithruBaseModel):
     operator_follow_up: AgentRunOperatorFollowUpOptions
     source_event_sequence: int = Field(ge=0)
     source_run_status: str | None = None
-    source_run_goal: str | None = None
+    source_run_task_msg: str | None = None
 
 
 class OperatorFollowUpLineageCounts(AithruBaseModel):
@@ -1000,7 +1000,7 @@ def _run_tree_node(
         depth=depth,
         status=status,
         source=_status_value(run.source),
-        goal=run.goal,
+        task_msg=run.task_msg,
         skill_id=run.skill_id,
         workspace_id=run.workspace_id,
         subagent_run_id=inbound.id if inbound else None,
@@ -2071,7 +2071,7 @@ def _operator_follow_up_source_link(
             operator_follow_up=follow_up,
             source_event_sequence=event.sequence,
             source_run_status=_status_value(source_run.status) if source_run else None,
-            source_run_goal=source_run.goal if source_run else None,
+            source_run_task_msg=source_run.task_msg if source_run else None,
         )
     return None
 
@@ -2105,7 +2105,7 @@ def _operator_follow_up_child_links(
                 operator_follow_up=follow_up,
                 source_event_sequence=event.sequence,
                 child_run_status=_status_value(child_run.status) if child_run else None,
-                child_run_goal=child_run.goal if child_run else None,
+                child_run_task_msg=child_run.task_msg if child_run else None,
             )
         )
     return children
@@ -2147,7 +2147,7 @@ def _research_continuation_source_link(
             query=_string_value(continuation.get("query")),
             source_event_sequence=event.sequence,
             source_run_status=_status_value(source_run.status) if source_run else None,
-            source_run_goal=source_run.goal if source_run else None,
+            source_run_task_msg=source_run.task_msg if source_run else None,
         )
     return None
 
@@ -2179,7 +2179,7 @@ def _research_continuation_child_links(
                 query=_string_value(continuation.get("query")),
                 source_event_sequence=event.sequence,
                 child_run_status=_status_value(child_run.status) if child_run else None,
-                child_run_goal=child_run.goal if child_run else None,
+                child_run_task_msg=child_run.task_msg if child_run else None,
             )
         )
     return children

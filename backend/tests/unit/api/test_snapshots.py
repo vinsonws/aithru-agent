@@ -29,7 +29,7 @@ def run(status: AgentRunStatus) -> AgentRun:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Continue work.",
+        task_msg="Continue work.",
         workspace_id="workspace_1",
         status=status,
         started_at="2026-06-18T00:00:00Z",

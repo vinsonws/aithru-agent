@@ -37,7 +37,7 @@ async def test_workspace_tool_rejects_paths_outside_skill_allowed_paths() -> Non
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write outside allowed paths.",
+        task_msg="Write outside allowed paths.",
         scopes=["*"],
         skill_id="restricted-workspace",
     )
@@ -80,7 +80,7 @@ async def test_workspace_tool_allows_paths_inside_skill_allowed_paths() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write inside allowed paths.",
+        task_msg="Write inside allowed paths.",
         scopes=["*"],
         skill_id="restricted-workspace",
     )

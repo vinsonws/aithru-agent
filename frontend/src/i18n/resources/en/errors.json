@@ -1,0 +1,12 @@
+{
+  "AITHRU_UNAUTHORIZED": "Authentication required.",
+  "AITHRU_FORBIDDEN": "You do not have permission to do that.",
+  "AITHRU_NOT_FOUND": "The requested resource was not found.",
+  "AITHRU_VALIDATION": "Some fields were invalid.",
+  "AITHRU_CONFLICT": "This action conflicts with the current state.",
+  "AITHRU_RUN_TERMINAL": "This run has already finished.",
+  "AITHRU_APPROVAL_EXPIRED": "This approval has expired.",
+  "AITHRU_SCOPE_DENIED": "A required scope was denied.",
+  "AITHRU_SKILL_UNKNOWN": "Unknown skill.",
+  "AITHRU_MODEL_PROFILE_POLICY": "Model profile policy rejected this selection."
+}

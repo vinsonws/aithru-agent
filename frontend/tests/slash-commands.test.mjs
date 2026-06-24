@@ -17,16 +17,16 @@ async function loadSlashCommands() {
 
 test("/plan with body sends body in plan mode", async () => {
   const { parseSlashCommand } = await loadSlashCommands();
-  assert.deepEqual(parseSlashCommand("/plan Fix login", { activeRunGoal: null }), {
+  assert.deepEqual(parseSlashCommand("/plan Fix login", { activeRunTaskMsg: null }), {
     kind: "send",
-    goal: "Fix login",
+    taskMsg: "Fix login",
     modeOverride: "plan",
   });
 });
 
 test("/plan without body sets a planning draft", async () => {
   const { parseSlashCommand } = await loadSlashCommands();
-  assert.deepEqual(parseSlashCommand("/plan", { activeRunGoal: null }), {
+  assert.deepEqual(parseSlashCommand("/plan", { activeRunTaskMsg: null }), {
     kind: "draft",
     draft: "Plan the task before making changes.",
     modeOverride: "plan",
@@ -35,23 +35,23 @@ test("/plan without body sets a planning draft", async () => {
 
 test("/status focuses activity instead of creating a run", async () => {
   const { parseSlashCommand } = await loadSlashCommands();
-  assert.deepEqual(parseSlashCommand("/status", { activeRunGoal: "Fix login" }), {
+  assert.deepEqual(parseSlashCommand("/status", { activeRunTaskMsg: "Fix login" }), {
     kind: "local",
     action: "status",
   });
 });
 
-test("/retry uses the active run goal when available", async () => {
+test("/retry uses the active run task message when available", async () => {
   const { parseSlashCommand } = await loadSlashCommands();
-  assert.deepEqual(parseSlashCommand("/retry", { activeRunGoal: "Fix login" }), {
+  assert.deepEqual(parseSlashCommand("/retry", { activeRunTaskMsg: "Fix login" }), {
     kind: "draft",
     draft: "Retry this task: Fix login",
   });
 });
 
-test("/retry without active run goal uses generic retry draft", async () => {
+test("/retry without active run task message uses generic retry draft", async () => {
   const { parseSlashCommand } = await loadSlashCommands();
-  assert.deepEqual(parseSlashCommand("/retry", { activeRunGoal: null }), {
+  assert.deepEqual(parseSlashCommand("/retry", { activeRunTaskMsg: null }), {
     kind: "draft",
     draft: "Retry the last task with the same intent.",
   });
@@ -59,7 +59,7 @@ test("/retry without active run goal uses generic retry draft", async () => {
 
 test("/clear clears composer locally", async () => {
   const { parseSlashCommand } = await loadSlashCommands();
-  assert.deepEqual(parseSlashCommand("/clear", { activeRunGoal: null }), {
+  assert.deepEqual(parseSlashCommand("/clear", { activeRunTaskMsg: null }), {
     kind: "local",
     action: "clear",
   });
@@ -67,8 +67,8 @@ test("/clear clears composer locally", async () => {
 
 test("unknown slash command is normal text", async () => {
   const { parseSlashCommand } = await loadSlashCommands();
-  assert.deepEqual(parseSlashCommand("/unknown do something", { activeRunGoal: null }), {
+  assert.deepEqual(parseSlashCommand("/unknown do something", { activeRunTaskMsg: null }), {
     kind: "send",
-    goal: "/unknown do something",
+    taskMsg: "/unknown do something",
   });
 });

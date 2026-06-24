@@ -1,0 +1,18 @@
+{
+  "title": "Memory",
+  "candidates": "Candidates",
+  "entries": "Entries",
+  "scope": "Scope",
+  "key": "Key",
+  "value": "Value",
+  "source": "Source",
+  "confidence": "Confidence",
+  "visibility": "Visibility",
+  "retention": "Retention",
+  "forget": "Forget",
+  "approveCandidate": "Approve",
+  "rejectCandidate": "Reject",
+  "noMemory": "No memory entries",
+  "noCandidates": "No pending candidates",
+  "expiresAt": "Expires"
+}

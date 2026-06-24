@@ -15,7 +15,7 @@ async function loadRunFilesView() {
   return import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0].text)}`);
 }
 
-test("artifacts are listed before workspace files", async () => {
+test("artifacts are listed before modified files", async () => {
   const { buildRunFileViews } = await loadRunFilesView();
   const views = buildRunFileViews({
     artifacts: [{ id: "a1", name: "report.md", type: "report" }],
@@ -23,6 +23,35 @@ test("artifacts are listed before workspace files", async () => {
   });
   assert.ok(views.length >= 2);
   assert.equal(views[0].kind, "artifact");
+  assert.equal(views[0].href, "/api/artifacts/a1/download");
+  assert.equal(views[0].previewHref, "/api/artifacts/a1/content");
+  assert.equal(views[0].artifactId, "a1");
+});
+
+test("modified files promoted as artifacts are not duplicated", async () => {
+  const { buildRunFileViews } = await loadRunFilesView();
+  const views = buildRunFileViews({
+    artifacts: [
+      {
+        id: "a1",
+        name: "report.md",
+        type: "report",
+        metadata: { source_path: "reports/report.md" },
+      },
+    ],
+    workspaceFiles: [
+      { path: "reports/report.md", size: 100 },
+      { path: "notes/raw.txt", size: 50 },
+    ],
+  });
+
+  assert.deepEqual(
+    views.map((view) => [view.kind, view.path]),
+    [
+      ["artifact", "reports/report.md"],
+      ["modified_file", "notes/raw.txt"],
+    ],
+  );
 });
 
 test("file type labels are inferred from media type and extension", async () => {
@@ -56,6 +85,20 @@ test("markdown, JSON, TypeScript, Python, and plain text receive readable type l
   assert.equal(inferFileTypeLabel({ name: "app.ts" }), "TypeScript");
   assert.equal(inferFileTypeLabel({ name: "main.py" }), "Python");
   assert.equal(inferFileTypeLabel({ name: "notes.txt" }), "Text");
+});
+
+test("preview kinds are inferred for supported output types", async () => {
+  const { previewKindForFile, languageForFile } = await loadRunFilesView();
+
+  assert.equal(previewKindForFile({ name: "report.md" }), "markdown");
+  assert.equal(previewKindForFile({ name: "data.json" }), "json");
+  assert.equal(previewKindForFile({ name: "chart.png", mediaType: "image/png" }), "image");
+  assert.equal(previewKindForFile({ name: "main.py" }), "code");
+  assert.equal(previewKindForFile({ name: "notes.txt" }), "text");
+  assert.equal(previewKindForFile({ name: "final", artifactType: "report" }), "markdown");
+  assert.equal(previewKindForFile({ name: "archive.zip" }), "unsupported");
+  assert.equal(languageForFile("main.py"), "python");
+  assert.equal(languageForFile("component.tsx"), "typescript");
 });
 
 test("formatFileSize formats bytes correctly", async () => {

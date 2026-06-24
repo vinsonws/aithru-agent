@@ -80,8 +80,8 @@ class ToolContext:
 
 
 class ControlledWebResearchRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         bridge = PydanticAIToolBridge(deps=deps)
         await deps.event_writer.write(
             run_id=deps.run.id,
@@ -132,8 +132,8 @@ class ControlledWebResearchRuntime(AgentRuntime):
 
 
 class RecoverableWebFailureResearchRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         bridge = PydanticAIToolBridge(deps=deps)
         await deps.event_writer.write(
             run_id=deps.run.id,
@@ -189,7 +189,7 @@ async def test_deep_research_uses_controlled_web_search_fetch_and_report(
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Research with controlled web tools.",
+        task_msg="Research with controlled web tools.",
         scopes=["*"],
         skill_id="deep-research",
     )
@@ -246,7 +246,7 @@ async def test_deep_research_can_continue_after_recoverable_web_failure() -> Non
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Research with recoverable web failure.",
+        task_msg="Research with recoverable web failure.",
         scopes=["*"],
         skill_id="deep-research",
     )

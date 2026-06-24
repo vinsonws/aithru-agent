@@ -127,7 +127,7 @@ async def run_demo(base_url: str) -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Research with controlled web tools.",
+        task_msg="Research with controlled web tools.",
         scopes=["*"],
         skill_id="deep-research",
     )

@@ -80,6 +80,7 @@ from .model_profile import (
     AgentModelProfileEnablementResult,
     AgentModelProfileEntry,
     AgentModelProfileSelectionPolicy,
+    AgentModelProfileSecretStatus,
     AgentModelProviderKind,
 )
 from .research import (
@@ -96,6 +97,7 @@ from .research import (
 )
 from .run import (
     AgentModelCapabilities,
+    AgentModelReasoningEffort,
     AgentExternalApprovalRef,
     AgentExternalRunWaitRef,
     AgentRun,
@@ -263,11 +265,13 @@ __all__ = [
     "AgentMessageAttachment",
     "AgentMessageRole",
     "AgentModelCapabilities",
+    "AgentModelReasoningEffort",
     "AgentModelProfileCostPolicy",
     "AgentModelProfileDefinition",
     "AgentModelProfileEnablementResult",
     "AgentModelProfileEntry",
     "AgentModelProfileSelectionPolicy",
+    "AgentModelProfileSecretStatus",
     "AgentModelProviderKind",
     "ResearchEvidenceSectionSummary",
     "ResearchLimitation",

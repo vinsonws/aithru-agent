@@ -1,7 +1,6 @@
 export type MessageActionKind =
   | "copy"
   | "editAndRerun"
-  | "continue"
   | "viewTrace";
 
 export interface MessageActionView {
@@ -35,11 +34,6 @@ export function buildMessageActions(message: ChatMessageLike): MessageActionView
 
   if (message.role === "assistant" && !message.streaming && message.content) {
     actions.push({
-      kind: "continue",
-      labelKey: "chat:messageActions.continue",
-      fallback: "Continue",
-    });
-    actions.push({
       kind: "viewTrace",
       labelKey: "chat:messageActions.viewTrace",
       fallback: "View trace",
@@ -51,11 +45,6 @@ export function buildMessageActions(message: ChatMessageLike): MessageActionView
 
 export function buildEditAndRerunPrompt(message: ChatMessageLike): string {
   return message.content;
-}
-
-export function buildContinuePrompt(message: ChatMessageLike): string {
-  const excerpt = message.content.slice(0, 120).trim();
-  return `Continue from where you left off:\n\n${excerpt}...`;
 }
 
 export async function copyMessageContent(message: ChatMessageLike): Promise<boolean> {

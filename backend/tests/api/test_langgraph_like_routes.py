@@ -29,8 +29,8 @@ def file_report_driver() -> StepAgentRuntime:
 
 
 class SlowStreamingRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         await deps.event_writer.write(
             run_id=deps.run.id,
             thread_id=deps.run.thread_id,
@@ -63,7 +63,7 @@ async def test_threads_runs_join_stream_routes() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Write the report draft",
+                "task_msg": "Write the report draft",
                 "scopes": ["*"],
             },
         )
@@ -94,6 +94,54 @@ async def test_threads_runs_join_stream_routes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_thread_run_creation_persists_goal_as_user_message() -> None:
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        thread_response = await client.post(
+            "/api/threads",
+            json={"org_id": "org_1", "owner_user_id": "user_1", "title": "Work"},
+        )
+        thread = thread_response.json()
+
+        run_response = await client.post(
+            f"/api/threads/{thread['id']}/runs",
+            json={
+                "org_id": "org_1",
+                "actor_user_id": "user_1",
+                "task_msg": "Write the report draft",
+                "scopes": ["*"],
+                "persist_task_msg_message": True,
+            },
+        )
+        run = run_response.json()
+
+        messages = (await client.get(f"/api/threads/{thread['id']}/messages")).json()
+        events = (await client.get(f"/api/threads/{thread['id']}/runs/{run['id']}/events")).json()
+
+    assert messages == [
+        {
+            "id": messages[0]["id"],
+            "thread_id": thread["id"],
+            "role": "user",
+            "content": "Write the report draft",
+            "run_id": run["id"],
+            "artifact_ids": [],
+            "attachments": [],
+            "created_at": messages[0]["created_at"],
+        }
+    ]
+    assert [
+        (event["type"], event["payload"].get("role"), event["payload"].get("content"))
+        for event in events
+    ][-2:] == [
+        ("message.created", "user", None),
+        ("message.completed", None, "Write the report draft"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_thread_runs_support_status_and_summary_filters() -> None:
     runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
@@ -111,7 +159,7 @@ async def test_thread_runs_support_status_and_summary_filters() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Complete the report draft",
+                    "task_msg": "Complete the report draft",
                     "scopes": ["*"],
                 },
             )
@@ -123,7 +171,7 @@ async def test_thread_runs_support_status_and_summary_filters() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Queued report",
+                    "task_msg": "Queued report",
                     "scopes": ["*"],
                 },
             )
@@ -162,19 +210,19 @@ async def test_thread_runs_support_pagination_and_ordering() -> None:
         first = (
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "First"},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "First"},
             )
         ).json()
         second = (
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Second"},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Second"},
             )
         ).json()
         third = (
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Third"},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Third"},
             )
         ).json()
 
@@ -209,13 +257,13 @@ async def test_thread_runs_can_include_pagination_metadata() -> None:
         first = (
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "First"},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "First"},
             )
         ).json()
         second = (
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Second"},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Second"},
             )
         ).json()
 
@@ -283,7 +331,7 @@ async def test_runs_stream_creates_and_streams_completed_run() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Write report",
+                "task_msg": "Write report",
                 "scopes": ["*"],
             },
         )
@@ -303,7 +351,7 @@ async def test_runs_stream_emits_events_while_run_is_still_active() -> None:
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Slow stream",
+        task_msg="Slow stream",
         scopes=["*"],
     )
     response = _run_live_stream_response(queued.id, app.state.aithru_api)

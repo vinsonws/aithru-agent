@@ -38,7 +38,7 @@ async def test_memory_store_manages_threads_messages_runs_and_approvals() -> Non
         org_id="org_1",
         actor_user_id="user_1",
         source="chat",
-        goal="Analyze this",
+        task_msg="Analyze this",
         workspace_id=workspace.id,
         thread_id=thread.id,
     )
@@ -132,7 +132,7 @@ async def test_memory_store_manages_workspace_files_and_artifacts() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Write report",
+        task_msg="Write report",
         workspace_id=workspace.id,
     )
 
@@ -174,7 +174,7 @@ async def test_memory_store_promotes_workspace_file_to_retained_artifact() -> No
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Promote report",
+        task_msg="Promote report",
         workspace_id=workspace.id,
     )
     written = await store.write_workspace_file(
@@ -235,7 +235,7 @@ async def test_memory_store_filters_artifact_listing_by_lifecycle_fields() -> No
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="List artifacts",
+        task_msg="List artifacts",
         workspace_id=workspace.id,
     )
     default_retained = await store.create_artifact(

@@ -1,6 +1,6 @@
 """Typed dependency container for the native Pydantic AI agent."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from aithru_agent.capabilities import AithruCapabilityRouter, AgentRunContext
 from aithru_agent.domain import AgentRun, AgentRunContextPacket, AgentSkill
@@ -19,3 +19,4 @@ class PydanticAgentDeps:
     store: AgentStore
     skill: AgentSkill | None = None
     context_packet: AgentRunContextPacket | None = None
+    tool_name_aliases: dict[str, str] = field(default_factory=dict)

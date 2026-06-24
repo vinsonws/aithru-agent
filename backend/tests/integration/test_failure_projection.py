@@ -19,7 +19,7 @@ async def test_worker_records_model_failure_as_run_failure() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="fail",
+        task_msg="fail",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)
@@ -44,7 +44,7 @@ async def test_worker_records_tool_failure_before_run_failure() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="read missing",
+        task_msg="read missing",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)

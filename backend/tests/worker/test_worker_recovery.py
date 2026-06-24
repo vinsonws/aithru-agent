@@ -62,7 +62,7 @@ async def test_worker_recovers_waiting_input_after_reply_without_queue_entry() -
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Recover input",
+        task_msg="Recover input",
         workspace_id=workspace.id,
         scopes=["*"],
         thread_id=thread.id,
@@ -113,7 +113,7 @@ async def test_worker_recovers_resolved_approval_without_queue_entry() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write a file.",
+        task_msg="Write a file.",
         scopes=["*"],
     )
     approval = (await runtime.store.list_approvals())[0]
@@ -141,7 +141,7 @@ async def test_worker_recovery_fails_parent_when_waited_child_failed() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for child",
+        task_msg="Wait for child",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -149,7 +149,7 @@ async def test_worker_recovery_fails_parent_when_waited_child_failed() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        goal="Child failed",
+        task_msg="Child failed",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -205,7 +205,7 @@ async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_r
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for child",
+        task_msg="Wait for child",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -213,7 +213,7 @@ async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_r
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        goal="Child work",
+        task_msg="Child work",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -274,7 +274,7 @@ async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_a
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for child artifact",
+        task_msg="Wait for child artifact",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -282,7 +282,7 @@ async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_a
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        goal="Child artifact work",
+        task_msg="Child artifact work",
         workspace_id=workspace.id,
         scopes=["*"],
     )

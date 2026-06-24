@@ -1,4 +1,5 @@
 from typing import Any
+from types import SimpleNamespace
 
 import pytest
 from pydantic_ai import Agent, RunContext
@@ -62,6 +63,36 @@ async def test_aithru_toolset_exposes_descriptors_as_pydantic_tools() -> None:
     }
     assert result == {"ok": True, "input": {"value": "hello"}}
     assert calls == [("compat.echo", {"value": "hello"})]
+
+
+@pytest.mark.asyncio
+async def test_aithru_toolset_can_expose_openai_compatible_tool_names() -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def call_tool(ctx: RunContext[object], tool_name: str, tool_input: dict[str, Any]) -> object:
+        del ctx
+        calls.append((tool_name, tool_input))
+        return {"ok": True}
+
+    deps = SimpleNamespace(tool_name_aliases={})
+    toolset = AithruToolset(
+        tool_specs=[(_descriptor(name="workspace.read_file"), False)],
+        tool_callback=call_tool,
+        expose_safe_tool_names=True,
+    )
+    ctx = _ctx(deps=deps)
+
+    tools = await toolset.get_tools(ctx)
+    tool = tools["workspace_read_file"]
+    validated_args = tool.args_validator.validate_python({"value": "hello"})
+    result = await toolset.call_tool("workspace_read_file", validated_args, ctx, tool)
+
+    assert "workspace.read_file" not in tools
+    assert tool.tool_def.name == "workspace_read_file"
+    assert tool.tool_def.metadata["aithru.tool_name"] == "workspace.read_file"
+    assert deps.tool_name_aliases == {"workspace_read_file": "workspace.read_file"}
+    assert result == {"ok": True}
+    assert calls == [("workspace.read_file", {"value": "hello"})]
 
 
 @pytest.mark.asyncio

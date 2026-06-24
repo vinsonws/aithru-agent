@@ -20,7 +20,7 @@ async def test_short_threaded_run_pauses_for_clarification_before_model() -> Non
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="",
+        task_msg="",
         scopes=["agent.input.write"],
         thread_id=thread.id,
     )
@@ -53,7 +53,7 @@ async def test_disabled_clarification_allows_model_to_start() -> None:
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Fix it",
+        task_msg="Fix it",
         scopes=["agent.input.write"],
         thread_id=thread.id,
     )
@@ -83,17 +83,17 @@ async def test_run_continues_after_clarification_input_is_received() -> None:
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="",
+        task_msg="",
         scopes=["agent.input.write"],
         thread_id=thread.id,
     )
     paused = await runtime.runner.execute_run(run.id)
 
-    # Empty goal still triggers pause even after input is received and run resumes.
+    # Empty task message still triggers pause even after input is received and run resumes.
     assert paused.status == AgentRunStatus.WAITING_INPUT
     first_events = await runtime.event_store.list_by_run(run.id)
     assert first_events[-1].type == "run.paused"
-    assert first_events[-1].payload["reason"] == "The run goal is empty."
+    assert first_events[-1].payload["reason"] == "The run task message is empty."
 
     message = await runtime.store.append_message(
         thread_id=thread.id,
@@ -115,7 +115,7 @@ async def test_run_continues_after_clarification_input_is_received() -> None:
     await runtime.worker.resume_waiting_input(paused.id)
     resumed = await runtime.worker.work_once()
 
-    # The preflight fires again — empty goal stays paused.
+    # The preflight fires again — empty task message stays paused.
     assert resumed is not None
     assert resumed.status == AgentRunStatus.WAITING_INPUT
     all_events = await runtime.event_store.list_by_run(run.id)

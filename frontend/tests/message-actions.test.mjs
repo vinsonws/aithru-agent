@@ -31,11 +31,11 @@ test("user messages expose copy and editAndRerun", async () => {
   assert.equal(actions.find((a) => a.kind === "continue"), undefined);
 });
 
-test("assistant messages expose copy, continue, and viewTrace", async () => {
+test("assistant messages expose copy and viewTrace without continue", async () => {
   const { buildMessageActions } = await loadMessageActions();
   const actions = buildMessageActions(assistantMessage());
   assert.ok(actions.find((a) => a.kind === "copy"));
-  assert.ok(actions.find((a) => a.kind === "continue"));
+  assert.equal(actions.find((a) => a.kind === "continue"), undefined);
   assert.ok(actions.find((a) => a.kind === "viewTrace"));
 });
 
@@ -57,11 +57,4 @@ test("buildEditAndRerunPrompt returns the original user message content", async 
   const { buildEditAndRerunPrompt } = await loadMessageActions();
   const prompt = buildEditAndRerunPrompt(userMessage());
   assert.equal(prompt, "Hello agent!");
-});
-
-test("buildContinuePrompt includes a short assistant excerpt and asks to continue", async () => {
-  const { buildContinuePrompt } = await loadMessageActions();
-  const prompt = buildContinuePrompt(assistantMessage({ content: "Here is a long response with lots of details." }));
-  assert.match(prompt, /[Cc]ontinue/);
-  assert.match(prompt, /Here is a long/);
 });

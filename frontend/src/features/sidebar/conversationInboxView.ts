@@ -83,7 +83,7 @@ export function buildConversationInboxRow(
     actionLabel: actionHint?.label,
     actionReason: actionHint?.reason ?? undefined,
     activePath: options.activePath,
-    active: options.activePath === `/threads/${item.thread.id}`,
+    active: isThreadPathActive(options.activePath, item.thread.id),
   };
 }
 
@@ -94,8 +94,8 @@ export function getReadableThreadTitle(item: AgentThreadDashboardItem): string {
   const messagePreview = item.summary?.latest_message?.content_preview;
   if (messagePreview) return messagePreview;
 
-  const runGoal = getLatestRunGoal(item);
-  if (runGoal) return runGoal;
+  const runTaskMsg = getLatestRunTaskMsg(item);
+  if (runTaskMsg) return runTaskMsg;
 
   return "Untitled conversation";
 }
@@ -109,11 +109,11 @@ export function getLatestRunStatus(item: AgentThreadDashboardItem): string {
   return status ?? "idle";
 }
 
-export function getLatestRunGoal(item: AgentThreadDashboardItem): string | undefined {
+export function getLatestRunTaskMsg(item: AgentThreadDashboardItem): string | undefined {
   const goal =
-    ((item.latest_run as Record<string, unknown>)?.run as Record<string, unknown>)?.goal as string | undefined ??
-    (item.latest_run as Record<string, unknown>)?.goal as string | undefined ??
-    item.summary?.latest_run?.goal;
+    ((item.latest_run as Record<string, unknown>)?.run as Record<string, unknown>)?.task_msg as string | undefined ??
+    (item.latest_run as Record<string, unknown>)?.task_msg as string | undefined ??
+    item.summary?.latest_run?.task_msg;
   return goal;
 }
 
@@ -124,8 +124,8 @@ export function getInboxSubtitle(item: AgentThreadDashboardItem): string | undef
   const messagePreview = item.summary?.latest_message?.content_preview;
   if (messagePreview) return messagePreview;
 
-  const runGoal = getLatestRunGoal(item);
-  if (runGoal) return runGoal;
+  const runTaskMsg = getLatestRunTaskMsg(item);
+  if (runTaskMsg) return runTaskMsg;
 
   return undefined;
 }
@@ -140,6 +140,28 @@ export function matchesConversationQuery(row: ConversationInboxRowView, query: s
   );
 }
 
+export function compactConversationTime(
+  iso: string | null | undefined,
+  now: Date = new Date(),
+): string {
+  if (!iso) return "—";
+  const timestamp = new Date(iso).getTime();
+  if (Number.isNaN(timestamp)) return "—";
+
+  const diff = Math.max(0, now.getTime() - timestamp);
+  const units: Array<[string, number]> = [
+    ["w", 604_800_000],
+    ["d", 86_400_000],
+    ["h", 3_600_000],
+    ["m", 60_000],
+    ["s", 1_000],
+  ];
+  for (const [suffix, ms] of units) {
+    if (diff >= ms) return `${Math.floor(diff / ms)}${suffix}`;
+  }
+  return "0s";
+}
+
 function isSameLocalDate(dateStr: string | null | undefined, now: Date): boolean {
   if (!dateStr) return false;
   const date = new Date(dateStr);
@@ -148,4 +170,9 @@ function isSameLocalDate(dateStr: string | null | undefined, now: Date): boolean
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate()
   );
+}
+
+function isThreadPathActive(activePath: string, threadId: string): boolean {
+  const threadPath = `/threads/${threadId}`;
+  return activePath === threadPath || activePath.startsWith(`${threadPath}/`);
 }

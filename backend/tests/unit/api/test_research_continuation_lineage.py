@@ -3,7 +3,7 @@ from aithru_agent.domain import AgentRun, AgentRunStatus
 from aithru_agent.stream.events import AgentStreamEvent
 
 
-def run(run_id: str, *, goal: str = "Research.") -> AgentRun:
+def run(run_id: str, *, task_msg: str = "Research.") -> AgentRun:
     return AgentRun(
         id=run_id,
         org_id="org_1",
@@ -11,7 +11,7 @@ def run(run_id: str, *, goal: str = "Research.") -> AgentRun:
         source="api",
         skill_id="deep-research",
         thread_id="thread_1",
-        goal=goal,
+        task_msg=task_msg,
         workspace_id="workspace_1",
         status=AgentRunStatus.QUEUED,
         started_at="2026-06-19T00:00:00Z",
@@ -31,8 +31,8 @@ def event(run_id: str, sequence: int, event_type: str, payload: dict) -> AgentSt
 
 
 def test_research_continuation_lineage_projects_source_and_child_links() -> None:
-    source = run("run_source", goal="Original research.")
-    child = run("run_child", goal="Continue research.")
+    source = run("run_source", task_msg="Original research.")
+    child = run("run_child", task_msg="Continue research.")
     continuation = {
         "source_run_id": source.id,
         "child_run_id": child.id,
@@ -81,7 +81,7 @@ def test_research_continuation_lineage_projects_source_and_child_links() -> None
                 "query": "aithru continuation",
                 "source_event_sequence": 4,
                 "child_run_status": "queued",
-                "child_run_goal": "Continue research.",
+                "child_run_task_msg": "Continue research.",
             }
         ],
         "counts": {
@@ -99,7 +99,7 @@ def test_research_continuation_lineage_projects_source_and_child_links() -> None
             "query": "aithru continuation",
             "source_event_sequence": 1,
             "source_run_status": "queued",
-            "source_run_goal": "Original research.",
+            "source_run_task_msg": "Original research.",
         },
         "children": [],
         "counts": {

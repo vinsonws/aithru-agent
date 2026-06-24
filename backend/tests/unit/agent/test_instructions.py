@@ -53,7 +53,7 @@ async def build_deps(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Write a report.",
+        task_msg="Write a report.",
         workspace_id=workspace.id,
         scopes=["*"],
         harness_options=harness_options,
@@ -80,7 +80,7 @@ async def test_instruction_builder_combines_base_and_skill_instructions() -> Non
         "Base instructions.\n\n"
         "## When to Ask for Clarification\n\n"
         "You have access to the `ask_clarification` tool. Use it before taking tool actions when:\n"
-        "- The user's goal is too vague to proceed safely\n"
+        "- The user's task is too vague to proceed safely\n"
         "- You need to choose between different approaches — provide `options` (2-5 choices)\n"
         "- A requested action has important implications that need user confirmation\n"
         "\n"
@@ -88,7 +88,7 @@ async def test_instruction_builder_combines_base_and_skill_instructions() -> Non
         "\n"
         "Do NOT use `ask_clarification` for:\n"
         "- Simple informational questions you can answer directly\n"
-        "- Tasks where the goal is clear enough to start working\n"
+        "- Tasks where the task is clear enough to start working\n"
         "- Situations where you already have enough context from the workspace or memory\n\n"
         "Skill instructions:\nRead files first. Then write a report."
     )
@@ -131,7 +131,7 @@ async def test_instruction_builder_adds_run_harness_instructions() -> None:
         "Base instructions.\n\n"
         "## When to Ask for Clarification\n\n"
         "You have access to the `ask_clarification` tool. Use it before taking tool actions when:\n"
-        "- The user's goal is too vague to proceed safely\n"
+        "- The user's task is too vague to proceed safely\n"
         "- You need to choose between different approaches — provide `options` (2-5 choices)\n"
         "- A requested action has important implications that need user confirmation\n"
         "\n"
@@ -139,7 +139,7 @@ async def test_instruction_builder_adds_run_harness_instructions() -> None:
         "\n"
         "Do NOT use `ask_clarification` for:\n"
         "- Simple informational questions you can answer directly\n"
-        "- Tasks where the goal is clear enough to start working\n"
+        "- Tasks where the task is clear enough to start working\n"
         "- Situations where you already have enough context from the workspace or memory\n\n"
         "Run instructions:\nUse terse bullet points."
     )
@@ -169,7 +169,7 @@ async def test_instruction_builder_renders_image_attachments_with_view_image_gui
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Describe attached image.",
+        task_msg="Describe attached image.",
         workspace_id=workspace.id,
         scopes=["agent.workspace.read"],
         thread_id=thread.id,
@@ -215,7 +215,7 @@ async def test_instruction_builder_renders_direct_vision_guidance_when_enabled()
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Describe attached image.",
+        task_msg="Describe attached image.",
         workspace_id=workspace.id,
         scopes=["agent.workspace.read"],
         thread_id=thread.id,
@@ -245,7 +245,7 @@ async def test_instruction_builder_renders_direct_vision_guidance_when_enabled()
 async def test_instruction_builder_renders_context_budget_and_compressed_context() -> None:
     context_packet = AgentRunContextPacket(
         run_id="run_1",
-        goal="Continue the report.",
+        task_msg="Continue the report.",
         status="running",
         compressed_context=AgentRunCompressedContext(
             summary="Compressed context: 2 older thread messages; 1 additional todo.",
@@ -277,7 +277,7 @@ async def test_instruction_builder_renders_context_budget_and_compressed_context
 async def test_instruction_builder_renders_tool_result_context() -> None:
     context_packet = AgentRunContextPacket(
         run_id="run_1",
-        goal="Continue after tools.",
+        task_msg="Continue after tools.",
         status="running",
         tool_results=[
             AgentRunContextToolResult(
@@ -302,7 +302,7 @@ async def test_instruction_builder_renders_tool_result_context() -> None:
 async def test_instruction_builder_renders_external_run_result_context() -> None:
     context_packet = AgentRunContextPacket(
         run_id="run_1",
-        goal="Continue after workflow capability.",
+        task_msg="Continue after workflow capability.",
         status="running",
         tool_results=[
             AgentRunContextToolResult(
@@ -333,7 +333,7 @@ async def test_instruction_builder_renders_external_run_result_context() -> None
 async def test_instruction_builder_renders_memory_recall_context() -> None:
     context_packet = AgentRunContextPacket(
         run_id="run_1",
-        goal="Use memory.",
+        task_msg="Use memory.",
         status="running",
         memory=AgentMemoryRecall(
             run_id="run_1",
@@ -373,7 +373,7 @@ async def test_instruction_builder_renders_memory_recall_context() -> None:
 async def test_instruction_builder_renders_research_continuation_context() -> None:
     context_packet = AgentRunContextPacket(
         run_id="run_1",
-        goal="Continue research.",
+        task_msg="Continue research.",
         status="running",
         research=AgentRunResearchContinuationContext(
             source_run_id="run_source",

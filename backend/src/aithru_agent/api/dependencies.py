@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any, Literal
 
 from fastapi import HTTPException, Request
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aithru_agent.application import AgentRuntime
 from aithru_agent.domain import (
@@ -66,7 +66,9 @@ class AppendMessageRequest(BaseModel):
 
 
 class CreateRunRequest(BaseModel):
-    goal: str = Field(min_length=1)
+    model_config = ConfigDict(populate_by_name=True)
+
+    task_msg: str = Field(min_length=1, validation_alias=AliasChoices("task_msg", "goal"))
     org_id: str = "org_1"
     actor_user_id: str = "user_1"
     scopes: list[str] | None = None
@@ -75,6 +77,10 @@ class CreateRunRequest(BaseModel):
     thread_id: str | None = None
     skill_id: str | None = None
     wait_for_completion: bool = False
+    persist_task_msg_message: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("persist_task_msg_message", "persist_goal_message"),
+    )
 
 
 class ResolveApprovalRequest(BaseModel):

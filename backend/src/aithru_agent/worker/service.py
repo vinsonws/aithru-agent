@@ -55,22 +55,24 @@ class AgentWorkerService:
         *,
         org_id: str,
         actor_user_id: str,
-        goal: str,
+        task_msg: str,
         scopes: list[str],
         harness_options: AgentRunHarnessOptions | None = None,
         retry_policy: AgentRunRetryPolicy | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
+        persist_task_msg_message: bool = False,
     ) -> AgentRun:
         run = await self.runner.create_run(
             org_id=org_id,
             actor_user_id=actor_user_id,
-            goal=goal,
+            task_msg=task_msg,
             scopes=scopes,
             harness_options=harness_options,
             retry_policy=retry_policy,
             thread_id=thread_id,
             skill_id=skill_id,
+            persist_task_msg_message=persist_task_msg_message,
         )
         self.queue.enqueue(run.id)
         return run

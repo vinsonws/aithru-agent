@@ -17,7 +17,7 @@ def test_worker_cli_processes_persisted_queued_run(tmp_path: Path, capsys) -> No
         queued = await runtime.worker.submit_run(
             org_id="org_1",
             actor_user_id="user_1",
-            goal="Process from CLI",
+            task_msg="Process from CLI",
             scopes=["*"],
         )
         return queued.id
@@ -48,7 +48,7 @@ def test_worker_cli_loop_processes_persisted_queued_run(tmp_path: Path, capsys) 
         queued = await runtime.worker.submit_run(
             org_id="org_1",
             actor_user_id="user_1",
-            goal="Process from CLI loop",
+            task_msg="Process from CLI loop",
             scopes=["*"],
         )
         return queued.id

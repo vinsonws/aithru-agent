@@ -24,7 +24,7 @@ async def test_model_usage_events_project_into_direct_run_summary() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Track usage",
+        task_msg="Track usage",
         workspace_id=workspace.id,
     )
     await writer.write(
@@ -69,7 +69,7 @@ async def test_model_usage_summary_applies_model_cost_policy() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Track cost",
+        task_msg="Track cost",
         workspace_id=workspace.id,
         harness_options=AgentRunHarnessOptions(
             model_cost_policy=AgentRunModelCostPolicy(
@@ -105,14 +105,14 @@ async def test_subagent_child_run_usage_rolls_up_into_root_descendant_counters()
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Root task",
+        task_msg="Root task",
         workspace_id=workspace.id,
     )
     child = await store.create_run(
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        goal="Child task",
+        task_msg="Child task",
         workspace_id=workspace.id,
     )
     await store.create_subagent_run(
@@ -164,14 +164,14 @@ async def test_duplicate_subagent_links_count_child_usage_once() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Root task",
+        task_msg="Root task",
         workspace_id=workspace.id,
     )
     child = await store.create_run(
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        goal="Child task",
+        task_msg="Child task",
         workspace_id=workspace.id,
     )
     for name in ["Researcher", "Researcher duplicate"]:
@@ -219,14 +219,14 @@ async def test_research_continuation_event_rolls_child_usage_into_tree() -> None
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Root task",
+        task_msg="Root task",
         workspace_id=workspace.id,
     )
     child = await store.create_run(
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Continuation task",
+        task_msg="Continuation task",
         workspace_id=workspace.id,
     )
     await writer.write(
@@ -273,14 +273,14 @@ async def test_operator_follow_up_event_rolls_child_usage_into_tree() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Root task",
+        task_msg="Root task",
         workspace_id=workspace.id,
     )
     child = await store.create_run(
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Follow-up task",
+        task_msg="Follow-up task",
         workspace_id=workspace.id,
     )
     await writer.write(
@@ -327,14 +327,14 @@ async def test_duplicate_event_and_subagent_child_refs_count_once() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Root task",
+        task_msg="Root task",
         workspace_id=workspace.id,
     )
     child = await store.create_run(
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        goal="Child task",
+        task_msg="Child task",
         workspace_id=workspace.id,
     )
     await store.create_subagent_run(
@@ -392,14 +392,14 @@ async def test_cyclic_subagent_links_do_not_count_ancestor_usage() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Root task",
+        task_msg="Root task",
         workspace_id=workspace.id,
     )
     child = await store.create_run(
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        goal="Child task",
+        task_msg="Child task",
         workspace_id=workspace.id,
     )
     await store.create_subagent_run(
@@ -458,7 +458,7 @@ async def test_tree_budget_status_chooses_worst_status() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.API,
-        goal="Root task",
+        task_msg="Root task",
         workspace_id=workspace.id,
         harness_options=AgentRunHarnessOptions(
             budget_policy=AgentRunBudgetPolicy(max_total_tokens=30)
@@ -468,7 +468,7 @@ async def test_tree_budget_status_chooses_worst_status() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        goal="Child task",
+        task_msg="Child task",
         workspace_id=workspace.id,
         harness_options=AgentRunHarnessOptions(
             budget_policy=AgentRunBudgetPolicy(max_total_tokens=40)

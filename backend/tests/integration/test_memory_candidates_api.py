@@ -24,7 +24,7 @@ async def test_memory_candidates_api_lists_and_approves_pending_candidate() -> N
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Capture a deterministic memory candidate from output",
+                    "task_msg": "Capture a deterministic memory candidate from output",
                     "scopes": ["agent.memory.write"],
                 },
             )
@@ -79,7 +79,7 @@ async def test_memory_candidates_api_rejects_pending_candidate() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Capture a rejectable deterministic memory candidate",
+                    "task_msg": "Capture a rejectable deterministic memory candidate",
                     "scopes": ["*"],
                 },
             )
@@ -120,7 +120,7 @@ async def test_memory_candidates_api_concurrent_approve_allows_one_winner() -> N
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Capture a deterministic memory candidate for approve race",
+                    "task_msg": "Capture a deterministic memory candidate for approve race",
                     "scopes": ["agent.memory.write"],
                 },
             )
@@ -162,7 +162,7 @@ async def test_memory_candidates_api_concurrent_approve_reject_allows_one_winner
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Capture a deterministic memory candidate for reject race",
+                    "task_msg": "Capture a deterministic memory candidate for reject race",
                     "scopes": ["agent.memory.write"],
                 },
             )
@@ -211,7 +211,7 @@ async def test_memory_candidates_api_blocks_cross_org_visibility() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Capture org scoped candidate visibility behavior",
+                    "task_msg": "Capture org scoped candidate visibility behavior",
                     "scopes": ["agent.memory.write"],
                 },
             )

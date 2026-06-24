@@ -18,7 +18,7 @@ async def _deps() -> PydanticAgentDeps:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="List files.",
+        task_msg="List files.",
         workspace_id=workspace.id,
     )
     return PydanticAgentDeps(

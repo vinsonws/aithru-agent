@@ -17,7 +17,7 @@ def run() -> AgentRun:
         actor_user_id="user_1",
         source="api",
         skill_id="deep-research",
-        goal="Review research quality.",
+        task_msg="Review research quality.",
         workspace_id="workspace_1",
         status=AgentRunStatus.COMPLETED,
         started_at="2026-06-19T00:00:00Z",

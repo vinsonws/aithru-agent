@@ -1,4 +1,11 @@
 import pytest
+from pydantic_ai.messages import (
+    PartDeltaEvent,
+    PartEndEvent,
+    TextPartDelta,
+    ThinkingPart,
+    ThinkingPartDelta,
+)
 from pydantic_ai.models.test import TestModel
 
 from aithru_agent.agent import AgentRuntime
@@ -100,6 +107,74 @@ class RecordingInstructionsAgentRuntime(AgentRuntime):
         return await super().build_agent(deps)
 
 
+class ThinkingStream:
+    async def __aenter__(self):  # type: ignore[no-untyped-def]
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+        return False
+
+    def __aiter__(self):  # type: ignore[no-untyped-def]
+        return self._events().__aiter__()
+
+    async def _events(self):  # type: ignore[no-untyped-def]
+        yield PartDeltaEvent(
+            index=0,
+            delta=ThinkingPartDelta(content_delta="先确认用户是在打招呼。"),
+        )
+        yield PartEndEvent(
+            index=0,
+            part=ThinkingPart(content="先确认用户是在打招呼。"),
+        )
+        yield PartDeltaEvent(index=1, delta=TextPartDelta(content_delta="done"))
+
+
+class ThinkingAgent:
+    def run_stream_events(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        del args, kwargs
+        return ThinkingStream()
+
+
+class ThinkingAgentRuntime(AgentRuntime):
+    async def build_agent(self, deps):  # type: ignore[no-untyped-def]
+        del deps
+        return ThinkingAgent()
+
+
+class RecordingSettingsStream:
+    async def __aenter__(self):  # type: ignore[no-untyped-def]
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+        return False
+
+    def __aiter__(self):  # type: ignore[no-untyped-def]
+        return self._events().__aiter__()
+
+    async def _events(self):  # type: ignore[no-untyped-def]
+        yield PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="done"))
+
+
+class RecordingSettingsAgent:
+    def __init__(self) -> None:
+        self.model_settings: list[dict | None] = []
+
+    def run_stream_events(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        del args
+        self.model_settings.append(kwargs.get("model_settings"))
+        return RecordingSettingsStream()
+
+
+class RecordingSettingsAgentRuntime(AgentRuntime):
+    def __init__(self) -> None:
+        super().__init__()
+        self.agent = RecordingSettingsAgent()
+
+    async def build_agent(self, deps):  # type: ignore[no-untyped-def]
+        del deps
+        return self.agent
+
+
 def _runtime(
     *,
     agent_runtime: AgentRuntime | None = None,
@@ -125,7 +200,7 @@ async def test_pydantic_ai_runtime_streams_text_from_test_model() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Say done",
+        task_msg="Say done",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)
@@ -136,13 +211,69 @@ async def test_pydantic_ai_runtime_streams_text_from_test_model() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pydantic_ai_runtime_streams_thinking_deltas() -> None:
+    runtime = _runtime(agent_runtime=ThinkingAgentRuntime())
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        task_msg="Say done with thinking",
+        scopes=["*"],
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+
+    assert run.status == AgentRunStatus.COMPLETED
+    assert [
+        event.payload["delta"] for event in events if event.type == "reasoning.delta"
+    ] == ["先确认用户是在打招呼。"]
+    assert [
+        event.payload["reasoning_id"] for event in events if event.type == "reasoning.completed"
+    ] == ["msg_1:thinking:0"]
+    assert "".join(event.payload["delta"] for event in events if event.type == "message.delta") == "done"
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_runtime_passes_run_reasoning_effort_to_model_settings() -> None:
+    agent_runtime = RecordingSettingsAgentRuntime()
+    runtime = _runtime(agent_runtime=agent_runtime)
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        task_msg="Say done with medium reasoning",
+        scopes=["*"],
+        harness_options=AgentRunHarnessOptions(model_reasoning_effort="medium"),
+    )
+
+    assert run.status == AgentRunStatus.COMPLETED
+    assert agent_runtime.agent.model_settings == [{"thinking": "medium"}]
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_runtime_passes_none_reasoning_as_disabled_thinking() -> None:
+    agent_runtime = RecordingSettingsAgentRuntime()
+    runtime = _runtime(agent_runtime=agent_runtime)
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        task_msg="Say done quickly",
+        scopes=["*"],
+        harness_options=AgentRunHarnessOptions(model_reasoning_effort="none"),
+    )
+
+    assert run.status == AgentRunStatus.COMPLETED
+    assert agent_runtime.agent.model_settings == [{"thinking": False}]
+
+
+@pytest.mark.asyncio
 async def test_pydantic_ai_runtime_emits_model_usage_event() -> None:
     runtime = _runtime(agent_runtime=AgentRuntime(model=TestModel(call_tools=[], custom_output_text="done")))
 
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Track usage.",
+        task_msg="Track usage.",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)
@@ -170,7 +301,7 @@ async def test_pydantic_ai_runtime_uses_run_model_override() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Use the run model.",
+        task_msg="Use the run model.",
         scopes=["*"],
         harness_options=AgentRunHarnessOptions(model="test-run-model"),
     )
@@ -191,7 +322,7 @@ async def test_pydantic_ai_runtime_routes_model_tool_calls_through_aithru_bridge
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="List files and finish.",
+        task_msg="List files and finish.",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)
@@ -223,7 +354,7 @@ async def test_pydantic_ai_runtime_exposes_descriptor_input_schema_to_model() ->
     run = await runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Call schema echo.",
+        task_msg="Call schema echo.",
         scopes=["*"],
     )
     proposed = next(event for event in await event_store.list_by_run(run.id) if event.type == "tool.proposed")
@@ -252,7 +383,7 @@ async def test_pydantic_ai_runtime_fails_run_when_tool_execution_fails() -> None
     run = await runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Call a failing tool.",
+        task_msg="Call a failing tool.",
         scopes=["*"],
     )
     event_types = [event.type for event in await event_store.list_by_run(run.id)]
@@ -274,7 +405,7 @@ async def test_pydantic_ai_runtime_pauses_when_tool_requires_approval() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write a file.",
+        task_msg="Write a file.",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)
@@ -296,7 +427,7 @@ async def test_pydantic_ai_runtime_resumes_model_after_tool_approval() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write a file and then summarize.",
+        task_msg="Write a file and then summarize.",
         scopes=["*"],
     )
     approval = (await runtime.store.list_approvals())[0]
@@ -330,7 +461,7 @@ async def test_pydantic_ai_runtime_resumes_model_after_worker_restart() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write a file and then summarize.",
+        task_msg="Write a file and then summarize.",
         scopes=["*"],
     )
     approval = (await runtime.store.list_approvals())[0]
@@ -387,7 +518,7 @@ async def test_pydantic_ai_runtime_loads_skill_memory_entries() -> None:
     await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Use memory.",
+        task_msg="Use memory.",
         scopes=["*"],
         skill_id="memory-skill",
     )
@@ -403,7 +534,7 @@ async def test_pydantic_ai_runtime_loads_workspace_file_summary() -> None:
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Use workspace files.",
+        task_msg="Use workspace files.",
         scopes=["*"],
     )
     await runtime.store.write_workspace_file(
@@ -441,7 +572,7 @@ async def test_pydantic_ai_runtime_respects_workspace_read_policy_for_file_summa
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Do not use workspace files.",
+        task_msg="Do not use workspace files.",
         scopes=["*"],
         skill_id="no-workspace",
     )
@@ -474,7 +605,7 @@ async def test_pydantic_ai_runtime_loads_thread_message_summary() -> None:
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write a concise report draft.",
+        task_msg="Write a concise report draft.",
         scopes=["*"],
         thread_id=thread.id,
     )
@@ -504,7 +635,7 @@ async def test_pydantic_ai_runtime_injects_context_packet_and_emits_debug_event(
     run = await runtime.runner.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Continue the APAC report draft.",
+        task_msg="Continue the APAC report draft.",
         scopes=["*"],
         thread_id=thread.id,
     )

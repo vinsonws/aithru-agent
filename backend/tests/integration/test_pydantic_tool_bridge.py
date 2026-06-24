@@ -251,7 +251,7 @@ async def test_pydantic_tool_bridge_calls_capability_router_and_emits_events() -
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Read file",
+        task_msg="Read file",
         workspace_id=workspace.id,
     )
     await store.write_workspace_file(
@@ -307,7 +307,7 @@ async def test_pydantic_tool_bridge_emits_external_run_events_for_workflow_capab
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Run workflow capability",
+        task_msg="Run workflow capability",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -377,7 +377,7 @@ async def test_pydantic_tool_bridge_pauses_for_workflow_owned_approval() -> None
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Run workflow capability that needs external approval",
+        task_msg="Run workflow capability that needs external approval",
         workspace_id=workspace.id,
     )
     running = await store.claim_run(run.id)
@@ -448,7 +448,7 @@ async def test_pydantic_tool_bridge_pauses_for_running_workflow_capability_run()
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Run asynchronous workflow capability",
+        task_msg="Run asynchronous workflow capability",
         workspace_id=workspace.id,
     )
     running = await store.claim_run(run.id)
@@ -519,7 +519,7 @@ async def test_pydantic_tool_bridge_persists_capability_audit_in_tool_events() -
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="List files",
+        task_msg="List files",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -571,7 +571,7 @@ async def test_pydantic_tool_bridge_redacts_sensitive_stream_payload_fields() ->
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Use secret",
+        task_msg="Use secret",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -628,7 +628,7 @@ async def test_pydantic_tool_bridge_emits_artifact_event_for_research_report() -
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Create research report",
+        task_msg="Create research report",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -713,7 +713,7 @@ async def test_pydantic_tool_bridge_creates_degraded_research_report_artifact() 
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Create degraded research report",
+        task_msg="Create degraded research report",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -777,7 +777,7 @@ async def test_pydantic_tool_bridge_emits_todo_events_for_research_plan() -> Non
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Plan research",
+        task_msg="Plan research",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -859,7 +859,7 @@ async def test_pydantic_tool_bridge_emits_web_failure_event_and_blocks_research_
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Research with failing web tools",
+        task_msg="Research with failing web tools",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -961,7 +961,7 @@ async def test_pydantic_tool_bridge_still_raises_for_non_recoverable_tool_failur
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Use failing local tool",
+        task_msg="Use failing local tool",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -1011,7 +1011,7 @@ async def test_pydantic_tool_bridge_uses_descriptor_failure_policy_for_recovery(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Use web-named non-recoverable tool",
+        task_msg="Use web-named non-recoverable tool",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -1055,7 +1055,7 @@ async def test_pydantic_tool_bridge_rejects_non_deferred_approval_required_tool(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Write file",
+        task_msg="Write file",
         workspace_id=workspace.id,
     )
     context = AgentRunContext(
@@ -1112,7 +1112,7 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Write file",
+        task_msg="Write file",
         scopes=["*"],
     )
     approval = (await runtime.store.list_approvals())[0]

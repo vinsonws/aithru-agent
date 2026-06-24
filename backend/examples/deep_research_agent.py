@@ -65,7 +65,7 @@ async def main() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Research Aithru Agent backend parity.",
+        task_msg="Research Aithru Agent backend parity.",
         scopes=["*"],
         skill_id="deep-research",
     )

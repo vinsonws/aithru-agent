@@ -9,7 +9,7 @@ from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 
 @pytest.mark.asyncio
 async def test_short_threaded_goal_with_input_scope_pauses_and_emits_events() -> None:
-    context = await _make_context(goal="", scopes=["agent.input.write"])
+    context = await _make_context(task_msg="", scopes=["agent.input.write"])
 
     decision = await ClarificationPreflightProcessor().before_model(context)
 
@@ -18,10 +18,10 @@ async def test_short_threaded_goal_with_input_scope_pauses_and_emits_events() ->
     assert decision.paused_run.status == AgentRunStatus.WAITING_INPUT
     assert [event.type for event in events] == ["input.requested", "run.paused"]
     assert events[0].payload == {
-        "input_request_id": f"empty_goal_{context.run.id}",
-        "tool_call_id": f"empty_goal_{context.run.id}",
+        "input_request_id": f"empty_task_msg_{context.run.id}",
+        "tool_call_id": f"empty_task_msg_{context.run.id}",
         "prompt": "What should the agent help you with?",
-        "reason": "The run goal is empty.",
+        "reason": "The run task message is empty.",
     }
     assert events[1].payload == {
         "status": "waiting_input",
@@ -31,7 +31,7 @@ async def test_short_threaded_goal_with_input_scope_pauses_and_emits_events() ->
 
 @pytest.mark.asyncio
 async def test_short_threaded_goal_without_input_scope_no_ops() -> None:
-    context = await _make_context(goal="Fix it", scopes=["agent.workspace.read"])
+    context = await _make_context(task_msg="Fix it", scopes=["agent.workspace.read"])
 
     decision = await ClarificationPreflightProcessor().before_model(context)
 
@@ -45,7 +45,7 @@ async def test_short_threaded_goal_without_input_scope_no_ops() -> None:
 @pytest.mark.asyncio
 async def test_non_thread_run_no_ops() -> None:
     context = await _make_context(
-        goal="Fix it",
+        task_msg="Fix it",
         scopes=["agent.input.write"],
         threaded=False,
     )
@@ -62,7 +62,7 @@ async def test_non_thread_run_no_ops() -> None:
 @pytest.mark.asyncio
 async def test_long_enough_goal_no_ops() -> None:
     context = await _make_context(
-        goal="Fix the reporting bug",
+        task_msg="Fix the reporting bug",
         scopes=["agent.input.write"],
     )
 
@@ -77,7 +77,7 @@ async def test_long_enough_goal_no_ops() -> None:
 
 async def _make_context(
     *,
-    goal: str,
+    task_msg: str,
     scopes: list[str],
     threaded: bool = True,
 ) -> AgentRuntimeProcessorContext:
@@ -97,7 +97,7 @@ async def _make_context(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal=goal,
+        task_msg=task_msg,
         workspace_id=workspace.id,
         thread_id=thread.id if thread is not None else None,
         scopes=scopes,

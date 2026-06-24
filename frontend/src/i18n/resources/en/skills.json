@@ -1,0 +1,16 @@
+{
+  "title": "Skills",
+  "registry": "Skill registry",
+  "builtin": "Built-in",
+  "managed": "Managed",
+  "marketplace": "Marketplace",
+  "enable": "Enable",
+  "disable": "Disable",
+  "enabled": "Enabled",
+  "version": "Version",
+  "owner": "Owner",
+  "allowedTools": "Allowed tools",
+  "instructions": "Instructions",
+  "whenToUse": "When to use",
+  "noSkills": "No skills installed"
+}

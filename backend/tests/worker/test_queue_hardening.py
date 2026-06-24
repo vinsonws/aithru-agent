@@ -32,7 +32,7 @@ async def test_runner_join_run_waits_until_run_reaches_terminal_state() -> None:
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Join me",
+        task_msg="Join me",
         scopes=["*"],
     )
 
@@ -54,8 +54,8 @@ async def test_runner_join_run_waits_until_run_reaches_terminal_state() -> None:
 
 
 class SlowRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal, deps
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg, deps
         await asyncio.sleep(0.2)
         return AgentRuntimeResult(content="done")
 
@@ -66,7 +66,7 @@ async def test_cancelled_running_run_stays_cancelled_after_worker_returns() -> N
     queued = await runtime.worker.submit_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Cancel while active",
+        task_msg="Cancel while active",
         scopes=["*"],
     )
     worker_task = asyncio.create_task(runtime.worker.drain())

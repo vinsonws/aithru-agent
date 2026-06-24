@@ -36,7 +36,7 @@ async def _deps(skill: AgentSkill) -> PydanticAgentDeps:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Create a report.",
+        task_msg="Create a report.",
         workspace_id=workspace.id,
         skill_id=skill.id,
     )

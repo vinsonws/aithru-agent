@@ -349,7 +349,7 @@ class AgentRunContextPacket(AithruBaseModel):
     run_id: str
     thread_id: str | None = None
     skill_id: str | None = None
-    goal: str
+    task_msg: str
     status: AgentRunStatus
     resume: AgentRunResumeContext | None = None
     compressed_context: AgentRunCompressedContext | None = None

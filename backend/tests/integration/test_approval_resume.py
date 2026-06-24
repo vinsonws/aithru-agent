@@ -42,7 +42,7 @@ def make_approval_runner() -> tuple[AgentWorkerRunner, InMemoryAgentStore, InMem
 async def test_risky_tool_pauses_before_execution_and_resume_approval_completes() -> None:
     runner, store, event_store = make_approval_runner()
 
-    run = await runner.start_run(org_id="org_1", actor_user_id="user_1", goal="Write report", scopes=["*"])
+    run = await runner.start_run(org_id="org_1", actor_user_id="user_1", task_msg="Write report", scopes=["*"])
     phase1_events = await event_store.list_by_run(run.id)
     phase1_types = [event.type for event in phase1_events]
     paused_run = await store.get_run(run.id)
@@ -72,7 +72,7 @@ async def test_risky_tool_pauses_before_execution_and_resume_approval_completes(
 @pytest.mark.asyncio
 async def test_rejected_approval_fails_run_without_executing_tool() -> None:
     runner, store, event_store = make_approval_runner()
-    run = await runner.start_run(org_id="org_1", actor_user_id="user_1", goal="Write report", scopes=["*"])
+    run = await runner.start_run(org_id="org_1", actor_user_id="user_1", task_msg="Write report", scopes=["*"])
     approval = (await store.list_approvals())[0]
 
     await runner.resume_run(
@@ -98,7 +98,7 @@ async def test_approval_resume_fails_run_with_unresolvable_skill_before_tool_exe
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Resume with missing skill",
+        task_msg="Resume with missing skill",
         workspace_id=workspace.id,
         scopes=["*"],
         skill_id="missing-skill",
@@ -141,7 +141,7 @@ async def test_workflow_owned_external_approval_resume_requeues_without_agent_ap
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for workflow-owned approval",
+        task_msg="Wait for workflow-owned approval",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -199,7 +199,7 @@ async def test_rejected_workflow_owned_external_approval_fails_run() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for workflow-owned approval",
+        task_msg="Wait for workflow-owned approval",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -247,7 +247,7 @@ async def test_external_run_resume_requeues_after_completion() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for asynchronous workflow capability",
+        task_msg="Wait for asynchronous workflow capability",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -306,7 +306,7 @@ async def test_failed_external_run_fails_waiting_run() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for asynchronous workflow capability",
+        task_msg="Wait for asynchronous workflow capability",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )

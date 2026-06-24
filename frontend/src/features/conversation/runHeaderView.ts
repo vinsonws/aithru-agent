@@ -32,7 +32,6 @@ export interface RunHeaderInput {
   streamError?: string | null;
   threadId: string;
   modeLabel?: string;
-  defaultModelLabel?: string;
 }
 
 export function buildRunHeaderView(input: RunHeaderInput): RunHeaderView {
@@ -50,7 +49,7 @@ export function buildRunHeaderView(input: RunHeaderInput): RunHeaderView {
     mode: modeLabel,
   });
 
-  const modelLabel = getModelLabel(activeRun, input.defaultModelLabel);
+  const modelLabel = getModelLabel(activeRun);
   const permission = activeRun
     ? getPermissionPolicy(inferPermissionPolicyFromScopes(activeRun.scopes))
     : null;
@@ -74,9 +73,9 @@ export function buildRunHeaderView(input: RunHeaderInput): RunHeaderView {
   };
 }
 
-function getModelLabel(activeRun?: AgentRun | null, defaultModelLabel = "Default model"): string {
+function getModelLabel(activeRun?: AgentRun | null): string {
   const opts = activeRun?.harness_options;
-  return opts?.model_profile_key ?? opts?.model ?? defaultModelLabel;
+  return opts?.model_profile_key ?? opts?.model ?? "";
 }
 
 export function getRunMode(activeRun?: AgentRun | null): "auto" | "plan" | "chat" {
@@ -124,13 +123,6 @@ function buildRunHeaderActions(input: {
       actions.push({ kind: "viewTrace", labelKey: "chat:actions.viewTrace", fallback: "View trace" });
     }
     return actions;
-  }
-
-  if (runStatus === "completed") {
-    return [
-      { kind: "newFollowUp", labelKey: "chat:actions.newFollowUp", fallback: "New follow-up" },
-      { kind: "retry", labelKey: "chat:actions.retry", fallback: "Retry" },
-    ];
   }
 
   if (runStatus === "cancelled") {

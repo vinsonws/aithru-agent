@@ -197,8 +197,8 @@ class InputRequestRuntime(AgentRuntime):
         super().__init__()
         self.calls = 0
 
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         self.calls += 1
         if self.calls == 1:
             bridge = PydanticAIToolBridge(deps=deps)
@@ -214,8 +214,8 @@ class InputRequestRuntime(AgentRuntime):
 
 
 class ViewImageRuntime(AgentRuntime):
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         await deps.store.write_workspace_file(
             workspace_id=deps.run.workspace_id,
             path="/uploads/chart.png",
@@ -288,8 +288,8 @@ class AsyncExternalRunRuntime(AgentRuntime):
         self.calls = 0
         self.external_result_summaries: list[str] = []
 
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         self.calls += 1
         if self.calls == 1:
             bridge = PydanticAIToolBridge(deps=deps)
@@ -335,7 +335,7 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
                 "thread_id": thread["id"],
-                "goal": "Write the report draft",
+                "task_msg": "Write the report draft",
                 "scopes": ["*"],
             },
         )
@@ -544,7 +544,7 @@ async def test_agent_api_views_workspace_images_and_persists_message_attachments
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Inspect the attached image",
+                    "task_msg": "Inspect the attached image",
                     "scopes": ["agent.workspace.read"],
                 },
             )
@@ -626,7 +626,7 @@ async def test_agent_api_rejects_invalid_image_views_and_message_attachments() -
             await client.post(
                 f"/api/threads/{user_a_thread['id']}/runs",
                 headers=user_a_headers,
-                json={"goal": "Inspect image", "scopes": ["agent.workspace.read"]},
+                json={"task_msg": "Inspect image", "scopes": ["agent.workspace.read"]},
             )
         ).json()
         await client.post(
@@ -658,7 +658,7 @@ async def test_agent_api_rejects_invalid_image_views_and_message_attachments() -
             await client.post(
                 f"/api/threads/{user_b_thread['id']}/runs",
                 headers=user_b_headers,
-                json={"goal": "Inspect image", "scopes": ["agent.workspace.read"]},
+                json={"task_msg": "Inspect image", "scopes": ["agent.workspace.read"]},
             )
         ).json()
         await client.post(
@@ -796,7 +796,7 @@ async def test_agent_api_rejects_cross_thread_workspace_image_attachments() -> N
             await client.post(
                 f"/api/threads/{other_thread['id']}/runs",
                 headers=headers,
-                json={"goal": "Inspect image", "scopes": ["agent.workspace.read"]},
+                json={"task_msg": "Inspect image", "scopes": ["agent.workspace.read"]},
             )
         ).json()
         other_upload = (
@@ -885,7 +885,7 @@ async def test_agent_api_rejects_zero_byte_workspace_images_by_size() -> None:
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
                 headers=headers,
-                json={"goal": "Inspect image", "scopes": ["agent.workspace.read"]},
+                json={"task_msg": "Inspect image", "scopes": ["agent.workspace.read"]},
             )
         ).json()
         blank = await runtime.store.write_workspace_file(
@@ -947,7 +947,7 @@ async def test_agent_api_views_workspace_images_with_normalized_image_path() -> 
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
                 headers=headers,
-                json={"goal": "Inspect image", "scopes": ["agent.workspace.read"]},
+                json={"task_msg": "Inspect image", "scopes": ["agent.workspace.read"]},
             )
         ).json()
         written = await runtime.store.write_workspace_file(
@@ -995,7 +995,7 @@ async def test_workspace_view_image_tool_events_do_not_store_base64_content() ->
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="View image",
+        task_msg="View image",
         scopes=["agent.workspace.read", "agent.workspace.write"],
         harness_options=AgentRunHarnessOptions(
             model_capabilities=AgentModelCapabilities(vision=True)
@@ -1022,7 +1022,7 @@ async def test_agent_api_follow_stream_waits_for_new_run_events() -> None:
         run = (
             await client.post(
                 "/api/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Write report", "scopes": ["*"]},
             )
         ).json()
         stream_task = asyncio.create_task(
@@ -1094,7 +1094,7 @@ async def test_agent_api_binds_run_scopes_to_configured_token_scopes() -> None:
         inherited = await client.post(
             "/api/runs",
             headers={"Authorization": "Bearer secret-token"},
-            json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Read only"},
+            json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Read only"},
         )
         escalated = await client.post(
             "/api/runs",
@@ -1102,7 +1102,7 @@ async def test_agent_api_binds_run_scopes_to_configured_token_scopes() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Escalate",
+                "task_msg": "Escalate",
                 "scopes": ["*"],
             },
         )
@@ -1115,7 +1115,7 @@ async def test_agent_api_binds_run_scopes_to_configured_token_scopes() -> None:
     assert inherited.json()["scopes"] == ["agent.workspace.read"]
     assert escalated.status_code == 403
     assert escalated.json()["detail"] == "Requested scopes exceed API token scopes"
-    assert [run["goal"] for run in runs] == ["Read only"]
+    assert [run["task_msg"] for run in runs] == ["Read only"]
 
 
 @pytest.mark.asyncio
@@ -1135,7 +1135,7 @@ async def test_agent_api_binds_run_identity_to_trusted_headers() -> None:
         inherited = await client.post(
             "/api/runs",
             headers=headers,
-            json={"goal": "Use trusted identity"},
+            json={"task_msg": "Use trusted identity"},
         )
         conflicting = await client.post(
             "/api/runs",
@@ -1143,7 +1143,7 @@ async def test_agent_api_binds_run_identity_to_trusted_headers() -> None:
             json={
                 "org_id": "org_from_body",
                 "actor_user_id": "user_from_header",
-                "goal": "Conflict",
+                "task_msg": "Conflict",
             },
         )
         runs = (await client.get("/api/runs", headers=headers)).json()
@@ -1153,7 +1153,7 @@ async def test_agent_api_binds_run_identity_to_trusted_headers() -> None:
     assert inherited.json()["actor_user_id"] == "user_from_header"
     assert conflicting.status_code == 403
     assert conflicting.json()["detail"] == "Request identity conflicts with authenticated context"
-    assert [run["goal"] for run in runs] == ["Use trusted identity"]
+    assert [run["task_msg"] for run in runs] == ["Use trusted identity"]
 
 
 @pytest.mark.asyncio
@@ -1168,7 +1168,7 @@ async def test_agent_api_persists_run_harness_options() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Use run config",
+                    "task_msg": "Use run config",
                     "harness_options": {
                         "model": "test",
                         "instructions": "Answer with terse bullets.",
@@ -1445,7 +1445,7 @@ async def test_agent_api_exposes_thread_summary_for_sidebar() -> None:
             await client.post(
                 f"/api/threads/{thread['id']}/runs",
                 headers=user_a_headers,
-                json={"goal": "Research Aithru", "scopes": ["*"]},
+                json={"task_msg": "Research Aithru", "scopes": ["*"]},
             )
         ).json()
         running = await runtime.store.claim_run(run["id"])
@@ -1475,7 +1475,7 @@ async def test_agent_api_exposes_thread_summary_for_sidebar() -> None:
     assert summary["latest_run"] == {
         "run_id": paused.id,
         "status": "waiting_input",
-        "goal": "Research Aithru",
+        "task_msg": "Research Aithru",
         "started_at": paused.started_at,
         "completed_at": None,
     }
@@ -1513,7 +1513,7 @@ async def test_agent_api_exposes_thread_workbench_for_deerflow_like_frontend() -
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Open a DeerFlow-like thread workbench",
+                    "task_msg": "Open a DeerFlow-like thread workbench",
                     "scopes": ["*"],
                     "skill_id": "skill_deep_research",
                 },
@@ -1610,7 +1610,7 @@ async def test_agent_api_exposes_thread_dashboard_for_queue_views() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Recover degraded research report",
+                    "task_msg": "Recover degraded research report",
                     "scopes": ["*"],
                     "skill_id": "skill_deep_research",
                 },
@@ -1757,7 +1757,7 @@ async def test_agent_api_thread_dashboard_exposes_waiting_input_action_hint() ->
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Ask for missing input",
+                    "task_msg": "Ask for missing input",
                     "scopes": ["*"],
                 },
             )
@@ -1826,7 +1826,7 @@ async def test_agent_api_thread_workbench_exposes_waiting_input_action_hint() ->
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Ask for missing input in workbench",
+                    "task_msg": "Ask for missing input in workbench",
                     "scopes": ["*"],
                 },
             )
@@ -1896,7 +1896,7 @@ async def test_agent_api_thread_action_hint_input_path_resolves_and_clears_hints
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Resolve input hint request",
+                    "task_msg": "Resolve input hint request",
                     "scopes": ["*"],
                 },
             )
@@ -1986,10 +1986,10 @@ async def test_agent_api_filters_runs_by_trusted_identity_headers() -> None:
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         user_a_run = (
-            await client.post("/api/runs", headers=user_a_headers, json={"goal": "User A"})
+            await client.post("/api/runs", headers=user_a_headers, json={"task_msg": "User A"})
         ).json()
         user_b_run = (
-            await client.post("/api/runs", headers=user_b_headers, json={"goal": "User B"})
+            await client.post("/api/runs", headers=user_b_headers, json={"task_msg": "User B"})
         ).json()
         user_a_runs = (await client.get("/api/runs", headers=user_a_headers)).json()
         hidden_run = await client.get(f"/api/runs/{user_b_run['id']}", headers=user_a_headers)
@@ -2030,7 +2030,7 @@ async def test_agent_api_rejects_run_with_thread_outside_trusted_identity() -> N
         response = await client.post(
             "/api/runs",
             headers=user_a_headers,
-            json={"thread_id": user_b_thread["id"], "goal": "Attach elsewhere"},
+            json={"thread_id": user_b_thread["id"], "task_msg": "Attach elsewhere"},
         )
         runs = (await client.get("/api/runs", headers=user_a_headers)).json()
 
@@ -2060,10 +2060,10 @@ async def test_agent_api_filters_approvals_by_trusted_run_identity() -> None:
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         user_a_run = (
-            await client.post("/api/runs", headers=user_a_headers, json={"goal": "User A"})
+            await client.post("/api/runs", headers=user_a_headers, json={"task_msg": "User A"})
         ).json()
         user_b_run = (
-            await client.post("/api/runs", headers=user_b_headers, json={"goal": "User B"})
+            await client.post("/api/runs", headers=user_b_headers, json={"task_msg": "User B"})
         ).json()
         await runtime.worker.drain()
         user_a_run = (await client.get(f"/api/runs/{user_a_run['id']}", headers=user_a_headers)).json()
@@ -2112,10 +2112,10 @@ async def test_agent_api_filters_artifacts_by_trusted_run_identity() -> None:
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         user_a_run = (
-            await client.post("/api/runs", headers=user_a_headers, json={"goal": "User A"})
+            await client.post("/api/runs", headers=user_a_headers, json={"task_msg": "User A"})
         ).json()
         user_b_run = (
-            await client.post("/api/runs", headers=user_b_headers, json={"goal": "User B"})
+            await client.post("/api/runs", headers=user_b_headers, json={"task_msg": "User B"})
         ).json()
         await runtime.worker.drain()
         user_a_artifacts = (await client.get("/api/artifacts", headers=user_a_headers)).json()
@@ -2189,7 +2189,7 @@ async def test_agent_api_filters_paginates_and_orders_artifacts() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="List artifacts",
+        task_msg="List artifacts",
         workspace_id=workspace.id,
     )
     alpha = await runtime.store.create_artifact(
@@ -2306,10 +2306,10 @@ async def test_agent_api_rejects_workspace_access_outside_trusted_identity() -> 
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         user_a_run = (
-            await client.post("/api/runs", headers=user_a_headers, json={"goal": "User A"})
+            await client.post("/api/runs", headers=user_a_headers, json={"task_msg": "User A"})
         ).json()
         user_b_run = (
-            await client.post("/api/runs", headers=user_b_headers, json={"goal": "User B"})
+            await client.post("/api/runs", headers=user_b_headers, json={"task_msg": "User B"})
         ).json()
         await runtime.worker.drain()
         visible_files = await client.get(
@@ -2698,7 +2698,7 @@ async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
         run = (
             await client.post(
                 "/api/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Write report", "scopes": ["*"]},
             )
         ).json()
         await runtime.worker.drain()
@@ -2761,7 +2761,7 @@ async def test_agent_api_snapshot_includes_sandbox_diagnostics_summary() -> None
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Create sandbox report",
+                    "task_msg": "Create sandbox report",
                     "scopes": ["*"],
                 },
             )
@@ -2798,7 +2798,7 @@ async def test_agent_api_snapshot_includes_research_recovery_summary() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research recoverable web failures",
+                    "task_msg": "Research recoverable web failures",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -2855,7 +2855,7 @@ async def test_agent_api_research_execution_snapshot_projects_run_progress() -> 
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research recoverable web failures",
+                    "task_msg": "Research recoverable web failures",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -2914,7 +2914,7 @@ async def test_agent_api_research_evidence_ledger_projects_sources_and_evidence(
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Create evidence ledger report",
+                    "task_msg": "Create evidence ledger report",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -2987,7 +2987,7 @@ async def test_agent_api_research_review_snapshot_grades_report_quality() -> Non
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Review evidence ledger quality",
+                    "task_msg": "Review evidence ledger quality",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3036,7 +3036,7 @@ async def test_agent_api_research_review_snapshot_grades_report_quality() -> Non
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Review insufficient evidence report",
+                    "task_msg": "Review insufficient evidence report",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3083,7 +3083,7 @@ async def test_agent_api_research_continuation_snapshot_suggests_next_actions() 
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Plan continuation action set",
+                    "task_msg": "Plan continuation action set",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3135,7 +3135,7 @@ async def test_agent_api_research_continuation_snapshot_suggests_next_actions() 
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Plan failed research continuation",
+                    "task_msg": "Plan failed research continuation",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3191,7 +3191,7 @@ async def test_agent_api_creates_research_continuation_run_from_actions() -> Non
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research recoverable web failures",
+                    "task_msg": "Research recoverable web failures",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3306,7 +3306,7 @@ async def test_agent_api_creates_research_continuation_run_from_actions() -> Non
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research with enough evidence",
+                    "task_msg": "Research with enough evidence",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3351,7 +3351,7 @@ async def test_agent_api_revalidates_model_profile_for_research_continuation_run
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research recoverable web failures",
+                    "task_msg": "Research recoverable web failures",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                     "harness_options": {"model_profile_key": "research"},
@@ -3390,7 +3390,7 @@ async def test_agent_api_research_continuation_run_carries_target_sections() -> 
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research section quality gaps",
+                    "task_msg": "Research section quality gaps",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3448,7 +3448,7 @@ async def test_agent_api_run_detail_and_list_include_research_inspection_summary
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research recoverable web failures",
+                    "task_msg": "Research recoverable web failures",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3487,7 +3487,7 @@ async def test_agent_api_filters_runs_by_status_skill_and_inspection_summary() -
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research degraded run",
+                    "task_msg": "Research degraded run",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3500,7 +3500,7 @@ async def test_agent_api_filters_runs_by_status_skill_and_inspection_summary() -
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Queued run",
+                    "task_msg": "Queued run",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -3560,7 +3560,7 @@ async def test_agent_api_filters_runs_by_sandbox_summary() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Create sandbox output file",
+                    "task_msg": "Create sandbox output file",
                     "scopes": ["*"],
                 },
             )
@@ -3572,7 +3572,7 @@ async def test_agent_api_filters_runs_by_sandbox_summary() -> None:
             org_id="org_1",
             actor_user_id="user_1",
             source="api",
-            goal="Ordinary completed run",
+            task_msg="Ordinary completed run",
             workspace_id=workspace.id,
             scopes=["*"],
         )
@@ -3586,7 +3586,7 @@ async def test_agent_api_filters_runs_by_sandbox_summary() -> None:
             org_id="org_1",
             actor_user_id="user_1",
             source="api",
-            goal="Failed sandbox run",
+            task_msg="Failed sandbox run",
             workspace_id=workspace.id,
             scopes=["*"],
         )
@@ -3745,7 +3745,7 @@ async def test_agent_api_creates_operator_action_follow_up_run() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Create sandbox output file",
+                    "task_msg": "Create sandbox output file",
                     "scopes": ["*"],
                     "retry_policy": {"max_attempts": 2, "initial_delay_seconds": 1},
                 },
@@ -3785,7 +3785,7 @@ async def test_agent_api_creates_operator_action_follow_up_run() -> None:
             org_id="org_1",
             actor_user_id="user_1",
             source="api",
-            goal="Ordinary completed run",
+            task_msg="Ordinary completed run",
             workspace_id=workspace.id,
             scopes=["*"],
         )
@@ -3940,7 +3940,7 @@ async def test_agent_api_filters_runs_by_external_run_stale_summary() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for asynchronous workflow capability",
+        task_msg="Wait for asynchronous workflow capability",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -3964,7 +3964,7 @@ async def test_agent_api_filters_runs_by_external_run_stale_summary() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Queued run",
+        task_msg="Queued run",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -3997,7 +3997,7 @@ async def test_agent_api_exposes_run_summary_contract_schema() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for asynchronous workflow capability",
+        task_msg="Wait for asynchronous workflow capability",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -5046,9 +5046,9 @@ async def test_agent_api_paginates_and_orders_run_list() -> None:
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        first = (await client.post("/api/runs", json={"goal": "First"})).json()
-        second = (await client.post("/api/runs", json={"goal": "Second"})).json()
-        third = (await client.post("/api/runs", json={"goal": "Third"})).json()
+        first = (await client.post("/api/runs", json={"task_msg": "First"})).json()
+        second = (await client.post("/api/runs", json={"task_msg": "Second"})).json()
+        third = (await client.post("/api/runs", json={"task_msg": "Third"})).json()
 
         page = (
             await client.get(
@@ -5072,9 +5072,9 @@ async def test_agent_api_run_list_can_include_pagination_metadata() -> None:
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        first = (await client.post("/api/runs", json={"goal": "First"})).json()
-        second = (await client.post("/api/runs", json={"goal": "Second"})).json()
-        third = (await client.post("/api/runs", json={"goal": "Third"})).json()
+        first = (await client.post("/api/runs", json={"task_msg": "First"})).json()
+        second = (await client.post("/api/runs", json={"task_msg": "Second"})).json()
+        third = (await client.post("/api/runs", json={"task_msg": "Third"})).json()
 
         page = (
             await client.get(
@@ -5124,7 +5124,7 @@ async def test_agent_api_persists_completed_assistant_message_to_thread() -> Non
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "thread_id": thread["id"],
-                    "goal": "Write the report draft",
+                    "task_msg": "Write the report draft",
                     "scopes": ["*"],
                 },
             )
@@ -5149,7 +5149,7 @@ async def test_agent_api_resolves_approval_and_resumes_run() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         run_response = await client.post(
             "/api/runs",
-            json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+            json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Write report", "scopes": ["*"]},
         )
         run = run_response.json()
         await runtime.worker.drain()
@@ -5178,7 +5178,7 @@ async def test_agent_api_run_resume_uses_current_approval() -> None:
         run = (
             await client.post(
                 "/api/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Write report", "scopes": ["*"]},
             )
         ).json()
         await runtime.worker.drain()
@@ -5205,7 +5205,7 @@ async def test_agent_api_run_resume_rejects_run_without_current_approval() -> No
         run = (
             await client.post(
                 "/api/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Write report", "scopes": ["*"]},
             )
         ).json()
         response = await client.post(
@@ -5225,7 +5225,7 @@ async def test_agent_api_resolves_workflow_owned_external_approval_without_agent
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for workflow approval",
+        task_msg="Wait for workflow approval",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -5275,7 +5275,7 @@ async def test_resolve_external_run_requeues_waiting_run() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for asynchronous workflow capability",
+        task_msg="Wait for asynchronous workflow capability",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -5326,7 +5326,7 @@ async def test_resolve_external_run_accepts_duplicate_completed_callback() -> No
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for asynchronous workflow capability",
+        task_msg="Wait for asynchronous workflow capability",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -5373,7 +5373,7 @@ async def test_external_run_resolve_response_exposes_contract_metadata() -> None
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for asynchronous workflow capability",
+        task_msg="Wait for asynchronous workflow capability",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -5447,7 +5447,7 @@ async def test_resolve_external_run_rejects_conflicting_terminal_callback() -> N
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for asynchronous workflow capability",
+        task_msg="Wait for asynchronous workflow capability",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -5502,7 +5502,7 @@ async def test_agent_api_run_summary_exposes_external_run_failure_diagnostic() -
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Wait for asynchronous workflow capability",
+        task_msg="Wait for asynchronous workflow capability",
         workspace_id=workspace.id,
         scopes=["workflow.capability.report_review.invoke"],
     )
@@ -5572,7 +5572,7 @@ async def test_agent_api_async_external_run_completes_after_worker_continuation(
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Review the report asynchronously",
+                    "task_msg": "Review the report asynchronously",
                     "scopes": ["workflow.capability.report_review.invoke"],
                 },
             )
@@ -5642,7 +5642,7 @@ async def test_agent_api_accepts_user_input_for_paused_thread_run() -> None:
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "thread_id": thread["id"],
-                    "goal": "Write the report draft",
+                    "task_msg": "Write the report draft",
                     "scopes": ["*"],
                 },
             )
@@ -5690,7 +5690,7 @@ async def test_agent_api_waiting_input_run_resumes_after_user_input() -> None:
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "thread_id": thread["id"],
-                    "goal": "Ask for missing input",
+                    "task_msg": "Ask for missing input",
                     "scopes": ["*"],
                 },
             )
@@ -5755,7 +5755,7 @@ async def test_agent_api_rejects_cancelling_completed_run() -> None:
         run = (
             await client.post(
                 "/api/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Write report", "scopes": ["*"]},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Write report", "scopes": ["*"]},
             )
         ).json()
         await runtime.worker.drain()
@@ -5819,7 +5819,7 @@ async def test_agent_api_exposes_default_deep_research_skill_and_filtered_tools(
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Research Aithru parity",
+                    "task_msg": "Research Aithru parity",
                     "scopes": ["*"],
                     "skill_id": "deep-research",
                 },
@@ -6039,7 +6039,7 @@ async def test_agent_api_enable_disable_controls_runtime_skill_visibility_and_ru
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Use disabled skill",
+                "task_msg": "Use disabled skill",
                 "skill_id": "file-report",
                 "scopes": ["*"],
             },
@@ -6051,7 +6051,7 @@ async def test_agent_api_enable_disable_controls_runtime_skill_visibility_and_ru
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Use enabled skill",
+                "task_msg": "Use enabled skill",
                 "skill_id": "file-report",
                 "scopes": ["*"],
             },
@@ -6117,7 +6117,7 @@ async def test_agent_api_updates_skill_registry_version_and_runtime_policy_confi
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Create artifact",
+                    "task_msg": "Create artifact",
                     "skill_id": "file-report",
                     "scopes": ["*"],
                 },
@@ -6259,7 +6259,7 @@ async def test_agent_api_resolves_duplicate_skill_keys_with_authenticated_org() 
             json={
                 "org_id": "org_2",
                 "actor_user_id": "user_2",
-                "goal": "Use org 2 shared report",
+                "task_msg": "Use org 2 shared report",
                 "skill_id": "shared-report",
                 "scopes": ["*"],
             },
@@ -6291,7 +6291,7 @@ async def test_agent_api_rejects_run_with_unknown_skill() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Use missing skill",
+                "task_msg": "Use missing skill",
                 "skill_id": "missing-skill",
                 "scopes": ["*"],
             },
@@ -6325,7 +6325,7 @@ async def test_agent_api_rejects_run_with_skill_from_another_org() -> None:
             json={
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
-                "goal": "Use external skill",
+                "task_msg": "Use external skill",
                 "skill_id": "external-skill",
                 "scopes": ["*"],
             },
@@ -6349,7 +6349,7 @@ async def test_agent_api_rejects_run_with_unknown_thread() -> None:
                 "org_id": "org_1",
                 "actor_user_id": "user_1",
                 "thread_id": "missing-thread",
-                "goal": "Use missing thread",
+                "task_msg": "Use missing thread",
                 "scopes": ["*"],
             },
         )
@@ -6426,7 +6426,7 @@ async def test_agent_api_validates_workspace_file_content_as_text() -> None:
         run = (
             await client.post(
                 "/api/runs",
-                json={"org_id": "org_1", "actor_user_id": "user_1", "goal": "Prepare workspace"},
+                json={"org_id": "org_1", "actor_user_id": "user_1", "task_msg": "Prepare workspace"},
             )
         ).json()
         response = await client.put(
@@ -6460,7 +6460,7 @@ async def test_agent_api_lists_run_tools_filtered_by_skill_policy() -> None:
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "List files",
+                    "task_msg": "List files",
                     "scopes": ["*"],
                     "skill_id": "file-report",
                 },
@@ -6483,7 +6483,7 @@ async def test_agent_api_rejects_run_tools_for_unresolvable_run_skill() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Inspect tools with missing skill",
+        task_msg="Inspect tools with missing skill",
         workspace_id=workspace.id,
         scopes=["*"],
         skill_id="missing-skill",
@@ -6520,7 +6520,7 @@ async def test_agent_api_hides_sandbox_tools_when_skill_disables_sandbox() -> No
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "goal": "Try code.",
+                    "task_msg": "Try code.",
                     "scopes": ["*"],
                     "skill_id": "no-sandbox",
                 },
@@ -6581,7 +6581,7 @@ async def test_agent_api_returns_run_memory_recall_projection() -> None:
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "thread_id": thread["id"],
-                    "goal": "Inspect memory",
+                    "task_msg": "Inspect memory",
                     "scopes": ["agent.memory.read"],
                 },
             )
@@ -6593,7 +6593,7 @@ async def test_agent_api_returns_run_memory_recall_projection() -> None:
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
                     "thread_id": thread["id"],
-                    "goal": "No memory",
+                    "task_msg": "No memory",
                     "scopes": ["agent.workspace.read"],
                 },
             )

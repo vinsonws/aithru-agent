@@ -1,0 +1,14 @@
+{
+  "title": "审批",
+  "queue": "待审批",
+  "tool": "工具",
+  "run": "运行",
+  "riskLevel": "风险",
+  "decision": "决策",
+  "comment": "备注",
+  "approve": "批准",
+  "reject": "拒绝",
+  "external": "外部审批",
+  "noApprovals": "无待审批",
+  "commentPlaceholder": "可选备注…"
+}

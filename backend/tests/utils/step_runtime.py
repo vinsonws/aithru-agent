@@ -47,8 +47,8 @@ class StepAgentRuntime(AgentRuntime):
         self._steps = steps
         self._tool_counter = 0
 
-    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
-        del goal
+    async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        del task_msg
         content: list[str] = []
         message_id = "msg_1"
         await deps.event_writer.write(

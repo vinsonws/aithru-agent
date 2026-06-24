@@ -3,7 +3,7 @@ from enum import StrEnum
 import re
 from typing import Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 
 from .base import AithruBaseModel
 from .errors import AgentError
@@ -201,6 +201,13 @@ class AgentModelCapabilities(AithruBaseModel):
     thinking: bool = False
 
 
+class AgentModelReasoningEffort(StrEnum):
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class AgentRunHarnessOptions(AithruBaseModel):
     model: str | None = None
     model_profile_key: str | None = Field(
@@ -209,6 +216,10 @@ class AgentRunHarnessOptions(AithruBaseModel):
     )
     instructions: str | None = None
     model_capabilities: AgentModelCapabilities | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    model_reasoning_effort: AgentModelReasoningEffort | None = Field(
         default=None,
         exclude_if=lambda value: value is None,
     )
@@ -412,7 +423,7 @@ class AgentRun(AithruBaseModel):
     thread_id: str | None = None
     skill_id: str | None = None
     workspace_id: str
-    goal: str
+    task_msg: str = Field(validation_alias=AliasChoices("task_msg", "goal"))
     scopes: list[str] = []
     harness_options: AgentRunHarnessOptions | None = None
     status: AgentRunStatus

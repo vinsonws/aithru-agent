@@ -27,7 +27,7 @@ async def test_update_run_validates_string_status_into_domain_enum(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Status hardening",
+        task_msg="Status hardening",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -59,7 +59,7 @@ async def test_claim_run_records_persistent_worker_lease(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Claim with lease",
+        task_msg="Claim with lease",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -107,7 +107,7 @@ async def test_expired_running_claim_can_be_reclaimed(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Reclaim stale lease",
+        task_msg="Reclaim stale lease",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -153,7 +153,7 @@ async def test_claim_next_picks_expired_running_claim_when_no_queued_run_exists(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Reclaim next stale lease",
+        task_msg="Reclaim next stale lease",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -196,7 +196,7 @@ async def test_queued_retry_run_is_not_claimed_until_backoff_time(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Backoff retry",
+        task_msg="Backoff retry",
         workspace_id=workspace.id,
         scopes=["*"],
         retry_policy=AgentRunRetryPolicy(max_attempts=2, initial_delay_seconds=30),
@@ -243,7 +243,7 @@ async def test_run_claim_can_be_renewed_by_owning_worker(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Renew lease",
+        task_msg="Renew lease",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -289,7 +289,7 @@ async def test_run_claim_renewal_rejects_non_owner_or_expired_claim(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Reject bad renew",
+        task_msg="Reject bad renew",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -338,7 +338,7 @@ async def test_active_run_claim_is_cleared_when_run_pauses_or_completes(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Clear lease",
+        task_msg="Clear lease",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -386,7 +386,7 @@ async def test_terminal_run_status_cannot_be_overwritten(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Protect terminal status",
+        task_msg="Protect terminal status",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -417,7 +417,7 @@ async def test_queued_run_cannot_jump_directly_to_waiting_approval(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Invalid direct wait",
+        task_msg="Invalid direct wait",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -444,7 +444,7 @@ async def test_running_run_can_pause_resume_and_complete(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Pause and resume",
+        task_msg="Pause and resume",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -476,7 +476,7 @@ async def test_waiting_input_run_can_resume_through_queue(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        goal="Pause for input",
+        task_msg="Pause for input",
         workspace_id=workspace.id,
         scopes=["*"],
     )

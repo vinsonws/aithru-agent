@@ -106,7 +106,7 @@ export function FilePreviewPanel({
     if (error) return <ErrorState error={error} onRetry={handleRefresh} />;
 
     const outputs = views.filter((v) => v.kind === "artifact");
-    const wsFiles = views.filter((v) => v.kind === "workspace_file");
+    const modifiedFiles = views.filter((v) => v.kind === "modified_file");
 
     return (
       <PanelShell title={t("chat:tabOutputs", "Outputs")} onClose={onClose}>
@@ -138,13 +138,13 @@ export function FilePreviewPanel({
                 </div>
               </section>
             )}
-            {wsFiles.length > 0 && (
+            {modifiedFiles.length > 0 && (
               <section>
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("chat:files.workspaceFiles", "Workspace files")}
+                  {t("chat:files.modified", "Modified")}
                 </div>
                 <div className="space-y-1">
-                  {wsFiles.map((file) => (
+                  {modifiedFiles.map((file) => (
                     <FileRow key={file.id} file={file} onSelect={() => onSelectFile(file.id)} />
                   ))}
                 </div>

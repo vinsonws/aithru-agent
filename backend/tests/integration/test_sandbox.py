@@ -1535,7 +1535,7 @@ async def test_sandbox_run_python_emits_events_and_trace() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Process numbers",
+        task_msg="Process numbers",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)
@@ -1590,7 +1590,7 @@ async def test_sandbox_run_python_rejects_imports() -> None:
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        goal="Try unsafe code",
+        task_msg="Try unsafe code",
         scopes=["*"],
     )
     events = await runtime.event_store.list_by_run(run.id)
