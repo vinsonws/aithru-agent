@@ -83,6 +83,7 @@ class AgentWorkerRunner:
         retry_policy: AgentRunRetryPolicy | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
+        persist_goal_message: bool = False,
     ) -> AgentRun:
         run = await self.create_run(
             org_id=org_id,
@@ -93,6 +94,7 @@ class AgentWorkerRunner:
             retry_policy=retry_policy,
             thread_id=thread_id,
             skill_id=skill_id,
+            persist_goal_message=persist_goal_message,
         )
         return await self.execute_run(run.id)
 
@@ -107,6 +109,7 @@ class AgentWorkerRunner:
         retry_policy: AgentRunRetryPolicy | None = None,
         thread_id: str | None = None,
         skill_id: str | None = None,
+        persist_goal_message: bool = False,
     ) -> AgentRun:
         if thread_id:
             thread = await self._store.get_thread(thread_id)
@@ -134,6 +137,27 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload={"status": "queued", "workspace_id": workspace.id},
         )
+        if thread_id and persist_goal_message:
+            message = await self._store.append_message(
+                thread_id=thread_id,
+                role="user",
+                content=goal,
+                run_id=run.id,
+            )
+            await self._event_writer.write(
+                run_id=run.id,
+                thread_id=thread_id,
+                type="message.created",
+                source={"kind": "harness"},
+                payload={"message_id": message.id, "role": "user"},
+            )
+            await self._event_writer.write(
+                run_id=run.id,
+                thread_id=thread_id,
+                type="message.completed",
+                source={"kind": "harness"},
+                payload={"message_id": message.id, "content": goal},
+            )
         return run
 
     async def execute_run(
@@ -210,7 +234,15 @@ class AgentWorkerRunner:
 
         deps = await self._build_deps(run, skill)
         try:
-            result = await self._agent_runtime.run(run.goal, deps)
+            if self._agent_runtime.has_pending_clarification(run.id):
+                input_text = await self._latest_input_text(run.id) or run.goal
+                result = await self._agent_runtime.resume_clarification(
+                    run_id=run.id,
+                    input_text=input_text,
+                    deps=deps,
+                )
+            else:
+                result = await self._agent_runtime.run(run.goal, deps)
             if result.pending_approval is not None:
                 return await self._get_existing_run(run.id)
             return await self._complete_run(run, thread_id, "msg_1", [result.content], skill=skill)
@@ -517,6 +549,23 @@ class AgentWorkerRunner:
             child_runs=child_runs,
             child_artifacts=child_artifacts,
         )
+
+    async def _latest_input_text(self, run_id: str) -> str | None:
+        """Read the most recent user input from the event store for a run.
+
+        Scans events in reverse chronological order to find the latest
+        ``input.received`` event and extracts its ``content`` payload field.
+        """
+        if self._event_store is None:
+            return None
+        events = await self._event_store.list_by_run(run_id)
+        for event in reversed(events):
+            if event.type == "input.received":
+                payload = event.payload if isinstance(event.payload, dict) else {}
+                content = payload.get("content")
+                if content:
+                    return str(content)
+        return None
 
     async def resume_run(
         self,
