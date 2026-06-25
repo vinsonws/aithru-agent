@@ -24,9 +24,15 @@ test("right panel and selected file are session-only React state, not localStora
     /rightPanel[^;]*React\.useState<string\s*\|\s*null\s*>\s*\(null\)/,
   );
 
-  // selectedFile defaults to null
+  // openFileIds defaults to empty array
   assert.match(
     source,
-    /selectedFile[^;]*React\.useState<string\s*\|\s*null\s*>\s*\(null\)/,
+    /openFileIds[^;]*React\.useState<string\[\]>\s*\(\[\]\)/,
+  );
+
+  // activeFileId defaults to null
+  assert.match(
+    source,
+    /activeFileId[^;]*React\.useState<string\s*\|\s*null\s*>\s*\(null\)/,
   );
 });

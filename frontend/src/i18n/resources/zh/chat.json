@@ -177,4 +177,10 @@
   "defaultSkill": "默认技能",
   "expandComposerSettings": "调整推理、模型和权限",
   "collapseComposerSettings": "隐藏输入设置"
+,
+  "preview": {
+    "emptyTitle": "未选择文件",
+    "emptyDescription": "从 Files 中选择文件进行预览。",
+    "closeTab": "关闭"
+  }
 }

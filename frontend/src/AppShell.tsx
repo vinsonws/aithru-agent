@@ -22,7 +22,8 @@ import { buildRunCompanionBadges } from "@/features/chat/runActivity";
 export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage("aithru-agent:sidebar-collapsed", false);
   const [rightPanel, setRightPanel] = React.useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = React.useState<string | null>(null);
+  const [openFileIds, setOpenFileIds] = React.useState<string[]>([]);
+  const [activeFileId, setActiveFileId] = React.useState<string | null>(null);
   const [selectedRun, setSelectedRun] = React.useState<SelectedRunRef | null>(null);
 
   return (
@@ -35,8 +36,10 @@ export function AppShell() {
             onSelectedRunChange={setSelectedRun}
             rightPanel={rightPanel}
             onRightPanelChange={setRightPanel}
-            selectedFile={selectedFile}
-            onSelectedFileChange={setSelectedFile}
+            openFileIds={openFileIds}
+            onOpenFileIdsChange={setOpenFileIds}
+            activeFileId={activeFileId}
+            onActiveFileIdChange={setActiveFileId}
           />
         </div>
       </ManagerDialogs>
@@ -49,15 +52,19 @@ function RouteContent({
   onSelectedRunChange,
   rightPanel,
   onRightPanelChange,
-  selectedFile,
-  onSelectedFileChange,
+  openFileIds,
+  onOpenFileIdsChange,
+  activeFileId,
+  onActiveFileIdChange,
 }: {
   selectedRun: SelectedRunRef | null;
   onSelectedRunChange: (run: SelectedRunRef | null) => void;
   rightPanel: string | null;
   onRightPanelChange: (panel: string | null) => void;
-  selectedFile: string | null;
-  onSelectedFileChange: (fileId: string | null) => void;
+  openFileIds: string[];
+  onOpenFileIdsChange: (ids: string[]) => void;
+  activeFileId: string | null;
+  onActiveFileIdChange: (id: string | null) => void;
 }) {
   const { pathname: path } = useLocation();
   const segments = React.useMemo(() => path.split("/").filter(Boolean), [path]);
@@ -108,7 +115,10 @@ function RouteContent({
   const workspaceId = (activeRun?.workspace_id as string | undefined) ?? null;
 
   const handlePreviewFile = (fileId: string) => {
-    onSelectedFileChange(fileId);
+    onOpenFileIdsChange(
+      openFileIds.includes(fileId) ? openFileIds : [...openFileIds, fileId]
+    );
+    onActiveFileIdChange(fileId);
     onRightPanelChange("preview");
   };
 
@@ -118,9 +128,17 @@ function RouteContent({
         <FilePreviewPanel
           runId={activeRunId}
           workspaceId={workspaceId}
-          selectedFileId={selectedFile}
+          openFileIds={openFileIds}
+          activeFileId={activeFileId}
           onSelectFile={handlePreviewFile}
-          onClearFile={() => onSelectedFileChange(null)}
+          onActiveFileChange={onActiveFileIdChange}
+          onCloseFile={(fileId) => {
+            const next = openFileIds.filter((id) => id !== fileId);
+            onOpenFileIdsChange(next);
+            if (activeFileId === fileId) {
+              onActiveFileIdChange(next.length > 0 ? next[next.length - 1] : null);
+            }
+          }}
           onClose={() => onRightPanelChange(null)}
         />
       )}
