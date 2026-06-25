@@ -4,6 +4,7 @@ import pytest
 
 from aithru_agent.settings import (
     AgentExternalToolsSettings,
+    AgentLongTermMemorySettings,
     AgentProcessorSettings,
     AgentSettings,
     AgentWorkflowCapabilitiesSettings,
@@ -285,6 +286,50 @@ def test_env_external_mcp_servers_rejects_invalid_json(monkeypatch: pytest.Monke
 
     with pytest.raises(ValueError, match="AITHRU_AGENT_EXTERNAL_MCP_SERVERS_JSON"):
         AgentSettings.from_env()
+
+
+def test_long_term_memory_settings_default_to_local_provider() -> None:
+    settings = AgentSettings()
+
+    assert isinstance(settings.long_term_memory, AgentLongTermMemorySettings)
+    assert settings.long_term_memory.provider == "local"
+    assert settings.long_term_memory.mem0_mode == "platform"
+    assert settings.long_term_memory.mem0_app_id == "aithru-agent"
+    assert settings.long_term_memory.mem0_default_agent_id == "aithru-agent"
+    assert settings.long_term_memory.mem0_top_k == 8
+    assert settings.long_term_memory.mem0_threshold is None
+    assert settings.long_term_memory.mem0_add_on_run_complete is True
+    assert settings.long_term_memory.mem0_add_on_compaction is True
+    assert settings.long_term_memory.mem0_approval_required is False
+    assert "do not remember" in settings.long_term_memory.mem0_no_memory_markers
+
+
+def test_long_term_memory_settings_parse_mem0_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AITHRU_AGENT_LONG_TERM_MEMORY_PROVIDER", "mem0")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_MODE", "platform")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_API_KEY", "mem0-key")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_APP_ID", "prod:aithru-agent")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_DEFAULT_AGENT_ID", "research-agent")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_TOP_K", "5")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_THRESHOLD", "0.4")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_ADD_ON_RUN_COMPLETE", "false")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_ADD_ON_COMPACTION", "false")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_APPROVAL_REQUIRED", "true")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_NO_MEMORY_MARKERS", "forget this,do not store")
+
+    settings = AgentSettings.from_env()
+
+    assert settings.long_term_memory.provider == "mem0"
+    assert settings.long_term_memory.mem0_mode == "platform"
+    assert settings.long_term_memory.mem0_api_key == "mem0-key"
+    assert settings.long_term_memory.mem0_app_id == "prod:aithru-agent"
+    assert settings.long_term_memory.mem0_default_agent_id == "research-agent"
+    assert settings.long_term_memory.mem0_top_k == 5
+    assert settings.long_term_memory.mem0_threshold == 0.4
+    assert settings.long_term_memory.mem0_add_on_run_complete is False
+    assert settings.long_term_memory.mem0_add_on_compaction is False
+    assert settings.long_term_memory.mem0_approval_required is True
+    assert settings.long_term_memory.mem0_no_memory_markers == ["forget this", "do not store"]
 
 
 def test_scripted_driver_env_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:

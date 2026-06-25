@@ -22,6 +22,8 @@ AgentWebExecutorKind = Literal["unavailable", "http"]
 AgentWebSearchExecutorKind = Literal["unavailable", "http_json"]
 AgentMCPExecutorKind = Literal["unavailable", "http_json"]
 AgentWorkflowCapabilityExecutorKind = Literal["unavailable", "http_json"]
+AgentLongTermMemoryProviderKind = Literal["local", "mem0"]
+AgentMem0Mode = Literal["platform", "oss"]
 
 
 class AgentExternalToolsSettings(AithruBaseModel):
@@ -166,6 +168,46 @@ class AgentProcessorSettings(AithruBaseModel):
     memory_extraction_enabled: bool = True
 
 
+class AgentLongTermMemorySettings(AithruBaseModel):
+    provider: AgentLongTermMemoryProviderKind = "local"
+    mem0_mode: AgentMem0Mode = "platform"
+    mem0_api_key: str | None = None
+    mem0_app_id: str = "aithru-agent"
+    mem0_default_agent_id: str = "aithru-agent"
+    mem0_top_k: int = Field(default=8, ge=1, le=100)
+    mem0_threshold: float | None = Field(default=None, ge=0, le=1)
+    mem0_add_on_run_complete: bool = True
+    mem0_add_on_compaction: bool = True
+    mem0_approval_required: bool = False
+    mem0_no_memory_markers: list[str] = Field(
+        default_factory=lambda: ["do not remember", "don't remember"]
+    )
+
+    @field_validator("mem0_api_key", "mem0_app_id", "mem0_default_agent_id")
+    @classmethod
+    def _optional_strings_must_not_be_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("long-term memory settings cannot contain blank strings")
+        return stripped
+
+    @field_validator("mem0_no_memory_markers")
+    @classmethod
+    def _markers_must_be_unique(cls, value: list[str]) -> list[str]:
+        markers = [marker.strip().lower() for marker in value if marker.strip()]
+        if len(set(markers)) != len(markers):
+            raise ValueError("mem0 no-memory markers must be unique")
+        return markers
+
+    @model_validator(mode="after")
+    def _validate_mem0_platform_settings(self) -> "AgentLongTermMemorySettings":
+        if self.provider == "mem0" and self.mem0_mode == "platform" and not self.mem0_api_key:
+            raise ValueError("mem0_api_key is required for platform Mem0 provider")
+        return self
+
+
 class AgentSettings(AithruBaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -184,6 +226,9 @@ class AgentSettings(AithruBaseModel):
         default_factory=AgentWorkflowCapabilitiesSettings
     )
     processors: AgentProcessorSettings = Field(default_factory=AgentProcessorSettings)
+    long_term_memory: AgentLongTermMemorySettings = Field(
+        default_factory=AgentLongTermMemorySettings
+    )
 
     @field_validator("model")
     @classmethod
@@ -333,6 +378,45 @@ class AgentSettings(AithruBaseModel):
                     os.getenv("AITHRU_AGENT_WORKFLOW_CAPABILITIES_JSON")
                 ),
             ),
+            long_term_memory=AgentLongTermMemorySettings(
+                provider=os.getenv("AITHRU_AGENT_LONG_TERM_MEMORY_PROVIDER", "local"),
+                mem0_mode=os.getenv("AITHRU_AGENT_MEM0_MODE", "platform"),
+                mem0_api_key=os.getenv("AITHRU_AGENT_MEM0_API_KEY"),
+                mem0_app_id=os.getenv("AITHRU_AGENT_MEM0_APP_ID", "aithru-agent"),
+                mem0_default_agent_id=os.getenv(
+                    "AITHRU_AGENT_MEM0_DEFAULT_AGENT_ID",
+                    "aithru-agent",
+                ),
+                mem0_top_k=_env_int(
+                    os.getenv("AITHRU_AGENT_MEM0_TOP_K"),
+                    default=8,
+                    name="AITHRU_AGENT_MEM0_TOP_K",
+                ),
+                mem0_threshold=_env_float_optional(
+                    os.getenv("AITHRU_AGENT_MEM0_THRESHOLD"),
+                    name="AITHRU_AGENT_MEM0_THRESHOLD",
+                ),
+                mem0_add_on_run_complete=_env_bool_default(
+                    os.getenv("AITHRU_AGENT_MEM0_ADD_ON_RUN_COMPLETE"),
+                    default=True,
+                    name="AITHRU_AGENT_MEM0_ADD_ON_RUN_COMPLETE",
+                ),
+                mem0_add_on_compaction=_env_bool_default(
+                    os.getenv("AITHRU_AGENT_MEM0_ADD_ON_COMPACTION"),
+                    default=True,
+                    name="AITHRU_AGENT_MEM0_ADD_ON_COMPACTION",
+                ),
+                mem0_approval_required=_env_bool_default(
+                    os.getenv("AITHRU_AGENT_MEM0_APPROVAL_REQUIRED"),
+                    default=False,
+                    name="AITHRU_AGENT_MEM0_APPROVAL_REQUIRED",
+                ),
+                mem0_no_memory_markers=_split_csv(
+                    os.getenv("AITHRU_AGENT_MEM0_NO_MEMORY_MARKERS"),
+                    name="AITHRU_AGENT_MEM0_NO_MEMORY_MARKERS",
+                )
+                or ["do not remember", "don't remember"],
+            ),
             processors=AgentProcessorSettings(
                 clarification_enabled=_env_bool_default(
                     os.getenv("AITHRU_AGENT_PROCESSOR_CLARIFICATION_ENABLED"),
@@ -401,6 +485,15 @@ def _env_int(raw: str | None, *, default: int, name: str) -> int:
         return int(raw.strip())
     except ValueError as exc:
         raise ValueError(f"{name} must be an integer") from exc
+
+
+def _env_float_optional(raw: str | None, *, name: str) -> float | None:
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return float(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number") from exc
 
 
 def _split_csv(raw: str | None, *, name: str) -> list[str]:
