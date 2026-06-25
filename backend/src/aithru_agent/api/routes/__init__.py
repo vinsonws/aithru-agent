@@ -8,6 +8,7 @@ from aithru_agent.api.routes import (
     events,
     external_tools,
     health,
+    long_term_memory,
     memory,
     memory_candidates,
     messages,
@@ -35,6 +36,7 @@ def include_agent_routes(app: FastAPI) -> None:
         artifacts.router,
         skills.router,
         subagents.router,
+        long_term_memory.router,
         memory.router,
         memory_candidates.router,
     ]:

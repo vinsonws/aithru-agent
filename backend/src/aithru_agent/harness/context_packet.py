@@ -28,6 +28,7 @@ from aithru_agent.domain import (
 from aithru_agent.memory import (
     LongTermMemoryProvider,
     LongTermMemorySearchResult,
+    NoopLongTermMemoryProvider,
     can_read_long_term_memory,
 )
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
@@ -294,7 +295,7 @@ class ContextPacketBuilder:
         existing_count: int,
     ) -> list[AgentMemoryRecallItem]:
         provider = self.long_term_memory_provider
-        if provider is None or not can_read_long_term_memory(run.scopes):
+        if provider is None or isinstance(provider, NoopLongTermMemoryProvider) or not can_read_long_term_memory(run.scopes):
             return []
         remaining = max(0, self.max_memory_entries - existing_count)
         if remaining <= 0:

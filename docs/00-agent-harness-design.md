@@ -891,17 +891,18 @@ requires the entry owner, or user-scoped memory id, to match the current actor
 for API reads/deletes, `memory.search`, and context-packet recall; shared,
 organization, and unset visibility still depend on existing org and scope
 boundaries.
-The target long-term memory mode is Mem0-native cross-thread memory. In that
-mode, Aithru uses Mem0 for semantic extraction, update, search, and ranking,
-while the harness keeps ownership of identity mapping, readable/writeable
-scopes, redaction, no-memory controls, lifecycle events, and provider health.
-Mem0 writes are automatic by default after eligible run completion or context
-compaction, without per-memory approval. Search results are converted into
-bounded `AgentMemoryRecallItem` context so the model receives provider-neutral
-memory hints, not direct provider access. Existing `AgentMemoryEntry` records
-remain useful for local pinned memory, explicit rules, legacy provider mode,
-and provider-independent recall projection; `AgentMemoryCandidate` remains an
-optional compliance path, not the default long-term memory mechanism.
+Mem0-native cross-thread memory is implemented behind a provider setting. When
+the provider is set to `mem0`, Aithru uses Mem0 for semantic extraction, update,
+search, and ranking, while the harness keeps ownership of identity mapping,
+readable/writeable scopes, redaction, no-memory controls, lifecycle events, and
+provider health. Mem0 writes are automatic by default after eligible run
+completion or context compaction, without per-memory approval. Search results
+are converted into bounded `AgentMemoryRecallItem` context so the model receives
+provider-neutral memory hints, not direct provider access. Existing
+`AgentMemoryEntry` records remain useful for local pinned memory, explicit
+rules, legacy provider mode, and provider-independent recall projection;
+`AgentMemoryCandidate` remains an optional compliance path, not the default
+long-term memory mechanism.
 Control-plane memory APIs should publish typed Pydantic OpenAPI schemas for
 `AgentMemoryEntry`, `AgentMemoryForgetResult`, `AgentMemoryCandidate`, and
 `AgentMemoryCandidateApprovalResult`. Completed runs with memory-write scope
