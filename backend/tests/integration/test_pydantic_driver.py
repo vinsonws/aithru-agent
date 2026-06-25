@@ -12,9 +12,11 @@ from aithru_agent.agent import AgentRuntime
 from aithru_agent.agent.instructions import InstructionBuilder
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter, ToolPolicy
+from aithru_agent.memory import LongTermMemorySearchResult
 from aithru_agent.domain import (
     AgentMemoryEntry,
     AgentMemoryPolicy,
+    AgentMemoryRecallItem,
     AgentMessage,
     AgentRunHarnessOptions,
     AgentRunStatus,
@@ -689,3 +691,50 @@ async def test_pydantic_ai_runtime_injects_context_packet_and_emits_debug_event(
     assert "- user: Use APAC as the scope." in agent_runtime.seen_instructions
     assert "- [done] Search sources" in agent_runtime.seen_instructions
     assert "- report Draft Report (/reports/draft.md): # Draft\nEvidence collected." in agent_runtime.seen_instructions
+
+
+class SearchOnlyProvider:
+    async def search(self, *, run, query: str, limit: int):
+        del run, query, limit
+        return [
+            LongTermMemorySearchResult(
+                id="mem0_pref",
+                memory="User prefers concise Chinese summaries.",
+                score=0.9,
+                created_at="2026-06-25T00:00:00Z",
+                updated_at="2026-06-25T00:00:00Z",
+            )
+        ]
+
+    async def add_messages(self, *, run, messages):
+        raise AssertionError("integration search test must not add messages")
+
+    async def delete_memory(self, *, memory_id: str):
+        raise AssertionError("integration search test must not delete memory")
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_runtime_injects_mem0_context() -> None:
+    app = create_agent_runtime(
+        settings=AgentSettings(model="test"),
+        long_term_memory_provider=SearchOnlyProvider(),
+    )
+    thread = await app.store.create_thread(
+        org_id="org_1",
+        owner_user_id="user_1",
+        title="Memory Thread",
+    )
+    run = await app.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        task_msg="Answer with my style preferences.",
+        scopes=["agent.memory.read"],
+        thread_id=thread.id,
+    )
+
+    assert run.status == AgentRunStatus.COMPLETED
+    events = await app.event_store.list_by_run(run.id)
+    context_events = [event for event in events if event.type == "context.packet.built"]
+    assert context_events
+    memory_events = [event for event in events if event.type == "memory.search.completed"]
+    assert memory_events

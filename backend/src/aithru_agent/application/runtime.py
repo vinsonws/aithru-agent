@@ -49,6 +49,7 @@ from aithru_agent.model_profiles import (
 )
 from aithru_agent.model_profiles.factory import create_model_from_profile
 from aithru_agent.domain import AgentModelProfileEntry, AgentRun
+from aithru_agent.memory import LongTermMemoryProvider, create_long_term_memory_provider
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
@@ -92,6 +93,7 @@ class AgentApplication:
     secret_store: AgentSecretStore
     agent_runtime: NativeAgentRuntime
     processor_runner: AgentRuntimeProcessorRunner
+    long_term_memory_provider: LongTermMemoryProvider
 
 
 AgentRuntime = AgentApplication
@@ -108,6 +110,7 @@ def create_agent_application(
     skill_registry: AgentSkillRegistry | None = None,
     external_tool_providers: list[ExternalToolProvider] | None = None,
     workflow_capability_providers: list[WorkflowCapabilityProvider] | None = None,
+    long_term_memory_provider: LongTermMemoryProvider | None = None,
 ) -> AgentApplication:
     resolved_settings = settings or AgentSettings.from_env()
     resolved_store = store or _create_store(resolved_settings)
@@ -162,6 +165,10 @@ def create_agent_application(
         model_profile_registry=model_profile_registry,
         secret_store=secret_store,
     )
+    resolved_long_term_memory_provider = (
+        long_term_memory_provider
+        or create_long_term_memory_provider(resolved_settings)
+    )
     processor_runner = _create_processor_runner(
         resolved_settings,
         model_profile_registry=model_profile_registry,
@@ -175,6 +182,7 @@ def create_agent_application(
         agent_runtime=resolved_agent_runtime,
         skill_resolver=resolved_skill_resolver,
         processor_runner=processor_runner,
+        long_term_memory_provider=resolved_long_term_memory_provider,
     )
     subagent_tool.set_task_runner(runner.execute_child_run_for_task)
     run_queue = InProcessRunQueue()
@@ -195,6 +203,7 @@ def create_agent_application(
         secret_store=secret_store,
         agent_runtime=resolved_agent_runtime,
         processor_runner=processor_runner,
+        long_term_memory_provider=resolved_long_term_memory_provider,
     )
 
 

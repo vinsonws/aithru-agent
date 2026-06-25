@@ -32,6 +32,7 @@ from aithru_agent.domain import (
 from aithru_agent.domain.base import AithruBaseModel
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import ContextBuilder, ContextPacketBuilder
+from aithru_agent.memory import LongTermMemoryProvider
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
 from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
@@ -61,6 +62,7 @@ class AgentWorkerRunner:
         agent_runtime: AgentRuntime | None = None,
         skill_resolver: AgentSkillResolver | None = None,
         processor_runner: AgentRuntimeProcessorRunner | None = None,
+        long_term_memory_provider: LongTermMemoryProvider | None = None,
     ) -> None:
         self._store = store
         self._event_writer = event_writer
@@ -70,7 +72,9 @@ class AgentWorkerRunner:
         self._skill_resolver = skill_resolver or EmptySkillResolver()
         self._processor_runner = processor_runner or AgentRuntimeProcessorRunner()
         self._context_builder = ContextBuilder()
-        self._context_packet_builder = ContextPacketBuilder()
+        self._context_packet_builder = ContextPacketBuilder(
+            long_term_memory_provider=long_term_memory_provider,
+        )
 
     async def start_run(
         self,
@@ -274,6 +278,7 @@ class AgentWorkerRunner:
             run,
             self._store,
             event_store=self._event_store,
+            event_writer=self._event_writer,
         )
         if context_packet.has_context:
             await self._event_writer.write(

@@ -7,8 +7,34 @@ from aithru_agent.domain import (
     AgentRunStatus,
 )
 from aithru_agent.harness import ContextPacketBuilder
+from aithru_agent.memory import LongTermMemorySearchResult
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
+
+
+class FakeSearchProvider:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def search(self, *, run, query: str, limit: int):
+        del run, limit
+        self.queries.append(query)
+        return [
+            LongTermMemorySearchResult(
+                id="mem0_1",
+                memory="User prefers concise Chinese summaries.",
+                score=0.91,
+                metadata={"org_id": "org_1"},
+                created_at="2026-06-25T00:00:00Z",
+                updated_at="2026-06-25T00:00:00Z",
+            )
+        ]
+
+    async def add_messages(self, *, run, messages):
+        raise AssertionError("search test must not add messages")
+
+    async def delete_memory(self, *, memory_id: str):
+        raise AssertionError("search test must not delete memory")
 
 
 @pytest.mark.asyncio
@@ -985,3 +1011,69 @@ async def test_context_packet_builder_filters_private_memory_by_actor() -> None:
     recall = await ContextPacketBuilder().build_memory_recall(run, store)
 
     assert [item.key for item in recall.items] == ["private.owned", "shared.thread"]
+
+
+@pytest.mark.asyncio
+async def test_context_packet_includes_mem0_recall_items() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    event_writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Please use my preferences.",
+        workspace_id=workspace.id,
+        scopes=["agent.memory.read"],
+        thread_id="thread_1",
+    )
+    provider = FakeSearchProvider()
+    builder = ContextPacketBuilder(long_term_memory_provider=provider)
+
+    packet = await builder.build(
+        run,
+        store,
+        event_store=event_store,
+        event_writer=event_writer,
+    )
+
+    assert packet.memory is not None
+    assert packet.memory.items[0].memory_id == "mem0:mem0_1"
+    assert packet.memory.items[0].source == "mem0"
+    assert packet.memory.items[0].value == "User prefers concise Chinese summaries."
+    assert "Please use my preferences." in provider.queries[0]
+    events = await event_store.list_by_run(run.id)
+    assert [event.type for event in events] == [
+        "memory.search.started",
+        "memory.search.completed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_context_packet_skips_mem0_without_read_scope() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    event_writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Please use my preferences.",
+        workspace_id=workspace.id,
+        scopes=["agent.workspace.read"],
+        thread_id="thread_1",
+    )
+    provider = FakeSearchProvider()
+    builder = ContextPacketBuilder(long_term_memory_provider=provider)
+
+    packet = await builder.build(
+        run,
+        store,
+        event_store=event_store,
+        event_writer=event_writer,
+    )
+
+    assert packet.memory is None
+    assert provider.queries == []

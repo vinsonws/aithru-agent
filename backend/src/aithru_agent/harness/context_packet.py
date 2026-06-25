@@ -25,8 +25,13 @@ from aithru_agent.domain import (
     ResearchPlanSection,
     ResearchReport,
 )
+from aithru_agent.memory import (
+    LongTermMemoryProvider,
+    LongTermMemorySearchResult,
+    can_read_long_term_memory,
+)
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
-from aithru_agent.stream import AgentStreamEvent
+from aithru_agent.stream import AgentEventWriter, AgentStreamEvent
 
 
 DEFAULT_CONTEXT_PACKET_MAX_THREAD_MESSAGES = 12
@@ -49,6 +54,7 @@ class ContextPacketBuilder:
     max_research_evidence: int = DEFAULT_CONTEXT_PACKET_MAX_RESEARCH_EVIDENCE
     max_content_chars: int = DEFAULT_CONTEXT_PACKET_MAX_CONTENT_CHARS
     max_total_chars: int = DEFAULT_CONTEXT_PACKET_MAX_TOTAL_CHARS
+    long_term_memory_provider: LongTermMemoryProvider | None = None
 
     async def build(
         self,
@@ -56,6 +62,7 @@ class ContextPacketBuilder:
         store: AgentStore,
         *,
         event_store: AgentEventStore | None = None,
+        event_writer: AgentEventWriter | None = None,
     ) -> AgentRunContextPacket:
         thread_messages, dropped_thread_messages = await self._thread_messages(run, store)
         all_todos = await store.list_todos(run.id)
@@ -71,7 +78,18 @@ class ContextPacketBuilder:
         ]
         dropped_artifacts = max(0, len(all_artifacts) - len(artifacts))
         tool_results, dropped_tool_results = await self._tool_results(run, event_store)
-        memory, dropped_memory = await self._memory_recall(run, store)
+        latest_context_summary = await self._latest_context_summary(
+            run,
+            store,
+            dropped_thread_messages=dropped_thread_messages,
+        )
+        memory, dropped_memory = await self._memory_recall(
+            run,
+            store,
+            thread_messages=thread_messages,
+            latest_context_summary=latest_context_summary,
+            event_writer=event_writer,
+        )
         research = await self._research_context(
             run,
             store=store,
@@ -80,11 +98,6 @@ class ContextPacketBuilder:
             event_store=event_store,
         )
         dropped_research_evidence = research.dropped_evidence if research else 0
-        latest_context_summary = await self._latest_context_summary(
-            run,
-            store,
-            dropped_thread_messages=dropped_thread_messages,
-        )
         compressed_context = _compressed_context(
             dropped_thread_messages=dropped_thread_messages,
             dropped_todos=dropped_todos,
@@ -241,11 +254,97 @@ class ContextPacketBuilder:
         self,
         run: AgentRun,
         store: AgentStore,
+        *,
+        thread_messages: list[AgentRunContextMessage],
+        latest_context_summary: AgentContextSummary | None,
+        event_writer: AgentEventWriter | None,
     ) -> tuple[AgentMemoryRecall | None, int]:
         recall = await self.build_memory_recall(run, store)
-        if not recall.items and not recall.dropped:
+        local_dropped = recall.dropped
+        mem0_items = await self._long_term_memory_recall(
+            run,
+            thread_messages=thread_messages,
+            latest_context_summary=latest_context_summary,
+            event_writer=event_writer,
+            existing_count=len(recall.items),
+        )
+        merged = _dedupe_memory_items([*recall.items, *mem0_items])
+        mem0_dropped = max(0, len(merged) - self.max_memory_entries)
+        retained = merged[: self.max_memory_entries]
+        total_dropped = local_dropped + mem0_dropped
+        if not retained and not total_dropped:
             return None, 0
-        return recall, recall.dropped
+        return (
+            AgentMemoryRecall(
+                run_id=run.id,
+                items=retained,
+                count=len(retained),
+                dropped=total_dropped,
+            ),
+            total_dropped,
+        )
+
+    async def _long_term_memory_recall(
+        self,
+        run: AgentRun,
+        *,
+        thread_messages: list[AgentRunContextMessage],
+        latest_context_summary: AgentContextSummary | None,
+        event_writer: AgentEventWriter | None,
+        existing_count: int,
+    ) -> list[AgentMemoryRecallItem]:
+        provider = self.long_term_memory_provider
+        if provider is None or not can_read_long_term_memory(run.scopes):
+            return []
+        remaining = max(0, self.max_memory_entries - existing_count)
+        if remaining <= 0:
+            return []
+        query = _long_term_memory_query(
+            run,
+            thread_messages=thread_messages,
+            latest_context_summary=latest_context_summary,
+        )
+        if event_writer is not None:
+            await event_writer.write(
+                run_id=run.id,
+                thread_id=run.thread_id,
+                type="memory.search.started",
+                source={"kind": "harness"},
+                visibility="debug",
+                payload={"provider": "mem0", "limit": remaining},
+            )
+        try:
+            results = await provider.search(run=run, query=query, limit=remaining)
+        except Exception as exc:
+            if event_writer is not None:
+                await event_writer.write(
+                    run_id=run.id,
+                    thread_id=run.thread_id,
+                    type="memory.search.failed",
+                    source={"kind": "harness"},
+                    visibility="debug",
+                    payload={"provider": "mem0", "error": {"message": str(exc)}},
+                )
+            return []
+        items = [
+            _mem0_recall_item(result, max_value_chars=self.max_content_chars)
+            for result in results
+            if result.memory.strip()
+        ]
+        if event_writer is not None:
+            await event_writer.write(
+                run_id=run.id,
+                thread_id=run.thread_id,
+                type="memory.search.completed",
+                source={"kind": "harness"},
+                visibility="debug",
+                payload={
+                    "provider": "mem0",
+                    "result_count": len(results),
+                    "retained_count": len(items),
+                },
+            )
+        return items
 
     async def _research_context(
         self,
@@ -1083,3 +1182,60 @@ _DEFAULT_RESEARCH_TODO_TITLES = {
     "Synthesize findings",
     "Create research report",
 }
+
+
+def _long_term_memory_query(
+    run: AgentRun,
+    *,
+    thread_messages: list[AgentRunContextMessage],
+    latest_context_summary: AgentContextSummary | None,
+) -> str:
+    parts = [run.task_msg]
+    if thread_messages:
+        parts.append(thread_messages[-1].content)
+    if latest_context_summary is not None:
+        parts.append(latest_context_summary.summary)
+    return "\n\n".join(part for part in parts if part.strip())[:2_000]
+
+
+def _mem0_recall_item(
+    result: LongTermMemorySearchResult,
+    *,
+    max_value_chars: int,
+) -> AgentMemoryRecallItem:
+    value, truncated, original_length = _bounded_memory_text(result.memory, max_chars=max_value_chars)
+    timestamp = result.updated_at or result.created_at or "1970-01-01T00:00:00Z"
+    return AgentMemoryRecallItem(
+        memory_id=f"mem0:{result.id}",
+        scope="user",
+        scope_id=None,
+        key=f"mem0:{result.id}",
+        value=value,
+        source="mem0",
+        confidence=result.score,
+        visibility="private",
+        reason="Mem0 returned this cross-thread memory for the current user query.",
+        created_at=result.created_at or timestamp,
+        updated_at=timestamp,
+        truncated=truncated,
+        original_length=original_length,
+    )
+
+
+def _dedupe_memory_items(items: list[AgentMemoryRecallItem]) -> list[AgentMemoryRecallItem]:
+    seen: set[str] = set()
+    retained: list[AgentMemoryRecallItem] = []
+    for item in items:
+        key = item.memory_id if item.memory_id.startswith("mem0:") else f"{item.key}:{item.value}"
+        if key in seen:
+            continue
+        seen.add(key)
+        retained.append(item)
+    return retained
+
+
+def _bounded_memory_text(value: str, *, max_chars: int) -> tuple[str, bool, int]:
+    original_length = len(value)
+    if original_length <= max_chars:
+        return value, False, 0
+    return value[:max_chars], True, original_length
