@@ -66,7 +66,12 @@ export interface DisplayCardEntry {
     path?: string;
     url?: string;
   };
-  actions?: Array<{ kind: "preview" | "download" | "open" | "none"; label?: string; target?: string }>;
+  actions?: Array<{
+    kind: "preview" | "download" | "open" | "none";
+    label?: string;
+    target?: string;
+    disabled?: boolean;
+  }>;
   sequence?: number;
   lastSequence?: number;
   createdAt?: string;

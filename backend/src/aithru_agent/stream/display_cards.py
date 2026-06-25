@@ -13,6 +13,19 @@ from aithru_agent.stream.events import AgentStreamEvent
 
 DisplayCardCreator = Literal["harness", "tool", "model_request"]
 
+WORKSPACE_FILE_CARD_TOOL_NAMES = {
+    "workspace.write_file",
+    "workspace.patch_file",
+    "sandbox.write_file",
+    "sandbox.patch_file",
+}
+
+ARTIFACT_CARD_TOOL_NAMES = {
+    "artifact.create",
+    "research.create_report",
+    "sandbox.promote_file",
+}
+
 
 def display_cards_for_tool_result(
     run: AgentRun,
@@ -24,7 +37,7 @@ def display_cards_for_tool_result(
 ) -> list[AgentDisplayCard]:
     if not isinstance(output, dict):
         return []
-    if tool_name in {"workspace.write_file", "workspace.patch_file"}:
+    if tool_name in WORKSPACE_FILE_CARD_TOOL_NAMES:
         path = _string_value(output.get("path"))
         if path is None:
             return []
@@ -42,8 +55,8 @@ def display_cards_for_tool_result(
                 },
             )
         ]
-    if tool_name in {"artifact.create", "research.create_report"}:
-        artifact = output.get("artifact") if tool_name == "research.create_report" else output
+    if tool_name in ARTIFACT_CARD_TOOL_NAMES:
+        artifact = output.get("artifact") if tool_name in {"research.create_report", "sandbox.promote_file"} else output
         if not isinstance(artifact, dict):
             return []
         artifact_id = _string_value(artifact.get("id"))
@@ -93,6 +106,9 @@ def display_cards_from_events(events: list[AgentStreamEvent]) -> list[AgentDispl
                 "run_id": raw_card.get("run_id") or event.run_id,
             }
         )
+        existing = cards_by_id.get(card.id)
+        if existing is not None and event.type == "display.card.updated":
+            card = card.model_copy(update={"sequence": existing.sequence})
         cards_by_id[card.id] = card
     return sorted(cards_by_id.values(), key=lambda card: card.sequence or 0)
 

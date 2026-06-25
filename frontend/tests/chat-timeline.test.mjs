@@ -324,6 +324,44 @@ test("buildChatTimeline interleaves cards between tool completion and assistant 
   );
 });
 
+test("buildChatTimeline shows cards before assistant output starts", async () => {
+  const { buildChatTimeline } = await loadChatTimeline();
+  const timeline = buildChatTimeline(
+    baseState({
+      status: "running",
+      modelStartedSequence: 10,
+      messages: [{ id: "msg_user", role: "user", content: "创建文件", sequence: 2 }],
+      reasoningSegments: [{ id: "think_1", content: "准备写文件。", sequence: 11, lastSequence: 12 }],
+      toolCalls: [
+        { id: "tool_1", toolName: "workspace.write_file", status: "completed", sequence: 14, lastSequence: 15 },
+      ],
+      displayCards: [
+        {
+          id: "card_1",
+          type: "file",
+          status: "ready",
+          title: "a.txt",
+          surface: "conversation",
+          resource: { kind: "workspace_file", path: "/a.txt" },
+          sequence: 16,
+          lastSequence: 16,
+        },
+      ],
+      assistantOutputSegments: [],
+    }),
+  );
+
+  assert.deepEqual(
+    timeline.map((item) => {
+      if (item.kind === "message") return `message:${item.message.content}`;
+      if (item.kind === "assistantProcess") return "process";
+      if (item.kind === "card") return `card:${item.card.title}`;
+      return item.kind;
+    }),
+    ["message:创建文件", "process", "card:a.txt"],
+  );
+});
+
 test("buildChatTimeline keeps completed run process when a later run is active", async () => {
   const { buildChatTimeline } = await loadChatTimeline();
   const timeline = buildChatTimeline(

@@ -21,8 +21,13 @@ const CARD_ICON = {
 export function DisplayCard({ card, onPreviewFile }: DisplayCardProps) {
   const { t } = useTranslation("chat");
   const Icon = CARD_ICON[card.type] ?? CARD_ICON.generic;
+  const previewAction = cardAction(card, "preview");
+  const downloadAction = cardAction(card, "download");
+  const openAction = cardAction(card, "open");
   const previewId = previewFileId(card);
-  const canPreview = Boolean(previewId && onPreviewFile);
+  const canPreview = Boolean(previewAction && previewId && onPreviewFile);
+  const downloadHref = downloadAction ? downloadUrl(card, downloadAction) : null;
+  const openHref = openAction ? openUrl(card, openAction) : null;
 
   return (
     <div className="py-2">
@@ -51,22 +56,47 @@ export function DisplayCard({ card, onPreviewFile }: DisplayCardProps) {
               )}
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              {t("cards.preview", "Preview")}
+              {actionLabel(previewAction, t("cards.preview", "Preview"))}
             </button>
           )}
-          {hasDownload(card) && (
+          {downloadHref && (
             <a
-              href={`/api/artifacts/${encodeURIComponent(card.resource?.id ?? "")}/download`}
+              href={downloadHref}
               className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <Download className="h-3.5 w-3.5" />
-              {t("cards.download", "Download")}
+              {actionLabel(downloadAction, t("cards.download", "Download"))}
+            </a>
+          )}
+          {openHref && (
+            <a
+              href={openHref}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {actionLabel(openAction, t("cards.open", "Open"))}
             </a>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+type DisplayCardAction = NonNullable<DisplayCardEntry["actions"]>[number];
+
+function cardAction(
+  card: DisplayCardEntry,
+  kind: DisplayCardAction["kind"],
+): DisplayCardAction | null {
+  return card.actions?.find((action) => action.kind === kind && !action.disabled) ?? null;
+}
+
+function actionLabel(action: DisplayCardAction | null, fallback: string): string {
+  const label = action?.label?.trim();
+  return label || fallback;
 }
 
 function previewFileId(card: DisplayCardEntry): string | null {
@@ -79,8 +109,18 @@ function previewFileId(card: DisplayCardEntry): string | null {
   return null;
 }
 
-function hasDownload(card: DisplayCardEntry): boolean {
-  return card.resource?.kind === "artifact" && Boolean(card.resource.id);
+function downloadUrl(card: DisplayCardEntry, action: DisplayCardAction): string | null {
+  if (action.target) return action.target;
+  if (card.resource?.kind === "artifact" && card.resource.id) {
+    return `/api/artifacts/${encodeURIComponent(card.resource.id)}/download`;
+  }
+  return null;
+}
+
+function openUrl(card: DisplayCardEntry, action: DisplayCardAction): string | null {
+  if (action.target) return action.target;
+  if (card.resource?.kind === "external_url" && card.resource.url) return card.resource.url;
+  return null;
 }
 
 function isImageLike(card: DisplayCardEntry): boolean {

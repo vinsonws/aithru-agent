@@ -78,7 +78,7 @@ export function buildChatTimeline(
   );
 
   for (const [runId, runState] of Object.entries(historicalRunStates)) {
-    if (!runId || runId === activeRunId || !shouldShowAssistantProcess(runState)) continue;
+    if (!runId || runId === activeRunId || !shouldShowRunTimelineItems(runState)) continue;
     appendRunTimelineItems(
       items,
       runState,
@@ -241,6 +241,20 @@ function shouldShowAssistantProcess(state: RunStreamState): boolean {
   );
 }
 
+function displayCardsForConversation(state: RunStreamState): DisplayCardEntry[] {
+  return (state.displayCards ?? []).filter(
+    (card) => card.surface === "conversation" || card.surface === "both",
+  );
+}
+
+function shouldShowRunTimelineItems(state: RunStreamState): boolean {
+  return (
+    shouldShowAssistantProcess(state) ||
+    hasAssistantOutputSegments(state) ||
+    displayCardsForConversation(state).length > 0
+  );
+}
+
 function assistantProcessSequence(
   state: RunStreamState,
   messages: Array<{ message: ChatMessage; sequence: number }> = [],
@@ -384,22 +398,7 @@ function appendRunTimelineItems(
   const outputSegments = (state.assistantOutputSegments ?? []).filter(
     (message) => message.content.trim().length > 0 || message.streaming,
   );
-
-  if (outputSegments.length === 0) {
-    if (!shouldShowAssistantProcess(state)) return;
-    items.push({
-      kind: "assistantProcess",
-      id: baseId,
-      sequence: baseSequence,
-      state,
-      steps: processSteps,
-    });
-    return;
-  }
-
-  const displayCards = (state.displayCards ?? []).filter(
-    (card) => card.surface === "conversation" || card.surface === "both",
-  );
+  const displayCards = displayCardsForConversation(state);
 
   const units = [
     ...processSteps.map((step) => ({ kind: "process" as const, sequence: step.sequence, step })),
@@ -414,6 +413,18 @@ function appendRunTimelineItems(
       card,
     })),
   ].sort((a, b) => a.sequence - b.sequence || (a.kind === "process" ? -1 : 1));
+
+  if (units.length === 0) {
+    if (!shouldShowAssistantProcess(state)) return;
+    items.push({
+      kind: "assistantProcess",
+      id: baseId,
+      sequence: baseSequence,
+      state,
+      steps: processSteps,
+    });
+    return;
+  }
 
   const firstSequence = units[0]?.sequence ?? baseSequence;
   let processGroup: AssistantProcessStep[] = [];
