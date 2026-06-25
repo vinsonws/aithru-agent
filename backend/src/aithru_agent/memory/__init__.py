@@ -2,6 +2,7 @@ from .factory import create_long_term_memory_provider
 from .mem0 import Mem0LongTermMemoryProvider
 from .providers import (
     LongTermMemoryAddResult,
+    LongTermMemoryAccessDenied,
     LongTermMemoryDeleteResult,
     LongTermMemoryIdentity,
     LongTermMemoryMessage,
@@ -15,6 +16,7 @@ from .providers import (
 
 __all__ = [
     "LongTermMemoryAddResult",
+    "LongTermMemoryAccessDenied",
     "LongTermMemoryDeleteResult",
     "LongTermMemoryIdentity",
     "LongTermMemoryMessage",

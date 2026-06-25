@@ -299,7 +299,7 @@ def test_long_term_memory_settings_default_to_local_provider() -> None:
     assert settings.long_term_memory.mem0_top_k == 8
     assert settings.long_term_memory.mem0_threshold is None
     assert settings.long_term_memory.mem0_add_on_run_complete is True
-    assert settings.long_term_memory.mem0_add_on_compaction is True
+    assert settings.long_term_memory.mem0_add_on_compaction is False
     assert settings.long_term_memory.mem0_approval_required is False
     assert "do not remember" in settings.long_term_memory.mem0_no_memory_markers
 
@@ -313,7 +313,7 @@ def test_long_term_memory_settings_parse_mem0_env(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("AITHRU_AGENT_MEM0_TOP_K", "5")
     monkeypatch.setenv("AITHRU_AGENT_MEM0_THRESHOLD", "0.4")
     monkeypatch.setenv("AITHRU_AGENT_MEM0_ADD_ON_RUN_COMPLETE", "false")
-    monkeypatch.setenv("AITHRU_AGENT_MEM0_ADD_ON_COMPACTION", "false")
+    monkeypatch.setenv("AITHRU_AGENT_MEM0_ADD_ON_COMPACTION", "true")
     monkeypatch.setenv("AITHRU_AGENT_MEM0_APPROVAL_REQUIRED", "true")
     monkeypatch.setenv("AITHRU_AGENT_MEM0_NO_MEMORY_MARKERS", "forget this,do not store")
 
@@ -327,7 +327,7 @@ def test_long_term_memory_settings_parse_mem0_env(monkeypatch: pytest.MonkeyPatc
     assert settings.long_term_memory.mem0_top_k == 5
     assert settings.long_term_memory.mem0_threshold == 0.4
     assert settings.long_term_memory.mem0_add_on_run_complete is False
-    assert settings.long_term_memory.mem0_add_on_compaction is False
+    assert settings.long_term_memory.mem0_add_on_compaction is True
     assert settings.long_term_memory.mem0_approval_required is True
     assert settings.long_term_memory.mem0_no_memory_markers == ["forget this", "do not store"]
 

@@ -9,6 +9,12 @@ class FakeMem0Client:
         self.add_calls: list[dict[str, object]] = []
         self.search_calls: list[dict[str, object]] = []
         self.delete_calls: list[str] = []
+        self.get_calls: list[str] = []
+        self.get_payload = {
+            "id": "mem_1",
+            "user_id": "org_1:user_1",
+            "metadata": {"org_id": "org_1", "actor_user_id": "user_1"},
+        }
 
     async def add(self, messages, **kwargs):
         self.add_calls.append({"messages": messages, **kwargs})
@@ -32,6 +38,10 @@ class FakeMem0Client:
     async def delete(self, memory_id: str):
         self.delete_calls.append(memory_id)
         return {"deleted": True}
+
+    async def get(self, memory_id: str):
+        self.get_calls.append(memory_id)
+        return self.get_payload
 
 
 def run_fixture() -> AgentRun:
@@ -111,15 +121,44 @@ async def test_mem0_provider_searches_with_entity_filters() -> None:
     }
 
 
-async def test_mem0_provider_deletes_by_memory_id() -> None:
+async def test_mem0_provider_deletes_by_memory_id_after_identity_check() -> None:
     client = FakeMem0Client()
     provider = Mem0LongTermMemoryProvider(
         client=client,
         settings=AgentLongTermMemorySettings(provider="mem0", mem0_api_key="mem0-key"),
     )
 
-    result = await provider.delete_memory(memory_id="mem_1")
+    result = await provider.delete_memory(
+        memory_id="mem_1",
+        org_id="org_1",
+        actor_user_id="user_1",
+    )
 
     assert result.memory_id == "mem_1"
     assert result.deleted is True
+    assert client.get_calls == ["mem_1"]
     assert client.delete_calls == ["mem_1"]
+
+
+async def test_mem0_provider_rejects_delete_for_wrong_identity() -> None:
+    from aithru_agent.memory import LongTermMemoryAccessDenied
+
+    client = FakeMem0Client()
+    provider = Mem0LongTermMemoryProvider(
+        client=client,
+        settings=AgentLongTermMemorySettings(provider="mem0", mem0_api_key="mem0-key"),
+    )
+
+    try:
+        await provider.delete_memory(
+            memory_id="mem_1",
+            org_id="org_2",
+            actor_user_id="user_2",
+        )
+    except LongTermMemoryAccessDenied:
+        pass
+    else:
+        raise AssertionError("Expected delete to reject mismatched Mem0 memory identity")
+
+    assert client.get_calls == ["mem_1"]
+    assert client.delete_calls == []

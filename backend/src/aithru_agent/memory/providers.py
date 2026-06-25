@@ -49,6 +49,10 @@ class LongTermMemoryDeleteResult:
     raw: Mapping[str, object] = field(default_factory=dict)
 
 
+class LongTermMemoryAccessDenied(Exception):
+    """Raised when long-term memory does not belong to the current actor."""
+
+
 @runtime_checkable
 class LongTermMemoryProvider(Protocol):
     async def search(
@@ -68,7 +72,13 @@ class LongTermMemoryProvider(Protocol):
     ) -> LongTermMemoryAddResult:
         ...
 
-    async def delete_memory(self, *, memory_id: str) -> LongTermMemoryDeleteResult:
+    async def delete_memory(
+        self,
+        *,
+        memory_id: str,
+        org_id: str,
+        actor_user_id: str,
+    ) -> LongTermMemoryDeleteResult:
         ...
 
 
@@ -92,7 +102,14 @@ class NoopLongTermMemoryProvider:
         del run, messages
         return LongTermMemoryAddResult(status="skipped")
 
-    async def delete_memory(self, *, memory_id: str) -> LongTermMemoryDeleteResult:
+    async def delete_memory(
+        self,
+        *,
+        memory_id: str,
+        org_id: str,
+        actor_user_id: str,
+    ) -> LongTermMemoryDeleteResult:
+        del org_id, actor_user_id
         return LongTermMemoryDeleteResult(memory_id=memory_id, deleted=False)
 
 

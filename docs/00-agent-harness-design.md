@@ -896,9 +896,11 @@ the provider is set to `mem0`, Aithru uses Mem0 for semantic extraction, update,
 search, and ranking, while the harness keeps ownership of identity mapping,
 readable/writeable scopes, redaction, no-memory controls, lifecycle events, and
 provider health. Mem0 writes are automatic by default after eligible run
-completion or context compaction, without per-memory approval. Search results
-are converted into bounded `AgentMemoryRecallItem` context so the model receives
-provider-neutral memory hints, not direct provider access. Existing
+completion, without per-memory approval. The compaction write setting is
+reserved until the backend exposes an explicit compaction lifecycle hook.
+Search results are converted into bounded `AgentMemoryRecallItem` context so
+the model receives provider-neutral memory hints, not direct provider access.
+Existing
 `AgentMemoryEntry` records remain useful for local pinned memory, explicit
 rules, legacy provider mode, and provider-independent recall projection;
 `AgentMemoryCandidate` remains an optional compliance path, not the default

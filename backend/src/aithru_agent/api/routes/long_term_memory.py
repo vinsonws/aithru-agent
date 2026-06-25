@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from aithru_agent.api.dependencies import ApiDependencies, api_deps
-from aithru_agent.memory import LongTermMemoryDeleteResult
+from aithru_agent.memory import LongTermMemoryAccessDenied, LongTermMemoryDeleteResult
 
 
 router = APIRouter()
@@ -48,7 +48,14 @@ async def delete_long_term_memory(
             detail="Insufficient scopes for long-term memory deletion",
         )
     provider = deps.runtime.long_term_memory_provider
-    return await provider.delete_memory(memory_id=memory_id)
+    try:
+        return await provider.delete_memory(
+            memory_id=memory_id,
+            org_id=org_id,
+            actor_user_id=actor_user_id,
+        )
+    except LongTermMemoryAccessDenied as exc:
+        raise HTTPException(status_code=404, detail="Long-term memory not found") from exc
 
 
 def scopes_allowed_for_long_term_memory(deps: ApiDependencies) -> bool:

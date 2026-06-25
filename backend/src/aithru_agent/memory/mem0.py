@@ -8,6 +8,7 @@ from aithru_agent.settings import AgentLongTermMemorySettings
 
 from .providers import (
     LongTermMemoryAddResult,
+    LongTermMemoryAccessDenied,
     LongTermMemoryDeleteResult,
     LongTermMemoryMessage,
     LongTermMemorySearchResult,
@@ -83,7 +84,16 @@ class Mem0LongTermMemoryProvider:
             raw=payload,
         )
 
-    async def delete_memory(self, *, memory_id: str) -> LongTermMemoryDeleteResult:
+    async def delete_memory(
+        self,
+        *,
+        memory_id: str,
+        org_id: str,
+        actor_user_id: str,
+    ) -> LongTermMemoryDeleteResult:
+        memory = await self._client.get(memory_id)
+        if not _memory_owned_by(memory, org_id=org_id, actor_user_id=actor_user_id):
+            raise LongTermMemoryAccessDenied()
         raw = await self._client.delete(memory_id=memory_id)
         payload = _mapping(raw)
         deleted = bool(payload.get("deleted", True))
@@ -123,6 +133,16 @@ def _mapping(value: object) -> Mapping[str, object]:
     if isinstance(value, Mapping):
         return value
     return {}
+
+
+def _memory_owned_by(raw: object, *, org_id: str, actor_user_id: str) -> bool:
+    payload = _mapping(raw)
+    metadata = _mapping(payload.get("metadata"))
+    expected_user_id = f"{org_id}:{actor_user_id}"
+    user_id = payload.get("user_id") or metadata.get("user_id")
+    if str(user_id) == expected_user_id:
+        return True
+    return metadata.get("org_id") == org_id and metadata.get("actor_user_id") == actor_user_id
 
 
 def _optional_str(value: object) -> str | None:

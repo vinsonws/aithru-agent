@@ -19,7 +19,8 @@ class FakeAddProvider:
         self.messages.append(list(messages))
         return LongTermMemoryAddResult(status="PENDING", event_id="evt_1")
 
-    async def delete_memory(self, *, memory_id: str):
+    async def delete_memory(self, *, memory_id: str, org_id: str, actor_user_id: str):
+        del org_id, actor_user_id
         raise AssertionError("write processor must not delete memory")
 
 

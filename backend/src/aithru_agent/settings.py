@@ -177,7 +177,7 @@ class AgentLongTermMemorySettings(AithruBaseModel):
     mem0_top_k: int = Field(default=8, ge=1, le=100)
     mem0_threshold: float | None = Field(default=None, ge=0, le=1)
     mem0_add_on_run_complete: bool = True
-    mem0_add_on_compaction: bool = True
+    mem0_add_on_compaction: bool = False
     mem0_approval_required: bool = False
     mem0_no_memory_markers: list[str] = Field(
         default_factory=lambda: ["do not remember", "don't remember"]
@@ -403,7 +403,7 @@ class AgentSettings(AithruBaseModel):
                 ),
                 mem0_add_on_compaction=_env_bool_default(
                     os.getenv("AITHRU_AGENT_MEM0_ADD_ON_COMPACTION"),
-                    default=True,
+                    default=False,
                     name="AITHRU_AGENT_MEM0_ADD_ON_COMPACTION",
                 ),
                 mem0_approval_required=_env_bool_default(

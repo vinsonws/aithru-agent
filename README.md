@@ -347,7 +347,14 @@ candidates instead of directly writing durable memory. Operators can review
 them through `GET /api/memory-candidates`; approving a pending candidate writes
 a normal scoped `AgentMemoryEntry`, while rejecting it only resolves the
 candidate.
-Mem0-native long-term memory is implemented behind a settings toggle. When enabled, Aithru maps org/user/agent/run identities into Mem0, searches Mem0 before a run, injects bounded provider-neutral recall items into the context packet, and adds eligible completed turns to Mem0 automatically without per-memory approval. In that mode the existing key/value memory entry and candidate models remain available for local pinned memory, compatibility, and optional compliance review rather than acting as the canonical long-term memory engine.
+Mem0-native long-term memory is implemented behind a settings toggle. When
+enabled, Aithru maps org/user/agent/run identities into Mem0, searches Mem0
+before a run, injects bounded provider-neutral recall items into the context
+packet, and adds eligible completed turns to Mem0 automatically without
+per-memory approval. In that mode the existing key/value memory entry and
+candidate models remain available for local pinned memory, compatibility, and
+optional compliance review rather than acting as the canonical long-term memory
+engine.
 
 Mem0-native long-term memory can be enabled with:
 
@@ -363,6 +370,8 @@ When enabled, run context searches Mem0 before model execution and completed
 runs add bounded user/assistant turns to Mem0 after completion. Mem0 writes are
 automatic by default; local memory candidates remain available only in local
 provider mode or an explicit compliance configuration.
+`AITHRU_AGENT_MEM0_ADD_ON_COMPACTION` is reserved for a future compaction
+lifecycle hook and defaults to disabled in the current backend.
 Private memory visibility is enforced at actor-aware boundaries: API reads and
 deletes, `memory.search`, and run recall only expose private entries when the
 entry owner or user-scoped memory id matches the current actor.

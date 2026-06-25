@@ -709,7 +709,8 @@ class SearchOnlyProvider:
     async def add_messages(self, *, run, messages):
         raise AssertionError("integration search test must not add messages")
 
-    async def delete_memory(self, *, memory_id: str):
+    async def delete_memory(self, *, memory_id: str, org_id: str, actor_user_id: str):
+        del org_id, actor_user_id
         raise AssertionError("integration search test must not delete memory")
 
 

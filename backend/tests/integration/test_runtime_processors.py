@@ -365,7 +365,8 @@ class AppWiringMem0Provider:
     async def add_messages(self, *, run, messages):
         return LongTermMemoryAddResult(status="PENDING", event_id="evt_app")
 
-    async def delete_memory(self, *, memory_id: str):
+    async def delete_memory(self, *, memory_id: str, org_id: str, actor_user_id: str):
+        del org_id, actor_user_id
         raise AssertionError("app wiring test must not delete memory")
 
 

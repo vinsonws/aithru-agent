@@ -62,5 +62,9 @@ async def test_noop_provider_returns_empty_results() -> None:
 
     assert result.status == "skipped"
     assert result.event_id is None
-    delete = await provider.delete_memory(memory_id="mem_1")
+    delete = await provider.delete_memory(
+        memory_id="mem_1",
+        org_id="org_1",
+        actor_user_id="user_1",
+    )
     assert delete.deleted is False
