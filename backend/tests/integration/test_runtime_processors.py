@@ -5,6 +5,9 @@ import pytest
 from aithru_agent.agent import AgentRuntime, AgentRuntimeResult, PydanticAgentDeps
 from aithru_agent.api.dependencies import ApiDependencies
 from aithru_agent.application.runtime import create_agent_runtime
+from aithru_agent.memory import LongTermMemoryAddResult, LongTermMemorySearchResult
+from aithru_agent.runtime.processors.mem0_memory import Mem0MemoryProcessor
+from aithru_agent.settings import AgentLongTermMemorySettings
 from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
 from aithru_agent.domain import AgentRunRetryPolicy, AgentRunStatus
 from aithru_agent.persistence.memory import InMemoryAgentStore
@@ -353,6 +356,38 @@ async def test_follow_run_events_returns_promptly_when_cursor_has_seen_terminal_
     )
 
     assert chunks == []
+
+
+class AppWiringMem0Provider:
+    async def search(self, *, run, query: str, limit: int):
+        return []
+
+    async def add_messages(self, *, run, messages):
+        return LongTermMemoryAddResult(status="PENDING", event_id="evt_app")
+
+    async def delete_memory(self, *, memory_id: str):
+        raise AssertionError("app wiring test must not delete memory")
+
+
+def test_mem0_provider_mode_registers_mem0_processor_instead_of_candidate_processor() -> None:
+    app = create_agent_runtime(
+        settings=AgentSettings(
+            model="test",
+            long_term_memory=AgentLongTermMemorySettings(
+                provider="mem0",
+                mem0_api_key="mem0-key",
+            ),
+        ),
+        long_term_memory_provider=AppWiringMem0Provider(),
+    )
+
+    processor_names = [
+        processor.__class__.__name__
+        for processor in app.processor_runner.processors
+    ]
+
+    assert "Mem0MemoryProcessor" in processor_names
+    assert "MemoryExtractionProcessor" not in processor_names
 
 
 async def _collect_followed_events(

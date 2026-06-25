@@ -4,6 +4,7 @@ from .base import (
     AgentRuntimeProcessorDecision,
 )
 from .memory_extraction import MemoryExtractionProcessor
+from .mem0_memory import Mem0MemoryProcessor
 from .runner import AgentRuntimeProcessorRunner
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "AgentRuntimeProcessorDecision",
     "AgentRuntimeProcessorRunner",
     "MemoryExtractionProcessor",
+    "Mem0MemoryProcessor",
 ]

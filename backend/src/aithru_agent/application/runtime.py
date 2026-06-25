@@ -55,6 +55,7 @@ from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.persistence.sqlite import SQLiteAgentEventStore, SQLiteAgentStore
 from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
 from aithru_agent.runtime.processors.clarification import ClarificationPreflightProcessor
+from aithru_agent.runtime.processors.mem0_memory import Mem0MemoryProcessor
 from aithru_agent.runtime.processors.memory_extraction import MemoryExtractionProcessor
 from aithru_agent.runtime.processors.summarization import ContextSummarizationProcessor
 from aithru_agent.runtime.processors.title import (
@@ -173,6 +174,7 @@ def create_agent_application(
         resolved_settings,
         model_profile_registry=model_profile_registry,
         secret_store=secret_store,
+        long_term_memory_provider=resolved_long_term_memory_provider,
     )
     runner = AgentWorkerRunner(
         store=resolved_store,
@@ -251,6 +253,7 @@ def _create_processor_runner(
     *,
     model_profile_registry: AgentModelProfileRegistry | None = None,
     secret_store: AgentSecretStore | None = None,
+    long_term_memory_provider: LongTermMemoryProvider | None = None,
 ) -> AgentRuntimeProcessorRunner:
     processors = []
     if settings.processors.clarification_enabled:
@@ -272,7 +275,18 @@ def _create_processor_runner(
                 min_message_count=settings.processors.summarization_min_message_count,
             )
         )
-    if settings.processors.memory_extraction_enabled:
+    if settings.long_term_memory.provider == "mem0":
+        if (
+            settings.long_term_memory.mem0_add_on_run_complete
+            and long_term_memory_provider is not None
+        ):
+            processors.append(
+                Mem0MemoryProcessor(
+                    provider=long_term_memory_provider,
+                    settings=settings.long_term_memory,
+                )
+            )
+    elif settings.processors.memory_extraction_enabled:
         processors.append(MemoryExtractionProcessor())
     return AgentRuntimeProcessorRunner(processors=processors)
 
