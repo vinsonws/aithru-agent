@@ -40,6 +40,7 @@ from aithru_agent.domain import (
     AgentRunExportSummary,
 )
 from aithru_agent.stream import AgentStreamEvent
+from aithru_agent.stream.display_cards import display_cards_from_events
 from aithru_agent.trace import AgentTraceSpan, project_trace_spans
 
 router = APIRouter()
@@ -141,6 +142,7 @@ async def get_run_snapshot(
         approvals=approvals,
         workspace_files=await deps.runtime.store.list_workspace_files(run.workspace_id),
         artifacts=artifacts,
+        display_cards=display_cards_from_events(events),
         research=build_research_snapshot_summary(
             events=events,
             todos=todos,

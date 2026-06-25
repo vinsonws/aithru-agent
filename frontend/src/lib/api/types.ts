@@ -79,6 +79,12 @@ export type AgentRunTreeUsageSnapshot = S["AgentRunTreeUsageSnapshot"];
 export type AgentHealthResponse = S["AgentHealthResponse"];
 export type RunInspectionSummary = S["RunInspectionSummary"];
 
+// Display cards
+export type AgentDisplayCard = S["AgentDisplayCard"];
+export type AgentDisplayCardAction = S["AgentDisplayCardAction"];
+export type AgentDisplayCardResource = S["AgentDisplayCardResource"];
+export type AgentDisplayCardSource = S["AgentDisplayCardSource"];
+
 // Request bodies
 export type CreateThreadRequest = S["CreateThreadRequest"];
 export type UpdateThreadRequest = S["UpdateThreadRequest"];

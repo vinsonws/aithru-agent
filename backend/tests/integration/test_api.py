@@ -6819,3 +6819,28 @@ async def test_agent_api_filters_private_memory_by_owner() -> None:
     assert forbidden_forget.status_code == 404
     assert allowed_forget.status_code == 200
     assert allowed_forget.json()["forgotten"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_snapshot_includes_display_cards() -> None:
+    runtime = create_agent_runtime(agent_runtime=file_report_driver())
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = (
+            await client.post(
+                "/api/runs",
+                json={
+                    "task_msg": "Write file",
+                    "scopes": ["agent.workspace.write", "agent.workspace.read"],
+                },
+            )
+        ).json()
+        run_id = created["id"]
+        await runtime.worker.drain()
+
+        snapshot = (await client.get(f"/api/runs/{run_id}/snapshot")).json()
+
+    assert snapshot["display_cards"]
+    assert snapshot["display_cards"][0]["type"] in {"file", "artifact"}
+    assert snapshot["display_cards"][0]["sequence"] is not None

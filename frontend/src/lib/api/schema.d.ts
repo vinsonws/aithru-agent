@@ -1701,6 +1701,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/long-term-memory/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Long Term Memory Health */
+        get: operations["long_term_memory_health_api_long_term_memory_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/long-term-memory/{memory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Long Term Memory */
+        delete: operations["delete_long_term_memory_api_long_term_memory__memory_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/memory": {
         parameters: {
             query?: never;
@@ -2055,6 +2089,92 @@ export interface components {
             /** Sequence */
             sequence: number;
             audit: components["schemas"]["AgentCapabilityAuditEvent"];
+        };
+        /** AgentDisplayCard */
+        AgentDisplayCard: {
+            /** Id */
+            id: string;
+            /** Thread Id */
+            thread_id?: string | null;
+            /** Run Id */
+            run_id: string;
+            /** Sequence */
+            sequence?: number | null;
+            /**
+             * Surface
+             * @default conversation
+             * @enum {string}
+             */
+            surface: "conversation" | "side_panel" | "both";
+            /**
+             * Type
+             * @default generic
+             * @enum {string}
+             */
+            type: "file" | "artifact" | "approval" | "todo" | "memory" | "search_result" | "generic";
+            /**
+             * Status
+             * @default ready
+             * @enum {string}
+             */
+            status: "pending" | "ready" | "failed";
+            /** Title */
+            title: string;
+            /** Summary */
+            summary?: string | null;
+            resource?: components["schemas"]["AgentDisplayCardResource"];
+            /** Actions */
+            actions?: components["schemas"]["AgentDisplayCardAction"][];
+            source: components["schemas"]["AgentDisplayCardSource"];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** AgentDisplayCardAction */
+        AgentDisplayCardAction: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "preview" | "download" | "open" | "none";
+            /** Label */
+            label?: string | null;
+            /** Target */
+            target?: string | null;
+            /**
+             * Disabled
+             * @default false
+             */
+            disabled: boolean;
+        };
+        /** AgentDisplayCardResource */
+        AgentDisplayCardResource: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "workspace_file" | "artifact" | "external_url" | "none";
+            /** Id */
+            id?: string | null;
+            /** Path */
+            path?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /** AgentDisplayCardSource */
+        AgentDisplayCardSource: {
+            /**
+             * Created By
+             * @enum {string}
+             */
+            created_by: "harness" | "tool" | "model_request";
+            /** Event Id */
+            event_id?: string | null;
+            /** Tool Call Id */
+            tool_call_id?: string | null;
+            /** Tool Name */
+            tool_name?: string | null;
         };
         /** AgentExternalApprovalRef */
         AgentExternalApprovalRef: {
@@ -4167,6 +4287,24 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** LongTermMemoryDeleteResult */
+        LongTermMemoryDeleteResult: {
+            /** Memory Id */
+            memory_id: string;
+            /** Deleted */
+            deleted: boolean;
+            /** Raw */
+            raw?: {
+                [key: string]: unknown;
+            };
+        };
+        /** LongTermMemoryHealth */
+        LongTermMemoryHealth: {
+            /** Provider */
+            provider: string;
+            /** Enabled */
+            enabled: boolean;
+        };
         /** ModelProfileSecretInput */
         ModelProfileSecretInput: {
             /** Secret Ref */
@@ -5488,6 +5626,8 @@ export interface components {
             resume: components["schemas"]["RunResumeSnapshot"];
             /** Subagents */
             subagents?: components["schemas"]["AgentSubagentRun"][];
+            /** Display Cards */
+            display_cards?: components["schemas"]["AgentDisplayCard"][];
         };
         /** RunTreeDelegation */
         RunTreeDelegation: {
@@ -9622,6 +9762,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentSubagentSpec"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    long_term_memory_health_api_long_term_memory_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongTermMemoryHealth"];
+                };
+            };
+        };
+    };
+    delete_long_term_memory_api_long_term_memory__memory_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LongTermMemoryDeleteResult"];
                 };
             };
             /** @description Validation Error */
