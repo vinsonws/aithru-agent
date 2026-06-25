@@ -6,6 +6,7 @@ import { useHost } from "@/lib/host/HostProvider";
 import { useTranslation } from "react-i18next";
 import type { ChatMessage, RunStreamState } from "./useRunStream";
 import type { AgentMessage } from "@/lib/api";
+import { DisplayCard } from "./DisplayCard";
 import { ToolCallCard } from "./ToolCallCard";
 import { InlineRequestCard } from "./InlineRequestCard";
 import { buildChatTimeline } from "./chatTimeline";
@@ -308,7 +309,7 @@ export function ChatPanel({
   historicalRunStates = {},
   onPrefillComposer,
   onOpenTrace,
-  onPreviewFile: _onPreviewFile,
+  onPreviewFile,
 }: {
   state: RunStreamState;
   threadMessages?: AgentMessage[];
@@ -369,6 +370,13 @@ export function ChatPanel({
             }
             if (item.kind === "assistantProcess") {
               return <AssistantProcess key={item.id} item={item} />;
+            }
+            if (item.kind === "card") {
+              return (
+                <div key={item.id} className={ASSISTANT_GUIDE_CLASSNAME}>
+                  <DisplayCard card={item.card} onPreviewFile={onPreviewFile} />
+                </div>
+              );
             }
             if (item.kind === "inlineRequest") {
               return (

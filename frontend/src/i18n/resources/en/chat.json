@@ -178,6 +178,10 @@
   "expandComposerSettings": "Adjust reasoning, model, and permission",
   "collapseComposerSettings": "Hide composer settings"
 ,
+  "cards": {
+    "preview": "Preview",
+    "download": "Download"
+  },
   "preview": {
     "emptyTitle": "No file selected",
     "emptyDescription": "Select a file from Files to preview its contents.",
