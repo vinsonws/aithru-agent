@@ -699,6 +699,7 @@ async def test_pydantic_tool_bridge_emits_artifact_event_for_research_report() -
         "tool.started",
         "artifact.created",
         "tool.completed",
+        "display.card.created",
     ]
     assert events[2].payload["id"] == result["artifact"]["id"]
 
@@ -764,7 +765,11 @@ async def test_pydantic_tool_bridge_creates_degraded_research_report_artifact() 
         "tool.started",
         "artifact.created",
         "tool.completed",
+        "display.card.created",
     ]
+
+
+
 
 
 @pytest.mark.asyncio
@@ -1128,12 +1133,13 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
 
     assert resumed.status == AgentRunStatus.COMPLETED
     assert file.content == "a"
-    assert [event.type for event in events][-12:] == [
+    assert [event.type for event in events][-13:] == [
         "approval.resolved",
         "run.resumed",
         "tool.started",
         "workspace.file.created",
         "tool.completed",
+        "display.card.created",
         "message.delta",
         "message.delta",
         "model.usage",
@@ -1142,3 +1148,35 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
         "memory.candidate.created",
         "run.completed",
     ]
+
+
+@pytest.mark.asyncio
+async def test_workspace_write_file_emits_display_card_after_tool_completed() -> None:
+    runtime = create_agent_runtime(
+        settings=AgentSettings(model="test"),
+        agent_runtime=AgentRuntime(
+            model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
+        ),
+        policy=ToolPolicy(require_approval_for_risk=[]),
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        task_msg="Write a file",
+        scopes=["agent.workspace.write", "agent.workspace.read"],
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+    event_types = [event.type for event in events]
+
+    tool_completed_index = event_types.index("tool.completed")
+    card_index = event_types.index("display.card.created")
+
+    assert card_index > tool_completed_index
+    card_event = events[card_index]
+    assert card_event.payload["card"]["type"] == "file"
+    assert card_event.payload["card"]["resource"] == {
+        "kind": "workspace_file",
+        "path": "/a",
+    }
+    assert card_event.payload["card"]["source"]["tool_name"] == "workspace.write_file"
