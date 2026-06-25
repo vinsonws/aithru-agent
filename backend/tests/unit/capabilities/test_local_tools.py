@@ -11,6 +11,7 @@ from aithru_agent.capabilities.local_tools import (
     ArtifactLocalTool,
     InputLocalTool,
     MemoryLocalTool,
+    PresentationLocalTool,
     ResearchLocalTool,
     TodoLocalTool,
     WorkbenchLocalTool,
@@ -53,6 +54,7 @@ def make_router(store: InMemoryAgentStore, policy: ToolPolicy | None = None) -> 
             ArtifactLocalTool(store),
             InputLocalTool(),
             MemoryLocalTool(store),
+            PresentationLocalTool(store),
             ResearchLocalTool(store),
             WorkbenchLocalTool(store),
         ],
@@ -70,6 +72,7 @@ def test_local_tool_input_schemas_define_required_properties() -> None:
             ArtifactLocalTool(store),
             InputLocalTool(),
             MemoryLocalTool(store),
+            PresentationLocalTool(store),
             ResearchLocalTool(store),
             WorkbenchLocalTool(store),
         ]
@@ -1100,3 +1103,54 @@ async def test_memory_tools_reject_unknown_scope() -> None:
     assert search.error["message"] == "Unsupported memory scope: global"
     assert remember.status == "denied"
     assert remember.error["message"] == "Unsupported memory scope: global"
+
+
+@pytest.mark.asyncio
+async def test_present_resources_tool_presents_existing_workspace_file() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/a.txt",
+        content="hello",
+        media_type="text/plain",
+    )
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="tool_present",
+            tool_name="present_resources",
+            input={"resources": [{"kind": "workspace_file", "path": "/a.txt"}]},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "completed"
+    assert result.output["cards"][0]["type"] == "file"
+    assert result.output["cards"][0]["resource"] == {
+        "kind": "workspace_file",
+        "path": "/a.txt",
+    }
+    assert result.output["cards"][0]["source"]["created_by"] == "model_request"
+
+
+@pytest.mark.asyncio
+async def test_present_resources_tool_denies_missing_workspace_file() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="tool_present",
+            tool_name="present_resources",
+            input={"resources": [{"kind": "workspace_file", "path": "/missing.txt"}]},
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "denied"
+    assert result.error == {"message": "Workspace file does not exist: /missing.txt"}

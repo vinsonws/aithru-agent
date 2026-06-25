@@ -1180,3 +1180,26 @@ async def test_workspace_write_file_emits_display_card_after_tool_completed() ->
         "path": "/a",
     }
     assert card_event.payload["card"]["source"]["tool_name"] == "workspace.write_file"
+
+
+@pytest.mark.asyncio
+async def test_present_resources_emits_display_cards_from_validated_tool_output() -> None:
+    runtime = create_agent_runtime(
+        settings=AgentSettings(model="test"),
+        agent_runtime=AgentRuntime(
+            model=TestModel(call_tools=["workspace.write_file", "present_resources"], custom_output_text="done")
+        ),
+        policy=ToolPolicy(require_approval_for_risk=[]),
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        task_msg="Write and present a file",
+        scopes=["agent.workspace.write", "agent.workspace.read"],
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+    cards = [event for event in events if event.type == "display.card.created"]
+
+    assert len(cards) >= 1
+    assert cards[-1].payload["card"]["source"]["created_by"] in {"harness", "model_request"}
