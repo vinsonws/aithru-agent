@@ -126,3 +126,77 @@ async def test_mem0_processor_respects_no_memory_marker() -> None:
     events = await context.event_store.list_by_run(context.run.id)
     assert events[-1].type == "memory.add.skipped"
     assert events[-1].payload["reason"] == "no_memory_marker"
+
+
+async def test_mem0_processor_skips_when_approval_required() -> None:
+    provider = FakeAddProvider()
+    processor = Mem0MemoryProcessor(
+        provider=provider,
+        settings=AgentLongTermMemorySettings(
+            provider="mem0",
+            mem0_api_key="mem0-key",
+            mem0_approval_required=True,
+        ),
+    )
+    context = await context_fixture(["agent.memory.write"])
+
+    await processor.after_terminal(context)
+
+    assert provider.messages == []
+    events = await context.event_store.list_by_run(context.run.id)
+    assert events[-1].type == "memory.add.skipped"
+    assert events[-1].payload["reason"] == "approval_required"
+
+
+async def test_mem0_processor_respects_marker_in_message_content() -> None:
+    provider = FakeAddProvider()
+    processor = Mem0MemoryProcessor(
+        provider=provider,
+        settings=AgentLongTermMemorySettings(provider="mem0", mem0_api_key="mem0-key"),
+    )
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    event_writer = AgentEventWriter(event_store)
+    thread = await store.create_thread(org_id="org_1", owner_user_id="user_1")
+    workspace = await store.create_workspace(org_id="org_1", thread_id=thread.id)
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Normal task",
+        workspace_id=workspace.id,
+        scopes=["agent.memory.write"],
+        thread_id=thread.id,
+    )
+    await store.append_message(
+        thread_id=thread.id,
+        role="user",
+        content="Please do not remember this conversation.",
+        run_id=run.id,
+    )
+    await store.append_message(
+        thread_id=thread.id,
+        role="assistant",
+        content="Understood.",
+        run_id=run.id,
+    )
+    await store.update_run(run.id, status=AgentRunStatus.RUNNING)
+    completed = await store.update_run(
+        run.id,
+        status=AgentRunStatus.COMPLETED,
+        result={"content": "Understood."},
+    )
+    ctx = AgentRuntimeProcessorContext(
+        run=completed,
+        store=store,
+        event_writer=event_writer,
+        event_store=event_store,
+        terminal_status=AgentRunStatus.COMPLETED,
+    )
+
+    await processor.after_terminal(ctx)
+
+    assert provider.messages == []
+    events = await event_store.list_by_run(run.id)
+    assert events[-1].type == "memory.add.skipped"
+    assert events[-1].payload["reason"] == "no_memory_marker"

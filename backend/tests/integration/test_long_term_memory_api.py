@@ -5,6 +5,11 @@ from aithru_agent.application import create_agent_runtime
 from aithru_agent.memory import LongTermMemoryDeleteResult, NoopLongTermMemoryProvider
 from aithru_agent.settings import AgentSettings
 
+_IDENTITY_HEADERS = {
+    "X-Aithru-Org-Id": "org_1",
+    "X-Aithru-User-Id": "user_1",
+}
+
 
 class DeleteProvider(NoopLongTermMemoryProvider):
     def __init__(self) -> None:
@@ -35,9 +40,19 @@ def test_long_term_memory_delete_delegates_to_provider() -> None:
     app = create_app(runtime=app_runtime)
     client = TestClient(app)
 
-    response = client.delete("/api/long-term-memory/mem0_1")
+    response = client.delete("/api/long-term-memory/mem0_1", headers=_IDENTITY_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["memory_id"] == "mem0_1"
     assert response.json()["deleted"] is True
     assert provider.deleted == ["mem0_1"]
+
+
+def test_long_term_memory_delete_rejects_anonymous_requests() -> None:
+    app_runtime = create_agent_runtime(settings=AgentSettings(model="test"))
+    app = create_app(runtime=app_runtime)
+    client = TestClient(app)
+
+    response = client.delete("/api/long-term-memory/mem0_1")
+
+    assert response.status_code == 403

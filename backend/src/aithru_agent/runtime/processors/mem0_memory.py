@@ -41,13 +41,15 @@ class Mem0MemoryProcessor(AgentRuntimeProcessor):
         if not can_write_long_term_memory(context.run.scopes):
             await self._write_skip(context, "missing_memory_write_scope")
             return AgentRuntimeProcessorDecision()
-        marker_source = context.run.task_msg
-        if contains_no_memory_marker(marker_source, self._settings.mem0_no_memory_markers):
-            await self._write_skip(context, "no_memory_marker")
+        if self._settings.mem0_approval_required:
+            await self._write_skip(context, "approval_required")
             return AgentRuntimeProcessorDecision()
         messages = await _messages_for_run(context)
         if not messages:
             await self._write_skip(context, "no_messages")
+            return AgentRuntimeProcessorDecision()
+        if _any_no_memory_marker(messages, context.run.task_msg, self._settings.mem0_no_memory_markers):
+            await self._write_skip(context, "no_memory_marker")
             return AgentRuntimeProcessorDecision()
         await context.event_writer.write(
             run_id=context.run.id,
@@ -97,6 +99,16 @@ class Mem0MemoryProcessor(AgentRuntimeProcessor):
             visibility="debug",
             payload={"provider": "mem0", "reason": reason},
         )
+
+
+def _any_no_memory_marker(
+    messages: list[LongTermMemoryMessage],
+    task_msg: str,
+    markers: list[str],
+) -> bool:
+    if contains_no_memory_marker(task_msg, markers):
+        return True
+    return any(contains_no_memory_marker(m.content, markers) for m in messages)
 
 
 async def _messages_for_run(
