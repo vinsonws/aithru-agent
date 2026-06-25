@@ -53,6 +53,26 @@ export interface TodoEntry {
   sequence?: number;
 }
 
+export interface DisplayCardEntry {
+  id: string;
+  type: "file" | "artifact" | "approval" | "todo" | "memory" | "search_result" | "generic";
+  status: "pending" | "ready" | "failed";
+  title: string;
+  summary?: string;
+  surface: "conversation" | "side_panel" | "both";
+  resource?: {
+    kind: "workspace_file" | "artifact" | "external_url" | "none";
+    id?: string;
+    path?: string;
+    url?: string;
+  };
+  actions?: Array<{ kind: "preview" | "download" | "open" | "none"; label?: string; target?: string }>;
+  sequence?: number;
+  lastSequence?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface InlineRequest {
   kind: "input" | "approval" | "external_approval" | "external_run";
   id: string;
@@ -73,6 +93,7 @@ export interface RunStreamState {
   assistantOutputSegments: ChatMessage[];
   todos: TodoEntry[];
   inlineRequests: InlineRequest[];
+  displayCards: DisplayCardEntry[];
   tokenUsage?: { input?: number; output?: number; total?: number };
   error?: string;
   runStartedSequence?: number;
@@ -93,6 +114,7 @@ const initialState: RunStreamState = {
   assistantOutputSegments: [],
   todos: [],
   inlineRequests: [],
+  displayCards: [],
 };
 
 function summarizeValue(v: unknown, max = 160): string {
@@ -177,6 +199,7 @@ function hasProcessEventBetween(state: RunStreamState, after: number | undefined
     ...state.toolCalls.flatMap((tool) => [tool.sequence, tool.lastSequence]),
     ...state.reasoningSegments.flatMap((segment) => [segment.sequence, segment.lastSequence]),
     ...state.todos.map((todo) => todo.sequence),
+    ...(state.displayCards ?? []).flatMap((card) => [card.sequence, card.lastSequence]),
   ].filter((value): value is number => typeof value === "number");
 
   return processSequences.some((sequence) => sequence > after && sequence < before);
@@ -758,6 +781,37 @@ export function reduceEvent(state: RunStreamState, event: AgentStreamEvent): Run
 
     case "run.paused":
       return { ...state, status: (p.status as AgentRunStatus) ?? state.status };
+
+    case "display.card.created":
+    case "display.card.updated": {
+      const rawCard = p.card;
+      if (!rawCard || typeof rawCard !== "object") return state;
+      const cardPayload = rawCard as Record<string, unknown>;
+      const id = (cardPayload.id as string | undefined) ?? event.id;
+      const existing = (state.displayCards ?? []).find((card) => card.id === id);
+      const patch: DisplayCardEntry = Object.fromEntries(
+        Object.entries({
+          id,
+          type: (cardPayload.type as DisplayCardEntry["type"] | undefined) ?? existing?.type ?? "generic",
+          status: (cardPayload.status as DisplayCardEntry["status"] | undefined) ?? existing?.status ?? "ready",
+          title: (cardPayload.title as string | undefined) ?? existing?.title ?? "Card",
+          summary: (cardPayload.summary as string | undefined) ?? existing?.summary,
+          surface: (cardPayload.surface as DisplayCardEntry["surface"] | undefined) ?? existing?.surface ?? "conversation",
+          resource: (cardPayload.resource as DisplayCardEntry["resource"] | undefined) ?? existing?.resource,
+          actions: (cardPayload.actions as DisplayCardEntry["actions"] | undefined) ?? existing?.actions,
+          sequence: existing?.sequence ?? sequenceOf(event),
+          lastSequence: sequenceOf(event),
+          createdAt: existing?.createdAt ?? event.timestamp,
+          updatedAt: event.timestamp,
+        }).filter(([, value]) => value !== undefined),
+      ) as DisplayCardEntry;
+      return {
+        ...state,
+        displayCards: existing
+          ? state.displayCards.map((card) => (card.id === id ? { ...card, ...patch } : card))
+          : [...state.displayCards, patch],
+      };
+    }
 
     case "subagent.delegate":
     case "subagent.started":

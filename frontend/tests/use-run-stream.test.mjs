@@ -52,6 +52,7 @@ function state() {
     assistantOutputSegments: [],
     todos: [],
     inlineRequests: [],
+    displayCards: [],
   };
 }
 
@@ -273,6 +274,47 @@ test("revealRunStreamState releases streaming message text in small chunks", asy
   const revealed = revealRunStreamState(current, target, { maxCharsPerTick: 3 });
 
   assert.equal(revealed.messages[0].content, "你好，这是");
+});
+
+test("reduceEvent projects display card events into stream state", async () => {
+  const reduceEvent = await loadReduceEvent();
+  const projected = reduceEvent(
+    state(),
+    event(
+      "display.card.created",
+      {
+        card: {
+          id: "card_1",
+          run_id: "run_1",
+          thread_id: "thread_1",
+          surface: "conversation",
+          type: "file",
+          status: "ready",
+          title: "a.txt",
+          resource: { kind: "workspace_file", path: "/a.txt" },
+          actions: [{ kind: "preview", label: "Preview" }],
+          source: { created_by: "harness", tool_call_id: "tool_1" },
+        },
+      },
+      16,
+    ),
+  );
+
+  assert.deepEqual(projected.displayCards, [
+    {
+      id: "card_1",
+      type: "file",
+      status: "ready",
+      title: "a.txt",
+      surface: "conversation",
+      resource: { kind: "workspace_file", path: "/a.txt" },
+      actions: [{ kind: "preview", label: "Preview" }],
+      sequence: 16,
+      lastSequence: 16,
+      createdAt: "2026-06-23T00:00:00.000Z",
+      updatedAt: "2026-06-23T00:00:00.000Z",
+    },
+  ]);
 });
 
 test("revealRunStreamState flushes remaining text when a run is terminal", async () => {

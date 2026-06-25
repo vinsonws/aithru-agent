@@ -24,6 +24,7 @@ function baseState(patch = {}) {
     assistantOutputSegments: [],
     todos: [],
     inlineRequests: [],
+    displayCards: [],
     ...patch,
   };
 }
@@ -280,6 +281,46 @@ test("buildChatTimeline keeps previous thread messages around the active run", a
   assert.deepEqual(
     timeline.map((item) => item.kind === "message" ? item.message.content : item.kind),
     ["先记住项目叫 Aithru。", "记住了。", "继续", "assistantProcess"],
+  );
+});
+
+test("buildChatTimeline interleaves cards between tool completion and assistant output", async () => {
+  const { buildChatTimeline } = await loadChatTimeline();
+  const timeline = buildChatTimeline(
+    baseState({
+      modelStartedSequence: 10,
+      runCompletedSequence: 30,
+      messages: [{ id: "msg_user", role: "user", content: "创建文件", sequence: 2 }],
+      reasoningSegments: [{ id: "think_1", content: "准备写文件。", sequence: 11, lastSequence: 12 }],
+      toolCalls: [
+        { id: "tool_1", toolName: "workspace.write_file", status: "completed", sequence: 14, lastSequence: 15 },
+      ],
+      displayCards: [
+        {
+          id: "card_1",
+          type: "file",
+          status: "ready",
+          title: "a.txt",
+          surface: "conversation",
+          resource: { kind: "workspace_file", path: "/a.txt" },
+          sequence: 16,
+          lastSequence: 16,
+        },
+      ],
+      assistantOutputSegments: [
+        { id: "msg_assistant:output:17", role: "assistant", content: "已创建。", sequence: 17, lastSequence: 18 },
+      ],
+    }),
+  );
+
+  assert.deepEqual(
+    timeline.map((item) => {
+      if (item.kind === "message") return `message:${item.message.content}`;
+      if (item.kind === "assistantProcess") return "process";
+      if (item.kind === "card") return `card:${item.card.title}`;
+      return item.kind;
+    }),
+    ["message:创建文件", "process", "card:a.txt", "message:已创建。", "completion"],
   );
 });
 

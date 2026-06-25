@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  DisplayCardEntry,
   InlineRequest,
   ReasoningSegment,
   RunStreamState,
@@ -26,6 +27,7 @@ export type ChatTimelineItem =
   | { kind: "message"; id: string; sequence: number; message: ChatMessage }
   | { kind: "assistantProcess"; id: string; sequence: number; state: RunStreamState; steps: AssistantProcessStep[] }
   | { kind: "inlineRequest"; id: string; sequence: number; request: InlineRequest }
+  | { kind: "card"; id: string; sequence: number; card: DisplayCardEntry }
   | { kind: "completion"; id: string; sequence: number };
 
 const FALLBACK_SEQUENCE = Number.MAX_SAFE_INTEGER / 2;
@@ -33,8 +35,9 @@ const FALLBACK_SEQUENCE = Number.MAX_SAFE_INTEGER / 2;
 const KIND_ORDER: Record<ChatTimelineItem["kind"], number> = {
   message: 0,
   assistantProcess: 1,
-  inlineRequest: 2,
-  completion: 3,
+  card: 2,
+  inlineRequest: 3,
+  completion: 4,
 };
 
 export function buildChatTimeline(
@@ -394,12 +397,21 @@ function appendRunTimelineItems(
     return;
   }
 
+  const displayCards = (state.displayCards ?? []).filter(
+    (card) => card.surface === "conversation" || card.surface === "both",
+  );
+
   const units = [
     ...processSteps.map((step) => ({ kind: "process" as const, sequence: step.sequence, step })),
     ...outputSegments.map((message) => ({
       kind: "output" as const,
       sequence: messageDisplaySequence(message),
       message,
+    })),
+    ...displayCards.map((card) => ({
+      kind: "card" as const,
+      sequence: card.sequence ?? card.lastSequence ?? FALLBACK_SEQUENCE,
+      card,
     })),
   ].sort((a, b) => a.sequence - b.sequence || (a.kind === "process" ? -1 : 1));
 
@@ -424,6 +436,16 @@ function appendRunTimelineItems(
   for (const unit of units) {
     if (unit.kind === "process") {
       processGroup.push(unit.step);
+      continue;
+    }
+    if (unit.kind === "card") {
+      flushProcessGroup();
+      items.push({
+        kind: "card",
+        id: `card:${unit.card.id}`,
+        sequence: normalize(unit.sequence),
+        card: unit.card,
+      });
       continue;
     }
 
