@@ -347,6 +347,13 @@ candidates instead of directly writing durable memory. Operators can review
 them through `GET /api/memory-candidates`; approving a pending candidate writes
 a normal scoped `AgentMemoryEntry`, while rejecting it only resolves the
 candidate.
+The target long-term memory direction is Mem0-native cross-thread memory:
+Aithru maps org/user/agent/run identities into Mem0, searches Mem0 before a
+run, injects bounded provider-neutral recall items into the context packet, and
+adds eligible completed turns to Mem0 automatically without per-memory
+approval. In that mode the existing key/value memory entry and candidate
+models remain available for local pinned memory, compatibility, and optional
+compliance review rather than acting as the canonical long-term memory engine.
 Private memory visibility is enforced at actor-aware boundaries: API reads and
 deletes, `memory.search`, and run recall only expose private entries when the
 entry owner or user-scoped memory id matches the current actor.
