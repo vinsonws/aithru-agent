@@ -351,10 +351,10 @@ Mem0-native long-term memory is implemented behind a settings toggle. When
 enabled, Aithru maps org/user/agent/run identities into Mem0, searches Mem0
 before a run, injects bounded provider-neutral recall items into the context
 packet, and adds eligible completed turns to Mem0 automatically without
-per-memory approval. In that mode the existing key/value memory entry and
-candidate models remain available for local pinned memory, compatibility, and
-optional compliance review rather than acting as the canonical long-term memory
-engine.
+per-memory approval. In that mode Mem0 is the only model-facing memory path:
+local key/value memory tools, local memory entry APIs, and local memory
+candidate review routes are disabled, and existing local memory rows are not
+merged into run context.
 
 Mem0-native long-term memory can be enabled with:
 
@@ -368,8 +368,8 @@ AITHRU_AGENT_MEM0_TOP_K=8
 
 When enabled, run context searches Mem0 before model execution and completed
 runs add bounded user/assistant turns to Mem0 after completion. Mem0 writes are
-automatic by default; local memory candidates remain available only in local
-provider mode or an explicit compliance configuration.
+automatic by default; local memory entries and candidates remain available only
+when the long-term memory provider is not `mem0`.
 `AITHRU_AGENT_MEM0_ADD_ON_COMPACTION` is reserved for a future compaction
 lifecycle hook and defaults to disabled in the current backend.
 Private memory visibility is enforced at actor-aware boundaries: API reads and
@@ -447,8 +447,8 @@ artifact.finalize
 research.create_plan
 research.create_report
 workbench.workflow_draft.create
-memory.search
-memory.remember
+memory.search      # local provider mode only
+memory.remember    # local provider mode only
 subagent.delegate
 sandbox.list_files
 sandbox.read_file
@@ -699,12 +699,12 @@ GET    /api/artifacts/{artifact_id}
 GET    /api/artifacts/{artifact_id}/content
 GET    /api/artifacts/{artifact_id}/download-info
 GET    /api/artifacts/{artifact_id}/download
-POST   /api/memory
-GET    /api/memory
-DELETE /api/memory/{memory_id}
-GET    /api/memory-candidates
-POST   /api/memory-candidates/{candidate_id}/approve
-POST   /api/memory-candidates/{candidate_id}/reject
+POST   /api/memory                                      # local provider mode only
+GET    /api/memory                                      # local provider mode only
+DELETE /api/memory/{memory_id}                          # local provider mode only
+GET    /api/memory-candidates                           # local provider mode only
+POST   /api/memory-candidates/{candidate_id}/approve    # local provider mode only
+POST   /api/memory-candidates/{candidate_id}/reject     # local provider mode only
 POST   /api/subagents
 GET    /api/subagents
 GET    /api/subagents/{key}

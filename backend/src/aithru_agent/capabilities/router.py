@@ -49,6 +49,9 @@ class AithruCapabilityRouter:
         if context.allowed_tools is not None:
             allowed = set(context.allowed_tools)
             tools = [tool for tool in tools if tool.name in allowed]
+        if context.denied_tools:
+            denied = set(context.denied_tools)
+            tools = [tool for tool in tools if tool.name not in denied]
         return tools
 
     async def prepare_tool_call(
@@ -68,6 +71,22 @@ class AithruCapabilityRouter:
             resource_type="tool",
             resource_id=descriptor.name,
         )
+        if descriptor.name in set(context.denied_tools):
+            reason = f"Tool is denied by run policy: {request.tool_name}"
+            return AgentToolPrepareResult(
+                status="denied",
+                tool_name=request.tool_name,
+                reason=reason,
+                authorization=authorization,
+                audit=_audit_event(
+                    action="tool.prepare",
+                    outcome="denied",
+                    request=request,
+                    context=context,
+                    authorization=authorization,
+                    reason=reason,
+                ),
+            )
         if context.allowed_tools is not None and descriptor.name not in set(context.allowed_tools):
             reason = f"Tool is not allowed by run policy: {request.tool_name}"
             return AgentToolPrepareResult(
@@ -147,6 +166,8 @@ class AithruCapabilityRouter:
         )
         if authorization.status == "denied":
             return False
+        if descriptor.name in set(context.denied_tools):
+            return False
         if context.allowed_tools is not None and descriptor.name not in set(context.allowed_tools):
             return False
         approval_risks = {
@@ -169,6 +190,8 @@ class AithruCapabilityRouter:
             resource_id=descriptor.name,
         )
         if authorization.status == "denied":
+            return None
+        if descriptor.name in set(context.denied_tools):
             return None
         if context.allowed_tools is not None and descriptor.name not in set(context.allowed_tools):
             return None

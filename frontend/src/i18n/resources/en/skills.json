@@ -2,6 +2,7 @@
   "title": "Skills",
   "registry": "Skill registry",
   "builtin": "Built-in",
+  "user": "My skill",
   "managed": "Managed",
   "marketplace": "Marketplace",
   "enable": "Enable",
@@ -12,5 +13,11 @@
   "allowedTools": "Allowed tools",
   "instructions": "Instructions",
   "whenToUse": "When to use",
-  "noSkills": "No skills installed"
+  "noSkills": "No skills installed",
+  "createUserSkill": "Create skill",
+  "editUserSkill": "Edit skill",
+  "readOnly": "Read-only",
+  "description": "Description",
+  "body": "Instructions",
+  "source": "Source"
 }

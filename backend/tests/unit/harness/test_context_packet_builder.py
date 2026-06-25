@@ -1052,6 +1052,36 @@ async def test_context_packet_includes_mem0_recall_items() -> None:
 
 
 @pytest.mark.asyncio
+async def test_context_packet_with_mem0_provider_discards_local_memory_recall() -> None:
+    store = InMemoryAgentStore()
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Please use my preferences.",
+        workspace_id=workspace.id,
+        scopes=["agent.memory.read"],
+        thread_id="thread_1",
+    )
+    await store.create_memory_entry(
+        org_id="org_1",
+        scope="user",
+        scope_id="user_1",
+        key="legacy.preference",
+        value="This legacy local memory should not be recalled.",
+        owner="user_1",
+    )
+    provider = FakeSearchProvider()
+
+    packet = await ContextPacketBuilder(long_term_memory_provider=provider).build(run, store)
+
+    assert packet.memory is not None
+    assert [item.source for item in packet.memory.items] == ["mem0"]
+    assert [item.key for item in packet.memory.items] == ["mem0:mem0_1"]
+
+
+@pytest.mark.asyncio
 async def test_context_packet_skips_mem0_without_read_scope() -> None:
     store = InMemoryAgentStore()
     event_store = InMemoryAgentEventStore()

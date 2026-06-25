@@ -77,6 +77,8 @@ export type AgentRunUsageSummary = S["AgentRunUsageSummary"];
 export type AgentRunTreeUsageSnapshot = S["AgentRunTreeUsageSnapshot"];
 
 export type AgentHealthResponse = S["AgentHealthResponse"];
+export type LongTermMemoryDeleteResult = S["LongTermMemoryDeleteResult"];
+export type LongTermMemoryHealth = S["LongTermMemoryHealth"];
 export type RunInspectionSummary = S["RunInspectionSummary"];
 
 // Display cards
@@ -90,5 +92,6 @@ export type CreateThreadRequest = S["CreateThreadRequest"];
 export type UpdateThreadRequest = S["UpdateThreadRequest"];
 export type CreateRunRequest = S["CreateRunRequest"];
 export type CreateMemoryEntryRequest = S["CreateMemoryEntryRequest"];
+export type CreateUserSkillPackageRequest = S["CreateUserSkillPackageRequest"];
+export type UpdateUserSkillPackageRequest = S["UpdateUserSkillPackageRequest"];
 export type ResolveApprovalRequest = S["ResolveApprovalRequest"];
-

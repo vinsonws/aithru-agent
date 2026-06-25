@@ -17,6 +17,7 @@ class AgentSkillRegistrySource(StrEnum):
     BUILTIN = "builtin"
     MANAGED = "managed"
     MARKETPLACE = "marketplace"
+    USER = "user"
 
 
 class AgentWorkspacePolicy(AithruBaseModel):
@@ -150,6 +151,7 @@ class AgentSkillRegistryEntry(AithruBaseModel):
     status: AgentSkillStatus
     enabled: bool = True
     source: AgentSkillRegistrySource = AgentSkillRegistrySource.MANAGED
+    owner_user_id: str | None = None
     marketplace: AgentSkillMarketplaceMetadata | None = None
     configuration: AgentSkillConfiguration
     read_only: bool = False
@@ -166,6 +168,7 @@ class AgentSkillRegistryEntry(AithruBaseModel):
         updated_at: str | None = None,
         marketplace: AgentSkillMarketplaceMetadata | None = None,
         read_only: bool = False,
+        owner_user_id: str | None = None,
     ) -> "AgentSkillRegistryEntry":
         return cls(
             id=skill.id,
@@ -177,11 +180,38 @@ class AgentSkillRegistryEntry(AithruBaseModel):
             status=skill.status,
             enabled=skill.enabled,
             source=source,
+            owner_user_id=owner_user_id,
             marketplace=marketplace,
             configuration=AgentSkillConfiguration.from_skill(skill),
             read_only=read_only,
             created_at=created_at,
             updated_at=updated_at or created_at,
+        )
+
+    @classmethod
+    def from_package(
+        cls,
+        package: object,
+    ) -> "AgentSkillRegistryEntry":
+        from aithru_agent.skills.packages import SkillPackage
+
+        if not isinstance(package, SkillPackage):
+            raise TypeError(f"Expected SkillPackage, got {type(package)}")
+        return cls(
+            id=package.id,
+            org_id=package.org_id,
+            key=package.key,
+            name=package.metadata.name,
+            description=package.metadata.description,
+            version=package.version,
+            status=package.status,
+            enabled=package.enabled,
+            source=package.source,
+            owner_user_id=package.owner_user_id,
+            configuration=package.policy,
+            read_only=package.read_only,
+            created_at=package.created_at,
+            updated_at=package.updated_at,
         )
 
     def to_skill(self) -> AgentSkill:

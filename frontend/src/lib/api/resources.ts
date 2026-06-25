@@ -16,8 +16,12 @@ import type {
   AgentExternalToolConfigEntry,
   AgentExternalToolConfigOperationResult,
   AgentHealthResponse,
+  LongTermMemoryDeleteResult,
+  LongTermMemoryHealth,
   AgentSubagentSpec,
   CreateMemoryEntryRequest,
+  CreateUserSkillPackageRequest,
+  UpdateUserSkillPackageRequest,
 } from "./types";
 
 export const approvalsApi = {
@@ -98,6 +102,15 @@ export const memoryApi = {
     ),
 };
 
+export const longTermMemoryApi = {
+  health: () => apiRequest<LongTermMemoryHealth>(`/api/long-term-memory/health`),
+
+  forget: (memoryId: string) =>
+    apiRequest<LongTermMemoryDeleteResult>(`/api/long-term-memory/${memoryId}`, {
+      method: "DELETE",
+    }),
+};
+
 export const skillsApi = {
   list: () => apiRequest<AgentSkill[]>(`/api/skills`),
 
@@ -116,6 +129,18 @@ export const skillsApi = {
   disable: (key: string) =>
     apiRequest<AgentSkillEnablementResult>(`/api/skill-registry/${key}/disable`, {
       method: "POST",
+    }),
+
+  createUser: (body: CreateUserSkillPackageRequest) =>
+    apiRequest<AgentSkillRegistryEntry>("/api/skill-registry/user", {
+      method: "POST",
+      body,
+    }),
+
+  updateUser: (key: string, body: UpdateUserSkillPackageRequest) =>
+    apiRequest<AgentSkillRegistryEntry>(`/api/skill-registry/user/${key}`, {
+      method: "PATCH",
+      body,
     }),
 
   subagents: () => apiRequest<AgentSubagentSpec[]>(`/api/subagents`),

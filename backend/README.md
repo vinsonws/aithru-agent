@@ -225,15 +225,19 @@ uv run aithru-agent-worker --loop --poll-interval 1 --sqlite-path .aithru/agent.
 - Run memory recall APIs expose the same scoped Pydantic `AgentMemoryRecall`
   projection at `/api/runs/{run_id}/memory-recall` and the thread-scoped alias
   without exposing unrestricted memory search or the full context packet, and
-  publish the typed OpenAPI `AgentMemoryRecall` response schema.
+  publish the typed OpenAPI `AgentMemoryRecall` response schema. In Mem0 mode
+  this projection uses only Mem0 recall and ignores legacy local memory rows.
 - Memory entries support a structured Pydantic retention policy with
   `retained`, `ephemeral`, and `expires_at` modes; expired entries are filtered
   from default memory list/search/recall paths, and `DELETE /api/memory/{id}`
-  returns a Pydantic forget result after identity checks.
+  returns a Pydantic forget result after identity checks. These local entry
+  APIs are disabled with `410 Gone` when the long-term memory provider is
+  `mem0`.
 - Completed memory-write runs create deterministic pending memory candidates,
   not durable memory entries. `GET /api/memory-candidates` lists visible
   candidates, approval writes a normal scoped `AgentMemoryEntry`, and rejection
-  only resolves the candidate.
+  only resolves the candidate. Candidate review routes are disabled with
+  `410 Gone` in Mem0 mode.
 - Private memory visibility is enforced through a Pydantic policy at API,
   `memory.search`, and run-recall boundaries: private entries require owner or
   user-scope ownership to match the current actor, while shared/org/unset
@@ -384,8 +388,8 @@ uv run aithru-agent-worker --loop --poll-interval 1 --sqlite-path .aithru/agent.
   without moving run state out of Aithru.
 - `AgentWorkerRunner.join_run()` owns run join waiting, and store updates
   validate run status values back into Aithru domain enums.
-- Memory tools emit read/write events and trace spans.
-- Memory tools bind user/thread/workspace/organization/skill scope ids to the current run context.
+- Memory tools emit read/write events and trace spans in local provider mode.
+- Memory tools bind user/thread/workspace/organization/skill scope ids to the current run context in local provider mode.
 - Memory list/search/recall paths omit expired retained entries by default, and
   the API can include expired entries only when explicitly requested for
   inspection.
@@ -415,12 +419,14 @@ uv run aithru-agent-worker --loop --poll-interval 1 --sqlite-path .aithru/agent.
   deterministic compressed summaries for dropped older context and budget usage
   metadata. It can also summarize prior `tool.completed` outputs such as
   `web.fetch`, `web.search`, and `research.create_report` without copying raw
-  tool payloads into debug events. It can recall current-run readable memory
-  from user, thread, workspace, organization, and skill scopes when the run has
-  `agent.memory.read` or `*`, render retained items under `Relevant memory:`,
-  and account for dropped/truncated memory in the packet budget. The run memory
-  recall endpoint reuses this scoped projection for inspection, while the full
-  context packet remains internal and does not persist Agent plans as workflows.
+  tool payloads into debug events. In local provider mode it can recall
+  current-run readable memory from user, thread, workspace, organization, and
+  skill scopes when the run has `agent.memory.read` or `*`. In Mem0 mode it
+  recalls only Mem0 results, renders retained items under `Relevant memory:`,
+  and accounts for dropped/truncated memory in the packet budget. The run
+  memory recall endpoint reuses this scoped projection for inspection, while
+  the full context packet remains internal and does not persist Agent plans as
+  workflows.
 - `research.create_plan` creates Pydantic-validated research sections and
   runtime Agent todos for search/fetch/synthesis/report work; sections are
   planning metadata for UI, prompt context, and audit, not workflow nodes.

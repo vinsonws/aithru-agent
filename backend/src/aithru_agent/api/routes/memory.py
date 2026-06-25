@@ -23,6 +23,7 @@ async def create_memory_entry(
     body: CreateMemoryEntryRequest,
     deps: ApiDependencies = Depends(api_deps),
 ) -> AgentMemoryEntry:
+    _raise_if_local_memory_disabled(deps)
     org_id = identity_value(request, body, "org_id", body.org_id, "x-aithru-org-id")
     scope_id = memory_scope_id_for_request(request, body.scope, body.scope_id)
     entry = await deps.runtime.store.create_memory_entry(
@@ -50,6 +51,7 @@ async def list_memory_entries(
     include_expired: bool = False,
     deps: ApiDependencies = Depends(api_deps),
 ) -> list[AgentMemoryEntry]:
+    _raise_if_local_memory_disabled(deps)
     resolved_org_id = identity_query_value(request, org_id, "org_1", "x-aithru-org-id")
     resolved_scope_id = memory_scope_id_for_request(request, scope, scope_id)
     entries = await deps.runtime.store.list_memory_entries(
@@ -69,6 +71,7 @@ async def forget_memory_entry(
     memory_id: str,
     deps: ApiDependencies = Depends(api_deps),
 ) -> AgentMemoryForgetResult:
+    _raise_if_local_memory_disabled(deps)
     entry = await deps.runtime.store.get_memory_entry(memory_id)
     if (
         entry is None
@@ -78,3 +81,11 @@ async def forget_memory_entry(
         raise HTTPException(status_code=404, detail="Memory entry not found")
     result = await deps.runtime.store.delete_memory_entry(memory_id)
     return result
+
+
+def _raise_if_local_memory_disabled(deps: ApiDependencies) -> None:
+    if deps.runtime.settings.long_term_memory.provider == "mem0":
+        raise HTTPException(
+            status_code=410,
+            detail="Local memory is disabled when long-term memory provider is mem0",
+        )

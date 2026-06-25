@@ -50,8 +50,14 @@
   "cancelRun": "取消运行",
   "resumeRun": "继续",
   "tokenUsage": "Token",
+  "usageTooltipTitle": "Token 用量",
+  "usageInput": "输入",
+  "usageOutput": "输出",
+  "usageTotal": "总计",
+  "usageSummaryAria": "Token 用量：{{value}}",
   "runCompanion": "活动",
   "tabActivity": "活动",
+  "tabPreview": "预览",
   "tabFiles": "文件",
   "tabOutputs": "输出",
   "tabApprovals": "审批",
@@ -184,7 +190,7 @@
   },
   "preview": {
     "emptyTitle": "未选择文件",
-    "emptyDescription": "从 Files 中选择文件进行预览。",
+    "emptyDescription": "从文件面板中选择文件进行预览。",
     "closeTab": "关闭"
   }
 }

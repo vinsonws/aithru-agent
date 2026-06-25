@@ -8,7 +8,7 @@
   "skills": "技能",
   "skillsDescription": "选择哪些 Agent 技能可用于引导式运行和受控工作。",
   "memory": "记忆",
-  "memoryDescription": "查看可影响后续 Agent 运行的记忆条目和候选记忆。",
+  "memoryDescription": "查看长期记忆提供方，并管理 Mem0 遗忘控制。",
   "runtime": "运行时",
   "runtimeDescription": "查看后端健康状态，以及需要重启服务才会生效的启动配置。",
   "runtimeDefaults": "运行时默认值",

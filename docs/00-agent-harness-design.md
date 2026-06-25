@@ -866,16 +866,19 @@ for older context dropped by count limits. Prior tool outputs enter as
 summaries projected from `tool.completed` events; memory enters as bounded
 `AgentMemoryRecall` items only when the run has readable memory scope
 (`agent.memory.read` or `*`) and only for current user/thread/workspace,
-organization, and skill identities. Completed threaded runs may also persist
-bounded semantic context summaries through runtime processors so future context
-packets can reuse the latest durable summary when older thread messages are
-dropped. Those summaries are harness facts for prompt continuity, not workflow
-checkpoints, graph state, branch semantics, scheduler input, or model-side
-execution grants. Models do not gain a direct execution path through this
-context. The packet can emit a debug `context.packet.built` event with counts,
-budget usage, dropped-context counts including memory, and truncation status.
-It is an internal context-engineering projection, not a public Aithru API
-contract, persisted plan, scheduler input, or WorkflowSpec.
+organization, and skill identities in local provider mode. When the long-term
+memory provider is `mem0`, run context must recall only Mem0 results and must
+not merge legacy local `AgentMemoryEntry` rows into model-visible context.
+Completed threaded runs may also persist bounded semantic context summaries
+through runtime processors so future context packets can reuse the latest
+durable summary when older thread messages are dropped. Those summaries are
+harness facts for prompt continuity, not workflow checkpoints, graph state,
+branch semantics, scheduler input, or model-side execution grants. Models do
+not gain a direct execution path through this context. The packet can emit a
+debug `context.packet.built` event with counts, budget usage,
+dropped-context counts including memory, and truncation status. It is an
+internal context-engineering projection, not a public Aithru API contract,
+persisted plan, scheduler input, or WorkflowSpec.
 A read-only run inspection endpoint may expose the `AgentMemoryRecall`
 projection itself so UI/debug tools can see which scoped memory items would be
 available to the run; that endpoint must reuse the same run-identity and scope
@@ -900,16 +903,18 @@ completion, without per-memory approval. The compaction write setting is
 reserved until the backend exposes an explicit compaction lifecycle hook.
 Search results are converted into bounded `AgentMemoryRecallItem` context so
 the model receives provider-neutral memory hints, not direct provider access.
-Existing
-`AgentMemoryEntry` records remain useful for local pinned memory, explicit
-rules, legacy provider mode, and provider-independent recall projection;
-`AgentMemoryCandidate` remains an optional compliance path, not the default
-long-term memory mechanism.
+Existing `AgentMemoryEntry` records remain useful only in local provider mode
+or for offline migration/cleanup. In Mem0 mode, Aithru does not expose
+`memory.search` or `memory.remember`, does not include local entries in run
+recall, and returns `410 Gone` from local memory entry and memory candidate
+review APIs. `AgentMemoryCandidate` remains a local-provider compliance path,
+not a Mem0 long-term memory mechanism.
 Control-plane memory APIs should publish typed Pydantic OpenAPI schemas for
 `AgentMemoryEntry`, `AgentMemoryForgetResult`, `AgentMemoryCandidate`, and
-`AgentMemoryCandidateApprovalResult`. Completed runs with memory-write scope
-may create deterministic pending memory candidates, but durable memory writes
-still require an explicit approval API transition. Thread-message, thread
+`AgentMemoryCandidateApprovalResult` in local provider mode. Completed runs
+with memory-write scope may create deterministic pending memory candidates in
+local provider mode, but durable local memory writes still require an explicit
+approval API transition. Thread-message, thread
 summary, thread dashboard, thread workbench, and skill resource APIs should
 likewise expose `AgentMessage`, `AgentThreadSummary`,
 `AgentThreadDashboardPage`, `AgentThreadWorkbench`, and `AgentSkill` response

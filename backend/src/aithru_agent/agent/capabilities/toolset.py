@@ -8,6 +8,7 @@ from pydantic_ai import AbstractToolset, RunContext
 from pydantic_ai.toolsets import FunctionToolset, ToolsetTool
 
 from aithru_agent.agent.deps import PydanticAgentDeps
+from aithru_agent.agent.skill_policy import effective_run_context
 from aithru_agent.agent.tools.bridge import PydanticAIToolBridge
 from aithru_agent.agent.tools.descriptors import ToolCallback, build_pydantic_tools
 from aithru_agent.domain import AgentToolDescriptor
@@ -79,13 +80,14 @@ class AithruToolset(AbstractToolset[PydanticAgentDeps]):
         if self.tool_specs is not None:
             return self.tool_specs
 
-        descriptors = await ctx.deps.capability_router.list_tools(ctx.deps.run_context)
+        run_context = effective_run_context(ctx)
+        descriptors = await ctx.deps.capability_router.list_tools(run_context)
         return [
             (
                 descriptor,
                 await ctx.deps.capability_router.requires_approval_for_tool(
                     descriptor.name,
-                    ctx.deps.run_context,
+                    run_context,
                 ),
             )
             for descriptor in descriptors

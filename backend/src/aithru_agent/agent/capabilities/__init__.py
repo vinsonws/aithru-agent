@@ -15,6 +15,11 @@ from aithru_agent.agent.capabilities.events import (
     mark_aithru_boundary_tool,
     metadata_for_descriptor,
 )
+from aithru_agent.agent.capabilities.skill_package import (
+    AithruSkillActivationObserver,
+    AithruSkillCapability,
+    skill_capability_id,
+)
 from aithru_agent.agent.capabilities.skills import SkillInstructionCapability
 from aithru_agent.agent.capabilities.subagents import TASK_TOOL_NAME, SubagentTaskCapability
 from aithru_agent.agent.capabilities.toolset import AithruToolset
@@ -27,6 +32,8 @@ __all__ = [
     "AITHRU_TOOL_KIND_METADATA_KEY",
     "AITHRU_TOOL_NAME_METADATA_KEY",
     "AithruBoundaryCapability",
+    "AithruSkillActivationObserver",
+    "AithruSkillCapability",
     "AithruToolset",
     "SkillInstructionCapability",
     "SubagentTaskCapability",
@@ -34,5 +41,6 @@ __all__ = [
     "mark_aithru_boundary_tool",
     "metadata_for_descriptor",
     "require_approved_tool_call",
+    "skill_capability_id",
     "tool_requires_approval",
 ]

@@ -1,12 +1,38 @@
+"""Tests for skill capabilities in Pydantic AI agent assembly."""
+
 import pytest
 from pydantic_ai.models.test import TestModel
 
 from aithru_agent.agent import AgentRuntime, PydanticAgentDeps
-from aithru_agent.agent.capabilities import SkillInstructionCapability
+from aithru_agent.agent.capabilities import AithruSkillCapability, skill_capability_id
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter, ToolPolicy
 from aithru_agent.domain import AgentSkill, AgentSkillStatus
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
+from aithru_agent.skills.packages import SkillPackage, parse_skill_package
+from aithru_agent.domain import AgentSkillConfiguration, AgentSkillRegistrySource
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
+
+
+def _package(key: str = "report") -> SkillPackage:
+    name = key.capitalize()
+    return parse_skill_package(
+        key=key,
+        org_id="org_1",
+        owner_user_id="user_1",
+        source=AgentSkillRegistrySource.USER,
+        skill_md=f"""---
+name: {name}
+description: Writes evidence-backed reports.
+---
+
+Use active skill instructions.
+""",
+        policy=AgentSkillConfiguration(
+            instructions="",
+            allowed_tools=[],
+            allowed_subagents=[],
+        ),
+    )
 
 
 def _skill() -> AgentSkill:
@@ -57,22 +83,17 @@ async def _deps(skill: AgentSkill) -> PydanticAgentDeps:
         ),
         store=store,
         skill=skill,
+        visible_skill_packages={"report": _package(key="report")},
     )
 
 
-def test_skill_instruction_capability_builds_active_skill_prompt_section() -> None:
-    capability = SkillInstructionCapability([_skill()])
-
-    instructions = capability.get_instructions()
-
-    assert "## Active Aithru Skills" in instructions
-    assert "Report" in instructions
-    assert "Use active skill instructions." in instructions
-    assert "report work" in instructions
+def test_skill_capability_id_format() -> None:
+    assert skill_capability_id("file-report") == "skill:file-report"
+    assert skill_capability_id("deep-research") == "skill:deep-research"
 
 
 @pytest.mark.asyncio
-async def test_runtime_adds_skill_instruction_capability_for_active_skill() -> None:
+async def test_runtime_adds_skill_capabilities_for_visible_packages() -> None:
     runtime = AgentRuntime(model=TestModel(call_tools=[], custom_output_text="done"))
 
     agent = await runtime.build_agent(await _deps(_skill()))
@@ -80,6 +101,7 @@ async def test_runtime_adds_skill_instruction_capability_for_active_skill() -> N
     root_capabilities = getattr(getattr(agent, "_root_capability"), "capabilities")
 
     assert any(
-        isinstance(capability, SkillInstructionCapability)
+        getattr(capability, "id", None) == "skill:report"
+        and getattr(capability, "defer_loading", None) is True
         for capability in root_capabilities
     )

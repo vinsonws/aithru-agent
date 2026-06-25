@@ -67,3 +67,32 @@ def _contains_aithru_toolset(toolset: object) -> bool:
         _contains_aithru_toolset(child)
         for child in getattr(toolset, "toolsets", [])
     )
+
+
+def _aithru_toolsets(toolset: object) -> list[AithruToolset]:
+    if isinstance(toolset, AithruToolset):
+        return [toolset]
+    wrapped = getattr(toolset, "wrapped", None)
+    if wrapped is not None:
+        return _aithru_toolsets(wrapped)
+    found: list[AithruToolset] = []
+    for child in getattr(toolset, "toolsets", []):
+        found.extend(_aithru_toolsets(child))
+    return found
+
+
+@pytest.mark.asyncio
+async def test_runtime_builds_dynamic_aithru_toolset_for_loaded_skill_policy() -> None:
+    runtime = AgentRuntime(model=TestModel(call_tools=[], custom_output_text="done"))
+
+    agent = await runtime.build_agent(await _deps())
+
+    capability_toolsets = getattr(agent, "_cap_toolsets")
+    toolsets = [
+        toolset
+        for capability_toolset in capability_toolsets
+        for toolset in _aithru_toolsets(capability_toolset)
+    ]
+
+    assert toolsets
+    assert all(toolset.tool_specs is None for toolset in toolsets)

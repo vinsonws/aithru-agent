@@ -15,6 +15,9 @@ from .base import (
     AgentRuntimeProcessorDecision,
 )
 
+MEM0_MAX_WRITE_MESSAGES = 12
+MEM0_MAX_WRITE_MESSAGE_CHARS = 1_000
+
 
 class Mem0MemoryProcessor(AgentRuntimeProcessor):
     name = "mem0_memory"
@@ -51,6 +54,7 @@ class Mem0MemoryProcessor(AgentRuntimeProcessor):
         if _any_no_memory_marker(messages, context.run.task_msg, self._settings.mem0_no_memory_markers):
             await self._write_skip(context, "no_memory_marker")
             return AgentRuntimeProcessorDecision()
+        messages = _bounded_messages(messages)
         await context.event_writer.write(
             run_id=context.run.id,
             thread_id=context.run.thread_id,
@@ -139,3 +143,23 @@ async def _messages_for_run(
             ),
         ]
     return []
+
+
+def _bounded_messages(
+    messages: list[LongTermMemoryMessage],
+) -> list[LongTermMemoryMessage]:
+    retained = messages[-MEM0_MAX_WRITE_MESSAGES:]
+    return [
+        LongTermMemoryMessage(
+            role=message.role,
+            content=_truncate_memory_content(message.content),
+        )
+        for message in retained
+        if message.content.strip()
+    ]
+
+
+def _truncate_memory_content(value: str) -> str:
+    if len(value) <= MEM0_MAX_WRITE_MESSAGE_CHARS:
+        return value
+    return value[:MEM0_MAX_WRITE_MESSAGE_CHARS]

@@ -179,6 +179,28 @@ class ContextPacketBuilder:
             dropped=max(0, len(all_entries) - len(entries)),
         )
 
+    async def build_run_memory_recall(
+        self,
+        run: AgentRun,
+        store: AgentStore,
+        *,
+        event_writer: AgentEventWriter | None = None,
+    ) -> AgentMemoryRecall:
+        thread_messages, dropped_thread_messages = await self._thread_messages(run, store)
+        latest_context_summary = await self._latest_context_summary(
+            run,
+            store,
+            dropped_thread_messages=dropped_thread_messages,
+        )
+        recall, _ = await self._memory_recall(
+            run,
+            store,
+            thread_messages=thread_messages,
+            latest_context_summary=latest_context_summary,
+            event_writer=event_writer,
+        )
+        return recall or AgentMemoryRecall(run_id=run.id, items=[], count=0, dropped=0)
+
     async def _thread_messages(
         self,
         run: AgentRun,
@@ -260,8 +282,12 @@ class ContextPacketBuilder:
         latest_context_summary: AgentContextSummary | None,
         event_writer: AgentEventWriter | None,
     ) -> tuple[AgentMemoryRecall | None, int]:
-        recall = await self.build_memory_recall(run, store)
-        local_dropped = recall.dropped
+        if self._has_active_long_term_memory_provider():
+            recall = AgentMemoryRecall(run_id=run.id, items=[], count=0, dropped=0)
+            local_dropped = 0
+        else:
+            recall = await self.build_memory_recall(run, store)
+            local_dropped = recall.dropped
         mem0_items = await self._long_term_memory_recall(
             run,
             thread_messages=thread_messages,
@@ -283,6 +309,12 @@ class ContextPacketBuilder:
                 dropped=total_dropped,
             ),
             total_dropped,
+        )
+
+    def _has_active_long_term_memory_provider(self) -> bool:
+        return self.long_term_memory_provider is not None and not isinstance(
+            self.long_term_memory_provider,
+            NoopLongTermMemoryProvider,
         )
 
     async def _long_term_memory_recall(

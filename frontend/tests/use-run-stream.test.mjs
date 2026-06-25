@@ -118,6 +118,17 @@ test("reduceEvent keeps event sequence metadata for chat ordering", async () => 
   assert.equal(projected.runCompletedSequence, 84);
 });
 
+test("buildRunStreamState records the latest replayed event sequence", async () => {
+  const { buildRunStreamState } = await loadRunStreamModule();
+  const projected = buildRunStreamState([
+    event("run.created", {}, 1),
+    event("message.created", { message_id: "msg_user", role: "user" }, 7),
+    event("message.delta", { message_id: "msg_user", delta: "你好" }, 9),
+  ]);
+
+  assert.equal(projected.lastEventSequence, 9);
+});
+
 test("reduceEvent accumulates real reasoning segments without inventing content", async () => {
   const reduceEvent = await loadReduceEvent();
   const events = [

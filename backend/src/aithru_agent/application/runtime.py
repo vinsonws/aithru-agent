@@ -71,8 +71,17 @@ from aithru_agent.skills import (
     AgentSkillRegistry,
     AgentSkillResolver,
     BuiltInResearchSkillResolver,
+    BuiltinPackageResolver,
     InMemorySkillRegistry,
+    SkillPackage,
     SQLiteSkillRegistry,
+)
+from aithru_agent.skills.package_store import (
+    BuiltinSkillPackageStore,
+    CompositeSkillPackageStore,
+    InMemoryUserSkillPackageStore,
+    SQLiteUserSkillPackageStore,
+    SkillPackageStore,
 )
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 from aithru_agent.worker import AgentWorkerRunner, AgentWorkerService, InProcessRunQueue
@@ -90,6 +99,7 @@ class AgentApplication:
     worker: AgentWorkerService
     skill_resolver: AgentSkillResolver
     skill_registry: AgentSkillRegistry
+    skill_package_store: SkillPackageStore
     external_tool_config_registry: AgentExternalToolConfigRegistry
     model_profile_registry: AgentModelProfileRegistry
     secret_store: AgentSecretStore
@@ -123,6 +133,7 @@ def create_agent_application(
         resolved_settings,
         seed_skill_resolver,
     )
+    resolved_package_store = _create_package_store(resolved_settings, seed_skill_resolver)
     external_tool_config_registry = _create_external_tool_config_registry(resolved_settings)
     model_profile_registry = _create_model_profile_registry(resolved_settings)
     secret_store = _create_secret_store(resolved_settings)
@@ -135,7 +146,11 @@ def create_agent_application(
         ClarificationLocalTool(),
         InputLocalTool(),
         PresentationLocalTool(resolved_store),
-        MemoryLocalTool(resolved_store),
+        *(
+            []
+            if resolved_settings.long_term_memory.provider == "mem0"
+            else [MemoryLocalTool(resolved_store)]
+        ),
         ResearchLocalTool(resolved_store),
         WorkbenchLocalTool(resolved_store),
         subagent_tool,
@@ -187,6 +202,7 @@ def create_agent_application(
         skill_resolver=resolved_skill_resolver,
         processor_runner=processor_runner,
         long_term_memory_provider=resolved_long_term_memory_provider,
+        skill_package_store=resolved_package_store,
     )
     subagent_tool.set_task_runner(runner.execute_child_run_for_task)
     run_queue = InProcessRunQueue()
@@ -202,6 +218,7 @@ def create_agent_application(
         worker=worker,
         skill_resolver=resolved_skill_resolver,
         skill_registry=resolved_skill_registry,
+        skill_package_store=resolved_package_store,
         external_tool_config_registry=external_tool_config_registry,
         model_profile_registry=model_profile_registry,
         secret_store=secret_store,
@@ -361,6 +378,22 @@ def _test_model_for_settings(settings: AgentSettings) -> TestModel:
         call_tools=[],
         custom_output_text=settings.test_model_output,
     )
+
+
+def _create_package_store(
+    settings: AgentSettings,
+    seed_skill_resolver: AgentSkillResolver,
+) -> CompositeSkillPackageStore:
+    builtin_packages: list[SkillPackage] = []
+    if isinstance(seed_skill_resolver, BuiltinPackageResolver):
+        builtin_packages = seed_skill_resolver.list_packages()
+    builtin_store = BuiltinSkillPackageStore(builtin_packages)
+    user_store = (
+        SQLiteUserSkillPackageStore(settings.sqlite_path)
+        if settings.persistence_backend == "sqlite"
+        else InMemoryUserSkillPackageStore()
+    )
+    return CompositeSkillPackageStore(builtin=builtin_store, users=user_store)
 
 
 def _create_skill_registry(

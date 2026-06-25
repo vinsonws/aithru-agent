@@ -82,9 +82,9 @@ export function FilePreviewPanel({
   // Empty state: no files selected
   if (openFileIds.length === 0 || !activeFile) {
     return (
-      <aside className="hidden w-[340px] shrink-0 flex-col border-l bg-card lg:flex">
+      <aside className="hidden shrink-0 flex-1 min-w-0 flex-col border-l bg-card lg:flex">
         <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-          <span className="flex-1 text-sm font-semibold">{t("chat:tabOutputs", "Preview")}</span>
+          <span className="flex-1 text-sm font-semibold">{t("chat:tabPreview", "Preview")}</span>
           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
@@ -101,34 +101,50 @@ export function FilePreviewPanel({
   }
 
   return (
-    <aside className="hidden w-[340px] shrink-0 flex-col border-l bg-card lg:flex">
+    <aside className="hidden shrink-0 flex-1 min-w-0 flex-col border-l bg-card lg:flex">
       {/* Tab bar */}
       <div className="flex h-10 shrink-0 items-center border-b bg-muted/30 px-1">
         <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {openFiles.map((file) => (
-            <button
+            <div
               key={file.id}
-              type="button"
-              onClick={() => onActiveFileChange(file.id)}
-              className={`flex items-center gap-1.5 rounded-t-md px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1.5 rounded-t-md px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
                 file.id === activeFileId
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
               }`}
+              onClick={() => onActiveFileChange(file.id)}
+              role="tab"
+              aria-selected={file.id === activeFileId}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onActiveFileChange(file.id);
+                }
+              }}
             >
               <span className="max-w-[120px] truncate">{file.name}</span>
-              <button
-                type="button"
+              <span
                 onClick={(e) => {
                   e.stopPropagation();
                   onCloseFile(file.id);
                 }}
-                className="ml-0.5 rounded p-0.5 hover:bg-muted"
+                className="ml-0.5 rounded p-0.5 hover:bg-muted cursor-pointer"
                 title={t("chat:preview.closeTab", "Close")}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onCloseFile(file.id);
+                  }
+                }}
               >
                 <X className="h-3 w-3" />
-              </button>
-            </button>
+              </span>
+            </div>
           ))}
         </div>
         <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 rounded-lg" onClick={onClose}>
@@ -190,6 +206,9 @@ async function readFilePreview(file: RunFileView, workspaceId: string | null): P
   if (file.kind === "artifact" && file.artifactId) {
     const response = await artifactsApi.content(file.artifactId);
     const mediaType = response.headers.get("content-type");
+    if (file.previewKind === "html") {
+      return { kind: file.previewKind, mediaType, url: file.previewHref };
+    }
     if (file.previewKind === "image") {
       return { kind: file.previewKind, mediaType, dataUrl: await blobToDataUrl(await response.blob()) };
     }
@@ -217,7 +236,20 @@ function PreviewBody({ file, preview }: { file: RunFileView; preview: FilePrevie
   if (preview.kind === "pdf" && preview.url) {
     return <iframe title={file.name} src={preview.url} className="h-full min-h-[520px] w-full rounded-md border bg-background" />;
   }
+  if (preview.kind === "html" && preview.url) {
+    return (
+      <iframe
+        title={file.name}
+        src={preview.url}
+        sandbox="allow-scripts"
+        className="h-full min-h-[520px] w-full rounded-md border bg-background"
+      />
+    );
+  }
   const content = preview.content ?? "";
+  if (preview.kind === "html") {
+    return <CodeBlock language="html">{content}</CodeBlock>;
+  }
   if (preview.kind === "markdown") {
     return <Markdown variant="chat">{content}</Markdown>;
   }

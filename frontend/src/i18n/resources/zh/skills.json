@@ -2,6 +2,7 @@
   "title": "技能",
   "registry": "技能注册表",
   "builtin": "内置",
+  "user": "我的技能",
   "managed": "托管",
   "marketplace": "市场",
   "enable": "启用",
@@ -12,5 +13,11 @@
   "allowedTools": "允许的工具",
   "instructions": "指令",
   "whenToUse": "适用场景",
-  "noSkills": "未安装技能"
+  "noSkills": "未安装技能",
+  "createUserSkill": "创建技能",
+  "editUserSkill": "编辑技能",
+  "readOnly": "只读",
+  "description": "描述",
+  "body": "指令",
+  "source": "来源"
 }

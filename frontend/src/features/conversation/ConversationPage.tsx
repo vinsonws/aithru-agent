@@ -8,7 +8,6 @@ import { buildRunHeaderView, getRunMode } from "./runHeaderView";
 import { isActiveRunStatus } from "@/features/chat/runStatusCopy";
 import { buildRunStreamState, type RunStreamState } from "@/features/chat/useRunStream";
 import type { AgentRun } from "@/lib/api";
-import { useManager } from "@/features/manager/ManagerDialogs";
 import { useTranslation } from "react-i18next";
 
 export function ConversationPage({
@@ -18,7 +17,10 @@ export function ConversationPage({
   streamState,
   onOpenRightPanel,
   onPreviewFile,
-  rightSidebar,
+  rightPanelWidth,
+  onRightPanelWidthChange,
+  rightPanelContent,
+  rightRail,
 }: {
   threadId: string | null;
   activeRunId: string | null;
@@ -26,10 +28,12 @@ export function ConversationPage({
   streamState: RunStreamState;
   onOpenRightPanel: (panel: string | null) => void;
   onPreviewFile: (fileId: string) => void;
-  rightSidebar?: React.ReactNode;
+  rightPanelWidth: number;
+  onRightPanelWidthChange: (width: number) => void;
+  rightPanelContent?: React.ReactNode;
+  rightRail?: React.ReactNode;
 }) {
   const { t } = useTranslation(["chat", "settings"]);
-  const manager = useManager();
   const qc = useQueryClient();
   const [composerDraft, setComposerDraft] = React.useState("");
   const [composerFocusKey, setComposerFocusKey] = React.useState(0);
@@ -99,38 +103,6 @@ export function ConversationPage({
     modeLabel,
   });
 
-  const handleHeaderAction = (kind: string) => {
-    switch (kind) {
-      case "stop":
-        if (activeRunId) cancelRunMutation.mutate(activeRunId);
-        break;
-      case "reply":
-        setComposerFocusKey((k) => k + 1);
-        break;
-      case "reviewApproval":
-        onOpenRightPanel("approvals");
-        break;
-      case "viewTrace":
-        onOpenRightPanel("trace");
-        break;
-      case "openModelSettings":
-        manager.open("settings");
-        break;
-      case "newFollowUp":
-        setComposerDraft(t("chat:followUpPrompt", "Follow up on this run: "));
-        setComposerFocusKey((k) => k + 1);
-        break;
-      case "retry":
-        if (activeRun?.task_msg) {
-          setComposerDraft(t("chat:retryPromptWithTaskMsg", "Retry this task: {{task}}", { task: activeRun.task_msg }));
-        } else {
-          setComposerDraft(t("chat:retryPrompt", "Retry the last task with the same intent."));
-        }
-        setComposerFocusKey((k) => k + 1);
-        break;
-    }
-  };
-
   const handlePrefillComposer = (text: string) => {
     setComposerDraft(text);
     setComposerFocusKey((k) => k + 1);
@@ -147,8 +119,8 @@ export function ConversationPage({
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
       <ConversationHeader
         view={view}
+        tokenUsage={streamState.tokenUsage}
         onRename={(title) => renameMutation.mutate(title)}
-        onAction={handleHeaderAction}
       />
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -184,7 +156,17 @@ export function ConversationPage({
             }}
           />
         </div>
-        {rightSidebar}
+        {rightPanelContent ? (
+          <ResizableRightPanel
+            width={rightPanelWidth}
+            onWidthChange={onRightPanelWidthChange}
+            minWidth={240}
+            maxWidth={720}
+          >
+            {rightPanelContent}
+          </ResizableRightPanel>
+        ) : null}
+        {rightRail}
       </div>
     </div>
   );
@@ -194,4 +176,73 @@ function modeLabelForRun(mode: "auto" | "plan" | "chat", t: (key: string, fallba
   if (mode === "plan") return t("chat:modePlan", "Plan");
   if (mode === "chat") return t("chat:modeChat", "Chat");
   return t("chat:modeAuto", "Auto");
+}
+
+function ResizableRightPanel({
+  width,
+  onWidthChange,
+  minWidth,
+  maxWidth,
+  children,
+}: {
+  width: number;
+  onWidthChange: (width: number) => void;
+  minWidth: number;
+  maxWidth: number;
+  children: React.ReactNode;
+}) {
+  const handleRef = React.useRef<HTMLDivElement>(null);
+  const draggingRef = React.useRef(false);
+  const startXRef = React.useRef(0);
+  const startWidthRef = React.useRef(0);
+
+  React.useEffect(() => {
+    const handle = handleRef.current;
+    if (!handle) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      e.preventDefault();
+      draggingRef.current = true;
+      startXRef.current = e.clientX;
+      startWidthRef.current = width;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const delta = startXRef.current - e.clientX;
+      const next = Math.min(maxWidth, Math.max(minWidth, startWidthRef.current + delta));
+      onWidthChange(next);
+    };
+
+    const onMouseUp = () => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    handle.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      handle.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [width, onWidthChange, minWidth, maxWidth]);
+
+  return (
+    <div className="flex shrink-0" style={{ width }}>
+      <div
+        ref={handleRef}
+        className="group relative w-1 shrink-0 cursor-col-resize bg-border/40 transition-colors hover:bg-primary/30 active:bg-primary/50"
+      >
+        <div className="absolute inset-y-0 -left-1 -right-1" />
+      </div>
+      {children}
+    </div>
+  );
 }

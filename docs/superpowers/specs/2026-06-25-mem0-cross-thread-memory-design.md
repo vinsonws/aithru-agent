@@ -95,7 +95,8 @@ At context-packet build time:
    checks.
 5. Convert retained results into `AgentMemoryRecallItem` with
    `source="mem0"`.
-6. Merge with local pinned memory, dedupe, and enforce context budget limits.
+6. Do not merge legacy local memory entries in Mem0 mode; enforce context
+   budget limits on Mem0 results only.
 7. Emit a `memory.search.completed` event with counts and timing, without raw
    sensitive payloads.
 
@@ -140,14 +141,14 @@ that mode is not the default Mem0-native experience.
 The existing `AgentMemoryEntry` and `AgentMemoryCandidate` models are retained
 with narrower meaning:
 
-- `AgentMemoryEntry`: local pinned memory, explicit rules, migration fallback,
-  and provider-independent recall projection.
+- `AgentMemoryEntry`: local-provider memory and offline migration/cleanup data;
+  not model-facing in Mem0 mode.
 - `AgentMemoryCandidate`: optional compliance review path, disabled by default
   for Mem0-native long-term memory.
 - `AgentMemoryRecallItem`: provider-neutral prompt injection shape used by
   local memory and Mem0 recall.
-- `memory.search` and `memory.remember`: explicit local tools, not the primary
-  Mem0 lifecycle API.
+- `memory.search` and `memory.remember`: explicit local tools that are not
+  exposed in Mem0 mode.
 
 This avoids forcing Mem0's semantic memory model into a key/value approval
 schema while preserving existing APIs for compatibility.
@@ -195,8 +196,9 @@ the event visibility policy explicitly permits it.
 
 ## API Surface
 
-Keep current local memory APIs for compatibility. Add provider-aware control
-plane routes only where product UX needs them:
+Keep current local memory APIs only for local provider mode; they return
+`410 Gone` in Mem0 mode. Add provider-aware control plane routes only where
+product UX needs them:
 
 - inspect recalled memory for a run;
 - disable memory for a user/project/skill;
@@ -217,8 +219,7 @@ semantics.
   user recalls it.
 - Integration: different org or actor does not recall the same memory.
 - Integration: Mem0 failure emits an event and does not fail the user run.
-- Integration: local pinned memory and Mem0 memory merge into a bounded context
-  packet.
+- Integration: legacy local memory is ignored when Mem0 recall is active.
 
 ## Migration
 

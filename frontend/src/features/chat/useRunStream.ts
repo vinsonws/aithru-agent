@@ -109,6 +109,7 @@ export interface RunStreamState {
   modelCompletedAt?: string;
   runCompletedSequence?: number;
   runCompletedAt?: string;
+  lastEventSequence?: number;
 }
 
 const initialState: RunStreamState = {
@@ -155,6 +156,15 @@ function messageFromPayloadValue(value: unknown): string | undefined {
 
 function sequenceOf(event: AgentStreamEvent): number {
   return typeof event.sequence === "number" ? event.sequence : Number.MAX_SAFE_INTEGER;
+}
+
+function withEventSequence(state: RunStreamState, event: AgentStreamEvent): RunStreamState {
+  const sequence = sequenceOf(event);
+  if (!Number.isFinite(sequence) || sequence === Number.MAX_SAFE_INTEGER) return state;
+  return {
+    ...state,
+    lastEventSequence: Math.max(state.lastEventSequence ?? 0, sequence),
+  };
 }
 
 function reasoningSegmentId(event: AgentStreamEvent, p: Record<string, unknown>): string {
@@ -422,6 +432,7 @@ function completeAssistantOutputSegments(
 
 /** Reducer that projects AgentStreamEvent into a chat-view state. */
 export function reduceEvent(state: RunStreamState, event: AgentStreamEvent): RunStreamState {
+  state = withEventSequence(state, event);
   const type = event.type as string;
   const p = (event.payload ?? {}) as Record<string, unknown>;
 
@@ -937,6 +948,7 @@ export function revealRunStreamState(
 export function useRunStream(runId: string | null) {
   const [rawState, setRawState] = React.useState<RunStreamState>(initialState);
   const [displayState, setDisplayState] = React.useState<RunStreamState>(initialState);
+  const [backfilledRunId, setBackfilledRunId] = React.useState<string | null>(null);
   const [streaming, setStreaming] = React.useState(false);
   const qc = useQueryClient();
 
@@ -945,11 +957,13 @@ export function useRunStream(runId: string | null) {
     if (!runId) {
       setRawState(initialState);
       setDisplayState(initialState);
+      setBackfilledRunId(null);
       return;
     }
     let cancelled = false;
     setRawState(initialState);
     setDisplayState(initialState);
+    setBackfilledRunId(null);
     (async () => {
       try {
         const events = await runsApi.events(runId);
@@ -957,8 +971,10 @@ export function useRunStream(runId: string | null) {
         const nextState = buildRunStreamState(events);
         setRawState(nextState);
         setDisplayState(nextState);
+        setBackfilledRunId(runId);
       } catch {
         // ignore backfill errors; stream will retry
+        if (!cancelled) setBackfilledRunId(runId);
       }
     })();
     return () => {
@@ -969,10 +985,12 @@ export function useRunStream(runId: string | null) {
   // Live stream (only for non-terminal runs).
   React.useEffect(() => {
     if (!runId) return;
+    if (backfilledRunId !== runId) return;
     if (isTerminalStatus(rawState.status)) return;
 
     const controller = new AbortController();
     setStreaming(true);
+    const afterSequence = rawState.lastEventSequence ?? 0;
 
     runsApi
       .stream(
@@ -981,6 +999,7 @@ export function useRunStream(runId: string | null) {
           setRawState((prev) => reduceEvent(prev, event as AgentStreamEvent));
         },
         controller.signal,
+        afterSequence,
       )
       .catch(() => {
         // network errors handled by backfill on next mount
@@ -988,7 +1007,7 @@ export function useRunStream(runId: string | null) {
       .finally(() => setStreaming(false));
 
     return () => controller.abort();
-  }, [runId, rawState.status]);
+  }, [backfilledRunId, runId, rawState.status]);
 
   React.useEffect(() => {
     if (isTerminalStatus(rawState.status)) {

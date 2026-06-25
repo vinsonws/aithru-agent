@@ -19,6 +19,7 @@ export function resolveActiveRunId({
   if (!threadId) return null;
   if (routeRunId) return routeRunId;
   if (selectedRun?.threadId === threadId) return selectedRun.runId;
-  if (!runs?.length) return null;
-  return runs[runs.length - 1].id;
+  const threadRuns = runs?.filter((run) => !run.thread_id || run.thread_id === threadId) ?? [];
+  if (!threadRuns.length) return null;
+  return threadRuns[threadRuns.length - 1].id;
 }

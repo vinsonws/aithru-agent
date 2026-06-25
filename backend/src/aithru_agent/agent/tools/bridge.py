@@ -5,6 +5,7 @@ from typing import Any
 from pydantic_ai import RunContext
 
 from aithru_agent.agent.deps import PydanticAgentDeps
+from aithru_agent.agent.skill_policy import effective_run_context
 from aithru_agent.agent.exceptions import (
     RunPausedForApproval,
     RunPausedForExternalApproval,
@@ -51,14 +52,15 @@ class PydanticAIToolBridge:
 
     async def call_tool(
         self,
-        ctx: RunContext[PydanticAgentDeps],
+        ctx: RunContext[PydanticAgentDeps] | object,
         tool_name: str,
         tool_input: dict[str, Any],
     ) -> object:
         """Call a tool via the Aithru capability router."""
         await self._raise_if_cancelled()
-        tool_call_id = ctx.tool_call_id or f"pydantic:{tool_name}:{ctx.run_step}"
-        already_approved = bool(ctx.tool_call_approved)
+        is_run_context = isinstance(ctx, RunContext)
+        tool_call_id = getattr(ctx, "tool_call_id", None) or f"pydantic:{tool_name}:{getattr(ctx, 'run_step', 0)}"
+        already_approved = bool(getattr(ctx, "tool_call_approved", False))
 
         request = AgentToolCallRequest(
             id=tool_call_id,
@@ -77,7 +79,8 @@ class PydanticAIToolBridge:
                 payload={"tool_call_id": tool_call_id, "tool_name": tool_name, "input": tool_input},
             )
 
-        prepared = await self._capability_router.prepare_tool_call(request, self._run_context)
+        run_context = effective_run_context(ctx) if is_run_context else self._run_context
+        prepared = await self._capability_router.prepare_tool_call(request, run_context)
         if prepared.status == "denied":
             await self._event_writer.write(
                 run_id=self._run.id,
@@ -114,7 +117,7 @@ class PydanticAIToolBridge:
                 "Tool required approval but was not deferred by Pydantic AI; check tool.requires_approval setup",
             )
 
-        descriptor = await self._capability_router.get_tool_descriptor(tool_name, self._run_context)
+        descriptor = await self._capability_router.get_tool_descriptor(tool_name, run_context)
         allow_recoverable_failure = (
             descriptor is not None
             and _failure_policy_value(descriptor.failure_policy) == "return_recoverable"
@@ -129,7 +132,7 @@ class PydanticAIToolBridge:
         )
         try:
             await self._raise_if_cancelled()
-            result = await self._capability_router.execute_tool_call(request, self._run_context)
+            result = await self._capability_router.execute_tool_call(request, run_context)
         except (
             RunPausedForApproval,
             RunPausedForExternalApproval,

@@ -21,6 +21,7 @@ class AgentRunContext(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     actor_context: AgentActorContext | None = None
     allowed_tools: list[str] | None = None
+    denied_tools: list[str] = Field(default_factory=list)
     allowed_subagents: list[str] | None = None
     workspace_allowed_paths: list[str] | None = None
     sandbox_policy: AgentSandboxPolicy | None = None

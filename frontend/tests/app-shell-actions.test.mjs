@@ -21,11 +21,13 @@ test("manager dialogs wrap both sidebar and conversation routes", async () => {
   assert.ok(managerEnd > routeIndex, "ManagerDialogs should close after RouteContent");
 });
 
-test("open model settings action uses the manager dialog API", async () => {
+test("conversation page does not route run actions through the header", async () => {
   const source = await readFile(conversationPagePath, "utf8");
 
-  assert.match(source, /useManager/);
-  assert.match(source, /manager\.open\("settings"\)/);
+  assert.doesNotMatch(source, /useManager/);
+  assert.doesNotMatch(source, /manager\.open\("settings"\)/);
+  assert.doesNotMatch(source, /handleHeaderAction/);
+  assert.doesNotMatch(source, /onAction=/);
   assert.doesNotMatch(source, /aithru:open-settings/);
 });
 
@@ -54,7 +56,8 @@ test("conversation header keeps only primary conversation controls visible", asy
   const source = await readFile(conversationHeaderPath, "utf8");
 
   assert.match(source, /StatusChip/);
-  assert.match(source, /view\.actions\.map/);
+  assert.match(source, /TokenUsageStat/);
+  assert.doesNotMatch(source, /view\.actions\.map/);
   assert.doesNotMatch(source, /view\.subline/);
   assert.doesNotMatch(source, /view\.modelLabel/);
   assert.doesNotMatch(source, /view\.permissionLabel/);
@@ -106,6 +109,15 @@ test("collapsed rail uses the same quiet surface as surrounding chrome", async (
   assert.match(collapsedClass, /bg-background/);
   assert.doesNotMatch(collapsedClass, /bg-card/);
   assert.doesNotMatch(source, /bg-warning\/\[/);
+});
+
+test("right rail uses preview and file collection icons", async () => {
+  const source = await readFile(rightRailPath, "utf8");
+
+  assert.match(source, /Eye/);
+  assert.match(source, /FolderOpen/);
+  assert.doesNotMatch(source, /\bImage\b/);
+  assert.doesNotMatch(source, /\bFileText\b/);
 });
 
 test("right panel toggle sets panel id and clears on double-click", async () => {

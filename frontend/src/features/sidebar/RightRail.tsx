@@ -1,10 +1,10 @@
-import { Activity, FileText, GitBranch, Image, ShieldCheck } from "lucide-react";
+import { Activity, Eye, FolderOpen, GitBranch, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const PANELS = [
-  { id: "preview", icon: Image, label: "Preview" },
-  { id: "files", icon: FileText, label: "Files" },
+  { id: "preview", icon: Eye, label: "Preview" },
+  { id: "files", icon: FolderOpen, label: "Files" },
   { id: null, icon: null, label: null }, // separator
   { id: "activity", icon: Activity, label: "Activity" },
   { id: "approvals", icon: ShieldCheck, label: "Approvals" },

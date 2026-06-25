@@ -32,7 +32,7 @@ export function ApprovalsPanel({ runId, onClose }: ApprovalsPanelProps) {
   const pending = items.filter((a) => a.status === "pending");
 
   return (
-    <aside className="hidden w-[340px] shrink-0 flex-col border-l bg-card lg:flex">
+    <aside className="hidden shrink-0 flex-1 min-w-0 flex-col border-l bg-card lg:flex">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
         <span className="flex-1 text-sm font-semibold">
           {t("chat:tabApprovals")}

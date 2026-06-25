@@ -29,6 +29,20 @@ test("resolveActiveRunId ignores a selected run from another thread", async () =
   );
 });
 
+test("resolveActiveRunId ignores stale run query data from another thread", async () => {
+  const { resolveActiveRunId } = await loadSelectionModule();
+
+  assert.equal(
+    resolveActiveRunId({
+      threadId: "thread_b",
+      routeRunId: null,
+      selectedRun: null,
+      runs: [{ id: "run_from_a", thread_id: "thread_a" }],
+    }),
+    null,
+  );
+});
+
 test("resolveActiveRunId keeps the selected run when it belongs to the current thread", async () => {
   const { resolveActiveRunId } = await loadSelectionModule();
 

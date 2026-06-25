@@ -8,7 +8,7 @@
   "skills": "Skills",
   "skillsDescription": "Choose which agent skills are available for guided runs and managed work.",
   "memory": "Memory",
-  "memoryDescription": "Review stored memory entries and candidates that can inform future agent runs.",
+  "memoryDescription": "Review the long-term memory provider and manage Mem0 forget controls.",
   "runtime": "Runtime",
   "runtimeDescription": "Review live backend health and the startup settings that require a service restart.",
   "runtimeDefaults": "Runtime defaults",

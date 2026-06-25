@@ -17,7 +17,7 @@ export interface RunFileView {
   language?: string;
 }
 
-export type RunFilePreviewKind = "markdown" | "json" | "code" | "text" | "image" | "pdf" | "unsupported";
+export type RunFilePreviewKind = "markdown" | "json" | "code" | "text" | "image" | "pdf" | "html" | "unsupported";
 
 interface ArtifactInput {
   id: string;
@@ -173,8 +173,9 @@ export function previewKindForFile(input: {
   if (mediaType === "application/pdf") return "pdf";
   if (mediaType === "application/json") return "json";
   if (mediaType.startsWith("text/")) {
+    if (mediaType.includes("html")) return "html";
     if (mediaType.includes("markdown")) return "markdown";
-    if (mediaType.includes("html") || mediaType.includes("css") || mediaType.includes("javascript")) return "code";
+    if (mediaType.includes("css") || mediaType.includes("javascript")) return "code";
     return "text";
   }
 
@@ -185,7 +186,8 @@ export function previewKindForFile(input: {
   if (["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"].includes(ext)) return "image";
   if (ext === "pdf") return "pdf";
   if (["txt", "log", "csv"].includes(ext)) return "text";
-  if (["py", "ts", "tsx", "js", "jsx", "html", "css", "yaml", "yml", "toml", "sh", "sql"].includes(ext)) return "code";
+  if (["py", "ts", "tsx", "js", "jsx", "css", "yaml", "yml", "toml", "sh", "sql"].includes(ext)) return "code";
+  if (ext === "html") return "html";
   return "unsupported";
 }
 

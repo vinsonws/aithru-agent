@@ -201,3 +201,54 @@ async def test_mem0_processor_respects_marker_in_message_content() -> None:
     events = await event_store.list_by_run(run.id)
     assert events[-1].type == "memory.add.skipped"
     assert events[-1].payload["reason"] == "no_memory_marker"
+
+
+async def test_mem0_processor_bounds_messages_before_provider_add() -> None:
+    provider = FakeAddProvider()
+    processor = Mem0MemoryProcessor(
+        provider=provider,
+        settings=AgentLongTermMemorySettings(provider="mem0", mem0_api_key="mem0-key"),
+    )
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    event_writer = AgentEventWriter(event_store)
+    thread = await store.create_thread(org_id="org_1", owner_user_id="user_1")
+    workspace = await store.create_workspace(org_id="org_1", thread_id=thread.id)
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Remember bounded context.",
+        workspace_id=workspace.id,
+        scopes=["agent.memory.write"],
+        thread_id=thread.id,
+    )
+    for index in range(20):
+        await store.append_message(
+            thread_id=thread.id,
+            role="user" if index % 2 == 0 else "assistant",
+            content=f"message-{index} " + ("x" * 2_000),
+            run_id=run.id,
+        )
+    await store.update_run(run.id, status=AgentRunStatus.RUNNING)
+    completed = await store.update_run(
+        run.id,
+        status=AgentRunStatus.COMPLETED,
+        result={"content": "Done."},
+    )
+    ctx = AgentRuntimeProcessorContext(
+        run=completed,
+        store=store,
+        event_writer=event_writer,
+        event_store=event_store,
+        terminal_status=AgentRunStatus.COMPLETED,
+    )
+
+    await processor.after_terminal(ctx)
+
+    assert len(provider.messages) == 1
+    sent = provider.messages[0]
+    assert len(sent) <= 12
+    assert sent[0].content.startswith("message-8 ")
+    assert sent[-1].content.startswith("message-19 ")
+    assert all(len(message.content) <= 1_000 for message in sent)

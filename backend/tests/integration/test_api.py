@@ -30,8 +30,9 @@ from aithru_agent.domain import (
     AgentSandboxPolicy,
     AgentSkill,
 )
+from aithru_agent.memory import LongTermMemoryAddResult, LongTermMemorySearchResult
 from tests.utils.step_runtime import Step, StepAgentRuntime, ToolContext
-from aithru_agent.settings import AgentSettings
+from aithru_agent.settings import AgentLongTermMemorySettings, AgentSettings
 from aithru_agent.skills import InMemorySkillResolver
 from aithru_agent.stream import AgentEventWriter
 
@@ -280,6 +281,29 @@ class RunningWorkflowCapabilityProvider:
                 correlation_id=invocation.correlation_id,
             ),
         )
+
+
+class ApiMem0Provider:
+    async def search(self, *, run, query: str, limit: int):
+        del run, query, limit
+        return [
+            LongTermMemorySearchResult(
+                id="mem0_api_1",
+                memory="Mem0 remembers concise Chinese summaries.",
+                score=0.9,
+                metadata={"org_id": "org_1", "actor_user_id": "user_1"},
+                created_at="2026-06-25T00:00:00Z",
+                updated_at="2026-06-25T00:00:00Z",
+            )
+        ]
+
+    async def add_messages(self, *, run, messages):
+        del run, messages
+        return LongTermMemoryAddResult(status="PENDING", event_id="evt_api")
+
+    async def delete_memory(self, *, memory_id: str, org_id: str, actor_user_id: str):
+        del memory_id, org_id, actor_user_id
+        raise AssertionError("API Mem0 tests must not delete memory")
 
 
 class AsyncExternalRunRuntime(AgentRuntime):
@@ -2177,7 +2201,10 @@ async def test_agent_api_serves_active_artifact_content_as_attachment() -> None:
     assert response.status_code == 200
     assert response.text == "<h1>Report</h1>"
     assert response.headers["content-type"].startswith("text/html")
-    assert response.headers["content-disposition"] == 'attachment; filename="Report_HTML.html"'
+    assert "content-disposition" not in response.headers
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" not in response.headers.get("content-security-policy", "")  # CSP uses sandbox directive sparingly
+    assert "default-src" in response.headers["content-security-policy"]
 
 
 @pytest.mark.asyncio
@@ -5827,7 +5854,18 @@ async def test_agent_api_exposes_default_deep_research_skill_and_filtered_tools(
         ).json()
         tools = (await client.get(f"/api/runs/{run['id']}/tools")).json()
 
-    assert [skill["key"] for skill in skills] == ["deep-research"]
+    assert set(skill["key"] for skill in skills) == {
+        "deep-research",
+        "surprise-me",
+        "bootstrap",
+        "find-skills",
+        "skill-creator",
+        "frontend-design",
+        "chart-visualization",
+        "web-design-guidelines",
+        "ppt-generation",
+        "data-analysis",
+    }
     assert by_key["id"] == "skill_deep_research"
     assert [tool["name"] for tool in tools] == [
         "artifact.create",
@@ -5847,7 +5885,18 @@ async def test_agent_api_exposes_builtin_deep_research_as_read_only_registry_ent
         detail = (await client.get("/api/skill-registry/deep-research")).json()
         disable_response = await client.post("/api/skill-registry/deep-research/disable")
 
-    assert [entry["key"] for entry in registry_entries] == ["deep-research"]
+    assert set(entry["key"] for entry in registry_entries) == {
+        "bootstrap",
+        "chart-visualization",
+        "data-analysis",
+        "deep-research",
+        "find-skills",
+        "frontend-design",
+        "ppt-generation",
+        "skill-creator",
+        "surprise-me",
+        "web-design-guidelines",
+    }
     assert detail["source"] == "builtin"
     assert detail["read_only"] is True
     assert "research.create_plan" in detail["configuration"]["allowed_tools"]
@@ -6563,6 +6612,50 @@ async def test_agent_api_creates_and_lists_memory_entries() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_disables_local_memory_routes_in_mem0_mode() -> None:
+    runtime = create_agent_runtime(
+        settings=AgentSettings(
+            model="test",
+            long_term_memory=AgentLongTermMemorySettings(
+                provider="mem0",
+                mem0_api_key="mem0-key",
+            ),
+        ),
+        long_term_memory_provider=ApiMem0Provider(),
+    )
+    entry = await runtime.store.create_memory_entry(
+        org_id="org_1",
+        scope="user",
+        scope_id="user_1",
+        key="legacy.preference",
+        value="Legacy local memory should be unreachable.",
+        owner="user_1",
+    )
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created_response = await client.post(
+            "/api/memory",
+            json={
+                "org_id": "org_1",
+                "scope": "user",
+                "scope_id": "user_1",
+                "key": "preference.language",
+                "value": "Prefers Chinese summaries.",
+            },
+        )
+        listed_response = await client.get("/api/memory", params={"org_id": "org_1"})
+        deleted_response = await client.delete(f"/api/memory/{entry.id}")
+
+    assert created_response.status_code == 410
+    assert listed_response.status_code == 410
+    assert deleted_response.status_code == 410
+    assert created_response.json()["detail"] == (
+        "Local memory is disabled when long-term memory provider is mem0"
+    )
+
+
+@pytest.mark.asyncio
 async def test_agent_api_returns_run_memory_recall_projection() -> None:
     runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     app = create_app(runtime)
@@ -6650,6 +6743,48 @@ async def test_agent_api_returns_run_memory_recall_projection() -> None:
         "count": 0,
         "dropped": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_agent_api_memory_recall_uses_only_mem0_in_mem0_mode() -> None:
+    runtime = create_agent_runtime(
+        settings=AgentSettings(
+            model="test",
+            long_term_memory=AgentLongTermMemorySettings(
+                provider="mem0",
+                mem0_api_key="mem0-key",
+            ),
+        ),
+        long_term_memory_provider=ApiMem0Provider(),
+    )
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    run = await runtime.store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Inspect memory",
+        workspace_id=workspace.id,
+        scopes=["agent.memory.read"],
+    )
+    await runtime.store.create_memory_entry(
+        org_id="org_1",
+        scope="user",
+        scope_id="user_1",
+        key="legacy.preference",
+        value="Legacy local memory should not be recalled.",
+        owner="user_1",
+    )
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        recall_response = await client.get(f"/api/runs/{run.id}/memory-recall")
+
+    recall = recall_response.json()
+
+    assert recall_response.status_code == 200
+    assert recall["count"] == 1
+    assert recall["items"][0]["source"] == "mem0"
+    assert recall["items"][0]["key"] == "mem0:mem0_api_1"
 
 
 @pytest.mark.asyncio

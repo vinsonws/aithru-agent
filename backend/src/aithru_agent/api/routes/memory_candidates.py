@@ -31,6 +31,7 @@ async def list_memory_candidates(
     scope_id: str | None = None,
     deps: ApiDependencies = Depends(api_deps),
 ) -> list[AgentMemoryCandidate]:
+    _raise_if_local_memory_candidates_disabled(deps)
     resolved_org_id = identity_query_value(request, org_id, "org_1", "x-aithru-org-id")
     resolved_scope_id = memory_scope_id_for_request(request, scope, scope_id)
     candidates = await deps.runtime.store.list_memory_candidates(
@@ -52,6 +53,7 @@ async def approve_memory_candidate(
     candidate_id: str,
     deps: ApiDependencies = Depends(api_deps),
 ) -> AgentMemoryCandidateApprovalResult:
+    _raise_if_local_memory_candidates_disabled(deps)
     candidate = await _require_candidate(request, deps, candidate_id)
     if candidate.status != "pending":
         raise HTTPException(status_code=409, detail="Memory candidate is already resolved")
@@ -76,6 +78,7 @@ async def reject_memory_candidate(
     candidate_id: str,
     deps: ApiDependencies = Depends(api_deps),
 ) -> AgentMemoryCandidate:
+    _raise_if_local_memory_candidates_disabled(deps)
     candidate = await _require_candidate(request, deps, candidate_id)
     if candidate.status != "pending":
         raise HTTPException(status_code=409, detail="Memory candidate is already resolved")
@@ -135,3 +138,11 @@ def utc_now() -> str:
 def _raise_memory_candidate_error(err: AgentError) -> None:
     status_code = 404 if err.code == "NOT_FOUND" else 409
     raise HTTPException(status_code=status_code, detail=err.message) from err
+
+
+def _raise_if_local_memory_candidates_disabled(deps: ApiDependencies) -> None:
+    if deps.runtime.settings.long_term_memory.provider == "mem0":
+        raise HTTPException(
+            status_code=410,
+            detail="Local memory candidates are disabled when long-term memory provider is mem0",
+        )

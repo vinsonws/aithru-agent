@@ -54,13 +54,6 @@ export function buildRunHeaderView(input: RunHeaderInput): RunHeaderView {
     ? getPermissionPolicy(inferPermissionPolicyFromScopes(activeRun.scopes))
     : null;
 
-  const actions = buildRunHeaderActions({
-    status,
-    runStatus: runStatus as AgentRunStatus | "idle",
-    activeRun,
-    streamError,
-  });
-
   return {
     title,
     fallbackTitle: title || "New conversation",
@@ -69,7 +62,7 @@ export function buildRunHeaderView(input: RunHeaderInput): RunHeaderView {
     modelLabel,
     permissionLabel: permission?.fallback,
     permissionLabelKey: permission?.labelKey,
-    actions,
+    actions: [],
   };
 }
 
@@ -84,52 +77,4 @@ export function getRunMode(activeRun?: AgentRun | null): "auto" | "plan" | "chat
   const mode = match?.[1]?.toLowerCase();
   if (mode === "plan" || mode === "chat") return mode;
   return "auto";
-}
-
-function buildRunHeaderActions(input: {
-  status: ProductRunStatusCopy;
-  runStatus: string;
-  activeRun?: AgentRun | null;
-  streamError?: string | null;
-}): RunHeaderActionView[] {
-  const { status, runStatus, streamError } = input;
-
-  if (runStatus === "running" || runStatus === "queued") {
-    return [
-      { kind: "stop", labelKey: "chat:actions.stop", fallback: "Stop" },
-    ];
-  }
-
-  if (runStatus === "waiting_input") {
-    return [
-      { kind: "reply", labelKey: "chat:actions.reply", fallback: "Reply" },
-    ];
-  }
-
-  if (runStatus === "waiting_approval") {
-    return [
-      { kind: "reviewApproval", labelKey: "chat:actions.reviewApproval", fallback: "Review approval" },
-    ];
-  }
-
-  if (runStatus === "failed") {
-    const actions: RunHeaderActionView[] = [];
-    if (status.failureCategory === "modelConfiguration") {
-      actions.push({ kind: "openModelSettings", labelKey: "chat:actions.openModelSettings", fallback: "Open model settings" });
-    } else {
-      actions.push({ kind: "retry", labelKey: "chat:actions.retry", fallback: "Retry" });
-    }
-    if (streamError) {
-      actions.push({ kind: "viewTrace", labelKey: "chat:actions.viewTrace", fallback: "View trace" });
-    }
-    return actions;
-  }
-
-  if (runStatus === "cancelled") {
-    return [
-      { kind: "retry", labelKey: "chat:actions.retry", fallback: "Retry" },
-    ];
-  }
-
-  return [];
 }

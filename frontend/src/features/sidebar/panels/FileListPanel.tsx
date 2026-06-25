@@ -77,7 +77,7 @@ export function FileListPanel({ runId, workspaceId, onSelectFile, onClose }: Fil
   const modifiedFiles = views.filter((v) => v.kind === "modified_file");
 
   return (
-    <PanelShell title={t("chat:tabOutputs", "Outputs")} onClose={onClose}>
+    <PanelShell title={t("chat:tabFiles", "Files")} onClose={onClose}>
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">
           {t("chat:files.itemCount", "{{count}} items", { count: views.length })}
@@ -168,7 +168,7 @@ function PanelShell({
   children: React.ReactNode;
 }) {
   return (
-    <aside className="hidden w-[340px] shrink-0 flex-col border-l bg-card lg:flex">
+    <aside className="hidden shrink-0 flex-1 min-w-0 flex-col border-l bg-card lg:flex">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
         <span className="flex-1 text-sm font-semibold">{title}</span>
         <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onClose}>

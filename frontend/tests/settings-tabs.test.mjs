@@ -167,6 +167,7 @@ async function renderSettingsTabs() {
                 externalTools: "External tools",
                 skills: "Skills",
                 memory: "Memory",
+                memoryDescription: "Review the long-term memory provider.",
                 runtime: "Runtime",
                 runtimeDefaults: "Runtime defaults",
                 runtimeDefaultsDescription: "Startup environment values are read-only here.",
@@ -236,6 +237,7 @@ test("settings tabs expose product-managed configuration and runtime defaults", 
   assert.match(html, /External tools/);
   assert.match(html, /Skills/);
   assert.match(html, /Memory/);
+  assert.equal((html.match(/Review the long-term memory provider/g) ?? []).length, 1);
   assert.match(html, /Runtime/);
   assert.match(html, /Runtime defaults/);
   assert.match(html, /Backend health/);

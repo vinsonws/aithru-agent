@@ -19,9 +19,19 @@ import { ApprovalsPanel } from "@/features/sidebar/panels/ApprovalsPanel";
 import { TracePanel } from "@/features/sidebar/panels/TracePanel";
 import { buildRunCompanionBadges } from "@/features/chat/runActivity";
 
+const DEFAULT_RIGHT_PANEL_WIDTH = 340;
+const MIN_RIGHT_PANEL_WIDTH = 240;
+const MAX_RIGHT_PANEL_WIDTH = 720;
+
 export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage("aithru-agent:sidebar-collapsed", false);
   const [rightPanel, setRightPanel] = React.useState<string | null>(null);
+  const [rightPanelWidth, setRightPanelWidth] = useLocalStorage("aithru-agent:right-panel-width", DEFAULT_RIGHT_PANEL_WIDTH);
+  const clampedRightPanelWidth = clampRightPanelWidth(rightPanelWidth);
+  const handleRightPanelWidthChange = React.useCallback(
+    (width: number) => setRightPanelWidth(clampRightPanelWidth(width)),
+    [setRightPanelWidth],
+  );
   const [openFileIds, setOpenFileIds] = React.useState<string[]>([]);
   const [activeFileId, setActiveFileId] = React.useState<string | null>(null);
   const [selectedRun, setSelectedRun] = React.useState<SelectedRunRef | null>(null);
@@ -36,6 +46,8 @@ export function AppShell() {
             onSelectedRunChange={setSelectedRun}
             rightPanel={rightPanel}
             onRightPanelChange={setRightPanel}
+            rightPanelWidth={clampedRightPanelWidth}
+            onRightPanelWidthChange={handleRightPanelWidthChange}
             openFileIds={openFileIds}
             onOpenFileIdsChange={setOpenFileIds}
             activeFileId={activeFileId}
@@ -47,11 +59,17 @@ export function AppShell() {
   );
 }
 
+function clampRightPanelWidth(width: number): number {
+  return Math.min(MAX_RIGHT_PANEL_WIDTH, Math.max(MIN_RIGHT_PANEL_WIDTH, width));
+}
+
 function RouteContent({
   selectedRun,
   onSelectedRunChange,
   rightPanel,
   onRightPanelChange,
+  rightPanelWidth,
+  onRightPanelWidthChange,
   openFileIds,
   onOpenFileIdsChange,
   activeFileId,
@@ -61,6 +79,8 @@ function RouteContent({
   onSelectedRunChange: (run: SelectedRunRef | null) => void;
   rightPanel: string | null;
   onRightPanelChange: (panel: string | null) => void;
+  rightPanelWidth: number;
+  onRightPanelWidthChange: (width: number) => void;
   openFileIds: string[];
   onOpenFileIdsChange: (ids: string[]) => void;
   activeFileId: string | null;
@@ -122,7 +142,7 @@ function RouteContent({
     onRightPanelChange("preview");
   };
 
-  const rightSidebar = activeRunId ? (
+  const rightPanelContent = activeRunId && rightPanel ? (
     <>
       {rightPanel === "preview" && (
         <FilePreviewPanel
@@ -159,12 +179,15 @@ function RouteContent({
       {rightPanel === "trace" && (
         <TracePanel runId={activeRunId} onClose={() => onRightPanelChange(null)} />
       )}
-      <RightRail
-        activePanel={rightPanel}
-        onPanelChange={onRightPanelChange}
-        badges={badges}
-      />
     </>
+  ) : null;
+
+  const rightRail = activeRunId ? (
+    <RightRail
+      activePanel={rightPanel}
+      onPanelChange={onRightPanelChange}
+      badges={badges}
+    />
   ) : null;
 
   return (
@@ -175,7 +198,10 @@ function RouteContent({
       streamState={streamState}
       onOpenRightPanel={onRightPanelChange}
       onPreviewFile={handlePreviewFile}
-      rightSidebar={rightSidebar}
+      rightPanelWidth={rightPanelWidth}
+      onRightPanelWidthChange={onRightPanelWidthChange}
+      rightPanelContent={rightPanelContent}
+      rightRail={rightRail}
     />
   );
 }
@@ -187,7 +213,10 @@ function ConversationRoute({
   streamState,
   onOpenRightPanel,
   onPreviewFile,
-  rightSidebar,
+  rightPanelWidth,
+  onRightPanelWidthChange,
+  rightPanelContent,
+  rightRail,
 }: {
   threadId: string | null;
   activeRunId: string | null;
@@ -195,7 +224,10 @@ function ConversationRoute({
   streamState: RunStreamState;
   onOpenRightPanel: (panel: string | null) => void;
   onPreviewFile: (fileId: string) => void;
-  rightSidebar: React.ReactNode;
+  rightPanelWidth: number;
+  onRightPanelWidthChange: (width: number) => void;
+  rightPanelContent: React.ReactNode;
+  rightRail: React.ReactNode;
 }) {
   if (!threadId) {
     return <NewThreadPage />;
@@ -208,7 +240,10 @@ function ConversationRoute({
       streamState={streamState}
       onOpenRightPanel={onOpenRightPanel}
       onPreviewFile={onPreviewFile}
-      rightSidebar={rightSidebar}
+      rightPanelWidth={rightPanelWidth}
+      onRightPanelWidthChange={onRightPanelWidthChange}
+      rightPanelContent={rightPanelContent}
+      rightRail={rightRail}
     />
   );
 }

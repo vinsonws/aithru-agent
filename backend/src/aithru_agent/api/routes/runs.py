@@ -345,7 +345,9 @@ async def get_run_memory_recall(
     deps: ApiDependencies = Depends(api_deps),
 ) -> AgentMemoryRecall:
     run = await deps.require_run(request, run_id)
-    return await ContextPacketBuilder().build_memory_recall(run, deps.runtime.store)
+    return await ContextPacketBuilder(
+        long_term_memory_provider=deps.runtime.long_term_memory_provider,
+    ).build_run_memory_recall(run, deps.runtime.store)
 
 
 @router.get(
@@ -359,7 +361,9 @@ async def get_thread_run_memory_recall(
     deps: ApiDependencies = Depends(api_deps),
 ) -> AgentMemoryRecall:
     run = await deps.require_thread_run(request, thread_id, run_id)
-    return await ContextPacketBuilder().build_memory_recall(run, deps.runtime.store)
+    return await ContextPacketBuilder(
+        long_term_memory_provider=deps.runtime.long_term_memory_provider,
+    ).build_run_memory_recall(run, deps.runtime.store)
 
 
 @router.post(

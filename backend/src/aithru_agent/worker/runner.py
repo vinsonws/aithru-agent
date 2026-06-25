@@ -36,6 +36,12 @@ from aithru_agent.memory import LongTermMemoryProvider
 from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.runtime.processors import AgentRuntimeProcessorRunner
 from aithru_agent.skills import AgentSkillResolver, EmptySkillResolver
+from aithru_agent.skills.package_store import (
+    CompositeSkillPackageStore,
+    SkillActor,
+    SkillPackageStore,
+)
+from aithru_agent.skills.packages import skill_package_to_agent_skill
 from aithru_agent.skills.resolver import resolve_skill_for_org
 from aithru_agent.stream import AgentEventWriter
 from aithru_agent.worker.recovery import RunRecoveryDecision, decide_run_recovery
@@ -63,6 +69,7 @@ class AgentWorkerRunner:
         skill_resolver: AgentSkillResolver | None = None,
         processor_runner: AgentRuntimeProcessorRunner | None = None,
         long_term_memory_provider: LongTermMemoryProvider | None = None,
+        skill_package_store: SkillPackageStore | None = None,
     ) -> None:
         self._store = store
         self._event_writer = event_writer
@@ -75,6 +82,7 @@ class AgentWorkerRunner:
         self._context_packet_builder = ContextPacketBuilder(
             long_term_memory_provider=long_term_memory_provider,
         )
+        self._skill_package_store = skill_package_store or CompositeSkillPackageStore()
 
     async def start_run(
         self,
@@ -119,7 +127,11 @@ class AgentWorkerRunner:
             thread = await self._store.get_thread(thread_id)
             if thread is None or thread.org_id != org_id or thread.owner_user_id != actor_user_id:
                 raise AgentError("NOT_FOUND", f"Thread not found: {thread_id}")
-        self._resolve_run_skill(org_id=org_id, skill_id=skill_id)
+        self._resolve_run_skill(
+            org_id=org_id,
+            actor_user_id=actor_user_id,
+            skill_id=skill_id,
+        )
         workspace = await self._store.create_workspace(org_id=org_id, thread_id=thread_id)
         run = await self._store.create_run(
             org_id=org_id,
@@ -192,7 +204,11 @@ class AgentWorkerRunner:
 
         thread_id = run.thread_id
         try:
-            skill = self._resolve_run_skill(org_id=run.org_id, skill_id=run.skill_id)
+            skill = self._resolve_run_skill(
+                org_id=run.org_id,
+                actor_user_id=run.actor_user_id,
+                skill_id=run.skill_id,
+            )
         except AgentError as exc:
             return await self._fail_run(run, thread_id, exc)
 
@@ -289,6 +305,10 @@ class AgentWorkerRunner:
                 visibility="debug",
                 payload=context_packet.event_payload(),
             )
+        # Resolve visible skill packages for the run actor
+        actor = SkillActor(org_id=run.org_id, actor_user_id=run.actor_user_id)
+        visible_packages = self._skill_package_store.list_visible_packages(actor)
+        visible_packages_by_key = {pkg.key: pkg for pkg in visible_packages}
         return PydanticAgentDeps(
             run=run,
             run_context=self._context_builder.build(run, run.scopes, skill),
@@ -297,6 +317,8 @@ class AgentWorkerRunner:
             store=self._store,
             skill=skill,
             context_packet=context_packet,
+            visible_skill_packages=visible_packages_by_key,
+            explicit_skill_key=skill.key if skill is not None else None,
         )
 
     async def _get_existing_run(self, run_id: str) -> AgentRun:
@@ -408,14 +430,19 @@ class AgentWorkerRunner:
         self,
         *,
         org_id: str,
+        actor_user_id: str,
         skill_id: str | None,
     ) -> AgentSkill | None:
         if skill_id is None:
             return None
         skill = resolve_skill_for_org(self._skill_resolver, org_id, skill_id)
-        if skill is None:
-            raise AgentError("SKILL_NOT_FOUND", f"Skill not found: {skill_id}")
-        return skill
+        if skill is not None:
+            return skill
+        actor = SkillActor(org_id=org_id, actor_user_id=actor_user_id)
+        for package in self._skill_package_store.list_visible_packages(actor):
+            if skill_id in {package.key, package.id}:
+                return skill_package_to_agent_skill(package)
+        raise AgentError("SKILL_NOT_FOUND", f"Skill not found: {skill_id}")
 
     async def find_next_queued_run(self) -> AgentRun | None:
         for run in await self._store.list_runs():
@@ -653,7 +680,11 @@ class AgentWorkerRunner:
             return failed
 
         try:
-            skill = self._resolve_run_skill(org_id=run.org_id, skill_id=run.skill_id)
+            skill = self._resolve_run_skill(
+                org_id=run.org_id,
+                actor_user_id=run.actor_user_id,
+                skill_id=run.skill_id,
+            )
         except AgentError as exc:
             return await self._fail_run(run, run.thread_id, exc)
 
@@ -1002,7 +1033,11 @@ class AgentWorkerRunner:
             raise AgentError("RUN_NOT_RESUMABLE", f"Subagent result is not recoverable: {run_id}")
 
         try:
-            skill = self._resolve_run_skill(org_id=run.org_id, skill_id=run.skill_id)
+            skill = self._resolve_run_skill(
+                org_id=run.org_id,
+                actor_user_id=run.actor_user_id,
+                skill_id=run.skill_id,
+            )
         except AgentError as exc:
             return await self._fail_run(run, run.thread_id, exc)
 

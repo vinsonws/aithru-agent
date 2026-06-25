@@ -87,8 +87,20 @@ export const runsApi = {
     apiRequest<unknown>(`/api/runs/${runId}/export`),
 
   /** Live SSE stream of run events. Resolves when the stream closes. */
-  stream: (runId: string, onEvent: (e: AgentStreamEvent) => void, signal?: AbortSignal) =>
-    openEventStream(`/api/runs/${runId}/stream?follow=true`, onEvent as (e: unknown) => void, signal),
+  stream: (
+    runId: string,
+    onEvent: (e: AgentStreamEvent) => void,
+    signal?: AbortSignal,
+    afterSequence = 0,
+  ) => {
+    const params = new URLSearchParams({ follow: "true" });
+    if (afterSequence > 0) params.set("after_sequence", String(afterSequence));
+    return openEventStream(
+      `/api/runs/${runId}/stream?${params.toString()}`,
+      onEvent as (e: unknown) => void,
+      signal,
+    );
+  },
 
   operatorFollowUp: (runId: string, body: { action_kind: string; task_msg?: string }) =>
     apiRequest<unknown>(`/api/runs/${runId}/operator-actions/follow-up`, {

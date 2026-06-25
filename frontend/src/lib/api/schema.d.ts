@@ -1562,6 +1562,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skill-registry/user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create User Skill Package */
+        post: operations["create_user_skill_package_api_skill_registry_user_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skill-registry/user/{skill_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update User Skill Package */
+        patch: operations["update_user_skill_package_api_skill_registry_user__skill_key__patch"];
+        trace?: never;
+    };
     "/api/skill-registry": {
         parameters: {
             query?: never;
@@ -3238,6 +3272,8 @@ export interface components {
             enabled: boolean;
             /** @default managed */
             source: components["schemas"]["AgentSkillRegistrySource"];
+            /** Owner User Id */
+            owner_user_id?: string | null;
             marketplace?: components["schemas"]["AgentSkillMarketplaceMetadata"] | null;
             configuration: components["schemas"]["AgentSkillConfiguration"];
             /**
@@ -3254,7 +3290,7 @@ export interface components {
          * AgentSkillRegistrySource
          * @enum {string}
          */
-        AgentSkillRegistrySource: "builtin" | "managed" | "marketplace";
+        AgentSkillRegistrySource: "builtin" | "managed" | "marketplace" | "user";
         /**
          * AgentSkillStatus
          * @enum {string}
@@ -4221,6 +4257,40 @@ export interface components {
             owner_user_id: string;
             /** Title */
             title?: string | null;
+        };
+        /** CreateUserSkillPackageRequest */
+        CreateUserSkillPackageRequest: {
+            /** Key */
+            key: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Body */
+            body: string;
+            /** Allowed Tools */
+            allowed_tools?: string[];
+            /** Denied Tools */
+            denied_tools?: string[];
+            /** Allowed Subagents */
+            allowed_subagents?: string[];
+            workspace_policy?: components["schemas"]["AgentWorkspacePolicy"] | null;
+            memory_policy?: components["schemas"]["AgentMemoryPolicy"] | null;
+            sandbox_policy?: components["schemas"]["AgentSandboxPolicy"] | null;
+            approval_policy?: components["schemas"]["AgentApprovalPolicy"] | null;
+            /** Input Schema */
+            input_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Output Schema */
+            output_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /** ExternalToolEndpointConfigRequest */
         ExternalToolEndpointConfigRequest: {
@@ -6014,6 +6084,35 @@ export interface components {
             /** Title */
             title?: string | null;
             status?: components["schemas"]["AgentThreadStatus"];
+        };
+        /** UpdateUserSkillPackageRequest */
+        UpdateUserSkillPackageRequest: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Body */
+            body?: string | null;
+            /** Allowed Tools */
+            allowed_tools?: string[] | null;
+            /** Denied Tools */
+            denied_tools?: string[] | null;
+            /** Allowed Subagents */
+            allowed_subagents?: string[] | null;
+            workspace_policy?: components["schemas"]["AgentWorkspacePolicy"] | null;
+            memory_policy?: components["schemas"]["AgentMemoryPolicy"] | null;
+            sandbox_policy?: components["schemas"]["AgentSandboxPolicy"] | null;
+            approval_policy?: components["schemas"]["AgentApprovalPolicy"] | null;
+            /** Input Schema */
+            input_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Output Schema */
+            output_schema?: {
+                [key: string]: unknown;
+            } | null;
+            /** Enabled */
+            enabled?: boolean | null;
         };
         /** UploadWorkspaceFileRequest */
         UploadWorkspaceFileRequest: {
@@ -9414,6 +9513,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_user_skill_package_api_skill_registry_user_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUserSkillPackageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillRegistryEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_skill_package_api_skill_registry_user__skill_key__patch: {
+        parameters: {
+            query?: {
+                org_id?: string | null;
+            };
+            header?: never;
+            path: {
+                skill_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserSkillPackageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillRegistryEntry"];
                 };
             };
             /** @description Validation Error */

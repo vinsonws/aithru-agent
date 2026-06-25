@@ -8,7 +8,7 @@ from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.memory import LongTermMemoryAddResult, LongTermMemorySearchResult
 from aithru_agent.runtime.processors.mem0_memory import Mem0MemoryProcessor
 from aithru_agent.settings import AgentLongTermMemorySettings
-from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
+from aithru_agent.capabilities import AithruCapabilityRouter, AgentRunContext, ToolPolicy
 from aithru_agent.domain import AgentRunRetryPolicy, AgentRunStatus
 from aithru_agent.persistence.memory import InMemoryAgentStore
 from aithru_agent.runtime.processors import (
@@ -389,6 +389,34 @@ def test_mem0_provider_mode_registers_mem0_processor_instead_of_candidate_proces
 
     assert "Mem0MemoryProcessor" in processor_names
     assert "MemoryExtractionProcessor" not in processor_names
+
+
+@pytest.mark.asyncio
+async def test_mem0_provider_mode_does_not_expose_local_memory_tools() -> None:
+    app = create_agent_runtime(
+        settings=AgentSettings(
+            model="test",
+            long_term_memory=AgentLongTermMemorySettings(
+                provider="mem0",
+                mem0_api_key="mem0-key",
+            ),
+        ),
+        long_term_memory_provider=AppWiringMem0Provider(),
+    )
+
+    tools = await app.capability_router.list_tools(
+        AgentRunContext(
+            run_id="run_1",
+            org_id="org_1",
+            actor_user_id="user_1",
+            workspace_id="workspace_1",
+            scopes=["agent.memory.read", "agent.memory.write"],
+        )
+    )
+
+    tool_names = {tool.name for tool in tools}
+    assert "memory.search" not in tool_names
+    assert "memory.remember" not in tool_names
 
 
 async def _collect_followed_events(

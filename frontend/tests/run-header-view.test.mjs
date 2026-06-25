@@ -111,45 +111,49 @@ function makeRun(overrides = {}) {
   return { id: "run_123456789", status: "running", goal: "Fix the bug", scopes: ["agent.workspace.read", "agent.workspace.write"], harness_options: { model_profile_key: "gpt-4", model: "gpt-4" }, ...overrides };
 }
 
-test("running run exposes stop action", async () => {
+test("running run exposes no header actions", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
   const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "running" }), streamStatus: "running", threadId: "thread_abcdef", modeLabel: "Auto" });
-  assert.ok(view.actions.find((a) => a.kind === "stop"));
+  assert.deepEqual(view.actions, []);
   assert.equal(view.status.fallback, "Running");
 });
 
-test("waiting input run exposes reply action", async () => {
+test("waiting input run exposes no header actions", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
   const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "waiting_input" }), streamStatus: "waiting_input", threadId: "thread_abcdef", modeLabel: "Auto" });
-  assert.ok(view.actions.find((a) => a.kind === "reply"));
+  assert.deepEqual(view.actions, []);
   assert.equal(view.status.fallback, "Awaiting reply");
 });
 
-test("waiting approval run exposes reviewApproval action", async () => {
+test("waiting approval run exposes no header actions", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
   const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "waiting_approval" }), streamStatus: "waiting_approval", threadId: "thread_abcdef", modeLabel: "Auto" });
-  assert.ok(view.actions.find((a) => a.kind === "reviewApproval"));
+  assert.deepEqual(view.actions, []);
   assert.equal(view.status.fallback, "Approval needed");
 });
 
-test("failed model-configuration run exposes openModelSettings and viewTrace", async () => {
+test("failed model-configuration run exposes no header actions", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
   const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "failed", goal: "task" }), streamStatus: "failed", streamError: "model profile is missing", threadId: "thread_abcdef", modeLabel: "Auto" });
-  assert.ok(view.actions.find((a) => a.kind === "openModelSettings"));
-  assert.ok(view.actions.find((a) => a.kind === "viewTrace"));
+  assert.deepEqual(view.actions, []);
   assert.equal(view.status.fallback, "Failed");
 });
 
-test("failed non-configuration run exposes retry and viewTrace", async () => {
+test("failed non-configuration run exposes no header actions", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
   const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "failed", goal: "task" }), streamStatus: "failed", streamError: "something went wrong", threadId: "thread_abcdef", modeLabel: "Auto" });
-  assert.ok(view.actions.find((a) => a.kind === "retry"));
-  assert.ok(view.actions.find((a) => a.kind === "viewTrace"));
+  assert.deepEqual(view.actions, []);
 });
 
 test("completed run does not expose header actions", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
   const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "completed", goal: "task" }), streamStatus: "completed", threadId: "thread_abcdef", modeLabel: "Auto" });
+  assert.deepEqual(view.actions, []);
+});
+
+test("cancelled run exposes no header actions", async () => {
+  const { buildRunHeaderView } = await loadRunHeaderView();
+  const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "cancelled", goal: "task" }), streamStatus: "cancelled", threadId: "thread_abcdef", modeLabel: "Auto" });
   assert.deepEqual(view.actions, []);
 });
 

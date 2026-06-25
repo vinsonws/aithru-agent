@@ -5,9 +5,25 @@ from httpx import ASGITransport, AsyncClient
 
 from aithru_agent.api.main import create_app
 from aithru_agent.application.runtime import create_agent_runtime
-from aithru_agent.domain import AgentMemoryCandidateApprovalResult
+from aithru_agent.domain import AgentMemoryCandidate, AgentMemoryCandidateApprovalResult
+from aithru_agent.memory import LongTermMemoryAddResult
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
+from aithru_agent.settings import AgentLongTermMemorySettings, AgentSettings
 from tests.utils.step_runtime import Step, StepAgentRuntime
+
+
+class CandidatesMem0Provider:
+    async def search(self, *, run, query: str, limit: int):
+        del run, query, limit
+        return []
+
+    async def add_messages(self, *, run, messages):
+        del run, messages
+        return LongTermMemoryAddResult(status="PENDING", event_id="evt_candidates")
+
+    async def delete_memory(self, *, memory_id: str, org_id: str, actor_user_id: str):
+        del memory_id, org_id, actor_user_id
+        raise AssertionError("candidate API tests must not delete memory")
 
 
 @pytest.mark.asyncio
@@ -102,6 +118,57 @@ async def test_memory_candidates_api_rejects_pending_candidate() -> None:
     assert memory_after == []
     assert approve_after_reject.status_code == 409
     assert approve_after_reject.json()["detail"] == "Memory candidate is already resolved"
+
+
+@pytest.mark.asyncio
+async def test_memory_candidates_api_is_disabled_in_mem0_mode() -> None:
+    runtime = create_agent_runtime(
+        settings=AgentSettings(
+            model="test",
+            long_term_memory=AgentLongTermMemorySettings(
+                provider="mem0",
+                mem0_api_key="mem0-key",
+            ),
+        ),
+        long_term_memory_provider=CandidatesMem0Provider(),
+    )
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    run = await runtime.store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Legacy candidate",
+        workspace_id=workspace.id,
+        scopes=["agent.memory.write"],
+    )
+    await runtime.store.create_memory_candidate(
+        AgentMemoryCandidate(
+            id="memcand_legacy",
+            org_id="org_1",
+            run_id=run.id,
+            scope="user",
+            scope_id="user_1",
+            key="legacy.preference",
+            value="Legacy local memory candidate.",
+            confidence=0.6,
+            created_at="2026-06-25T00:00:00Z",
+        )
+    )
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        listed_response = await client.get("/api/memory-candidates")
+        approved_response = await client.post("/api/memory-candidates/memcand_legacy/approve")
+        rejected_response = await client.post("/api/memory-candidates/memcand_legacy/reject")
+        memory_after = await runtime.store.list_memory_entries(org_id="org_1")
+
+    assert listed_response.status_code == 410
+    assert approved_response.status_code == 410
+    assert rejected_response.status_code == 410
+    assert memory_after == []
+    assert listed_response.json()["detail"] == (
+        "Local memory candidates are disabled when long-term memory provider is mem0"
+    )
 
 
 @pytest.mark.asyncio

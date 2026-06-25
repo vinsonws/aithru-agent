@@ -21,11 +21,20 @@ from aithru_agent.domain.errors import AgentError
 
 router = APIRouter()
 
-ACTIVE_CONTENT_TYPES = {
+SANDBOX_CONTENT_TYPES = {
     "application/xhtml+xml",
     "image/svg+xml",
     "text/html",
 }
+
+_SANDBOX_CSP = (
+    "default-src 'self' 'unsafe-inline' data: blob: https:; "
+    "img-src 'self' data: blob: https:; "
+    "media-src 'self' data: blob: https:; "
+    "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "script-src 'unsafe-inline' 'unsafe-eval'"
+)
 
 
 class ArtifactContentPointer(AithruBaseModel):
@@ -165,19 +174,11 @@ def _content_pointer(artifact: AgentArtifact) -> ArtifactContentPointer | None:
 
 def _content_headers(artifact: AgentArtifact, media_type: str) -> dict[str, str]:
     normalized = media_type.split(";", 1)[0].lower()
-    if normalized not in ACTIVE_CONTENT_TYPES:
+    if normalized not in SANDBOX_CONTENT_TYPES:
         return {}
     return {
-        "Content-Disposition": _content_disposition(
-            AgentArtifactDownloadInfo(
-                artifact_id=artifact.id,
-                filename=_download_filename(artifact),
-                media_type=media_type,
-                content_length=0,
-                disposition="attachment",
-                source_path=_content_pointer(artifact).path if _content_pointer(artifact) else None,
-            )
-        )
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": _SANDBOX_CSP,
     }
 
 

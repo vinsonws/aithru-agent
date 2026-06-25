@@ -1,37 +1,24 @@
 import * as React from "react";
 import {
   Check,
+  Coins,
   Edit3,
-  Square,
-  MessageSquare,
-  ShieldCheck,
-  RotateCcw,
-  GitBranch,
-  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { RunHeaderView } from "./runHeaderView";
+import { buildTokenUsageDisplay, type TokenUsageCounters } from "./tokenUsageStat";
 import { useTranslation } from "react-i18next";
-
-const ACTION_ICONS: Record<string, React.ReactNode> = {
-  stop: <Square className="h-3.5 w-3.5" />,
-  reply: <MessageSquare className="h-3.5 w-3.5" />,
-  reviewApproval: <ShieldCheck className="h-3.5 w-3.5" />,
-  retry: <RotateCcw className="h-3.5 w-3.5" />,
-  viewTrace: <GitBranch className="h-3.5 w-3.5" />,
-  openModelSettings: <Settings className="h-3.5 w-3.5" />,
-};
 
 export function ConversationHeader({
   view,
+  tokenUsage,
   onRename,
-  onAction,
 }: {
   view: RunHeaderView;
+  tokenUsage?: TokenUsageCounters | null;
   onRename: (title: string) => void;
-  onAction: (kind: string) => void;
 }) {
   const { t } = useTranslation(["chat"]);
   const [editing, setEditing] = React.useState(false);
@@ -79,25 +66,83 @@ export function ConversationHeader({
         </div>
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <TokenUsageStat usage={tokenUsage} />
         <StatusChip tone={view.status.tone} label={t(view.status.labelKey, view.status.fallback)} />
-        {view.actions.map((action) => {
-          const actionLabel = t(action.labelKey, action.fallback);
-          return (
-            <Button
-              key={action.kind}
-              variant={action.kind === "stop" ? "destructive" : "ghost"}
-              size="sm"
-              className="h-7 gap-1 px-2 text-xs"
-              onClick={() => onAction(action.kind)}
-              title={actionLabel}
-              aria-label={actionLabel}
-            >
-              {ACTION_ICONS[action.kind]}
-              <span className="hidden sm:inline">{actionLabel}</span>
-            </Button>
-          );
-        })}
       </div>
+    </div>
+  );
+}
+
+function TokenUsageStat({ usage }: { usage?: TokenUsageCounters | null }) {
+  const { t } = useTranslation(["chat"]);
+  const display = React.useMemo(() => buildTokenUsageDisplay(usage), [usage]);
+  const [open, setOpen] = React.useState(false);
+  const tooltipId = React.useId();
+  const showDetail = React.useCallback(() => setOpen(true), []);
+  const hideDetail = React.useCallback(() => setOpen(false), []);
+
+  if (!display) return null;
+
+  const label = t("chat:usageSummaryAria", {
+    value: display.summary,
+    defaultValue: "Token usage: {{value}}",
+  });
+
+  return (
+    <div
+      className="group relative hidden sm:block"
+      onMouseEnter={showDetail}
+      onMouseLeave={hideDetail}
+      onMouseOver={showDetail}
+      onPointerEnter={showDetail}
+      onPointerLeave={hideDetail}
+      onFocus={showDetail}
+      onBlur={hideDetail}
+    >
+      <button
+        type="button"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-1.5 text-sm font-medium tabular-nums text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-describedby={open ? tooltipId : undefined}
+        aria-label={label}
+        onPointerDown={(event) => {
+          event.preventDefault();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") hideDetail();
+        }}
+      >
+        <Coins className="h-4 w-4" />
+        <span>{display.summary}</span>
+      </button>
+      <div
+        id={tooltipId}
+        role="tooltip"
+        className={cn(
+          "pointer-events-none invisible absolute right-0 top-full z-50 mt-2 w-52 rounded-xl bg-[#070c11] p-0 text-slate-50 opacity-0 shadow-xl ring-1 ring-white/10 transition-opacity duration-100 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100",
+          open && "visible opacity-100",
+        )}
+      >
+        <div className="px-4 py-3">
+          <div className="text-sm font-semibold">{t("chat:usageTooltipTitle")}</div>
+          <dl className="mt-2 space-y-1.5 text-sm">
+            <TokenUsageRow label={t("chat:usageInput")} value={display.input} />
+            <TokenUsageRow label={t("chat:usageOutput")} value={display.output} />
+          </dl>
+          <div className="my-2 h-px bg-white/20" />
+          <dl className="text-sm">
+            <TokenUsageRow label={t("chat:usageTotal")} value={display.total} />
+          </dl>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TokenUsageRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[1fr_auto] items-center gap-5">
+      <dt className="font-medium text-slate-100">{label}</dt>
+      <dd className="font-mono font-semibold tabular-nums text-slate-50">{value}</dd>
     </div>
   );
 }
