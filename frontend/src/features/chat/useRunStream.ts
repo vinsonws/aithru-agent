@@ -789,22 +789,24 @@ export function reduceEvent(state: RunStreamState, event: AgentStreamEvent): Run
       const cardPayload = rawCard as Record<string, unknown>;
       const id = (cardPayload.id as string | undefined) ?? event.id;
       const existing = (state.displayCards ?? []).find((card) => card.id === id);
-      const patch: DisplayCardEntry = Object.fromEntries(
-        Object.entries({
-          id,
-          type: (cardPayload.type as DisplayCardEntry["type"] | undefined) ?? existing?.type ?? "generic",
-          status: (cardPayload.status as DisplayCardEntry["status"] | undefined) ?? existing?.status ?? "ready",
-          title: (cardPayload.title as string | undefined) ?? existing?.title ?? "Card",
-          summary: (cardPayload.summary as string | undefined) ?? existing?.summary,
-          surface: (cardPayload.surface as DisplayCardEntry["surface"] | undefined) ?? existing?.surface ?? "conversation",
-          resource: (cardPayload.resource as DisplayCardEntry["resource"] | undefined) ?? existing?.resource,
-          actions: (cardPayload.actions as DisplayCardEntry["actions"] | undefined) ?? existing?.actions,
-          sequence: existing?.sequence ?? sequenceOf(event),
-          lastSequence: sequenceOf(event),
-          createdAt: existing?.createdAt ?? event.timestamp,
-          updatedAt: event.timestamp,
-        }).filter(([, value]) => value !== undefined),
-      ) as DisplayCardEntry;
+      const patchBase: DisplayCardEntry = {
+        id,
+        type: (cardPayload.type as DisplayCardEntry["type"] | undefined) ?? existing?.type ?? "generic",
+        status: (cardPayload.status as DisplayCardEntry["status"] | undefined) ?? existing?.status ?? "ready",
+        title: (cardPayload.title as string | undefined) ?? existing?.title ?? "Card",
+        surface: (cardPayload.surface as DisplayCardEntry["surface"] | undefined) ?? existing?.surface ?? "conversation",
+        sequence: existing?.sequence ?? sequenceOf(event),
+        lastSequence: sequenceOf(event),
+        createdAt: existing?.createdAt ?? event.timestamp,
+        updatedAt: event.timestamp,
+      };
+      if (cardPayload.summary !== undefined) patchBase.summary = cardPayload.summary as string;
+      else if (existing?.summary !== undefined) patchBase.summary = existing.summary;
+      if (cardPayload.resource !== undefined) patchBase.resource = cardPayload.resource as DisplayCardEntry["resource"];
+      else if (existing?.resource) patchBase.resource = existing.resource;
+      if (cardPayload.actions !== undefined) patchBase.actions = cardPayload.actions as DisplayCardEntry["actions"];
+      else if (existing?.actions) patchBase.actions = existing.actions;
+      const patch = patchBase;
       return {
         ...state,
         displayCards: existing
