@@ -435,7 +435,8 @@ async def stream_run(
     after_sequence: int = 0,
     follow: bool = False,
     poll_interval_seconds: float = 0.25,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float | None = None,
+    keepalive_interval_seconds: float = 15.0,
     deps: ApiDependencies = Depends(api_deps),
 ) -> Response:
     await deps.require_run(request, run_id)
@@ -445,6 +446,7 @@ async def stream_run(
         follow=follow,
         poll_interval_seconds=poll_interval_seconds,
         timeout_seconds=timeout_seconds,
+        keepalive_interval_seconds=keepalive_interval_seconds,
         deps=deps,
     )
 
@@ -457,7 +459,8 @@ async def stream_thread_run(
     after_sequence: int = 0,
     follow: bool = False,
     poll_interval_seconds: float = 0.25,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float | None = None,
+    keepalive_interval_seconds: float = 15.0,
     deps: ApiDependencies = Depends(api_deps),
 ) -> Response:
     await deps.require_thread_run(request, thread_id, run_id)
@@ -467,6 +470,7 @@ async def stream_thread_run(
         follow=follow,
         poll_interval_seconds=poll_interval_seconds,
         timeout_seconds=timeout_seconds,
+        keepalive_interval_seconds=keepalive_interval_seconds,
         deps=deps,
     )
 
@@ -1430,7 +1434,8 @@ async def _stream_existing_run(
     after_sequence: int,
     follow: bool,
     poll_interval_seconds: float,
-    timeout_seconds: float,
+    timeout_seconds: float | None,
+    keepalive_interval_seconds: float,
     deps: ApiDependencies,
 ) -> Response:
     if follow:
@@ -1440,6 +1445,7 @@ async def _stream_existing_run(
                 after_sequence=after_sequence,
                 poll_interval_seconds=poll_interval_seconds,
                 timeout_seconds=timeout_seconds,
+                keepalive_interval_seconds=keepalive_interval_seconds,
             ),
             media_type="text/event-stream",
         )
@@ -1459,7 +1465,8 @@ def _run_live_stream_response(run_id: str, deps: ApiDependencies) -> Response:
                 run_id,
                 after_sequence=0,
                 poll_interval_seconds=0.01,
-                timeout_seconds=30.0,
+                timeout_seconds=None,
+                keepalive_interval_seconds=15.0,
             ):
                 yield event
         finally:

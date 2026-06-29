@@ -9,7 +9,7 @@ from pydantic import Field, model_validator
 from aithru_agent.domain import (
     AgentApproval,
     AgentArtifact,
-    AgentDisplayCard,
+    AgentPresentation,
     AgentRun,
     AgentRunOperatorFollowUpOptions,
     AgentSubagentResultSummary,
@@ -18,7 +18,7 @@ from aithru_agent.domain import (
     AgentWorkspaceFile,
 )
 from aithru_agent.domain.base import AithruBaseModel
-from aithru_agent.stream.display_cards import display_cards_from_events
+from aithru_agent.stream.presentations import presentations_from_events
 from aithru_agent.domain.research import (
     ResearchEvidence,
     ResearchEvidenceSectionSummary,
@@ -800,7 +800,7 @@ class RunSnapshotResponse(AithruBaseModel):
     operator_follow_up_lineage: OperatorFollowUpLineageSnapshot
     resume: RunResumeSnapshot
     subagents: list[AgentSubagentRun] = Field(default_factory=list)
-    display_cards: list[AgentDisplayCard] = Field(default_factory=list)
+    presentations: list[AgentPresentation] = Field(default_factory=list)
 
 
 def build_run_tree_snapshot(

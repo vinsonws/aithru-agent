@@ -30,9 +30,9 @@ from aithru_agent.domain.research import (
     research_limitation_for_tool_failure,
     research_todo_progress_for_tool,
 )
-from aithru_agent.stream.display_cards import (
-    display_card_event_payload,
-    display_cards_for_tool_result,
+from aithru_agent.stream.presentations import (
+    presentation_event_payload,
+    presentations_for_tool_result,
 )
 
 
@@ -176,7 +176,7 @@ class PydanticAIToolBridge:
             )
         await self._emit_tool_result_event(tool_call_id, tool_name, result)
         if result.status == "completed":
-            await self._emit_display_card_events(tool_call_id, tool_name, result.output)
+            await self._emit_presentation_events(tool_call_id, tool_name, result.output)
         if result.status != "completed":
             if recoverable_failure is not None:
                 return _recoverable_failure_payload(recoverable_failure)
@@ -358,13 +358,13 @@ class PydanticAIToolBridge:
         if latest is not None and latest.status == AgentRunStatus.CANCELLED:
             raise AgentError("RUN_CANCELLED", f"Run is cancelled: {self._run.id}")
 
-    async def _emit_display_card_events(
+    async def _emit_presentation_events(
         self,
         tool_call_id: str,
         tool_name: str,
         output: object,
     ) -> None:
-        for card in display_cards_for_tool_result(
+        for presentation in presentations_for_tool_result(
             self._run,
             tool_call_id=tool_call_id,
             tool_name=tool_name,
@@ -373,9 +373,9 @@ class PydanticAIToolBridge:
             await self._event_writer.write(
                 run_id=self._run.id,
                 thread_id=self._run.thread_id,
-                type="display.card.created",
+                type="presentation.created",
                 source={"kind": "harness"},
-                payload=display_card_event_payload(card),
+                payload=presentation_event_payload(presentation),
             )
 
     async def _pause_for_input(self, tool_call_id: str, output: object) -> None:

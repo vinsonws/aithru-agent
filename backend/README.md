@@ -78,7 +78,9 @@ uv run aithru-agent-worker --loop --poll-interval 1 --sqlite-path .aithru/agent.
 - Agent stream events, SSE formatting, and trace projection.
 - Route-grouped FastAPI control plane under `/api/threads`, `/api/runs`, and
   related resource paths.
-- Run stream follow mode waits for new SSE events until terminal run state or timeout.
+- Run stream follow mode waits for new SSE events until terminal run state and
+  sends SSE keepalive comments while idle. `timeout_seconds` remains available
+  as an explicit guard for tests or diagnostics.
 - Run event and trace inspection routes expose typed OpenAPI `AgentStreamEvent`
   and `AgentTraceSpan` array schemas for replay/debug clients.
 - Event writer redaction for common sensitive payload keys before replay or SSE output.

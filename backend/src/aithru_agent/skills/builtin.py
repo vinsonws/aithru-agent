@@ -25,6 +25,7 @@ DEEP_RESEARCH_PACKAGE_POLICY = AgentSkillConfiguration(
         "research.create_report",
         "artifact.create",
         "artifact.finalize",
+        "presentation.present",
     ],
     denied_tools=[],
     allowed_subagents=[],
@@ -55,7 +56,13 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
         "surprise-me": AgentSkillConfiguration(
             instructions="",
             when_to_use="surprise, delight, creative showcase, unexpected",
-            allowed_tools=["workspace.read_file", "workspace.write_file", "artifact.create", "artifact.finalize"],
+            allowed_tools=[
+                "workspace.read_file",
+                "workspace.write_file",
+                "artifact.create",
+                "artifact.finalize",
+                "presentation.present",
+            ],
             denied_tools=[],
             allowed_subagents=[],
             workspace_policy=_READ_WRITE_WORKSPACE,
@@ -63,7 +70,7 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
         "bootstrap": AgentSkillConfiguration(
             instructions="",
             when_to_use="onboarding, setup, configure, personalize",
-            allowed_tools=["workspace.write_file"],
+            allowed_tools=["workspace.write_file", "presentation.present"],
             denied_tools=[],
             allowed_subagents=[],
             workspace_policy=_READ_WRITE_WORKSPACE,
@@ -71,7 +78,7 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
         "find-skills": AgentSkillConfiguration(
             instructions="",
             when_to_use="discover, find, search, install skill",
-            allowed_tools=["workspace.read_file"],
+            allowed_tools=["workspace.read_file", "presentation.present"],
             denied_tools=[],
             allowed_subagents=[],
             workspace_policy=_READ_ONLY_WORKSPACE,
@@ -79,7 +86,7 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
         "skill-creator": AgentSkillConfiguration(
             instructions="",
             when_to_use="create, write, edit, improve skill, packaging",
-            allowed_tools=["workspace.read_file", "workspace.write_file"],
+            allowed_tools=["workspace.read_file", "workspace.write_file", "presentation.present"],
             denied_tools=[],
             allowed_subagents=[],
             workspace_policy=_READ_WRITE_WORKSPACE,
@@ -87,7 +94,13 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
         "frontend-design": AgentSkillConfiguration(
             instructions="",
             when_to_use="frontend, UI, web, HTML, CSS, component, page, dashboard",
-            allowed_tools=["workspace.read_file", "workspace.write_file", "artifact.create", "artifact.finalize"],
+            allowed_tools=[
+                "workspace.read_file",
+                "workspace.write_file",
+                "artifact.create",
+                "artifact.finalize",
+                "presentation.present",
+            ],
             denied_tools=[],
             allowed_subagents=[],
             workspace_policy=_READ_WRITE_WORKSPACE,
@@ -95,7 +108,13 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
         "chart-visualization": AgentSkillConfiguration(
             instructions="",
             when_to_use="chart, graph, visualization, plot, data",
-            allowed_tools=["workspace.read_file", "workspace.write_file", "artifact.create", "artifact.finalize"],
+            allowed_tools=[
+                "workspace.read_file",
+                "workspace.write_file",
+                "artifact.create",
+                "artifact.finalize",
+                "presentation.present",
+            ],
             denied_tools=[],
             allowed_subagents=[],
             workspace_policy=_READ_WRITE_WORKSPACE,
@@ -103,7 +122,7 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
         "web-design-guidelines": AgentSkillConfiguration(
             instructions="",
             when_to_use="UI review, accessibility, design audit, UX",
-            allowed_tools=["workspace.read_file", "web.fetch"],
+            allowed_tools=["workspace.read_file", "web.fetch", "presentation.present"],
             denied_tools=[],
             allowed_subagents=[],
             workspace_policy=_READ_ONLY_WORKSPACE,
@@ -111,7 +130,13 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
         "ppt-generation": AgentSkillConfiguration(
             instructions="",
             when_to_use="presentation, slide, PowerPoint, PPT, PPTX",
-            allowed_tools=["workspace.read_file", "workspace.write_file", "artifact.create", "artifact.finalize"],
+            allowed_tools=[
+                "workspace.read_file",
+                "workspace.write_file",
+                "artifact.create",
+                "artifact.finalize",
+                "presentation.present",
+            ],
             denied_tools=[],
             allowed_subagents=[],
             workspace_policy=_READ_WRITE_WORKSPACE,
@@ -119,7 +144,12 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
         "data-analysis": AgentSkillConfiguration(
             instructions="",
             when_to_use="Excel, CSV, data, statistics, SQL, DuckDB, analysis",
-            allowed_tools=["workspace.read_file", "workspace.write_file", "artifact.create"],
+            allowed_tools=[
+                "workspace.read_file",
+                "workspace.write_file",
+                "artifact.create",
+                "presentation.present",
+            ],
             denied_tools=[],
             allowed_subagents=[],
             workspace_policy=_READ_WRITE_WORKSPACE,

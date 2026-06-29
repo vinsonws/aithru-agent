@@ -20,7 +20,7 @@ as one structured SSE event stream.
 V1 uses Server-Sent Events (SSE) over HTTP `GET`:
 
 ```
-GET /api/runs/{run_id}/stream?after_sequence=0&follow=true&poll_interval_seconds=0.01&timeout_seconds=30.0
+GET /api/runs/{run_id}/stream?after_sequence=0&follow=true&poll_interval_seconds=0.01
 GET /api/threads/{thread_id}/runs/{run_id}/stream  (thread-scoped variant)
 ```
 
@@ -124,8 +124,11 @@ The `follow_run_events` generator in `[api/dependencies.py](backend/src/aithru_a
 3. If a terminal event type is seen, closes the stream.
 4. Else polls with `poll_interval_seconds` delay until:
    - a terminal event appears;
-   - or `timeout_seconds` expires;
    - or the run is not found.
+5. While idle, yields SSE comment keepalives (`: keepalive\n\n`).
+
+`timeout_seconds` is optional and defaults to no timeout. It is a diagnostic or
+test guard, not the normal lifecycle signal.
 
 Terminal event types:
 
@@ -376,7 +379,9 @@ When `follow=false` (default), the server returns all events after `after_sequen
 as a single SSE response and closes.
 
 When `follow=true`, the server sends historical events then polls for new ones
-until terminal or timeout.
+until the run emits `run.completed`, `run.failed`, or `run.cancelled`. Idle
+streams send keepalive comments; clients should treat missing keepalive bytes as
+a connection error and reconnect with the latest `after_sequence`.
 
 ## Filtering
 

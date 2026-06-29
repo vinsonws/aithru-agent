@@ -82,10 +82,11 @@ export type LongTermMemoryHealth = S["LongTermMemoryHealth"];
 export type RunInspectionSummary = S["RunInspectionSummary"];
 
 // Display cards
-export type AgentDisplayCard = S["AgentDisplayCard"];
-export type AgentDisplayCardAction = S["AgentDisplayCardAction"];
-export type AgentDisplayCardResource = S["AgentDisplayCardResource"];
-export type AgentDisplayCardSource = S["AgentDisplayCardSource"];
+export type AgentPresentation = S["AgentPresentation"];
+export type AgentPresentationAction = S["AgentPresentationAction"];
+export type AgentPresentationEffect = S["AgentPresentationEffect"];
+export type AgentPresentationResource = S["AgentPresentationResource"];
+export type AgentPresentationSource = S["AgentPresentationSource"];
 
 // Request bodies
 export type CreateThreadRequest = S["CreateThreadRequest"];

@@ -21,7 +21,6 @@ real thinking content, and final answers read as one quiet conversation flow.
                                       User bubble
 
 Thought for 18s · Used 2 tools >
-  Thinking
   Real provider thinking content, when available.
 
   Tool workspace.list_files      Completed
@@ -53,6 +52,8 @@ assistant process disclosure.
 - `chatTimeline.ts` builds ordered message/process/completion items.
 - `ChatPanel.tsx` renders user bubbles, assistant prose, and one lightweight
   assistant process disclosure per run.
+- Reasoning content renders directly under the process summary without a
+  repeated "Thinking" subheading.
 - `ToolCallCard.tsx` becomes a compact inline tool row with expandable details.
 - `AgentActivityCard.tsx` no longer owns the main chat process UI.
 

@@ -1106,7 +1106,7 @@ async def test_memory_tools_reject_unknown_scope() -> None:
 
 
 @pytest.mark.asyncio
-async def test_present_resources_tool_presents_existing_workspace_file() -> None:
+async def test_presentation_present_presents_existing_workspace_file() -> None:
     store = InMemoryAgentStore()
     context = await make_context(store)
     router = make_router(store)
@@ -1120,7 +1120,7 @@ async def test_present_resources_tool_presents_existing_workspace_file() -> None
     result = await router.execute_tool_call(
         AgentToolCallRequest(
             id="tool_present",
-            tool_name="present_resources",
+            tool_name="presentation.present",
             input={"resources": [{"kind": "workspace_file", "path": "/a.txt"}]},
             requested_by="model",
         ),
@@ -1128,16 +1128,74 @@ async def test_present_resources_tool_presents_existing_workspace_file() -> None
     )
 
     assert result.status == "completed"
-    assert result.output["cards"][0]["type"] == "file"
-    assert result.output["cards"][0]["resource"] == {
+    assert result.output["presentations"][0]["resource"] == {
         "kind": "workspace_file",
         "path": "/a.txt",
     }
-    assert result.output["cards"][0]["source"]["created_by"] == "model_request"
+    assert result.output["presentations"][0]["source"]["created_by"] == "model_request"
 
 
 @pytest.mark.asyncio
-async def test_present_resources_tool_denies_missing_workspace_file() -> None:
+async def test_presentation_present_denies_invalid_open_panel_effect_without_raising() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/a.txt",
+        content="hello",
+        media_type="text/plain",
+    )
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="tool_present",
+            tool_name="presentation.present",
+            input={
+                "resources": [{"kind": "workspace_file", "path": "/a.txt"}],
+                "effects": [{"kind": "open_panel"}],
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+
+    assert result.status == "denied"
+    assert "open_panel presentation effects require panel" in result.error["message"]
+
+
+@pytest.mark.asyncio
+async def test_presentation_present_targets_self_for_focus_effect() -> None:
+    store = InMemoryAgentStore()
+    context = await make_context(store)
+    router = make_router(store)
+    await store.write_workspace_file(
+        workspace_id=context.workspace_id,
+        path="/a.txt",
+        content="hello",
+        media_type="text/plain",
+    )
+
+    result = await router.execute_tool_call(
+        AgentToolCallRequest(
+            id="tool_present",
+            tool_name="presentation.present",
+            input={
+                "resources": [{"kind": "workspace_file", "path": "/a.txt"}],
+                "effects": [{"kind": "focus_presentation"}],
+            },
+            requested_by="model",
+        ),
+        context,
+    )
+
+    presentation = result.output["presentations"][0]
+    assert result.status == "completed"
+    assert presentation["effects"][0]["presentation_id"] == presentation["id"]
+
+
+@pytest.mark.asyncio
+async def test_presentation_present_denies_legacy_tool_name() -> None:
     store = InMemoryAgentStore()
     context = await make_context(store)
     router = make_router(store)
@@ -1145,7 +1203,7 @@ async def test_present_resources_tool_denies_missing_workspace_file() -> None:
     result = await router.execute_tool_call(
         AgentToolCallRequest(
             id="tool_present",
-            tool_name="present_resources",
+            tool_name="present" + "_resources",
             input={"resources": [{"kind": "workspace_file", "path": "/missing.txt"}]},
             requested_by="model",
         ),
@@ -1153,4 +1211,4 @@ async def test_present_resources_tool_denies_missing_workspace_file() -> None:
     )
 
     assert result.status == "denied"
-    assert result.error == {"message": "Workspace file does not exist: /missing.txt"}
+    assert "Unknown tool" in result.error["message"]

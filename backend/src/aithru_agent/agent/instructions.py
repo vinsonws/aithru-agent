@@ -31,6 +31,9 @@ class InstructionBuilder:
         # Add clarification guidance
         sections.append(_CLARIFICATION_GUIDANCE)
 
+        # Add artifact presentation guidance
+        sections.append(_ARTIFACT_LINK_GUIDANCE)
+
         if deps.run.harness_options and deps.run.harness_options.instructions:
             sections.append(f"Run instructions:\n{deps.run.harness_options.instructions}")
 
@@ -193,6 +196,18 @@ def _render_context_packet(packet: AgentRunContextPacket) -> str:
     if packet.memory and packet.memory.items:
         lines.append("Relevant memory:")
         lines.extend(_memory_line(item) for item in packet.memory.items)
+    if packet.presentations:
+        lines.append("Presented to user:")
+        lines.extend(
+            f"- {presentation.id}: {presentation.title} "
+            f"(status={presentation.status}, "
+            f"resource={presentation.resource_kind}"
+            f"{_resource_reference_suffix(presentation.resource_id, presentation.resource_path)}, "
+            f"surfaces={','.join(presentation.surfaces)}, "
+            f"preferred_view={presentation.preferred_view}, "
+            f"available_views={','.join(presentation.available_views)})"
+            for presentation in packet.presentations
+        )
     return "\n".join(lines)
 
 
@@ -374,6 +389,14 @@ def _research_action_hint_line(action_hint: object) -> str:
     return f"- Action hint [{priority}] {kind}: {title} - {reason}{punctuation}{suffix}"
 
 
+def _resource_reference_suffix(resource_id: str | None, resource_path: str | None) -> str:
+    if resource_id:
+        return f" {resource_id}"
+    if resource_path:
+        return f" {resource_path}"
+    return ""
+
+
 def _count_label(count: int, singular: str, plural: str) -> str:
     return f"{count} {singular if count == 1 else plural}"
 
@@ -392,6 +415,15 @@ def _memory_scope_id(scope: str, deps: PydanticAgentDeps) -> str | None:
             return deps.run.skill_id
         case _:
             return None
+
+
+_ARTIFACT_LINK_GUIDANCE = """## Artifact Link Guidance
+
+Artifacts are platform resources rendered by Aithru as presentation entries or in the Files panel.
+Do not invent public artifact URLs such as https://aithru.ai/artifact/{org_id}/{artifact_id}.
+When an artifact is created, refer to it by name and artifact id only, and let Aithru Presentation handle preview and download actions.
+Use `presentation.present` when you need to request a specific safe view such as html_preview, source_text, markdown, image, pdf, or download.
+If you need to mention where the user can open an artifact, say it is available in the presentation entries or the Files panel."""
 
 
 _CLARIFICATION_GUIDANCE = """## When to Ask for Clarification

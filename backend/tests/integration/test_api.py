@@ -2208,6 +2208,33 @@ async def test_agent_api_serves_active_artifact_content_as_attachment() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_api_infers_inline_html_artifact_media_type_from_name() -> None:
+    runtime = create_agent_runtime(settings=AgentSettings(model="test"))
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    artifact = await runtime.store.create_artifact(
+        org_id="org_1",
+        workspace_id=workspace.id,
+        run_id=None,
+        type="file",
+        name="index.html",
+        content="<main>Hello</main>",
+    )
+    app = create_app(runtime)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        content_response = await client.get(f"/api/artifacts/{artifact.id}/content")
+        download_info = (
+            await client.get(f"/api/artifacts/{artifact.id}/download-info")
+        ).json()
+
+    assert content_response.status_code == 200
+    assert content_response.headers["content-type"].startswith("text/html")
+    assert content_response.headers["x-content-type-options"] == "nosniff"
+    assert download_info["filename"] == "index.html"
+    assert download_info["media_type"] == "text/html"
+
+
+@pytest.mark.asyncio
 async def test_agent_api_filters_paginates_and_orders_artifacts() -> None:
     runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     workspace = await runtime.store.create_workspace(org_id="org_1")
@@ -5870,6 +5897,7 @@ async def test_agent_api_exposes_default_deep_research_skill_and_filtered_tools(
     assert [tool["name"] for tool in tools] == [
         "artifact.create",
         "artifact.finalize",
+        "presentation.present",
         "research.create_plan",
         "research.create_report",
     ]
@@ -6957,7 +6985,7 @@ async def test_agent_api_filters_private_memory_by_owner() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_snapshot_includes_display_cards() -> None:
+async def test_run_snapshot_exposes_presentations_only() -> None:
     runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
@@ -6976,6 +7004,7 @@ async def test_run_snapshot_includes_display_cards() -> None:
 
         snapshot = (await client.get(f"/api/runs/{run_id}/snapshot")).json()
 
-    assert snapshot["display_cards"]
-    assert snapshot["display_cards"][0]["type"] in {"file", "artifact"}
-    assert snapshot["display_cards"][0]["sequence"] is not None
+    assert "display" + "_cards" not in snapshot
+    assert snapshot["presentations"]
+    assert snapshot["presentations"][0]["resource"]["kind"] in {"workspace_file", "artifact"}
+    assert snapshot["presentations"][0]["sequence"] is not None

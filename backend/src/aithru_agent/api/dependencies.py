@@ -32,7 +32,7 @@ from aithru_agent.domain import (
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.harness import ContextBuilder
 from aithru_agent.skills.resolver import resolve_skill_for_org
-from aithru_agent.stream import format_sse_event
+from aithru_agent.stream import format_sse_comment, format_sse_event
 
 
 class CreateThreadRequest(BaseModel):
@@ -266,11 +266,15 @@ class ApiDependencies:
         *,
         after_sequence: int,
         poll_interval_seconds: float,
-        timeout_seconds: float,
+        timeout_seconds: float | None,
+        keepalive_interval_seconds: float = 15.0,
     ) -> AsyncIterator[str]:
         cursor = after_sequence
         interval = max(0.01, poll_interval_seconds)
-        deadline = asyncio.get_running_loop().time() + max(0.0, timeout_seconds)
+        keepalive_interval = max(0.01, keepalive_interval_seconds)
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout_seconds is None else loop.time() + max(0.0, timeout_seconds)
+        next_keepalive_at = loop.time() + keepalive_interval
         while True:
             if await self._has_terminal_run_event_at_or_before(run_id, cursor):
                 break
@@ -284,14 +288,23 @@ class ApiDependencies:
                         saw_terminal_event = True
                 if saw_terminal_event:
                     break
+                next_keepalive_at = asyncio.get_running_loop().time() + keepalive_interval
                 continue
 
             run = await self.runtime.store.get_run(run_id)
             if run is None:
                 break
-            if asyncio.get_running_loop().time() >= deadline:
+            now = asyncio.get_running_loop().time()
+            if deadline is not None and now >= deadline:
                 break
-            await asyncio.sleep(interval)
+            if now >= next_keepalive_at:
+                yield format_sse_comment("keepalive")
+                next_keepalive_at = now + keepalive_interval
+                continue
+            sleep_until = next_keepalive_at
+            if deadline is not None:
+                sleep_until = min(sleep_until, deadline)
+            await asyncio.sleep(max(0.01, min(interval, sleep_until - now)))
 
     async def _has_terminal_run_event_at_or_before(self, run_id: str, sequence: int) -> bool:
         if sequence <= 0:

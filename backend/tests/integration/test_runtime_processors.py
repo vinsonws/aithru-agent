@@ -358,6 +358,65 @@ async def test_follow_run_events_returns_promptly_when_cursor_has_seen_terminal_
     assert chunks == []
 
 
+@pytest.mark.asyncio
+async def test_follow_run_events_without_timeout_uses_keepalive_until_terminal_event() -> None:
+    runtime = create_agent_runtime(agent_runtime=DoneRuntime())
+    deps = ApiDependencies(runtime)
+    workspace = await runtime.store.create_workspace(org_id="org_1")
+    run = await runtime.store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Keep stream open",
+        workspace_id=workspace.id,
+        scopes=["*"],
+    )
+    await runtime.store.update_run(run.id, status=AgentRunStatus.RUNNING)
+    started = await runtime.event_writer.write(
+        run_id=run.id,
+        thread_id=run.thread_id,
+        type="run.started",
+        source={"kind": "harness"},
+        payload={"status": "running"},
+    )
+
+    stream = deps.follow_run_events(
+        run.id,
+        after_sequence=started.sequence,
+        poll_interval_seconds=0.01,
+        timeout_seconds=None,
+        keepalive_interval_seconds=0.01,
+    )
+
+    keepalive = await asyncio.wait_for(anext(stream), timeout=0.2)
+    assert keepalive == ": keepalive\n\n"
+
+    await runtime.store.update_run(
+        run.id,
+        status=AgentRunStatus.FAILED,
+        completed_at="2026-06-22T00:00:00Z",
+        error={"message": "tool exploded"},
+    )
+    await runtime.event_writer.write(
+        run_id=run.id,
+        thread_id=run.thread_id,
+        type="run.failed",
+        source={"kind": "harness"},
+        payload={"status": "failed", "error": {"message": "tool exploded"}},
+    )
+
+    chunks: list[str] = []
+    for _ in range(10):
+        chunk = await asyncio.wait_for(anext(stream), timeout=0.2)
+        chunks.append(chunk)
+        if "event: run.failed" in chunk:
+            break
+
+    assert any("event: run.failed" in chunk for chunk in chunks)
+    with pytest.raises(StopAsyncIteration):
+        await asyncio.wait_for(anext(stream), timeout=0.2)
+
+
 class AppWiringMem0Provider:
     async def search(self, *, run, query: str, limit: int):
         return []

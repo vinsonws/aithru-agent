@@ -1,7 +1,7 @@
 import type {
   ChatMessage,
-  DisplayCardEntry,
   InlineRequest,
+  PresentationEntry,
   ReasoningSegment,
   RunStreamState,
   ToolCallEntry,
@@ -24,10 +24,25 @@ export type AssistantProcessStep =
     };
 
 export type ChatTimelineItem =
-  | { kind: "message"; id: string; sequence: number; message: ChatMessage }
-  | { kind: "assistantProcess"; id: string; sequence: number; state: RunStreamState; steps: AssistantProcessStep[] }
+  | {
+      kind: "message";
+      id: string;
+      sequence: number;
+      message: ChatMessage;
+      showFooter?: boolean;
+      footerMessage?: ChatMessage;
+    }
+  | {
+      kind: "assistantProcess";
+      id: string;
+      sequence: number;
+      state: RunStreamState;
+      steps: AssistantProcessStep[];
+      startedAt?: string;
+      completedAt?: string;
+    }
   | { kind: "inlineRequest"; id: string; sequence: number; request: InlineRequest }
-  | { kind: "card"; id: string; sequence: number; card: DisplayCardEntry }
+  | { kind: "presentation"; id: string; sequence: number; presentation: PresentationEntry }
   | { kind: "completion"; id: string; sequence: number };
 
 const FALLBACK_SEQUENCE = Number.MAX_SAFE_INTEGER / 2;
@@ -35,7 +50,7 @@ const FALLBACK_SEQUENCE = Number.MAX_SAFE_INTEGER / 2;
 const KIND_ORDER: Record<ChatTimelineItem["kind"], number> = {
   message: 0,
   assistantProcess: 1,
-  card: 2,
+  presentation: 2,
   inlineRequest: 3,
   completion: 4,
 };
@@ -241,9 +256,9 @@ function shouldShowAssistantProcess(state: RunStreamState): boolean {
   );
 }
 
-function displayCardsForConversation(state: RunStreamState): DisplayCardEntry[] {
-  return (state.displayCards ?? []).filter(
-    (card) => card.surface === "conversation" || card.surface === "both",
+function presentationsForConversation(state: RunStreamState): PresentationEntry[] {
+  return (state.presentations ?? []).filter(
+    (presentation) => presentation.surfaces.includes("conversation"),
   );
 }
 
@@ -251,7 +266,7 @@ function shouldShowRunTimelineItems(state: RunStreamState): boolean {
   return (
     shouldShowAssistantProcess(state) ||
     hasAssistantOutputSegments(state) ||
-    displayCardsForConversation(state).length > 0
+    presentationsForConversation(state).length > 0
   );
 }
 
@@ -370,6 +385,55 @@ function assistantProcessSteps(
   return steps.sort((a, b) => a.sequence - b.sequence || (a.kind === "reasoning" ? -1 : 1));
 }
 
+function assistantProcessTiming(steps: AssistantProcessStep[]): {
+  startedAt?: string;
+  completedAt?: string;
+} {
+  return {
+    startedAt: earliestTimestamp(steps.map(stepStartedAt)),
+    completedAt: latestTimestamp(steps.map(stepCompletedAt)),
+  };
+}
+
+function stepStartedAt(step: AssistantProcessStep): string | undefined {
+  return step.kind === "reasoning" ? step.segment.createdAt : step.tool.createdAt;
+}
+
+function stepCompletedAt(step: AssistantProcessStep): string | undefined {
+  if (step.kind === "reasoning") {
+    return step.segment.completedAt ?? (step.segment.streaming ? undefined : step.segment.updatedAt);
+  }
+
+  if (step.tool.status === "completed" || step.tool.status === "failed" || step.tool.status === "denied") {
+    return step.tool.updatedAt;
+  }
+  return undefined;
+}
+
+function earliestTimestamp(values: Array<string | undefined>): string | undefined {
+  return selectTimestamp(values, (current, next) => next < current);
+}
+
+function latestTimestamp(values: Array<string | undefined>): string | undefined {
+  return selectTimestamp(values, (current, next) => next > current);
+}
+
+function selectTimestamp(
+  values: Array<string | undefined>,
+  shouldReplace: (current: number, next: number) => boolean,
+): string | undefined {
+  let selected: { value: string; time: number } | undefined;
+  for (const value of values) {
+    if (!value) continue;
+    const time = Date.parse(value);
+    if (!Number.isFinite(time)) continue;
+    if (!selected || shouldReplace(selected.time, time)) {
+      selected = { value, time };
+    }
+  }
+  return selected?.value;
+}
+
 function hasAssistantOutputSegments(state: RunStreamState): boolean {
   return (state.assistantOutputSegments ?? []).some((message) => message.content.trim().length > 0);
 }
@@ -398,7 +462,13 @@ function appendRunTimelineItems(
   const outputSegments = (state.assistantOutputSegments ?? []).filter(
     (message) => message.content.trim().length > 0 || message.streaming,
   );
-  const displayCards = displayCardsForConversation(state);
+  const assistantMessagesById = new Map(
+    state.messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => [message.id, message]),
+  );
+  const finalOutputSegmentByMessageId = latestOutputSegmentsByMessageId(outputSegments);
+  const conversationPresentations = presentationsForConversation(state);
 
   const units = [
     ...processSteps.map((step) => ({ kind: "process" as const, sequence: step.sequence, step })),
@@ -407,10 +477,10 @@ function appendRunTimelineItems(
       sequence: messageDisplaySequence(message),
       message,
     })),
-    ...displayCards.map((card) => ({
-      kind: "card" as const,
-      sequence: card.sequence ?? card.lastSequence ?? FALLBACK_SEQUENCE,
-      card,
+    ...conversationPresentations.map((presentation) => ({
+      kind: "presentation" as const,
+      sequence: presentation.sequence ?? presentation.lastSequence ?? FALLBACK_SEQUENCE,
+      presentation,
     })),
   ].sort((a, b) => a.sequence - b.sequence || (a.kind === "process" ? -1 : 1));
 
@@ -422,6 +492,7 @@ function appendRunTimelineItems(
       sequence: baseSequence,
       state,
       steps: processSteps,
+      ...assistantProcessTiming(processSteps),
     });
     return;
   }
@@ -439,6 +510,7 @@ function appendRunTimelineItems(
       sequence: normalize(firstStep.sequence),
       state,
       steps: processGroup,
+      ...assistantProcessTiming(processGroup),
     });
     processGroupCount += 1;
     processGroup = [];
@@ -449,25 +521,50 @@ function appendRunTimelineItems(
       processGroup.push(unit.step);
       continue;
     }
-    if (unit.kind === "card") {
+    if (unit.kind === "presentation") {
       flushProcessGroup();
       items.push({
-        kind: "card",
-        id: `card:${unit.card.id}`,
+        kind: "presentation",
+        id: `presentation:${unit.presentation.id}`,
         sequence: normalize(unit.sequence),
-        card: unit.card,
+        presentation: unit.presentation,
       });
       continue;
     }
 
     flushProcessGroup();
+    const sourceMessageId = outputSegmentSourceMessageId(unit.message);
+    const isFinalOutputSegment =
+      sourceMessageId != null && finalOutputSegmentByMessageId.get(sourceMessageId)?.id === unit.message.id;
     items.push({
       kind: "message",
       id: `message:${unit.message.id}`,
       sequence: normalize(unit.sequence),
       message: { ...unit.message, runId: unit.message.runId ?? runId },
+      showFooter: isFinalOutputSegment ? !unit.message.streaming : false,
+      footerMessage: sourceMessageId ? assistantMessagesById.get(sourceMessageId) : undefined,
     });
   }
 
   flushProcessGroup();
+}
+
+function latestOutputSegmentsByMessageId(outputSegments: ChatMessage[]): Map<string, ChatMessage> {
+  const latest = new Map<string, ChatMessage>();
+  for (const message of outputSegments) {
+    const sourceMessageId = outputSegmentSourceMessageId(message);
+    if (!sourceMessageId) continue;
+    const current = latest.get(sourceMessageId);
+    if (!current || messageDisplaySequence(message) >= messageDisplaySequence(current)) {
+      latest.set(sourceMessageId, message);
+    }
+  }
+  return latest;
+}
+
+function outputSegmentSourceMessageId(message: ChatMessage): string | undefined {
+  if (message.role !== "assistant") return undefined;
+  const markerIndex = message.id.indexOf(":output:");
+  if (markerIndex <= 0) return undefined;
+  return message.id.slice(0, markerIndex);
 }
