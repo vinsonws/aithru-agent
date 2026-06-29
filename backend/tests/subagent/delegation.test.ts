@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter } from "@aithru-agent/stream";
 import { TestCapabilityRouter } from "@aithru-agent/capabilities";
-import { SubagentRunner } from "../../src/subagent/runner.js";
+import { SubagentRunner } from "@aithru-agent/subagents";
 import type { AgentRun } from "@aithru-agent/contracts";
 
 function createParentRun(overrides: Partial<AgentRun> = {}): AgentRun {

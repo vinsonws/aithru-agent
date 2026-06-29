@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter } from "@aithru-agent/stream";
-import { ExternalRunCoordinator } from "../../src/worker/external-run.js";
+import { ExternalRunCoordinator } from "@aithru-agent/worker";
 
 function createRun(): AgentRun {
   return {

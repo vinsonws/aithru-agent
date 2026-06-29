@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
 import { TestCapabilityRouter } from "@aithru-agent/capabilities";
-import { RunLoop } from "../../src/core/run-loop.js";
+import { RunLoop } from "@aithru-agent/harness";
 import type { AgentRun } from "@aithru-agent/contracts";
 
 function createTestRun(overrides: Partial<AgentRun> = {}): AgentRun {

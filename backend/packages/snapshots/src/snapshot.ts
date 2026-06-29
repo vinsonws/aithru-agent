@@ -1,5 +1,3 @@
-// backend/src/snapshots/snapshot.ts
-
 import type { AgentStore } from "@aithru-agent/persistence";
 import type { AgentRun } from "@aithru-agent/contracts";
 

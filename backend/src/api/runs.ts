@@ -8,7 +8,7 @@ import {
 } from "@aithru-agent/contracts";
 import { formatSseEvent, formatSseComment, EVENT_TYPES } from "@aithru-agent/stream";
 import { projectTraceSpans } from "@aithru-agent/trace";
-import { buildRunSnapshot } from "../snapshots/snapshot.js";
+import { buildRunSnapshot } from "@aithru-agent/snapshots";
 import { projectCapabilityAudit } from "@aithru-agent/capabilities";
 
 function now(): string {

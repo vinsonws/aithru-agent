@@ -1,5 +1,3 @@
-// backend/src/snapshots/tree.ts
-
 import type { AgentStore } from "@aithru-agent/persistence";
 
 export interface RunTreeProjection {

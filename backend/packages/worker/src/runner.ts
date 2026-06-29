@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 import type { AgentStore } from "@aithru-agent/persistence";
 import { AgentEventWriter } from "@aithru-agent/stream";
 import type { CapabilityRouter } from "@aithru-agent/capabilities";
-import { ScriptedHarnessCore, type ScriptedHarnessScript } from "../core/harness.js";
+import { ScriptedHarnessCore, type ScriptedHarnessScript } from "@aithru-agent/harness";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { validateRunStatusTransition } from "@aithru-agent/contracts";
 import { EVENT_TYPES } from "@aithru-agent/stream";

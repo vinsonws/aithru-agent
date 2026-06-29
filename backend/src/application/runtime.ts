@@ -3,8 +3,8 @@ import { InMemoryStore } from "@aithru-agent/persistence";
 import { SqliteStore } from "@aithru-agent/persistence";
 import { AgentEventWriter } from "@aithru-agent/stream";
 import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
-import { ScriptedHarnessCore } from "../core/harness.js";
-import { WorkerRunner } from "../worker/runner.js";
+import { ScriptedHarnessCore } from "@aithru-agent/harness";
+import { WorkerRunner } from "@aithru-agent/worker";
 
 export interface AgentRuntime {
   store: AgentStore;

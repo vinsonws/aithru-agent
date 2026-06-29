@@ -3,7 +3,7 @@ import {
   createDefaultRetryPolicy,
   canRetry,
   delaySecondsForAttempt,
-} from "../../src/core/retry.js";
+} from "@aithru-agent/harness";
 
 describe("RetryPolicy", () => {
   it("allows retries within max_attempts", () => {

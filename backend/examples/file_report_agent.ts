@@ -1,5 +1,5 @@
 import { createRuntime } from "../src/application/runtime.js";
-import type { ToolCallStep } from "../src/core/run-loop.js";
+import type { ToolCallStep } from "@aithru-agent/harness";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { EVENT_TYPES } from "@aithru-agent/stream";
 

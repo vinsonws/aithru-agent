@@ -1,11 +1,9 @@
-// backend/src/subagent/runner.ts
-
 import type { AgentStore } from "@aithru-agent/persistence";
 import type { AgentEventWriter } from "@aithru-agent/stream";
 import type { CapabilityRouter } from "@aithru-agent/capabilities";
-import { WorkerRunner } from "../worker/runner.js";
+import { WorkerRunner } from "@aithru-agent/worker";
 import type { AgentRun } from "@aithru-agent/contracts";
-import type { ToolCallStep } from "../core/run-loop.js";
+import type { ToolCallStep } from "@aithru-agent/harness";
 
 export interface SubagentSpec {
   task: string;

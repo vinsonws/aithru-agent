@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter } from "@aithru-agent/stream";
-import { RecoveryScanner } from "../../src/worker/recovery.js";
+import { RecoveryScanner } from "@aithru-agent/worker";
 import {
   createDefaultRetryPolicy,
-} from "../../src/core/retry.js";
+} from "@aithru-agent/harness";
 import type { AgentRun } from "@aithru-agent/contracts";
 
 function createRun(overrides: Partial<AgentRun> = {}): AgentRun {

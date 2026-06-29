@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter } from "@aithru-agent/stream";
 import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
-import { WorkerRunner } from "../../src/worker/runner.js";
+import { WorkerRunner } from "@aithru-agent/worker";
 import type { AgentRun } from "@aithru-agent/contracts";
-import type { ToolCallStep } from "../../src/core/run-loop.js";
+import type { ToolCallStep } from "@aithru-agent/harness";
 
 function createRun(id: string, scopes: string[]): AgentRun {
   return {

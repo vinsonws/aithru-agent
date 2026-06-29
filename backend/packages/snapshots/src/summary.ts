@@ -1,5 +1,3 @@
-// backend/src/snapshots/summary.ts
-
 import type { AgentStore } from "@aithru-agent/persistence";
 
 export interface RunSummary {

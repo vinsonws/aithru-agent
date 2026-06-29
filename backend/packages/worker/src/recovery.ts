@@ -5,8 +5,8 @@ import {
   createDefaultRetryPolicy,
   canRetry,
   nextRetryAt,
-} from "../core/retry.js";
-import type { AgentRunRetryPolicy, AgentRunRetryState } from "../core/retry.js";
+} from "@aithru-agent/harness";
+import type { AgentRunRetryPolicy, AgentRunRetryState } from "@aithru-agent/harness";
 
 export class RecoveryScanner {
   constructor(
