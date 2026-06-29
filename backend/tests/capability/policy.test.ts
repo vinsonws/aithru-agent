@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { PolicyEngine, resolveSkillPolicy, checkScopes } from "../../src/capabilities/policy.js";
-import type { AgentToolDescriptor } from "../../src/capabilities/descriptors.js";
+import { PolicyEngine, resolveSkillPolicy, checkScopes } from "@aithru-agent/capabilities";
+import type { AgentToolDescriptor } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 
 function createRun(scopes: string[]): AgentRun {

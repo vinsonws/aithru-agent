@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ModelProfileRegistry } from "../../src/model/profiles.js";
+import { ModelProfileRegistry } from "@aithru-agent/model";
 
 describe("ModelProfileRegistry", () => {
   it("resolves enabled profiles when scopes and capabilities match", () => {

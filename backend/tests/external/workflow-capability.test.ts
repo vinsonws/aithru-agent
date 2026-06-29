@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WorkflowCapabilityHttpAdapter } from "../../src/external/workflow-capability.js";
+import { WorkflowCapabilityHttpAdapter } from "@aithru-agent/external";
 
 describe("WorkflowCapabilityHttpAdapter", () => {
   it("invokes provider-owned capability runs on allowed hosts", async () => {

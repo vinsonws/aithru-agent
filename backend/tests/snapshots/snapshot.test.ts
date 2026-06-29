@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { InMemoryStore } from "../../src/persistence/store.js";
+import { InMemoryStore } from "@aithru-agent/persistence";
 import {
   buildRunSnapshot,
   buildRunSummary,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SkillLoader } from "../../src/skills/loader.js";
+import { SkillLoader } from "@aithru-agent/skills";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";

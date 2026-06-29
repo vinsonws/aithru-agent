@@ -1,8 +1,8 @@
 // backend/src/subagent/runner.ts
 
-import type { AgentStore } from "../persistence/protocols.js";
+import type { AgentStore } from "@aithru-agent/persistence";
 import type { AgentEventWriter } from "@aithru-agent/stream";
-import type { CapabilityRouter } from "../capabilities/router.js";
+import type { CapabilityRouter } from "@aithru-agent/capabilities";
 import { WorkerRunner } from "../worker/runner.js";
 import type { AgentRun } from "@aithru-agent/contracts";
 import type { ToolCallStep } from "../core/run-loop.js";

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { LocalMemoryProvider } from "../../src/memory/provider.js";
+import { LocalMemoryProvider } from "@aithru-agent/memory";
 
 describe("LocalMemoryProvider", () => {
   let mem: LocalMemoryProvider;

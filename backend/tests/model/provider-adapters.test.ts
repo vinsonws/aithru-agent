@@ -3,7 +3,7 @@ import {
   AnthropicCompatibleAdapter,
   OpenAICompatibleAdapter,
   collectModelEvents,
-} from "../../src/model/index.js";
+} from "@aithru-agent/model";
 
 const input = {
   run: {} as any,

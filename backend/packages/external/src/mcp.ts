@@ -1,4 +1,4 @@
-import type { AgentToolDescriptor } from "../capabilities/descriptors.js";
+import type { AgentToolDescriptor } from "@aithru-agent/capabilities";
 
 export type McpTransportKind = "http" | "stdio";
 

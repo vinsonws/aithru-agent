@@ -9,7 +9,7 @@ import {
 import { formatSseEvent, formatSseComment, EVENT_TYPES } from "@aithru-agent/stream";
 import { projectTraceSpans } from "@aithru-agent/trace";
 import { buildRunSnapshot } from "../snapshots/snapshot.js";
-import { projectCapabilityAudit } from "../capabilities/audit.js";
+import { projectCapabilityAudit } from "@aithru-agent/capabilities";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");

@@ -1,8 +1,8 @@
 import type { AgentRun, AgentStreamEvent } from "@aithru-agent/contracts";
-import type { CapabilityRouter, ToolPrepareResult } from "../capabilities/router.js";
-import type { AgentToolCallRequest, AgentToolCallResult } from "../capabilities/descriptors.js";
+import type { CapabilityRouter, ToolPrepareResult } from "@aithru-agent/capabilities";
+import type { AgentToolCallRequest, AgentToolCallResult } from "@aithru-agent/capabilities";
 import { AgentEventWriter } from "@aithru-agent/stream";
-import type { AgentStore } from "../persistence/protocols.js";
+import type { AgentStore } from "@aithru-agent/persistence";
 import { EVENT_TYPES } from "@aithru-agent/stream";
 import { validateRunStatusTransition } from "@aithru-agent/contracts";
 

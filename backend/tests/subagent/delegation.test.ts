@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { InMemoryStore } from "../../src/persistence/store.js";
+import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter } from "@aithru-agent/stream";
-import { TestCapabilityRouter } from "../../src/capabilities/test-router.js";
+import { TestCapabilityRouter } from "@aithru-agent/capabilities";
 import { SubagentRunner } from "../../src/subagent/runner.js";
 import type { AgentRun } from "@aithru-agent/contracts";
 

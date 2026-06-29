@@ -1,4 +1,4 @@
-import type { AgentToolCallResult } from "../capabilities/descriptors.js";
+import type { AgentToolCallResult } from "@aithru-agent/capabilities";
 import type { AgentRun, AgentMessage } from "@aithru-agent/contracts";
 
 export interface AgentModelTurnInput {

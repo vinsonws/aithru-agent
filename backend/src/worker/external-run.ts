@@ -1,5 +1,5 @@
 import type { AgentRun } from "@aithru-agent/contracts";
-import type { AgentStore } from "../persistence/protocols.js";
+import type { AgentStore } from "@aithru-agent/persistence";
 import { EVENT_TYPES, AgentEventWriter } from "@aithru-agent/stream";
 
 export class ExternalRunCoordinator {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { InMemoryStore } from "../../src/persistence/store.js";
-import { TestCapabilityRouter } from "../../src/capabilities/test-router.js";
+import { InMemoryStore } from "@aithru-agent/persistence";
+import { TestCapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 
 describe("Capability Boundary", () => {

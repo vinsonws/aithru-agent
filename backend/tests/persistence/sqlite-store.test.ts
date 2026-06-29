@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { SqliteStore } from "../../src/persistence/sqlite-store.js";
+import { SqliteStore } from "@aithru-agent/persistence";
 
 describe("SqliteStore", () => {
   let store: SqliteStore;

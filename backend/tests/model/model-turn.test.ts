@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ProductionCapabilityRouter } from "../../src/capabilities/production-router.js";
+import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { ModelTurnLoop } from "../../src/core/model-turn.js";
-import { TestModelAdapter } from "../../src/model/test-adapter.js";
-import { InMemoryStore } from "../../src/persistence/store.js";
+import { TestModelAdapter } from "@aithru-agent/model";
+import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter } from "@aithru-agent/stream";
 
 function createRun(): AgentRun {

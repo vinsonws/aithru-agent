@@ -1,6 +1,6 @@
 // backend/src/snapshots/summary.ts
 
-import type { AgentStore } from "../persistence/protocols.js";
+import type { AgentStore } from "@aithru-agent/persistence";
 
 export interface RunSummary {
   run_id: string;

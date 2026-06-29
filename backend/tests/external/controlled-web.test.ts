@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ControlledWebProvider } from "../../src/external/controlled-web.js";
+import { ControlledWebProvider } from "@aithru-agent/external";
 
 describe("ControlledWebProvider", () => {
   it("allows fetches only to configured hosts", async () => {

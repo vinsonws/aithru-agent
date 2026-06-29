@@ -1,4 +1,4 @@
-import type { AgentStore } from "../persistence/protocols.js";
+import type { AgentStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
 import type { AgentRun } from "@aithru-agent/contracts";
 import {

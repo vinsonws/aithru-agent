@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import type { AgentStreamEvent, AgentStreamSource } from "@aithru-agent/contracts";
-import type { AgentStore } from "../../../src/persistence/protocols.js";
+import type { AgentStore } from "@aithru-agent/persistence";
 import { VISIBILITY, REDACTION } from "./events.js";
 import { redactPayload } from "./redaction.js";
 

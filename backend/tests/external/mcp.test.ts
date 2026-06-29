@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { McpCatalog, McpProviderAdapter } from "../../src/external/mcp.js";
+import { McpCatalog, McpProviderAdapter } from "@aithru-agent/external";
 
 describe("MCP catalog", () => {
   it("lists enabled server tools without executing them", () => {

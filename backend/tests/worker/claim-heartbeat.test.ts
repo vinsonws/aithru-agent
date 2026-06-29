@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { InMemoryStore } from "../../src/persistence/store.js";
+import { InMemoryStore } from "@aithru-agent/persistence";
 import type { AgentRun } from "@aithru-agent/contracts";
 
 function createRun(overrides: Partial<AgentRun> = {}): AgentRun {

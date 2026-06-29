@@ -1,5 +1,3 @@
-// backend/src/skills/registry.ts
-
 import { SkillLoader, type SkillPackage } from "./loader.js";
 
 export class SkillRegistry {

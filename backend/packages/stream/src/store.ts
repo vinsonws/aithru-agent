@@ -1,4 +1,4 @@
-import { InMemoryStore } from "../../../src/persistence/store.js";
+import { InMemoryStore } from "@aithru-agent/persistence";
 import type { AgentStreamEvent } from "@aithru-agent/contracts";
 
 export class InMemoryAgentEventStore {
