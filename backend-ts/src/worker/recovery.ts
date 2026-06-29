@@ -2,12 +2,23 @@ import type { AgentStore } from "../persistence/protocols.js";
 import { AgentEventWriter } from "../stream/writer.js";
 import { EVENT_TYPES } from "../stream/events.js";
 import type { AgentRun } from "../contracts/types.js";
+import {
+  createDefaultRetryPolicy,
+  canRetry,
+  nextRetryAt,
+} from "../core/retry.js";
+import type { AgentRunRetryPolicy, AgentRunRetryState } from "../core/retry.js";
 
 export class RecoveryScanner {
   constructor(
     private store: AgentStore,
     private eventWriter: AgentEventWriter,
+    private retryPolicy: AgentRunRetryPolicy = createDefaultRetryPolicy(),
   ) {}
+
+  setRetryPolicy(policy: AgentRunRetryPolicy): void {
+    this.retryPolicy = policy;
+  }
 
   findRecoverableRuns(): AgentRun[] {
     const store = this.store as any;
@@ -29,13 +40,25 @@ export class RecoveryScanner {
       });
     } else {
       // Running run died — mark as failed for recovery
+      const retryState: AgentRunRetryState = {
+        attempt: ((run as any).retry_state?.attempt ?? 0) + 1,
+        next_retry_at: null,
+        last_error: { code: "WORKER_DIED", message: "Worker lost heartbeat; run terminated" },
+      };
+
+      if (canRetry(this.retryPolicy, retryState)) {
+        retryState.next_retry_at = nextRetryAt(this.retryPolicy, retryState);
+      }
+
       this.store.updateRun(run.id, {
         status: "failed",
         completed_at: new Date().toISOString().replace(/\.\d{3}/, ""),
         error: { code: "WORKER_DIED", message: "Worker lost heartbeat; run terminated" },
       });
+
       this.eventWriter.write(run.id, run.thread_id || null, EVENT_TYPES.RUN_FAILED, {
         error: { code: "WORKER_DIED", message: "Worker lost heartbeat" },
+        retry_state: retryState,
       });
     }
 
