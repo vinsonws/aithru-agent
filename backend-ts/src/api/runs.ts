@@ -8,6 +8,7 @@ import {
 } from "../contracts/schemas.js";
 import { formatSseEvent, formatSseComment } from "../stream/sse.js";
 import { EVENT_TYPES } from "../stream/events.js";
+import { projectTraceSpans } from "../trace/projector.js";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
@@ -181,4 +182,18 @@ export function registerRunRoutes(app: FastifyInstance): void {
       return { cancelled: true, run_id };
     },
   );
+
+  // GET /api/runs/:run_id/trace
+  app.get("/api/runs/:run_id/trace", async (request, reply) => {
+    const { run_id } = request.params as any;
+    const runtime = getRuntime();
+    const run = runtime.store.getRun(run_id);
+    if (!run) {
+      reply.code(404);
+      return { error: "Run not found" };
+    }
+    const events = runtime.store.listEvents(run_id);
+    const spans = projectTraceSpans(events);
+    return spans;
+  });
 }
