@@ -17,6 +17,14 @@ export interface ToolCallStep {
   name: string;
   input: Record<string, unknown>;
   requireApproval?: boolean;
+  autoApprove?: boolean;
+}
+
+export interface ToolCallResult {
+  completed: boolean;
+  approvalRequired: boolean;
+  approvalId?: string;
+  result?: AgentToolCallResult;
 }
 
 export class RunLoop {
@@ -107,7 +115,7 @@ export class RunLoop {
 
   // ── Tool Call ─────────────────────────────────────────────────────
 
-  async executeToolCall(step: ToolCallStep): Promise<AgentToolCallResult> {
+  async executeToolCall(step: ToolCallStep): Promise<ToolCallResult> {
     const toolCallId = `tc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
     const request: AgentToolCallRequest = {
@@ -139,42 +147,70 @@ export class RunLoop {
         },
       );
       return {
-        id: toolCallId,
-        name: step.name,
-        output: null,
-        error: {
-          code: "TOOL_DENIED",
-          message: prepared.reason || "Tool call denied by policy",
-          retryable: false,
+        completed: true,
+        approvalRequired: false,
+        result: {
+          id: toolCallId,
+          name: step.name,
+          output: null,
+          error: {
+            code: "TOOL_DENIED",
+            message: prepared.reason || "Tool call denied by policy",
+            retryable: false,
+          },
         },
       };
     }
 
-    // 3. Approval check (simplified: auto-approve if requiresApproval is not explicitly set)
-    if (step.requireApproval || prepared.requires_approval) {
+    // 3. Approval check — actually pause, not auto-resolve
+    if (prepared.requires_approval && !step.autoApprove) {
+      const approvalId = `aprv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+
+      // Create approval in store
+      this.ctx.store.createApproval({
+        id: approvalId,
+        run_id: this.runId,
+        tool_call_id: toolCallId,
+        tool_name: step.name,
+        status: "pending",
+        created_at: new Date().toISOString().replace(/\.\d{3}/, ""),
+      });
+
+      // Emit approval.requested
       this.ctx.eventWriter.write(
         this.runId,
         this.threadId,
         EVENT_TYPES.APPROVAL_REQUESTED,
         {
+          approval_id: approvalId,
           tool_call_id: toolCallId,
           name: step.name,
         },
       );
-      // In P0, we auto-resolve for scripted harness; real approval pauses the run
+
+      // Transition run to waiting_approval
+      validateRunStatusTransition(this.ctx.run.status as string, "waiting_approval");
+      this.ctx.store.updateRun(this.runId, {
+        status: "waiting_approval",
+        current_approval_id: approvalId,
+      });
+      this.ctx.run = this.ctx.store.getRun(this.runId)!;
+
+      // Emit run.paused
       this.ctx.eventWriter.write(
         this.runId,
         this.threadId,
-        EVENT_TYPES.APPROVAL_RESOLVED,
+        EVENT_TYPES.RUN_PAUSED,
         {
-          tool_call_id: toolCallId,
-          name: step.name,
-          decision: "approved",
+          reason: "approval_required",
+          approval_id: approvalId,
         },
       );
+
+      return { completed: false, approvalRequired: true, approvalId };
     }
 
-    // 4. Execute
+    // 4. Execute (no approval needed)
     this.ctx.eventWriter.write(
       this.runId,
       this.threadId,
@@ -208,6 +244,6 @@ export class RunLoop {
       );
     }
 
-    return result;
+    return { completed: true, approvalRequired: false, result };
   }
 }

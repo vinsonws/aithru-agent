@@ -115,13 +115,14 @@ describe("RunLoop", () => {
     const loop = new RunLoop({ run, store, eventWriter, capabilityRouter: router });
     loop.emitRunStarted();
 
-    const result = await loop.executeToolCall({
+    const callResult = await loop.executeToolCall({
       name: "nonexistent.tool",
       input: {},
     });
 
-    expect(result.error).toBeTruthy();
-    expect(result.error!.code).toBe("TOOL_DENIED");
+    expect(callResult.result).toBeTruthy();
+    expect(callResult.result!.error).toBeTruthy();
+    expect(callResult.result!.error!.code).toBe("TOOL_DENIED");
 
     const events = store.listEvents("run_test_1");
     expect(events.some((e) => e.type === EVENT_TYPES.TOOL_DENIED)).toBe(true);

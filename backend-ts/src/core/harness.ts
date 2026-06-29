@@ -58,7 +58,13 @@ export class ScriptedHarnessCore implements HarnessCore {
         loop.emitMessageDelta(messageId, thinkingDelta, accumulatedContent);
 
         // Execute the tool
-        await loop.executeToolCall(step);
+        const callResult = await loop.executeToolCall(step);
+
+        if (!callResult.completed) {
+          // Run paused for approval — harness suspends here
+          loop.emitMessageCompleted(messageId, accumulatedContent);
+          return this.store.getRun(run.id)!;
+        }
       }
 
       // 4. Final content

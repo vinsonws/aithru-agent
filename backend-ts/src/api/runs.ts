@@ -40,6 +40,7 @@ export function registerRunRoutes(app: FastifyInstance): void {
         scopes: body.scopes || ["*"],
         harness_options: null,
         status: "queued",
+        current_approval_id: null,
         started_at: now(),
         completed_at: null,
         claim: null,

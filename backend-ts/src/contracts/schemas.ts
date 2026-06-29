@@ -170,6 +170,7 @@ export const AgentRunSchema = Type.Object({
     Type.Union([AgentRunHarnessOptionsSchema, Type.Null()])
   ),
   status: AgentRunStatus,
+  current_approval_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   started_at: Type.String(),
   completed_at: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   claim: Type.Optional(Type.Union([AgentRunClaimSchema, Type.Null()])),
