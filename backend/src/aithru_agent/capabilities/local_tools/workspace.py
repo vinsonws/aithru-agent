@@ -2,7 +2,10 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from aithru_agent.capabilities.recovery import recoverable_tool_result
 from aithru_agent.domain import (
+    AgentToolFailureKind,
+    AgentToolRecoveryAction,
     AgentWorkspacePatchResult,
     AgentWorkspaceImageViewResult,
     AgentWorkspaceTextPatchRequest,
@@ -50,6 +53,7 @@ class WorkspaceLocalTool:
                 risk_level=AgentToolRiskLevel.READ,
                 required_scopes=["agent.workspace.read"],
                 approval_policy="never",
+                failure_policy="return_recoverable",
             ),
             AgentToolDescriptor(
                 name="workspace.view_image",
@@ -64,6 +68,7 @@ class WorkspaceLocalTool:
                 risk_level=AgentToolRiskLevel.READ,
                 required_scopes=["agent.workspace.read"],
                 approval_policy="never",
+                failure_policy="return_recoverable",
             ),
             AgentToolDescriptor(
                 name="workspace.write_file",
@@ -82,6 +87,7 @@ class WorkspaceLocalTool:
                 risk_level=AgentToolRiskLevel.WRITE,
                 required_scopes=["agent.workspace.write"],
                 approval_policy="on_risk",
+                failure_policy="return_recoverable",
             ),
             AgentToolDescriptor(
                 name="workspace.patch_file",
@@ -92,6 +98,7 @@ class WorkspaceLocalTool:
                 risk_level=AgentToolRiskLevel.WRITE,
                 required_scopes=["agent.workspace.write"],
                 approval_policy="on_risk",
+                failure_policy="return_recoverable",
             ),
             AgentToolDescriptor(
                 name="workspace.delete_file",
@@ -106,6 +113,7 @@ class WorkspaceLocalTool:
                 risk_level=AgentToolRiskLevel.WRITE,
                 required_scopes=["agent.workspace.write"],
                 approval_policy="on_risk",
+                failure_policy="return_recoverable",
             ),
         ]
 
@@ -323,13 +331,35 @@ async def _workspace_file(
     raise AgentError("NOT_FOUND", f"Workspace file not found: {path}")
 
 
+def _suggest_workspace_path(path: object, allowed_paths: list[str] | None) -> str | None:
+    if not allowed_paths or not isinstance(path, str) or not path.strip():
+        return None
+    filename = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    if not filename or filename in {".", ".."}:
+        return None
+    preferred_root = (
+        "/artifacts"
+        if "/artifacts" in {_normalize_for_policy(allowed_path) for allowed_path in allowed_paths}
+        else allowed_paths[0]
+    )
+    return f"{preferred_root.rstrip('/')}/{filename}"
+
+
 def _deny_if_path_outside_policy(path: object, context: AgentRunContext) -> AgentToolCallResult | None:
     if _path_allowed(str(path), context.workspace_allowed_paths):
         return None
-    return AgentToolCallResult(
+    suggested_path = _suggest_workspace_path(path, context.workspace_allowed_paths)
+    suggested_input = {"path": suggested_path} if suggested_path is not None else None
+    return recoverable_tool_result(
         status="denied",
+        kind=AgentToolFailureKind.INVALID_INPUT,
+        action=AgentToolRecoveryAction.RETRY_WITH_CORRECTED_INPUT,
+        message="Path is outside allowed workspace paths.",
+        model_guidance="Retry with an absolute workspace path under one of the allowed workspace paths.",
+        suggested_input=suggested_input,
+        allowed_values={"allowed_paths": context.workspace_allowed_paths or []},
+        attempt_key="workspace_path_policy",
         error={"message": f"Path is outside allowed workspace paths: {path}"},
-        redaction="none",
     )
 
 

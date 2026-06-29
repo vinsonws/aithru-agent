@@ -1094,15 +1094,20 @@ async def test_pydantic_tool_bridge_returns_recoverable_workspace_path_denial() 
         "status": "denied",
         "recoverable": True,
         "tool_name": "workspace.write_file",
-        "error": {"message": "Path is outside allowed workspace paths: cosmic-dreamscape.html"},
-        "allowed_paths": ["/workspace", "/artifacts"],
-        "suggested_path": "/artifacts/cosmic-dreamscape.html",
+        "failure_kind": "invalid_input",
+        "message": "Path is outside allowed workspace paths.",
+        "guidance": "Retry with an absolute workspace path under one of the allowed workspace paths.",
+        "suggested_input": {"path": "/artifacts/cosmic-dreamscape.html"},
+        "allowed_values": {"allowed_paths": ["/workspace", "/artifacts"]},
     }
     assert [event.type for event in events] == [
         "tool.proposed",
         "tool.started",
         "tool.failed",
+        "tool.recovery.offered",
     ]
+    failed_event = next(event for event in events if event.type == "tool.failed")
+    assert failed_event.payload["recovery"]["attempt_key"] == "workspace_path_policy"
 
 
 @pytest.mark.asyncio

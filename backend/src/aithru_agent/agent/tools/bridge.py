@@ -192,15 +192,6 @@ class PydanticAIToolBridge:
                 )
                 if recoverable_result is not None:
                     return recoverable_result
-            if is_run_context:
-                recoverable_workspace_path_failure = _recoverable_workspace_path_failure(
-                    tool_name=tool_name,
-                    tool_input=tool_input,
-                    error=result.error,
-                    allowed_paths=run_context.workspace_allowed_paths,
-                )
-                if recoverable_workspace_path_failure is not None:
-                    return recoverable_workspace_path_failure
             if recoverable_failure is not None:
                 return _recoverable_failure_payload(recoverable_failure)
             raise AgentError("TOOL_FAILED", _tool_result_error_message(result.error))
@@ -714,45 +705,6 @@ def _error_payload(error: Exception) -> dict[str, str]:
     if isinstance(error, AgentError):
         return {"code": error.code, "message": error.message}
     return {"message": str(error)}
-
-
-def _recoverable_workspace_path_failure(
-    *,
-    tool_name: str,
-    tool_input: dict[str, Any],
-    error: dict | None,
-    allowed_paths: list[str] | None,
-) -> dict[str, object] | None:
-    if not tool_name.startswith("workspace.") or not allowed_paths:
-        return None
-    message = _tool_result_error_message(error)
-    if "outside allowed workspace paths" not in message:
-        return None
-    payload: dict[str, object] = {
-        "status": "denied",
-        "recoverable": True,
-        "tool_name": tool_name,
-        "error": error or {"message": message},
-        "allowed_paths": allowed_paths,
-    }
-    suggested_path = _suggest_workspace_path(tool_input.get("path"), allowed_paths)
-    if suggested_path is not None:
-        payload["suggested_path"] = suggested_path
-    return payload
-
-
-def _suggest_workspace_path(path: object, allowed_paths: list[str]) -> str | None:
-    if not isinstance(path, str) or not path.strip():
-        return None
-    filename = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
-    if not filename or filename in {".", ".."}:
-        return None
-    preferred_root = (
-        "/artifacts"
-        if "/artifacts" in {allowed.rstrip("/") or "/" for allowed in allowed_paths}
-        else allowed_paths[0]
-    )
-    return f"{preferred_root.rstrip('/')}/{filename}"
 
 
 def _todo_status_value(status: AgentTodoStatus | str) -> str:
