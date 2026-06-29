@@ -1,5 +1,6 @@
 from typing import Any
 from types import SimpleNamespace
+from datetime import UTC, datetime
 
 import pytest
 from pydantic_ai import Agent, RunContext
@@ -7,7 +8,13 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RunUsage
 
 from aithru_agent.agent.capabilities import AithruToolset
+from aithru_agent.agent.deps import PydanticAgentDeps
+from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter, ToolPolicy
+from aithru_agent.capabilities.local_tools import WorkspaceLocalTool
+from aithru_agent.domain import AgentRun, AgentRunStatus
 from aithru_agent.domain import AgentToolDescriptor
+from aithru_agent.persistence.memory.store import InMemoryAgentStore
+from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 
 
 def _descriptor(*, name: str = "compat.echo") -> AgentToolDescriptor:
@@ -93,6 +100,48 @@ async def test_aithru_toolset_can_expose_openai_compatible_tool_names() -> None:
     assert deps.tool_name_aliases == {"workspace_read_file": "workspace.read_file"}
     assert result == {"ok": True}
     assert calls == [("workspace.read_file", {"value": "hello"})]
+
+
+@pytest.mark.asyncio
+async def test_aithru_toolset_describes_workspace_allowed_paths() -> None:
+    store = InMemoryAgentStore()
+    run = AgentRun(
+        id="run_1",
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="write html",
+        workspace_id="ws_1",
+        scopes=["*"],
+        status=AgentRunStatus.RUNNING,
+        started_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    )
+    deps = PydanticAgentDeps(
+        run=run,
+        run_context=AgentRunContext(
+            run_id=run.id,
+            org_id=run.org_id,
+            actor_user_id=run.actor_user_id,
+            workspace_id=run.workspace_id,
+            scopes=["agent.workspace.write"],
+            workspace_allowed_paths=["/workspace", "/artifacts"],
+        ),
+        event_writer=AgentEventWriter(InMemoryAgentEventStore()),
+        capability_router=AithruCapabilityRouter(
+            adapters=[WorkspaceLocalTool(store)],
+            policy=ToolPolicy(require_approval_for_risk=[]),
+        ),
+        store=store,
+    )
+    toolset = AithruToolset()
+    ctx = _ctx(deps=deps)
+
+    tools = await toolset.get_tools(ctx)
+    path_schema = tools["workspace.write_file"].tool_def.parameters_json_schema["properties"]["path"]
+
+    assert "description" in path_schema
+    assert "/workspace" in path_schema["description"]
+    assert "/artifacts" in path_schema["description"]
 
 
 @pytest.mark.asyncio

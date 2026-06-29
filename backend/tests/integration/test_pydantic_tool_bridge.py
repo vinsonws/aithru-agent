@@ -1,5 +1,7 @@
 import pytest
+from pydantic_ai import RunContext
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.usage import RunUsage
 
 from aithru_agent.agent import (
     AgentRuntime,
@@ -999,6 +1001,67 @@ async def test_pydantic_tool_bridge_still_raises_for_non_recoverable_tool_failur
 
     assert exc_info.value.code == "TOOL_FAILED"
     assert exc_info.value.message == "local tool failed"
+    assert [event.type for event in events] == [
+        "tool.proposed",
+        "tool.started",
+        "tool.failed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pydantic_tool_bridge_returns_recoverable_workspace_path_denial() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Write html",
+        workspace_id=workspace.id,
+    )
+    context = AgentRunContext(
+        run_id=run.id,
+        org_id="org_1",
+        actor_user_id="user_1",
+        workspace_id=workspace.id,
+        scopes=["agent.workspace.write"],
+        workspace_allowed_paths=["/workspace", "/artifacts"],
+    )
+    deps = PydanticAgentDeps(
+        run=run,
+        run_context=context,
+        event_writer=writer,
+        capability_router=AithruCapabilityRouter(
+            adapters=[WorkspaceLocalTool(store)],
+            policy=ToolPolicy(require_approval_for_risk=[]),
+        ),
+        store=store,
+    )
+    bridge = PydanticAIToolBridge(deps=deps)
+    ctx = RunContext(
+        deps=deps,
+        model=TestModel(),
+        usage=RunUsage(),
+        tool_call_id="tc_workspace_path_denied",
+    )
+
+    result = await bridge.call_tool(
+        ctx,
+        tool_name="workspace.write_file",
+        tool_input={"path": "cosmic-dreamscape.html", "content": "<html></html>"},
+    )
+    events = await event_store.list_by_run(run.id)
+
+    assert result == {
+        "status": "denied",
+        "recoverable": True,
+        "tool_name": "workspace.write_file",
+        "error": {"message": "Path is outside allowed workspace paths: cosmic-dreamscape.html"},
+        "allowed_paths": ["/workspace", "/artifacts"],
+        "suggested_path": "/artifacts/cosmic-dreamscape.html",
+    }
     assert [event.type for event in events] == [
         "tool.proposed",
         "tool.started",

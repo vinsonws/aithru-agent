@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Protocol
 
 from aithru_agent.domain import (
@@ -52,7 +53,7 @@ class AithruCapabilityRouter:
         if context.denied_tools:
             denied = set(context.denied_tools)
             tools = [tool for tool in tools if tool.name not in denied]
-        return tools
+        return _tools_with_context_schema(tools, context)
 
     async def prepare_tool_call(
         self,
@@ -305,6 +306,43 @@ def _audit_event(
         authorization=authorization,
         reason=reason,
     )
+
+
+def _tools_with_context_schema(
+    tools: list[AgentToolDescriptor],
+    context: AgentRunContext,
+) -> list[AgentToolDescriptor]:
+    if not context.workspace_allowed_paths:
+        return tools
+    return [
+        _with_workspace_path_guidance(tool, context.workspace_allowed_paths)
+        for tool in tools
+    ]
+
+
+def _with_workspace_path_guidance(
+    tool: AgentToolDescriptor,
+    allowed_paths: list[str],
+) -> AgentToolDescriptor:
+    if not tool.name.startswith("workspace."):
+        return tool
+    schema = deepcopy(tool.input_schema)
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return tool
+    path_schema = properties.get("path")
+    if not isinstance(path_schema, dict):
+        return tool
+
+    guidance = (
+        "Must be an absolute workspace path under one of: "
+        f"{', '.join(allowed_paths)}. Do not use bare filenames."
+    )
+    existing = path_schema.get("description")
+    path_schema["description"] = (
+        f"{existing} {guidance}" if isinstance(existing, str) and existing else guidance
+    )
+    return tool.model_copy(update={"input_schema": schema})
 
 
 def _audit_outcome_for_result(result: AgentToolCallResult) -> str:
