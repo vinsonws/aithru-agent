@@ -1,0 +1,182 @@
+import type { FastifyInstance } from "fastify";
+import { nanoid } from "nanoid";
+import { getRuntime } from "../application/runtime.js";
+import type { AgentRun, AgentStreamEvent } from "../contracts/types.js";
+import {
+  CreateRunRequestSchema,
+  AgentRunSchema,
+} from "../contracts/schemas.js";
+import { formatSseEvent, formatSseComment } from "../stream/sse.js";
+import { EVENT_TYPES } from "../stream/events.js";
+
+function now(): string {
+  return new Date().toISOString().replace(/\.\d{3}/, "");
+}
+
+export function registerRunRoutes(app: FastifyInstance): void {
+  // POST /api/runs
+  app.post(
+    "/api/runs",
+    {
+      schema: {
+        body: CreateRunRequestSchema,
+        response: {
+          201: AgentRunSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const body = request.body as any;
+      const runtime = getRuntime();
+      const run: AgentRun = {
+        id: `run_${nanoid(12)}`,
+        org_id: body.org_id,
+        actor_user_id: body.actor_user_id,
+        source: body.source,
+        thread_id: body.thread_id || null,
+        skill_id: body.skill_id || null,
+        workspace_id: `ws_${nanoid(12)}`,
+        task_msg: body.task_msg,
+        scopes: body.scopes || ["*"],
+        harness_options: null,
+        status: "queued",
+        started_at: now(),
+        completed_at: null,
+        claim: null,
+        result: null,
+        error: null,
+      };
+      runtime.store.createRun(run);
+
+      // Emit run.created
+      runtime.eventWriter.write(
+        run.id,
+        run.thread_id ?? null,
+        EVENT_TYPES.RUN_CREATED,
+        { run_id: run.id, status: run.status },
+      );
+
+      reply.code(201);
+      return run;
+    },
+  );
+
+  // GET /api/runs
+  app.get(
+    "/api/runs",
+    {
+      schema: {
+        response: {
+          200: {
+            type: "array",
+            items: AgentRunSchema,
+          },
+        },
+      },
+    },
+    async () => {
+      const runtime = getRuntime();
+      return [...runtime.store["_dump"]().runs];
+    },
+  );
+
+  // GET /api/runs/:run_id
+  app.get(
+    "/api/runs/:run_id",
+    {
+      schema: {
+        response: {
+          200: AgentRunSchema,
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { run_id } = request.params as any;
+      const runtime = getRuntime();
+      const run = runtime.store.getRun(run_id);
+      if (!run) {
+        reply.code(404);
+        return { error: "Run not found" };
+      }
+      return run;
+    },
+  );
+
+  // GET /api/runs/:run_id/stream (SSE)
+  app.get(
+    "/api/runs/:run_id/stream",
+    async (request, reply) => {
+      const { run_id } = request.params as any;
+      const runtime = getRuntime();
+      const run = runtime.store.getRun(run_id);
+      if (!run) {
+        reply.code(404);
+        return { error: "Run not found" };
+      }
+
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+
+      // Send already-persisted events (replay)
+      const existingEvents = runtime.store.listEvents(run_id);
+      for (const event of existingEvents) {
+        reply.raw.write(formatSseEvent(event));
+      }
+
+      // Send a keepalive comment
+      reply.raw.write(formatSseComment("stream ready"));
+
+      // In P0, we don't do live following — just replay then close
+      // P1+ will add live event following
+      reply.raw.end();
+    },
+  );
+
+  // GET /api/runs/:run_id/events
+  app.get(
+    "/api/runs/:run_id/events",
+    async (request, reply) => {
+      const { run_id } = request.params as any;
+      const runtime = getRuntime();
+      const run = runtime.store.getRun(run_id);
+      if (!run) {
+        reply.code(404);
+        return { error: "Run not found" };
+      }
+      return runtime.store.listEvents(run_id);
+    },
+  );
+
+  // POST /api/runs/:run_id/cancel (stub for P0)
+  app.post(
+    "/api/runs/:run_id/cancel",
+    async (request, reply) => {
+      const { run_id } = request.params as any;
+      const runtime = getRuntime();
+      const run = runtime.store.getRun(run_id);
+      if (!run) {
+        reply.code(404);
+        return { error: "Run not found" };
+      }
+      runtime.store.updateRun(run_id, {
+        status: "cancelled",
+        completed_at: now(),
+      });
+      runtime.eventWriter.write(
+        run_id,
+        run.thread_id ?? null,
+        EVENT_TYPES.RUN_CANCELLED,
+        { run_id },
+      );
+      return { cancelled: true, run_id };
+    },
+  );
+}
