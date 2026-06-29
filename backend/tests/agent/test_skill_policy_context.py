@@ -9,6 +9,7 @@ from aithru_agent.agent.deps import PydanticAgentDeps
 from aithru_agent.agent.skill_policy import active_skill_keys, compose_skill_run_context, effective_run_context
 from aithru_agent.capabilities import AgentRunContext
 from aithru_agent.domain import AgentSkillConfiguration
+from aithru_agent.skills import BuiltinPackageResolver
 from aithru_agent.skills.packages import SkillPackage, parse_skill_package
 from aithru_agent.domain import AgentSkillRegistrySource
 
@@ -170,6 +171,27 @@ def test_compose_skill_run_context_deny_wins_over_allow() -> None:
     result = compose_skill_run_context(base, packages)
 
     assert result.allowed_tools == []
+
+
+def test_builtin_surprise_frontend_policy_allows_html_entrypoint() -> None:
+    resolver = BuiltinPackageResolver()
+    packages = [
+        package
+        for key in ("surprise-me", "frontend-design")
+        if (package := resolver.get_package(key)) is not None
+    ]
+    assert {package.key for package in packages} == {"surprise-me", "frontend-design"}
+    base = AgentRunContext(
+        run_id="run_1",
+        org_id="org_1",
+        actor_user_id="user_1",
+        workspace_id="ws_1",
+    )
+
+    result = compose_skill_run_context(base, packages)
+
+    assert result.workspace_allowed_paths is not None
+    assert "/index.html" in result.workspace_allowed_paths
 
 
 from aithru_agent.capabilities import AgentRunContext
