@@ -126,7 +126,7 @@ export class RunLoop {
     );
 
     // 2. Prepare (check policy)
-    const prepared = await this.ctx.capabilityRouter.prepareToolCall(request);
+    const prepared = await this.ctx.capabilityRouter.prepareToolCall(request, { run: this.ctx.run });
     if (!prepared.allowed) {
       this.ctx.eventWriter.write(
         this.runId,
@@ -182,7 +182,7 @@ export class RunLoop {
       { tool_call_id: toolCallId, name: step.name },
     );
 
-    const result = await this.ctx.capabilityRouter.executeToolCall(request);
+    const result = await this.ctx.capabilityRouter.executeToolCall(request, { run: this.ctx.run });
 
     if (result.error) {
       this.ctx.eventWriter.write(

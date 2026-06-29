@@ -34,6 +34,17 @@ export interface AgentApproval {
   resolved_at?: string;
 }
 
+export interface AgentArtifact {
+  id: string;
+  run_id: string;
+  title: string;
+  content_type: string;
+  content: string;
+  status: "draft" | "finalized";
+  created_at: string;
+  updated_at: string;
+}
+
 export class InMemoryStore {
   private threads = new Map<string, AgentThread>();
   private messages = new Map<string, AgentMessage>();
@@ -42,6 +53,7 @@ export class InMemoryStore {
   private workspaceFiles = new Map<string, WorkspaceFile[]>();
   private todos = new Map<string, AgentTodo[]>();
   private approvals = new Map<string, AgentApproval[]>();
+  private artifacts = new Map<string, AgentArtifact>();
 
   // ── Threads ────────────────────────────────────────────────────────
 
@@ -228,6 +240,29 @@ export class InMemoryStore {
     return approval;
   }
 
+  // ── Artifacts ────────────────────────────────────────────────────
+
+  createArtifact(artifact: AgentArtifact): AgentArtifact {
+    this.artifacts.set(artifact.id, artifact);
+    return artifact;
+  }
+
+  getArtifact(id: string): AgentArtifact | undefined {
+    return this.artifacts.get(id);
+  }
+
+  listArtifacts(runId: string): AgentArtifact[] {
+    return [...this.artifacts.values()].filter((a) => a.run_id === runId);
+  }
+
+  finalizeArtifact(id: string): AgentArtifact {
+    const artifact = this.artifacts.get(id);
+    if (!artifact) throw new Error(`Artifact ${id} not found`);
+    artifact.status = "finalized";
+    artifact.updated_at = new Date().toISOString().replace(/\.\d{3}/, "");
+    return artifact;
+  }
+
   // ── Raw access for testing ────────────────────────────────────────
 
   _dump() {
@@ -239,6 +274,7 @@ export class InMemoryStore {
       workspaceFiles: Object.fromEntries(this.workspaceFiles),
       todos: Object.fromEntries(this.todos),
       approvals: Object.fromEntries(this.approvals),
+      artifacts: Object.fromEntries(this.artifacts),
     };
   }
 }
