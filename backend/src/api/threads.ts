@@ -1,14 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
 import { getRuntime } from "../application/runtime.js";
-import type { AgentThread, AgentMessage } from "../contracts/types.js";
+import type { AgentThread, AgentMessage } from "@aithru-agent/contracts";
 import {
   CreateThreadRequestSchema,
   UpdateThreadRequestSchema,
   CreateMessageRequestSchema,
   AgentThreadSchema,
   AgentMessageSchema,
-} from "../contracts/schemas.js";
+} from "@aithru-agent/contracts";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");

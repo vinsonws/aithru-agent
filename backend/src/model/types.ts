@@ -1,5 +1,5 @@
 import type { AgentToolCallResult } from "../capabilities/descriptors.js";
-import type { AgentRun, AgentMessage } from "../contracts/types.js";
+import type { AgentRun, AgentMessage } from "@aithru-agent/contracts";
 
 export interface AgentModelTurnInput {
   run: AgentRun;

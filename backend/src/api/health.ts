@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { HealthResponseSchema } from "../contracts/schemas.js";
+import { HealthResponseSchema } from "@aithru-agent/contracts";
 
 export function registerHealthRoutes(app: FastifyInstance): void {
   app.get(

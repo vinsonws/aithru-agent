@@ -1,7 +1,7 @@
 // backend/examples/approval_demo.ts
 
 import { createRuntime } from "../src/application/runtime.js";
-import type { AgentRun } from "../src/contracts/types.js";
+import type { AgentRun } from "@aithru-agent/contracts";
 import type { ToolCallStep } from "../src/core/run-loop.js";
 
 function now(): string {
@@ -67,7 +67,7 @@ async function main() {
   console.log(`Event types: ${eventTypes.join(", ")}`);
 
   // Check trace
-  const { projectTraceSpans } = await import("../src/trace/projector.js");
+  const { projectTraceSpans } = await import("@aithru-agent/trace");
   const spans = projectTraceSpans(events);
   console.log(`Trace spans: ${spans.length} root(s)`);
 }

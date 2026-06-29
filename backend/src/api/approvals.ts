@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { getRuntime } from "../application/runtime.js";
-import { EVENT_TYPES } from "../stream/events.js";
+import { EVENT_TYPES } from "@aithru-agent/stream";
 
 export function registerApprovalRoutes(app: FastifyInstance): void {
   // POST /api/approvals/:approval_id/resolve

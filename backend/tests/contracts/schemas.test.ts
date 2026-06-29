@@ -7,7 +7,7 @@ import {
   AgentStreamEventSchema,
   validateRunStatusTransition,
   TERMINAL_RUN_STATUSES,
-} from "../../src/contracts/schemas.js";
+} from "@aithru-agent/contracts";
 
 describe("AgentThreadSchema", () => {
   it("validates a valid thread", () => {

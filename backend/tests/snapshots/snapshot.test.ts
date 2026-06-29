@@ -5,7 +5,7 @@ import {
   buildRunSummary,
   buildRunTree,
 } from "../../src/snapshots/index.js";
-import type { AgentRun } from "../../src/contracts/types.js";
+import type { AgentRun } from "@aithru-agent/contracts";
 
 function createRun(overrides: Partial<AgentRun> = {}): AgentRun {
   return {

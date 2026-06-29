@@ -3,7 +3,7 @@ import type {
   AgentMessage,
   AgentRun,
   AgentStreamEvent,
-} from "../contracts/types.js";
+} from "@aithru-agent/contracts";
 
 export interface WorkspaceFile {
   workspace_id: string;

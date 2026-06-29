@@ -1,4 +1,4 @@
-import type { AgentStreamEvent } from "../contracts/types.js";
+import type { AgentStreamEvent } from "@aithru-agent/contracts";
 
 export function formatSseEvent(event: AgentStreamEvent): string {
   const data = JSON.stringify(event);

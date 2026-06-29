@@ -3,8 +3,7 @@ import type { AgentToolDescriptor, AgentToolCallRequest, AgentToolCallResult } f
 import type { RunContext } from "./policy.js";
 import { PolicyEngine, resolveSkillPolicy } from "./policy.js";
 import type { AgentStore } from "../persistence/protocols.js";
-import { AgentEventWriter } from "../stream/writer.js";
-import { EVENT_TYPES, VISIBILITY } from "../stream/events.js";
+import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 
 // P1 production tool set (P0 tools + artifact)
 const PRODUCTION_TOOLS: AgentToolDescriptor[] = [

@@ -3,7 +3,7 @@ import type {
   AgentStreamSource,
   AgentStreamVisibilityType,
   AgentStreamRedactionType,
-} from "../contracts/types.js";
+} from "@aithru-agent/contracts";
 
 export type {
   AgentStreamEvent,

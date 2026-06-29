@@ -1,4 +1,4 @@
-import type { AgentStreamEvent } from "../contracts/types.js";
+import type { AgentStreamEvent } from "@aithru-agent/contracts";
 import type { AgentTraceSpan } from "./spans.js";
 
 interface SpanBuilder {

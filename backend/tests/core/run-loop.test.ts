@@ -1,10 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "../../src/persistence/store.js";
-import { AgentEventWriter } from "../../src/stream/writer.js";
+import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
 import { TestCapabilityRouter } from "../../src/capabilities/test-router.js";
 import { RunLoop } from "../../src/core/run-loop.js";
-import type { AgentRun } from "../../src/contracts/types.js";
-import { EVENT_TYPES } from "../../src/stream/events.js";
+import type { AgentRun } from "@aithru-agent/contracts";
 
 function createTestRun(overrides: Partial<AgentRun> = {}): AgentRun {
   return {

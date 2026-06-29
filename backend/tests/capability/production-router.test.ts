@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "../../src/persistence/store.js";
-import { AgentEventWriter } from "../../src/stream/writer.js";
+import { AgentEventWriter } from "@aithru-agent/stream";
 import { ProductionCapabilityRouter } from "../../src/capabilities/production-router.js";
-import type { AgentRun } from "../../src/contracts/types.js";
+import type { AgentRun } from "@aithru-agent/contracts";
 
 describe("ProductionCapabilityRouter", () => {
   const store = new InMemoryStore();

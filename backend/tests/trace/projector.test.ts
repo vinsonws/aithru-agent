@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { projectTraceSpans } from "../../src/trace/projector.js";
-import type { AgentStreamEvent } from "../../src/contracts/types.js";
+import { projectTraceSpans } from "@aithru-agent/trace";
+import type { AgentStreamEvent } from "@aithru-agent/contracts";
 
 function makeEvent(overrides: Partial<AgentStreamEvent>): AgentStreamEvent {
   return {

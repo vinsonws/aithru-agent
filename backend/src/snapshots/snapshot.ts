@@ -1,7 +1,7 @@
 // backend/src/snapshots/snapshot.ts
 
 import type { AgentStore } from "../persistence/protocols.js";
-import type { AgentRun } from "../contracts/types.js";
+import type { AgentRun } from "@aithru-agent/contracts";
 
 export interface RunSnapshotResponse {
   run: AgentRun;

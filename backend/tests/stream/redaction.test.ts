@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { redactPayload, REDACTED_VALUE } from "../../src/stream/redaction.js";
+import { redactPayload, REDACTED_VALUE } from "@aithru-agent/stream";
 
 describe("redactPayload", () => {
   it("returns unchanged for 'none' redaction", () => {

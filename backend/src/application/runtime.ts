@@ -1,7 +1,7 @@
 import type { AgentStore } from "../persistence/protocols.js";
 import { InMemoryStore } from "../persistence/store.js";
 import { SqliteStore } from "../persistence/sqlite-store.js";
-import { AgentEventWriter } from "../stream/writer.js";
+import { AgentEventWriter } from "@aithru-agent/stream";
 import { ProductionCapabilityRouter } from "../capabilities/production-router.js";
 import { ScriptedHarnessCore } from "../core/harness.js";
 import { WorkerRunner } from "../worker/runner.js";

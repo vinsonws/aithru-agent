@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { formatSseEvent, formatSseComment } from "../../src/stream/sse.js";
-import type { AgentStreamEvent } from "../../src/contracts/types.js";
+import { formatSseEvent, formatSseComment } from "@aithru-agent/stream";
+import type { AgentStreamEvent } from "@aithru-agent/contracts";
 
 describe("formatSseEvent", () => {
   it("formats an SSE event with id, event, and data", () => {

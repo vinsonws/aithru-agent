@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "../../src/persistence/store.js";
-import { AgentEventWriter } from "../../src/stream/writer.js";
-import { EVENT_TYPES } from "../../src/stream/events.js";
+import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
 
 describe("AgentEventWriter", () => {
   it("writes events with correct sequence numbers", () => {

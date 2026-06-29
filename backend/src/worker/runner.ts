@@ -1,11 +1,11 @@
 import { nanoid } from "nanoid";
 import type { AgentStore } from "../persistence/protocols.js";
-import { AgentEventWriter } from "../stream/writer.js";
+import { AgentEventWriter } from "@aithru-agent/stream";
 import type { CapabilityRouter } from "../capabilities/router.js";
 import { ScriptedHarnessCore, type ScriptedHarnessScript } from "../core/harness.js";
-import type { AgentRun } from "../contracts/types.js";
-import { validateRunStatusTransition } from "../contracts/schemas.js";
-import { EVENT_TYPES } from "../stream/events.js";
+import type { AgentRun } from "@aithru-agent/contracts";
+import { validateRunStatusTransition } from "@aithru-agent/contracts";
+import { EVENT_TYPES } from "@aithru-agent/stream";
 
 export class WorkerRunner {
   private harness: ScriptedHarnessCore;

@@ -1,5 +1,5 @@
 import type { AgentToolDescriptor, AgentToolCallRequest } from "./descriptors.js";
-import type { AgentRun } from "../contracts/types.js";
+import type { AgentRun } from "@aithru-agent/contracts";
 
 export interface RunContext {
   run: AgentRun;

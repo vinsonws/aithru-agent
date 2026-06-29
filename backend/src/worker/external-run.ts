@@ -1,7 +1,6 @@
-import type { AgentRun } from "../contracts/types.js";
+import type { AgentRun } from "@aithru-agent/contracts";
 import type { AgentStore } from "../persistence/protocols.js";
-import { EVENT_TYPES } from "../stream/events.js";
-import { AgentEventWriter } from "../stream/writer.js";
+import { EVENT_TYPES, AgentEventWriter } from "@aithru-agent/stream";
 
 export class ExternalRunCoordinator {
   constructor(
