@@ -30,6 +30,12 @@ from aithru_agent.domain.research import (
     research_limitation_for_tool_failure,
     research_todo_progress_for_tool,
 )
+from aithru_agent.agent.tools.recovery import (
+    model_visible_recovery_payload,
+    recovery_attempt_key,
+    recovery_attempt_payload,
+    recovery_event_payload,
+)
 from aithru_agent.stream.presentations import (
     presentation_event_payload,
     presentations_for_tool_result,
@@ -178,6 +184,14 @@ class PydanticAIToolBridge:
         if result.status == "completed":
             await self._emit_presentation_events(tool_call_id, tool_name, result.output)
         if result.status != "completed":
+            if allow_recoverable_failure:
+                recoverable_result = await self._return_recoverable_tool_failure(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    result=result,
+                )
+                if recoverable_result is not None:
+                    return recoverable_result
             if is_run_context:
                 recoverable_workspace_path_failure = _recoverable_workspace_path_failure(
                     tool_name=tool_name,
@@ -201,28 +215,32 @@ class PydanticAIToolBridge:
         result: object,
     ) -> None:
         status = getattr(result, "status", "failed")
+        recovery = getattr(result, "recovery", None)
+        payload = {
+            "tool_call_id": tool_call_id,
+            "tool_name": tool_name,
+            "status": status,
+            "output": _event_output_for_tool(
+                tool_name,
+                getattr(result, "output", None),
+            ),
+            "error": getattr(result, "error", None),
+            "external_run": result.external_run.model_dump(mode="json")
+            if getattr(result, "external_run", None) is not None
+            else None,
+            **_governance_payload(
+                getattr(result, "authorization", None),
+                getattr(result, "audit", None),
+            ),
+        }
+        if recovery is not None:
+            payload["recovery"] = recovery_event_payload(recovery)
         await self._event_writer.write(
             run_id=self._run.id,
             thread_id=self._run.thread_id,
             type="tool.completed" if status in {"completed", "waiting_approval", "running"} else "tool.failed",
             source={"kind": "tool"},
-            payload={
-                "tool_call_id": tool_call_id,
-                "tool_name": tool_name,
-                "status": status,
-                "output": _event_output_for_tool(
-                    tool_name,
-                    getattr(result, "output", None),
-                ),
-                "error": getattr(result, "error", None),
-                "external_run": result.external_run.model_dump(mode="json")
-                if getattr(result, "external_run", None) is not None
-                else None,
-                **_governance_payload(
-                    getattr(result, "authorization", None),
-                    getattr(result, "audit", None),
-                ),
-            },
+            payload=payload,
         )
 
     async def _pause_for_external_approval(
@@ -361,6 +379,35 @@ class PydanticAIToolBridge:
             source={"kind": "workflow"},
             payload=payload,
         )
+
+    async def _return_recoverable_tool_failure(
+        self,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        result: object,
+    ) -> dict[str, object] | None:
+        recovery = getattr(result, "recovery", None)
+        if recovery is None or not recovery.recoverable:
+            return None
+        attempt = 1
+        await self._event_writer.write(
+            run_id=self._run.id,
+            thread_id=self._run.thread_id,
+            type="tool.recovery.offered",
+            source={"kind": "tool"},
+            visibility="debug",
+            payload={
+                "tool_call_id": tool_call_id,
+                "tool_name": tool_name,
+                **recovery_attempt_payload(
+                    tool_name=tool_name,
+                    recovery=recovery,
+                    attempt=attempt,
+                ),
+            },
+        )
+        return model_visible_recovery_payload(tool_name=tool_name, result=result)
 
     async def _raise_if_cancelled(self) -> None:
         latest = await self._deps.store.get_run(self._run.id)

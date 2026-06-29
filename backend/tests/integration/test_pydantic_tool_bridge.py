@@ -21,6 +21,7 @@ from aithru_agent.capabilities import (
     WorkflowCapabilityResult,
     WorkflowCapabilitySpec,
 )
+from aithru_agent.capabilities.recovery import recoverable_tool_result
 from aithru_agent.capabilities.web import WebToolInvocation, WebToolProvider, WebToolResult
 from aithru_agent.capabilities.local_tools import (
     ArtifactLocalTool,
@@ -34,6 +35,8 @@ from aithru_agent.domain import (
     AgentToolCallRequest,
     AgentToolCallResult,
     AgentToolDescriptor,
+    AgentToolFailureKind,
+    AgentToolRecoveryAction,
 )
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.persistence.memory.store import InMemoryAgentStore
@@ -104,6 +107,39 @@ class FailingLocalTool:
             status="failed",
             error={"message": "local tool failed"},
             redaction="none",
+        )
+
+
+class RecoverableLocalTool:
+    def list_tools(self) -> list[AgentToolDescriptor]:
+        return [
+            AgentToolDescriptor(
+                name="local.recoverable",
+                kind="local_tool",
+                description="Fail with a recoverable invalid input result.",
+                input_schema={"type": "object"},
+                output_schema={"type": "object"},
+                risk_level="safe",
+                required_scopes=[],
+                approval_policy="never",
+                failure_policy="return_recoverable",
+            )
+        ]
+
+    async def execute(
+        self,
+        request: AgentToolCallRequest,
+        context: AgentRunContext,
+    ) -> AgentToolCallResult:
+        return recoverable_tool_result(
+            status="failed",
+            kind=AgentToolFailureKind.INVALID_INPUT,
+            action=AgentToolRecoveryAction.RETRY_WITH_CORRECTED_INPUT,
+            message="local input was invalid",
+            model_guidance="Retry with value set to corrected.",
+            suggested_input={"value": "corrected"},
+            allowed_values={"value": ["corrected"]},
+            attempt_key="invalid_value",
         )
 
 
@@ -1265,3 +1301,66 @@ async def test_presentation_created_emits_from_validated_tool_output() -> None:
 
     assert len(presentations) >= 1
     assert presentations[-1].payload["presentation"]["source"]["created_by"] in {"harness", "model_request"}
+
+
+@pytest.mark.asyncio
+async def test_pydantic_tool_bridge_returns_generic_recoverable_tool_result() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Use recoverable local tool",
+        workspace_id=workspace.id,
+    )
+    context = AgentRunContext(
+        run_id=run.id,
+        org_id="org_1",
+        actor_user_id="user_1",
+        workspace_id=workspace.id,
+        scopes=["*"],
+    )
+    bridge = PydanticAIToolBridge(
+        deps=PydanticAgentDeps(
+            run=run,
+            run_context=context,
+            event_writer=writer,
+            capability_router=AithruCapabilityRouter(
+                adapters=[RecoverableLocalTool()],
+                policy=ToolPolicy(require_approval_for_risk=[]),
+            ),
+            store=store,
+        ),
+    )
+
+    result = await bridge.call_tool(
+        ToolContext("tc_recoverable"),
+        tool_name="local.recoverable",
+        tool_input={"value": "bad"},
+    )
+    events = await event_store.list_by_run(run.id)
+
+    assert result == {
+        "status": "failed",
+        "recoverable": True,
+        "tool_name": "local.recoverable",
+        "failure_kind": "invalid_input",
+        "message": "local input was invalid",
+        "guidance": "Retry with value set to corrected.",
+        "suggested_input": {"value": "corrected"},
+        "allowed_values": {"value": ["corrected"]},
+    }
+    assert [event.type for event in events] == [
+        "tool.proposed",
+        "tool.started",
+        "tool.failed",
+        "tool.recovery.offered",
+    ]
+    failed_event = next(event for event in events if event.type == "tool.failed")
+    assert failed_event.payload["recovery"]["kind"] == "invalid_input"
+    offered_event = next(event for event in events if event.type == "tool.recovery.offered")
+    assert offered_event.payload["attempt_key"] == "local.recoverable:invalid_value"
+    assert offered_event.payload["attempt"] == 1
