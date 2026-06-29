@@ -1369,6 +1369,9 @@ async def test_pydantic_tool_bridge_returns_generic_recoverable_tool_result() ->
     offered_event = next(event for event in events if event.type == "tool.recovery.offered")
     assert offered_event.payload["attempt_key"] == "local.recoverable:invalid_value"
     assert offered_event.payload["attempt"] == 1
+    assert "audit" not in result
+    assert "authorization" not in result
+    assert "authorization_decision" not in result
 
 
 @pytest.mark.asyncio

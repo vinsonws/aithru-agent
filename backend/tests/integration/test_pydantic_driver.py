@@ -10,8 +10,9 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.test import TestModel
 
-from aithru_agent.agent import AgentRuntime
+from aithru_agent.agent import AgentRuntime, AgentRuntimeResult, PydanticAgentDeps
 from aithru_agent.agent.instructions import InstructionBuilder
+from aithru_agent.agent.tools import PydanticAIToolBridge
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import AgentRunContext, AithruCapabilityRouter, ToolPolicy
 from aithru_agent.memory import LongTermMemorySearchResult
@@ -795,3 +796,69 @@ async def test_pydantic_ai_runtime_injects_mem0_context() -> None:
     assert context_events
     memory_events = [event for event in events if event.type == "memory.search.completed"]
     assert memory_events
+
+
+class ToolContext:
+    def __init__(self, tool_call_id: str, *, approved: bool = False) -> None:
+        self.tool_call_id = tool_call_id
+        self.run_step = 0
+        self.tool_call_approved = approved
+
+
+class WorkspacePathCorrectionRuntime(AgentRuntime):
+    async def run(self, goal: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
+        bridge = PydanticAIToolBridge(deps=deps)
+        first = await bridge.call_tool(
+            ToolContext("tc_bad_path"),
+            tool_name="workspace.write_file",
+            tool_input={"path": "index.html", "content": "<html>bad</html>"},
+        )
+        assert isinstance(first, dict)
+        assert first["recoverable"] is True
+        suggested_input = first["suggested_input"]
+        assert isinstance(suggested_input, dict)
+        corrected_path = suggested_input["path"]
+        await bridge.call_tool(
+            ToolContext("tc_corrected_path"),
+            tool_name="workspace.write_file",
+            tool_input={"path": corrected_path, "content": "<html>ok</html>"},
+        )
+        return AgentRuntimeResult(content=f"wrote {corrected_path}")
+
+
+@pytest.mark.asyncio
+async def test_runtime_can_continue_after_recoverable_workspace_path_failure() -> None:
+    skill = AgentSkill(
+        id="skill_1",
+        org_id="org_1",
+        key="workspace-restricted",
+        name="Restricted Workspace",
+        instructions="Write only under /artifacts.",
+        allowed_tools=["workspace.write_file"],
+        allowed_subagents=[],
+        workspace_policy=AgentWorkspacePolicy(read=True, write=True, allowed_paths=["/artifacts"]),
+        version="0.1.0",
+        status="published",
+    )
+    runtime = _runtime(
+        agent_runtime=WorkspacePathCorrectionRuntime(),
+        policy=ToolPolicy(require_approval_for_risk=[]),
+        skill_resolver=InMemorySkillResolver([skill]),
+    )
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        task_msg="Write a small html artifact.",
+        scopes=["agent.workspace.write"],
+        skill_id="workspace-restricted",
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+    written = await runtime.store.read_workspace_file(run.workspace_id, "/artifacts/index.html")
+
+    assert run.status == AgentRunStatus.COMPLETED
+    assert written.content == "<html>ok</html>"
+    assert [event.type for event in events].count("tool.failed") == 1
+    assert [event.type for event in events].count("tool.recovery.offered") == 1
+    assert [event.type for event in events].count("tool.completed") == 1
+    assert "run.failed" not in [event.type for event in events]
