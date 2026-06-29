@@ -1,6 +1,7 @@
 import { createRuntime } from "../src/application/runtime.js";
 import type { ToolCallStep } from "../src/core/run-loop.js";
 import type { AgentRun } from "../src/contracts/types.js";
+import { EVENT_TYPES } from "../src/stream/events.js";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
@@ -29,6 +30,12 @@ async function main() {
     error: null,
   };
   runtime.store.createRun(run);
+  runtime.eventWriter.write(
+    run.id,
+    run.thread_id ?? null,
+    EVENT_TYPES.RUN_CREATED,
+    { run_id: run.id, status: run.status },
+  );
 
   // Define the scripted steps (same as Python FileReportRuntime)
   const script: ToolCallStep[] = [

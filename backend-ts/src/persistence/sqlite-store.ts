@@ -1,5 +1,6 @@
-import initSqlJs from "sql.js";
-import { Kysely, SqliteDialect } from "kysely";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 import type { AgentStore } from "./protocols.js";
 import type {
   AgentThread,
@@ -14,216 +15,292 @@ import type {
   AgentArtifact,
 } from "./store.js";
 import { runMigrations } from "./migrations.js";
-import { SqlJsToKyselyAdapter } from "./sqljs-wrapper.js";
+
+type SqliteParam = string | number | null;
+type SqliteRow = Record<string, unknown>;
+
+const RUN_COLUMNS = [
+  "org_id",
+  "actor_user_id",
+  "source",
+  "thread_id",
+  "skill_id",
+  "workspace_id",
+  "task_msg",
+  "scopes",
+  "harness_options",
+  "status",
+  "started_at",
+  "completed_at",
+  "current_approval_id",
+  "claim_worker_id",
+  "claim_claimed_at",
+  "claim_heartbeat_at",
+  "claim_lease_expires_at",
+  "claim_attempt",
+  "retry_policy",
+  "retry_state",
+  "result",
+  "error",
+] as const;
+
+function nowIso(): string {
+  return new Date().toISOString().replace(/\.\d{3}/, "");
+}
+
+function jsonOrNull(value: unknown): string | null {
+  return value == null ? null : JSON.stringify(value);
+}
+
+function parseJson<T>(value: unknown, fallback: T): T {
+  if (typeof value !== "string" || value.length === 0) return fallback;
+  return JSON.parse(value) as T;
+}
 
 export class SqliteStore implements AgentStore {
-  private db: Kysely<any>;
-  private adapter: SqlJsToKyselyAdapter;
   private closed = false;
 
   /**
    * Create and initialise a SqliteStore.
    *
-   * Uses sql.js (WASM) under the hood so there is no native compilation
-   * requirement.  The optional `buffer` param allows loading / restoring
-   * a previously-serialised database (`sqlite.export()`).
+   * `dbPath` is durable: the file is read at startup and rewritten after each
+   * mutation. Passing a Uint8Array keeps the old restore-from-buffer path.
    */
-  static async create(buffer?: Uint8Array): Promise<SqliteStore> {
+  static async create(source?: string | Uint8Array): Promise<SqliteStore> {
     const SQL = await initSqlJs();
-    const sqlite = new SQL.Database(buffer ?? undefined);
-    const adapter = new SqlJsToKyselyAdapter(sqlite);
-    const db = new Kysely<any>({
-      dialect: new SqliteDialect({ database: adapter as any }),
-    });
-    runMigrations(adapter);
-    return new SqliteStore(db, adapter);
+    const dbPath = typeof source === "string" ? source : undefined;
+    const buffer =
+      source instanceof Uint8Array
+        ? source
+        : dbPath && dbPath !== ":memory:" && existsSync(dbPath)
+          ? readFileSync(dbPath)
+          : undefined;
+    const sqlite = new SQL.Database(buffer);
+    const store = new SqliteStore(sqlite, dbPath);
+    runMigrations(store);
+    store.persist();
+    return store;
   }
 
-  private constructor(db: Kysely<any>, adapter: SqlJsToKyselyAdapter) {
-    this.db = db;
-    this.adapter = adapter;
+  private constructor(
+    private sqlite: SqlJsDatabase,
+    private dbPath?: string,
+  ) {}
+
+  exec(sql: string): void {
+    this.sqlite.run(sql);
   }
 
   // ── Threads ──────────────────────────────────────────────────────────
 
   createThread(thread: AgentThread): AgentThread {
-    this.db.insertInto("threads").values(thread as any).execute();
+    this.runStatement(
+      `INSERT INTO threads
+        (id, org_id, owner_user_id, title, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        thread.id,
+        thread.org_id,
+        thread.owner_user_id,
+        thread.title ?? null,
+        String(thread.status),
+        thread.created_at,
+        thread.updated_at,
+      ],
+    );
     return thread;
   }
 
   getThread(id: string): AgentThread | undefined {
-    return this.db
-      .selectFrom("threads")
-      .selectAll()
-      .where("id", "=", id)
-      .executeTakeFirst() as any;
+    return this.selectOne<AgentThread>(
+      "SELECT * FROM threads WHERE id = ?",
+      [id],
+    );
   }
 
   listThreads(orgId?: string): AgentThread[] {
-    let q = this.db.selectFrom("threads").selectAll();
-    if (orgId) q = q.where("org_id", "=", orgId);
-    return q.execute() as any;
+    return orgId
+      ? this.selectAll<AgentThread>(
+          "SELECT * FROM threads WHERE org_id = ? ORDER BY created_at ASC",
+          [orgId],
+        )
+      : this.selectAll<AgentThread>(
+          "SELECT * FROM threads ORDER BY created_at ASC",
+        );
   }
 
   updateThread(id: string, patch: Partial<AgentThread>): AgentThread {
-    this.db
-      .updateTable("threads")
-      .set(patch as any)
-      .where("id", "=", id)
-      .execute();
-    return this.getThread(id)!;
+    this.updateRow("threads", "id = ?", [id], patch, [
+      "org_id",
+      "owner_user_id",
+      "title",
+      "status",
+      "created_at",
+      "updated_at",
+    ]);
+    const updated = this.getThread(id);
+    if (!updated) throw new Error(`Thread ${id} not found`);
+    return updated;
   }
 
   // ── Messages ─────────────────────────────────────────────────────────
 
   createMessage(msg: AgentMessage): AgentMessage {
-    this.db
-      .insertInto("messages")
-      .values({
-        ...msg,
-        workspace_paths: JSON.stringify(msg.workspace_paths),
-      } as any)
-      .execute();
+    this.runStatement(
+      `INSERT INTO messages
+        (id, thread_id, role, content, run_id, workspace_paths, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        msg.id,
+        msg.thread_id,
+        String(msg.role),
+        msg.content,
+        msg.run_id ?? null,
+        JSON.stringify(msg.workspace_paths),
+        msg.created_at,
+      ],
+    );
     return msg;
   }
 
   getMessage(id: string): AgentMessage | undefined {
-    const row = this.db
-      .selectFrom("messages")
-      .selectAll()
-      .where("id", "=", id)
-      .executeTakeFirst() as any;
-    if (!row) return undefined;
-    return { ...row, workspace_paths: JSON.parse(row.workspace_paths) };
+    const row = this.selectOne<SqliteRow>(
+      "SELECT * FROM messages WHERE id = ?",
+      [id],
+    );
+    return row ? this.hydrateMessage(row) : undefined;
   }
 
   listMessages(threadId: string): AgentMessage[] {
-    return (
-      this.db
-        .selectFrom("messages")
-        .selectAll()
-        .where("thread_id", "=", threadId)
-        .orderBy("created_at", "asc")
-        .execute() as unknown as any[]
-    ).map((r: any) => ({
-      ...r,
-      workspace_paths: JSON.parse(r.workspace_paths),
-    }));
+    return this.selectAll<SqliteRow>(
+      "SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC",
+      [threadId],
+    ).map((row) => this.hydrateMessage(row));
   }
 
   // ── Runs ─────────────────────────────────────────────────────────────
 
   createRun(run: AgentRun): AgentRun {
-    const { claim: _claim, current_approval_id: _cap, ...flat } = run as any;
-    this.db
-      .insertInto("runs")
-      .values({
-        ...flat,
-        scopes: JSON.stringify(run.scopes),
-        harness_options: run.harness_options
-          ? JSON.stringify(run.harness_options)
-          : null,
-        current_approval_id: run.current_approval_id ?? null,
-        claim_worker_id: run.claim?.worker_id ?? null,
-        claim_claimed_at: run.claim?.claimed_at ?? null,
-        claim_heartbeat_at: run.claim?.last_heartbeat_at ?? null,
-        claim_lease_expires_at: run.claim?.lease_expires_at ?? null,
-        claim_attempt: run.claim?.attempt ?? null,
-        result: run.result ? JSON.stringify(run.result) : null,
-        error: run.error ? JSON.stringify(run.error) : null,
-      } as any)
-      .execute();
+    this.runStatement(
+      `INSERT INTO runs
+        (id, org_id, actor_user_id, source, thread_id, skill_id, workspace_id,
+         task_msg, scopes, harness_options, status, started_at, completed_at,
+         current_approval_id, claim_worker_id, claim_claimed_at,
+         claim_heartbeat_at, claim_lease_expires_at, claim_attempt,
+         retry_policy, retry_state, result, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        run.id,
+        run.org_id,
+        run.actor_user_id,
+        String(run.source),
+        run.thread_id ?? null,
+        run.skill_id ?? null,
+        run.workspace_id,
+        run.task_msg,
+        JSON.stringify(run.scopes),
+        jsonOrNull(run.harness_options),
+        String(run.status),
+        run.started_at,
+        run.completed_at ?? null,
+        run.current_approval_id ?? null,
+        run.claim?.worker_id ?? null,
+        run.claim?.claimed_at ?? null,
+        run.claim?.last_heartbeat_at ?? null,
+        run.claim?.lease_expires_at ?? null,
+        run.claim?.attempt ?? null,
+        jsonOrNull((run as any).retry_policy),
+        jsonOrNull((run as any).retry_state),
+        jsonOrNull(run.result),
+        jsonOrNull(run.error),
+      ],
+    );
     return run;
   }
 
   getRun(id: string): AgentRun | undefined {
-    const row = this.db
-      .selectFrom("runs")
-      .selectAll()
-      .where("id", "=", id)
-      .executeTakeFirst() as any;
-    return row ? this._hydrateRun(row) : undefined;
+    const row = this.selectOne<SqliteRow>(
+      "SELECT * FROM runs WHERE id = ?",
+      [id],
+    );
+    return row ? this.hydrateRun(row) : undefined;
   }
 
   listRuns(filter?: { org_id?: string; thread_id?: string }): AgentRun[] {
-    let q = this.db.selectFrom("runs").selectAll();
-    if (filter?.org_id) q = q.where("org_id", "=", filter.org_id);
-    if (filter?.thread_id)
-      q = q.where("thread_id", "=", filter.thread_id);
-    return (q.execute() as unknown as any[]).map((r: any) => this._hydrateRun(r));
+    const where: string[] = [];
+    const params: SqliteParam[] = [];
+    if (filter?.org_id) {
+      where.push("org_id = ?");
+      params.push(filter.org_id);
+    }
+    if (filter?.thread_id) {
+      where.push("thread_id = ?");
+      params.push(filter.thread_id);
+    }
+    const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    return this.selectAll<SqliteRow>(
+      `SELECT * FROM runs ${clause} ORDER BY started_at ASC`,
+      params,
+    ).map((row) => this.hydrateRun(row));
   }
 
   updateRun(id: string, patch: Partial<AgentRun>): AgentRun {
-    const flat: any = { ...patch };
-    if (patch.scopes) flat.scopes = JSON.stringify(patch.scopes);
-    if (patch.result) flat.result = JSON.stringify(patch.result);
-    if (patch.error) flat.error = JSON.stringify(patch.error);
-    if (patch.harness_options)
-      flat.harness_options = JSON.stringify(patch.harness_options);
-    if (patch.claim) {
-      flat.claim_worker_id = patch.claim.worker_id;
-      flat.claim_claimed_at = patch.claim.claimed_at;
-      flat.claim_heartbeat_at = patch.claim.last_heartbeat_at ?? null;
-      flat.claim_lease_expires_at = patch.claim.lease_expires_at;
-      flat.claim_attempt = patch.claim.attempt;
+    const flat: Record<string, unknown> = { ...patch };
+    if ("scopes" in patch) flat.scopes = JSON.stringify(patch.scopes);
+    if ("harness_options" in patch)
+      flat.harness_options = jsonOrNull(patch.harness_options);
+    if ("result" in patch) flat.result = jsonOrNull(patch.result);
+    if ("error" in patch) flat.error = jsonOrNull(patch.error);
+    if ("claim" in patch) {
+      flat.claim_worker_id = patch.claim?.worker_id ?? null;
+      flat.claim_claimed_at = patch.claim?.claimed_at ?? null;
+      flat.claim_heartbeat_at = patch.claim?.last_heartbeat_at ?? null;
+      flat.claim_lease_expires_at = patch.claim?.lease_expires_at ?? null;
+      flat.claim_attempt = patch.claim?.attempt ?? null;
     }
+    if ("retry_policy" in (patch as any))
+      flat.retry_policy = jsonOrNull((patch as any).retry_policy);
+    if ("retry_state" in (patch as any))
+      flat.retry_state = jsonOrNull((patch as any).retry_state);
     delete flat.claim;
-    // harness_options already handled above
-    this.db.updateTable("runs").set(flat).where("id", "=", id).execute();
-    return this.getRun(id)!;
-  }
 
-  private _hydrateRun(row: any): AgentRun {
-    const run: any = {
-      ...row,
-      scopes: JSON.parse(row.scopes || "[]"),
-    };
-    if (row.harness_options)
-      run.harness_options = JSON.parse(row.harness_options);
-    if (row.claim_worker_id) {
-      run.claim = {
-        worker_id: row.claim_worker_id,
-        claimed_at: row.claim_claimed_at,
-        last_heartbeat_at: row.claim_heartbeat_at,
-        lease_expires_at: row.claim_lease_expires_at,
-        attempt: row.claim_attempt,
-      };
-    }
-    if (row.result) run.result = JSON.parse(row.result);
-    if (row.error) run.error = JSON.parse(row.error);
-    if (row.retry_policy) run.retry_policy = JSON.parse(row.retry_policy);
-    if (row.retry_state) run.retry_state = JSON.parse(row.retry_state);
-    return run;
+    this.updateRow("runs", "id = ?", [id], flat, [...RUN_COLUMNS]);
+    const updated = this.getRun(id);
+    if (!updated) throw new Error(`Run ${id} not found`);
+    return updated;
   }
 
   // ── Events ───────────────────────────────────────────────────────────
 
   appendEvent(runId: string, event: AgentStreamEvent): void {
-    this.db
-      .insertInto("events")
-      .values({
-        ...event,
-        source_kind: event.source.kind,
-        source_id: event.source.id ?? null,
-        source_name: event.source.name ?? null,
-        payload: JSON.stringify(event.payload),
-      } as any)
-      .execute();
+    this.runStatement(
+      `INSERT INTO events
+        (id, run_id, thread_id, sequence, timestamp, type, source_kind,
+         source_id, source_name, visibility, redaction, summary, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        event.id,
+        runId,
+        event.thread_id ?? null,
+        event.sequence,
+        event.timestamp,
+        event.type,
+        event.source.kind,
+        event.source.id ?? null,
+        event.source.name ?? null,
+        event.visibility,
+        event.redaction,
+        event.summary ?? null,
+        JSON.stringify(event.payload),
+      ],
+    );
   }
 
   listEvents(runId: string): AgentStreamEvent[] {
-    return (
-      this.db
-        .selectFrom("events")
-        .selectAll()
-        .where("run_id", "=", runId)
-        .orderBy("sequence", "asc")
-        .execute() as unknown as any[]
-    ).map((r: any) => ({
-      ...r,
-      source: { kind: r.source_kind, id: r.source_id, name: r.source_name },
-      payload: JSON.parse(r.payload),
-    }));
+    return this.selectAll<SqliteRow>(
+      "SELECT * FROM events WHERE run_id = ? ORDER BY sequence ASC",
+      [runId],
+    ).map((row) => this.hydrateEvent(row));
   }
 
   // ── Workspace ────────────────────────────────────────────────────────
@@ -233,32 +310,24 @@ export class SqliteStore implements AgentStore {
     path: string,
     content: string,
   ): WorkspaceFile {
-    const now = new Date().toISOString().replace(/\.\d{3}/, "");
-    const existing = this.db
-      .selectFrom("workspace_files")
-      .selectAll()
-      .where("workspace_id", "=", workspaceId)
-      .where("path", "=", path)
-      .executeTakeFirst() as any;
+    const existing = this.readFile(workspaceId, path);
+    const timestamp = nowIso();
 
     if (existing) {
-      this.db
-        .updateTable("workspace_files")
-        .set({
+      this.runStatement(
+        `UPDATE workspace_files
+         SET content = ?, size = ?, version = ?, updated_at = ?
+         WHERE workspace_id = ? AND path = ?`,
+        [
           content,
-          size: Buffer.byteLength(content, "utf8"),
-          version: existing.version + 1,
-          updated_at: now,
-        } as any)
-        .where("workspace_id", "=", workspaceId)
-        .where("path", "=", path)
-        .execute();
-      return {
-        ...existing,
-        content,
-        version: existing.version + 1,
-        updated_at: now,
-      };
+          Buffer.byteLength(content, "utf8"),
+          existing.version + 1,
+          timestamp,
+          workspaceId,
+          path,
+        ],
+      );
+      return this.readFile(workspaceId, path)!;
     }
 
     const file: WorkspaceFile = {
@@ -267,54 +336,65 @@ export class SqliteStore implements AgentStore {
       content,
       size: Buffer.byteLength(content, "utf8"),
       version: 1,
-      created_at: now,
-      updated_at: now,
+      created_at: timestamp,
+      updated_at: timestamp,
     };
-    this.db
-      .insertInto("workspace_files")
-      .values(file as any)
-      .execute();
+    this.runStatement(
+      `INSERT INTO workspace_files
+        (workspace_id, path, content, size, version, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        file.workspace_id,
+        file.path,
+        file.content,
+        file.size,
+        file.version,
+        file.created_at,
+        file.updated_at,
+      ],
+    );
     return file;
   }
 
-  readFile(wsId: string, path: string): WorkspaceFile | undefined {
-    return this.db
-      .selectFrom("workspace_files")
-      .selectAll()
-      .where("workspace_id", "=", wsId)
-      .where("path", "=", path)
-      .executeTakeFirst() as any;
+  readFile(workspaceId: string, path: string): WorkspaceFile | undefined {
+    return this.selectOne<WorkspaceFile>(
+      "SELECT * FROM workspace_files WHERE workspace_id = ? AND path = ?",
+      [workspaceId, path],
+    );
   }
 
-  listWorkspaceFiles(wsId: string): WorkspaceFile[] {
-    return this.db
-      .selectFrom("workspace_files")
-      .selectAll()
-      .where("workspace_id", "=", wsId)
-      .execute() as any;
+  listWorkspaceFiles(workspaceId: string): WorkspaceFile[] {
+    return this.selectAll<WorkspaceFile>(
+      "SELECT * FROM workspace_files WHERE workspace_id = ? ORDER BY path ASC",
+      [workspaceId],
+    );
   }
 
-  deleteFile(wsId: string, path: string): boolean {
-    const r = this.db
-      .deleteFrom("workspace_files")
-      .where("workspace_id", "=", wsId)
-      .where("path", "=", path)
-      .execute();
-    // Kysely's execute() returns the result rows array; we check if any were
-    // affected by re-checking.
-    const after = this.db
-      .selectFrom("workspace_files")
-      .selectAll()
-      .where("workspace_id", "=", wsId)
-      .where("path", "=", path)
-      .executeTakeFirst();
-    return !after;
+  deleteFile(workspaceId: string, path: string): boolean {
+    return (
+      this.runStatement(
+        "DELETE FROM workspace_files WHERE workspace_id = ? AND path = ?",
+        [workspaceId, path],
+      ) > 0
+    );
   }
 
   // ── Todos ────────────────────────────────────────────────────────────
 
   createTodo(todo: AgentTodo): AgentTodo {
-    this.db.insertInto("todos").values(todo as any).execute();
+    this.runStatement(
+      `INSERT INTO todos
+        (id, run_id, title, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        todo.id,
+        todo.run_id,
+        todo.title,
+        todo.status,
+        todo.created_at,
+        todo.updated_at,
+      ],
+    );
     return todo;
   }
 
@@ -323,92 +403,108 @@ export class SqliteStore implements AgentStore {
     todoId: string,
     patch: Partial<AgentTodo>,
   ): AgentTodo {
-    this.db
-      .updateTable("todos")
-      .set({
-        ...patch,
-        updated_at: new Date().toISOString().replace(/\.\d{3}/, ""),
-      } as any)
-      .where("id", "=", todoId)
-      .execute();
-    return this.db
-      .selectFrom("todos")
-      .selectAll()
-      .where("id", "=", todoId)
-      .executeTakeFirst() as any;
+    this.updateRow("todos", "id = ? AND run_id = ?", [todoId, runId], {
+      ...patch,
+      updated_at: nowIso(),
+    }, ["title", "status", "created_at", "updated_at"]);
+    const todo = this.selectOne<AgentTodo>(
+      "SELECT * FROM todos WHERE id = ? AND run_id = ?",
+      [todoId, runId],
+    );
+    if (!todo) throw new Error(`Todo ${todoId} not found`);
+    return todo;
   }
 
   listTodos(runId: string): AgentTodo[] {
-    return this.db
-      .selectFrom("todos")
-      .selectAll()
-      .where("run_id", "=", runId)
-      .execute() as any;
+    return this.selectAll<AgentTodo>(
+      "SELECT * FROM todos WHERE run_id = ? ORDER BY created_at ASC",
+      [runId],
+    );
   }
 
   // ── Approvals ────────────────────────────────────────────────────────
 
-  createApproval(a: AgentApproval): AgentApproval {
-    this.db.insertInto("approvals").values(a as any).execute();
-    return a;
+  createApproval(approval: AgentApproval): AgentApproval {
+    this.runStatement(
+      `INSERT INTO approvals
+        (id, run_id, tool_call_id, tool_name, status, created_at, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        approval.id,
+        approval.run_id,
+        approval.tool_call_id,
+        approval.tool_name,
+        approval.status,
+        approval.created_at,
+        approval.resolved_at ?? null,
+      ],
+    );
+    return approval;
   }
 
   getApproval(id: string): AgentApproval | undefined {
-    return this.db
-      .selectFrom("approvals")
-      .selectAll()
-      .where("id", "=", id)
-      .executeTakeFirst() as any;
+    return this.selectOne<AgentApproval>(
+      "SELECT * FROM approvals WHERE id = ?",
+      [id],
+    );
   }
 
   resolveApproval(
     id: string,
     status: "approved" | "denied",
   ): AgentApproval {
-    this.db
-      .updateTable("approvals")
-      .set({
-        status,
-        resolved_at: new Date().toISOString().replace(/\.\d{3}/, ""),
-      } as any)
-      .where("id", "=", id)
-      .execute();
-    return this.getApproval(id)!;
+    this.runStatement(
+      "UPDATE approvals SET status = ?, resolved_at = ? WHERE id = ?",
+      [status, nowIso(), id],
+    );
+    const approval = this.getApproval(id);
+    if (!approval) throw new Error(`Approval ${id} not found`);
+    return approval;
   }
 
   // ── Artifacts ────────────────────────────────────────────────────────
 
-  createArtifact(a: AgentArtifact): AgentArtifact {
-    this.db.insertInto("artifacts").values(a as any).execute();
-    return a;
+  createArtifact(artifact: AgentArtifact): AgentArtifact {
+    this.runStatement(
+      `INSERT INTO artifacts
+        (id, run_id, title, content_type, content, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        artifact.id,
+        artifact.run_id,
+        artifact.title,
+        artifact.content_type,
+        artifact.content,
+        artifact.status,
+        artifact.created_at,
+        artifact.updated_at,
+      ],
+    );
+    return artifact;
   }
 
   getArtifact(id: string): AgentArtifact | undefined {
-    return this.db
-      .selectFrom("artifacts")
-      .selectAll()
-      .where("id", "=", id)
-      .executeTakeFirst() as any;
+    return this.selectOne<AgentArtifact>(
+      "SELECT * FROM artifacts WHERE id = ?",
+      [id],
+    );
   }
 
   listArtifacts(runId: string): AgentArtifact[] {
-    return this.db
-      .selectFrom("artifacts")
-      .selectAll()
-      .where("run_id", "=", runId)
-      .execute() as any;
+    return this.selectAll<AgentArtifact>(
+      "SELECT * FROM artifacts WHERE run_id = ? ORDER BY created_at ASC",
+      [runId],
+    );
   }
 
   finalizeArtifact(id: string): AgentArtifact {
-    this.db
-      .updateTable("artifacts")
-      .set({
-        status: "finalized",
-        updated_at: new Date().toISOString().replace(/\.\d{3}/, ""),
-      } as any)
-      .where("id", "=", id)
-      .execute();
-    return this.getArtifact(id)!;
+    this.runStatement(
+      "UPDATE artifacts SET status = ?, updated_at = ? WHERE id = ?",
+      ["finalized", nowIso(), id],
+    );
+    const artifact = this.getArtifact(id);
+    if (!artifact) throw new Error(`Artifact ${id} not found`);
+    return artifact;
   }
 
   // ── Claim operations ─────────────────────────────────────────────────
@@ -416,105 +512,198 @@ export class SqliteStore implements AgentStore {
   acquireClaim(
     runId: string,
     workerId: string,
-    leaseSeconds = 300,
+    leaseSeconds = 30,
   ): boolean {
-    const now = new Date().toISOString().replace(/\.\d{3}/, "");
-    const expires = new Date(Date.now() + leaseSeconds * 1000)
+    const run = this.getRun(runId);
+    if (!run) throw new Error(`Run ${runId} not found`);
+
+    const now = new Date();
+    if (run.claim) {
+      const expiresAt = new Date(run.claim.lease_expires_at);
+      if (expiresAt > now && run.claim.worker_id !== workerId) return false;
+    }
+
+    const claimedAt = now.toISOString().replace(/\.\d{3}/, "");
+    const leaseExpiresAt = new Date(now.getTime() + leaseSeconds * 1000)
       .toISOString()
       .replace(/\.\d{3}/, "");
+    const attempt = run.claim ? run.claim.attempt + 1 : 1;
 
-    // Only acquire if no active unexpired claim exists.
-    // Kysely's dynamic where with eb.or()
-    const result = this.db
-      .updateTable("runs")
-      .set({
-        claim_worker_id: workerId,
-        claim_claimed_at: now,
-        claim_lease_expires_at: expires,
-      } as any)
-      .where("id", "=", runId)
-      .where((eb) =>
-        eb.or([
-          eb("claim_worker_id", "is", null),
-          eb("claim_lease_expires_at", "<=", now),
-        ]),
-      )
-      .execute();
-
-    // Check if any row was updated by querying the run.
-    const updated = this.getRun(runId);
-    return updated?.claim?.worker_id === workerId;
-  }
-
-  renewClaim(
-    runId: string,
-    workerId: string,
-    leaseSeconds = 300,
-  ): boolean {
-    const now = new Date().toISOString().replace(/\.\d{3}/, "");
-    const expires = new Date(Date.now() + leaseSeconds * 1000)
-      .toISOString()
-      .replace(/\.\d{3}/, "");
-
-    const result = this.db
-      .updateTable("runs")
-      .set({
-        claim_heartbeat_at: now,
-        claim_lease_expires_at: expires,
-      } as any)
-      .where("id", "=", runId)
-      .where("claim_worker_id", "=", workerId)
-      .execute();
-    return (result as any).length > 0;
+    this.runStatement(
+      `UPDATE runs
+       SET claim_worker_id = ?, claim_claimed_at = ?,
+           claim_heartbeat_at = ?, claim_lease_expires_at = ?,
+           claim_attempt = ?
+       WHERE id = ?`,
+      [workerId, claimedAt, claimedAt, leaseExpiresAt, attempt, runId],
+    );
+    return true;
   }
 
   releaseClaim(runId: string, workerId: string): void {
-    this.db
-      .updateTable("runs")
-      .set({
-        claim_worker_id: null,
-        claim_claimed_at: null,
-        claim_heartbeat_at: null,
-        claim_lease_expires_at: null,
-      } as any)
-      .where("id", "=", runId)
-      .where("claim_worker_id", "=", workerId)
-      .execute();
+    this.runStatement(
+      `UPDATE runs
+       SET claim_worker_id = NULL, claim_claimed_at = NULL,
+           claim_heartbeat_at = NULL, claim_lease_expires_at = NULL,
+           claim_attempt = NULL
+       WHERE id = ? AND claim_worker_id = ?`,
+      [runId, workerId],
+    );
   }
 
-  findStaleClaims(now?: string): AgentRun[] {
-    const ts =
-      now || new Date().toISOString().replace(/\.\d{3}/, "");
-    const rows = this.db
-      .selectFrom("runs")
-      .selectAll()
-      .where((eb) =>
-        eb.and([
-          eb("status", "in", [
-            "running",
-            "waiting_approval",
-            "waiting_subagent",
-          ]),
-          eb("claim_lease_expires_at", "<=", ts),
-        ]),
-      )
-      .execute();
-    return (rows as unknown as any[]).map((r: any) => this._hydrateRun(r));
+  findStaleClaims(now = nowIso()): AgentRun[] {
+    return this.selectAll<SqliteRow>(
+      `SELECT * FROM runs
+       WHERE claim_worker_id IS NOT NULL
+         AND status IN ('running', 'waiting_approval', 'waiting_subagent')
+         AND claim_lease_expires_at <= ?
+       ORDER BY started_at ASC`,
+      [now],
+    ).map((row) => this.hydrateRun(row));
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────
 
   close(): void {
     if (this.closed) return;
+    this.persist();
+    this.sqlite.close();
     this.closed = true;
-    this.adapter.close();
   }
 
-  /**
-   * Export the current database as a Uint8Array for persistence
-   * (sql.js stores everything in memory by default).
-   */
   export(): Uint8Array {
-    return this.adapter.raw().export();
+    return this.sqlite.export();
+  }
+
+  // ── SQL helpers ──────────────────────────────────────────────────────
+
+  private runStatement(sql: string, params: SqliteParam[] = []): number {
+    this.sqlite.run(sql, params);
+    const changes = this.sqlite.getRowsModified();
+    this.persist();
+    return changes;
+  }
+
+  private selectOne<T>(sql: string, params: SqliteParam[] = []): T | undefined {
+    return this.selectAll<T>(sql, params)[0];
+  }
+
+  private selectAll<T>(sql: string, params: SqliteParam[] = []): T[] {
+    const stmt = this.sqlite.prepare(sql);
+    try {
+      stmt.bind(params);
+      const rows: T[] = [];
+      while (stmt.step()) rows.push(stmt.getAsObject() as T);
+      return rows;
+    } finally {
+      stmt.free();
+    }
+  }
+
+  private updateRow(
+    table: string,
+    whereSql: string,
+    whereParams: SqliteParam[],
+    patch: Record<string, unknown>,
+    allowedColumns: readonly string[],
+  ): void {
+    const entries = Object.entries(patch).filter(
+      ([key, value]) =>
+        allowedColumns.includes(key) && value !== undefined,
+    );
+    if (entries.length === 0) return;
+
+    const assignments = entries.map(([key]) => `${key} = ?`).join(", ");
+    const params = [
+      ...entries.map(([, value]) => value as SqliteParam),
+      ...whereParams,
+    ];
+    this.runStatement(
+      `UPDATE ${table} SET ${assignments} WHERE ${whereSql}`,
+      params,
+    );
+  }
+
+  private hydrateMessage(row: SqliteRow): AgentMessage {
+    return {
+      id: String(row.id),
+      thread_id: String(row.thread_id),
+      role: row.role as AgentMessage["role"],
+      content: String(row.content),
+      run_id: row.run_id == null ? null : String(row.run_id),
+      workspace_paths: parseJson<string[]>(row.workspace_paths, []),
+      created_at: String(row.created_at),
+    };
+  }
+
+  private hydrateRun(row: SqliteRow): AgentRun {
+    const run: AgentRun = {
+      id: String(row.id),
+      org_id: String(row.org_id),
+      actor_user_id: String(row.actor_user_id),
+      source: row.source as AgentRun["source"],
+      thread_id: row.thread_id == null ? null : String(row.thread_id),
+      skill_id: row.skill_id == null ? null : String(row.skill_id),
+      workspace_id: String(row.workspace_id),
+      task_msg: String(row.task_msg),
+      scopes: parseJson<string[]>(row.scopes, []),
+      harness_options: parseJson(row.harness_options, null),
+      status: row.status as AgentRun["status"],
+      current_approval_id:
+        row.current_approval_id == null
+          ? null
+          : String(row.current_approval_id),
+      started_at: String(row.started_at),
+      completed_at:
+        row.completed_at == null ? null : String(row.completed_at),
+      claim:
+        row.claim_worker_id == null
+          ? null
+          : {
+              worker_id: String(row.claim_worker_id),
+              claimed_at: String(row.claim_claimed_at),
+              last_heartbeat_at:
+                row.claim_heartbeat_at == null
+                  ? null
+                  : String(row.claim_heartbeat_at),
+              lease_expires_at: String(row.claim_lease_expires_at),
+              attempt: Number(row.claim_attempt ?? 1),
+            },
+      result: parseJson(row.result, null),
+      error: parseJson(row.error, null),
+    };
+
+    if (row.retry_policy != null)
+      (run as any).retry_policy = parseJson(row.retry_policy, null);
+    if (row.retry_state != null)
+      (run as any).retry_state = parseJson(row.retry_state, null);
+    return run;
+  }
+
+  private hydrateEvent(row: SqliteRow): AgentStreamEvent {
+    return {
+      id: String(row.id),
+      run_id: String(row.run_id),
+      thread_id: row.thread_id == null ? null : String(row.thread_id),
+      sequence: Number(row.sequence),
+      timestamp: String(row.timestamp),
+      type: String(row.type),
+      source: {
+        kind: String(row.source_kind),
+        id: row.source_id == null ? null : String(row.source_id),
+        name: row.source_name == null ? null : String(row.source_name),
+      },
+      visibility: row.visibility as AgentStreamEvent["visibility"],
+      redaction: row.redaction as AgentStreamEvent["redaction"],
+      summary: row.summary == null ? null : String(row.summary),
+      payload: parseJson(row.payload, {}),
+    };
+  }
+
+  private persist(): void {
+    if (!this.dbPath || this.dbPath === ":memory:" || this.closed) return;
+    const directory = dirname(this.dbPath);
+    if (directory && directory !== ".") mkdirSync(directory, { recursive: true });
+    writeFileSync(this.dbPath, Buffer.from(this.sqlite.export()));
   }
 }

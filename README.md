@@ -3,14 +3,18 @@
 Aithru Agent is the Aithru-native AI harness backend for long-running,
 tool-using, permission-aware intelligent work.
 
-The backend is now Python-first:
+The active replacement backend is TypeScript-first:
 
 ```txt
-FastAPI control plane
-  + Pydantic AI harness driver
+backend-ts/
+  + Fastify control plane
+  + Aithru-owned TypeScript harness core
   + Aithru capability router
-  + Agent event stream / trace / workspace / artifact / approval model
+  + Agent event stream / trace / workspace / artifact / approval / memory / subagent model
 ```
+
+The legacy Python backend remains under `backend/` as migration context, but
+the TypeScript backend does not start or depend on a Python backend process.
 
 ## Product Boundary
 
@@ -34,25 +38,30 @@ Agent owns intelligent harness behavior:
 - replayable Agent stream events;
 - Agent trace projection;
 - debug model usage events;
-- Pydantic AI-backed harness execution.
+- Aithru-owned harness execution with provider-neutral model adapters.
 
 ## Backend
 
-The active backend lives in:
+The active TypeScript backend lives in:
 
 ```txt
-backend/
-  src/aithru_agent/
-    api/              FastAPI routes
+backend-ts/
+  src/
+    api/              Fastify routes
     application/      runtime assembly
     capabilities/     tool descriptors, policy, router, local tools
-    domain/           Agent product contracts
-    harness/          scripted and Pydantic AI drivers
+    contracts/        TypeBox Agent product contracts
+    core/             native run loop and model turn loop
+    external/         controlled web, MCP, and Workflow capability adapters
+    model/            provider-neutral model adapters and profiles
     persistence/      in-memory and SQLite stores
     stream/           AgentStreamEvent writer/store/SSE
     trace/            event-to-span projection
     worker/           queued Agent run execution and worker CLI
 ```
+
+The previous Python/FastAPI/Pydantic AI implementation remains in `backend/`
+while migration cleanup continues. New backend work should target `backend-ts/`.
 
 Pydantic AI powers the default real harness path, and `pydantic-ai-harness` is
 available as an internal capability composition dependency for the platform
@@ -597,21 +606,21 @@ comment, and event sequence.
 ## Run Locally
 
 ```bash
-cd backend
-uv run pytest
-uv run python examples/file_report_agent.py
-uv run uvicorn aithru_agent.api.main:app --reload
+cd backend-ts
+npm install
+npm run typecheck
+npm run test
+npm run check:no-python-backend
+npm run examples:file-report
+npm run dev
 ```
 
-For API and worker processes sharing queued runs:
+For durable SQLite-backed runtime state:
 
 ```bash
-export AITHRU_AGENT_PERSISTENCE_BACKEND=sqlite
-export AITHRU_AGENT_SQLITE_PATH=.aithru/agent.sqlite
-
-uv run uvicorn aithru_agent.api.main:app --reload
-uv run aithru-agent-worker --once
-uv run aithru-agent-worker --loop --poll-interval 1 --sqlite-path .aithru/agent.sqlite
+cd backend-ts
+$env:DB_PATH=".aithru/agent.sqlite"
+npm run dev
 ```
 
 ## HTTP API

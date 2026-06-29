@@ -21,7 +21,7 @@ export async function createRuntime(dbPath?: string): Promise<AgentRuntime> {
 
   const useSqlite = dbPath || process.env.DB_PATH;
   const store: AgentStore = useSqlite
-    ? await SqliteStore.create()
+    ? await SqliteStore.create(useSqlite)
     : new InMemoryStore();
 
   const eventWriter = new AgentEventWriter(store);

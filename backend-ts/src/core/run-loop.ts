@@ -14,6 +14,7 @@ export interface RunLoopContext {
 }
 
 export interface ToolCallStep {
+  id?: string;
   name: string;
   input: Record<string, unknown>;
   requireApproval?: boolean;
@@ -116,7 +117,9 @@ export class RunLoop {
   // ── Tool Call ─────────────────────────────────────────────────────
 
   async executeToolCall(step: ToolCallStep): Promise<ToolCallResult> {
-    const toolCallId = `tc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const toolCallId =
+      step.id ??
+      `tc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
     const request: AgentToolCallRequest = {
       id: toolCallId,

@@ -72,7 +72,20 @@ describe("PolicyEngine", () => {
     expect(result.audit_event_type).toBe("tool.scope_denied");
   });
 
-  it("marks approval required for write tools", () => {
+  it("marks approval required for write tools without auto-approve scope", () => {
+    const engine = new PolicyEngine(
+      { allowedTools: new Set(), deniedTools: new Set() },
+      createRun(["workspace:write"]),
+    );
+    const result = engine.checkToolCall(
+      createTool("workspace.write_file", ["workspace:write"], "medium", true),
+      { id: "tc", name: "workspace.write_file", input: {}, run_id: "r1" },
+    );
+    expect(result.allowed).toBe(true);
+    expect(result.requires_approval).toBe(true);
+  });
+
+  it("auto-approves wildcard-scoped internal runs", () => {
     const engine = new PolicyEngine(
       { allowedTools: new Set(), deniedTools: new Set() },
       createRun(["*"]),
@@ -82,6 +95,6 @@ describe("PolicyEngine", () => {
       { id: "tc", name: "workspace.write_file", input: {}, run_id: "r1" },
     );
     expect(result.allowed).toBe(true);
-    expect(result.requires_approval).toBe(true);
+    expect(result.requires_approval).toBe(false);
   });
 });

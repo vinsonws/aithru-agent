@@ -10,7 +10,7 @@
     "test:contracts": "vitest run tests/contracts/",
     "test:stream-golden": "vitest run tests/stream/",
     "test:capability-boundary": "vitest run tests/capability/",
-    "check:no-python-backend": "bash scripts/check-no-python.sh",
+    "check:no-python-backend": "node scripts/check-no-python.mjs",
     "examples:file-report": "npx tsx examples/file_report_agent.ts",
     "dev": "npx tsx src/cli/server.ts",
     "start": "node --loader ts-node/esm src/cli/server.ts"
@@ -19,7 +19,6 @@
     "@fastify/swagger": "^9.4.0",
     "@sinclair/typebox": "^0.34.0",
     "fastify": "^5.2.0",
-    "kysely": "^0.29.2",
     "nanoid": "^5.1.0",
     "sql.js": "^1.14.1"
   },

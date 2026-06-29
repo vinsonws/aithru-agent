@@ -90,7 +90,7 @@ Runtime: Node.js 22 LTS
 API: Fastify
 Contracts: TypeBox + Ajv + @fastify/swagger
 Generated frontend types: openapi-typescript
-Persistence: SQLite first, via Kysely + better-sqlite3
+Persistence: SQLite first, via direct sql.js statement execution with DB_PATH file persistence
 Tests: Vitest
 Streaming: native Server-Sent Events
 Model calls: provider adapters using SDKs or direct HTTP fetch
@@ -102,7 +102,7 @@ Allowed infrastructure libraries:
 - Fastify for HTTP routing and lifecycle;
 - TypeBox, Ajv, or Zod for runtime schema validation;
 - OpenAPI generation and openapi-typescript for frontend contracts;
-- Kysely and SQLite drivers for storage;
+- SQLite storage libraries or drivers used behind Aithru-owned store ports;
 - provider SDKs or fetch wrappers for model APIs;
 - MCP SDKs for MCP protocol transport;
 - OpenTelemetry exporters for optional observability.

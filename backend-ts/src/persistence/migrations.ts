@@ -1,9 +1,11 @@
-import type { SqlJsToKyselyAdapter } from "./sqljs-wrapper.js";
+export interface MigrationExecutor {
+  exec(sql: string): void;
+}
 
 /**
  * Run all table DDL. Safe to call multiple times (CREATE IF NOT EXISTS).
  */
-export function runMigrations(adapter: SqlJsToKyselyAdapter): void {
+export function runMigrations(adapter: MigrationExecutor): void {
   adapter.exec(`
     CREATE TABLE IF NOT EXISTS threads (
       id TEXT PRIMARY KEY, org_id TEXT NOT NULL, owner_user_id TEXT NOT NULL,

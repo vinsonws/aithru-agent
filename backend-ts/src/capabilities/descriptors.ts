@@ -5,6 +5,7 @@ export interface AgentToolDescriptor {
   description: string;
   risk_level: ToolRiskLevel;
   requires_approval: boolean;
+  auto_approve_scopes?: string[];
   required_scopes: string[];
   input_schema: Record<string, unknown>;
 }

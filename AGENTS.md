@@ -7,7 +7,7 @@ Read this before changing code or docs.
 
 ## Repository Direction
 
-`aithru-agent` is a Python-first Aithru-native AI harness backend.
+`aithru-agent` is a TypeScript-first Aithru-native AI harness backend.
 
 Target direction:
 
@@ -20,17 +20,22 @@ intelligent work.
 The active backend is:
 
 ```txt
-backend/
-  FastAPI control plane
-  Pydantic AI harness driver
+backend-ts/
+  Fastify control plane
+  Aithru-owned TypeScript harness core
   Aithru capability router
-  Agent stream / trace / workspace / artifact / approval model
+  Agent stream / trace / workspace / artifact / approval / memory / subagent model
 ```
+
+The legacy Python backend remains under `backend/` as migration context. New
+backend behavior must not require, import, shell out to, or start a Python
+backend process.
 
 Primary design docs:
 
 ```txt
 docs/00-agent-harness-design.md
+docs/superpowers/specs/2026-06-29-native-ts-agent-backend-replacement-design.md
 docs/superpowers/specs/2026-06-16-python-pydantic-ai-agent-backend-design.md
 ```
 
@@ -61,8 +66,8 @@ Models may propose tool calls. They must not execute real actions directly.
 All real actions must pass through an Aithru capability boundary:
 
 ```txt
-model / Pydantic AI
-  -> Aithru Tool Bridge
+model / provider adapter
+  -> Aithru-owned model turn loop
   -> Aithru Capability Router
   -> policy / scope / approval boundary
   -> concrete local tool or future Workflow Capability API
@@ -83,21 +88,24 @@ Core must not depend on Agent packages.
 Workbench may call Agent through explicit node/API boundaries.
 ```
 
-Pydantic AI is an implementation detail under `backend/src/aithru_agent/harness`.
-Pydantic AI types must not become public Aithru API contracts.
+Model providers are implementation details under `backend-ts/src/model`.
+Provider SDK objects and Pydantic AI types must not become public Aithru API
+contracts.
 
 ## Backend Ownership
 
-Current backend modules:
+Current TypeScript backend modules:
 
 ```txt
-backend/src/aithru_agent/
-  api/              FastAPI routes
+backend-ts/src/
+  api/              Fastify routes
   application/      runtime assembly
   capabilities/     tool descriptors, policy, router, local tools
-  domain/           Agent product contracts
-  harness/          scripted and Pydantic AI drivers
-  persistence/      stage-1 in-memory store
+  contracts/        TypeBox Agent product contracts
+  core/             native run loop and model turn loop
+  external/         controlled web, MCP, and Workflow capability adapters
+  model/            provider-neutral model adapters and profiles
+  persistence/      in-memory and SQLite stores
   stream/           AgentStreamEvent writer/store/SSE
   trace/            event-to-span projection
   worker/           Agent run execution
@@ -105,12 +113,13 @@ backend/src/aithru_agent/
 
 Package meanings:
 
-- `domain`: pure product contracts. No FastAPI, Pydantic AI, provider SDK, or
-  database dependency.
+- `contracts`: pure product contracts. No Fastify, provider SDK, or database
+  dependency.
 - `stream`: canonical event log and SSE formatting.
 - `trace`: projection from Agent events to spans.
 - `capabilities`: every real tool action enters here.
-- `harness`: driver abstraction plus scripted and Pydantic AI drivers.
+- `core`: Aithru-owned run loop, model turn loop, and harness state.
+- `model`: low-level provider adapters only; they never execute tools.
 - `worker`: run execution, pause/resume, cancellation.
 - `api`: HTTP control plane only.
 
@@ -174,9 +183,11 @@ When changing design or boundaries:
 Run these before finishing meaningful backend changes:
 
 ```bash
-cd backend
-uv run pytest
-uv run python examples/file_report_agent.py
+cd backend-ts
+npm run typecheck
+npm run test
+npm run check:no-python-backend
+npm run examples:file-report
 ```
 
 ## Pre-Merge Checklist

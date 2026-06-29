@@ -54,4 +54,11 @@ export const EVENT_TYPES = {
   TODO_UPDATED: "todo.updated",
   // Context
   CONTEXT_PACKET_BUILT: "context.packet.built",
+  // Model
+  MODEL_REASONING_DELTA: "model.reasoning_delta",
+  MODEL_USAGE: "model.usage",
+  // External capabilities
+  EXTERNAL_RUN_STARTED: "external_run.started",
+  EXTERNAL_RUN_RESOLVED: "external_run.resolved",
+  EXTERNAL_RUN_FAILED: "external_run.failed",
 } as const;

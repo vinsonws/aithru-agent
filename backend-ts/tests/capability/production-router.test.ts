@@ -31,9 +31,15 @@ describe("ProductionCapabilityRouter", () => {
   });
 
   it("requires approval for write_file", async () => {
+    const approvalRun: AgentRun = {
+      ...run,
+      id: "r1_write_scoped",
+      scopes: ["workspace:write"],
+    };
+    store.createRun(approvalRun);
     const result = await router.prepareToolCall(
-      { id: "tc", name: "workspace.write_file", input: { path: "/x", content: "y" }, run_id: "r1" },
-      { run },
+      { id: "tc", name: "workspace.write_file", input: { path: "/x", content: "y" }, run_id: approvalRun.id },
+      { run: approvalRun },
     );
     expect(result.allowed).toBe(true);
     expect(result.requires_approval).toBe(true);

@@ -1055,24 +1055,33 @@ Only Workbench validates, saves, versions, and runs formal workflows.
 
 ## Backend direction
 
-The active implementation direction is Python-first:
+The active implementation direction is TypeScript-first:
 
 ```txt
-backend/
-  api/              FastAPI control plane
-  application/      runtime assembly and use-case services
-  capabilities/     capability router, policy, local tools, future Workflow capabilities
-  domain/           Agent product contracts
-  harness/          scripted and Pydantic AI harness drivers
-  persistence/      store interfaces and implementations
+backend-ts/
+  api/              Fastify control plane
+  application/      runtime assembly
+  capabilities/     capability router, policy, local tools
+  contracts/        TypeBox Agent product contracts
+  core/             native run loop and model turn loop
+  external/         controlled web, MCP, and Workflow capability adapters
+  model/            provider-neutral model adapters and profiles
+  persistence/      in-memory and SQLite stores
   stream/           AgentStreamEvent writer/store/SSE
   trace/            event-to-span projection
   worker/           Agent run execution, pause/resume, cancellation
 ```
 
-Pydantic AI is the default harness driver. It powers model loop mechanics, tool
-calling mechanics, streaming, and structured output, but it does not define
-public Aithru product contracts. Pydantic AI tool calls must enter Aithru's
+The TypeScript backend owns the harness kernel directly. Model providers are
+low-level adapters under `backend-ts/src/model`; they normalize provider events
+into Aithru model turn events and never execute tools directly. Real actions
+still pass through `ProductionCapabilityRouter`.
+
+Legacy Python backend context:
+
+Pydantic AI powered the previous default harness driver. It handled model loop
+mechanics, tool calling mechanics, streaming, and structured output, but did not
+define public Aithru product contracts. Pydantic AI tool calls entered Aithru's
 capability router through the Aithru tool bridge.
 
 Platform refactor Phase 1 adds `pydantic-ai-harness` as an internal backend
@@ -1179,10 +1188,10 @@ later replace the local provider behind the same capability boundary.
 
 ## Migration direction
 
-The active implementation remains the Python/FastAPI/Pydantic AI backend until a
-replacement backend reaches parity. The approved replacement target is now a
-native TypeScript backend with an Aithru-owned harness core rather than another
-third-party agent framework.
+The active replacement implementation now lives in `backend-ts/`: a native
+TypeScript backend with an Aithru-owned harness core rather than another
+third-party agent framework. The legacy Python/FastAPI/Pydantic AI backend
+remains in the repository only as migration context until archival/removal.
 
 See
 `docs/superpowers/specs/2026-06-29-native-ts-agent-backend-replacement-design.md`

@@ -1,40 +1,24 @@
-/**
- * SqliteStore integration tests.
- *
- * NOTE: These tests exercise the full SqliteStore (sql.js WASM) path.
- * On some platforms (notably Windows + vitest), sql.js produces "out of memory"
- * errors during prepare(), causing unhandled rejections.  The store works
- * correctly in isolation and via direct Node.js execution; the issue is
- * specific to the sql.js WASM ↔ vitest interaction.
- *
- * The claim / lease / heartbeat contract is verified through InMemoryStore in
- * tests/worker/claim-heartbeat.test.ts and tests/worker/recovery.test.ts.
- *
- * To run these tests when the platform supports sql.js + vitest:
- *   npx vitest run tests/persistence/sqlite-store.test.ts
- */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { SqliteStore } from "../../src/persistence/sqlite-store.js";
-
-const SKIP_SQLITE =
-  process.platform === "win32" || process.env.SKIP_SQLITE_TESTS === "1";
 
 describe("SqliteStore", () => {
   let store: SqliteStore;
+  let tempDir: string;
 
-  beforeAll(async () => {
-    if (SKIP_SQLITE) return;
+  beforeEach(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "aithru-sqlite-"));
     store = await SqliteStore.create();
   });
 
-  afterAll(() => {
-    if (SKIP_SQLITE) return;
+  afterEach(() => {
     store.close();
+    rmSync(tempDir, { recursive: true, force: true });
   });
 
-  const skipIf = SKIP_SQLITE ? it.skip : it;
-
-  skipIf("creates and retrieves a thread", () => {
+  it("creates and retrieves a thread", () => {
     const thread = {
       id: "t1",
       org_id: "o1",
@@ -45,14 +29,32 @@ describe("SqliteStore", () => {
       updated_at: "2026-01-01T00:00:00Z",
     };
     store.createThread(thread);
-    const got = store.getThread("t1");
-    expect(got).toBeDefined();
-    expect(got!.id).toBe("t1");
-    expect(got!.title).toBe("Test");
-    expect(got!.status).toBe("active");
+    expect(store.getThread("t1")).toEqual(thread);
   });
 
-  skipIf("acquires and releases claims", () => {
+  it("persists data to a dbPath and reloads it", async () => {
+    const dbPath = join(tempDir, "agent.sqlite");
+    const durable = await SqliteStore.create(dbPath);
+    durable.createThread({
+      id: "persisted",
+      org_id: "o1",
+      owner_user_id: "u1",
+      title: "Durable",
+      status: "active",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    durable.close();
+
+    const reopened = await SqliteStore.create(dbPath);
+    try {
+      expect(reopened.getThread("persisted")?.title).toBe("Durable");
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it("acquires and releases claims", () => {
     const run = {
       id: "r1",
       org_id: "o1",
@@ -78,7 +80,7 @@ describe("SqliteStore", () => {
     expect(store.acquireClaim("r1", "w2")).toBe(true);
   });
 
-  skipIf("finds stale claims", () => {
+  it("finds stale claims", () => {
     const run = {
       id: "r2",
       org_id: "o1",
@@ -111,11 +113,10 @@ describe("SqliteStore", () => {
       },
     } as any);
     const stale = store.findStaleClaims();
-    expect(Array.isArray(stale)).toBe(true);
-    expect(stale.length).toBeGreaterThanOrEqual(1);
+    expect(stale.map((staleRun) => staleRun.id)).toContain("r2");
   });
 
-  skipIf("creates and retrieves a run", () => {
+  it("creates and retrieves a run", () => {
     const run = {
       id: "r3",
       org_id: "o1",
@@ -141,7 +142,7 @@ describe("SqliteStore", () => {
     expect(got!.status).toBe("queued");
   });
 
-  skipIf("writes and reads workspace files", () => {
+  it("writes and reads workspace files", () => {
     const file = store.writeFile("ws1", "/test.txt", "hello");
     expect(file.path).toBe("/test.txt");
     expect(file.content).toBe("hello");
@@ -150,7 +151,7 @@ describe("SqliteStore", () => {
     expect(read!.content).toBe("hello");
   });
 
-  skipIf("manages todos", () => {
+  it("manages todos", () => {
     const todo = store.createTodo({
       id: "todo1",
       run_id: "r3",
@@ -163,6 +164,6 @@ describe("SqliteStore", () => {
     const updated = store.updateTodo("r3", "todo1", { status: "done" });
     expect(updated.status).toBe("done");
     const todos = store.listTodos("r3");
-    expect(todos.length).toBe(1);
+    expect(todos).toHaveLength(1);
   });
 });

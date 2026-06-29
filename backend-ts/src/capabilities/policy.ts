@@ -92,10 +92,16 @@ export class PolicyEngine {
       };
     }
 
-    // 3. Approval check
+    // 3. Approval check. The wildcard scope is reserved for trusted internal
+    // deterministic runs and examples; normal actor scopes still pause.
+    const userScopes = new Set(this.run.scopes);
+    const autoApproved =
+      userScopes.has("*") ||
+      (tool.auto_approve_scopes ?? []).some((scope) => userScopes.has(scope));
+
     return {
       allowed: true,
-      requires_approval: tool.requires_approval,
+      requires_approval: tool.requires_approval && !autoApproved,
     };
   }
 }
