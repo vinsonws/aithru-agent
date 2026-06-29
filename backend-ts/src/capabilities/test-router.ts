@@ -12,6 +12,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
     description: "List files in the workspace",
     risk_level: "low",
     requires_approval: false,
+    required_scopes: ["workspace:read"],
     input_schema: {},
   },
   {
@@ -19,6 +20,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
     description: "Read a file from the workspace",
     risk_level: "low",
     requires_approval: false,
+    required_scopes: ["workspace:read"],
     input_schema: {
       type: "object",
       properties: { path: { type: "string" } },
@@ -30,6 +32,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
     description: "Write a file to the workspace",
     risk_level: "medium",
     requires_approval: true,
+    required_scopes: ["workspace:write"],
     input_schema: {
       type: "object",
       properties: {
@@ -44,6 +47,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
     description: "Patch a file in the workspace",
     risk_level: "medium",
     requires_approval: false,
+    required_scopes: ["workspace:write"],
     input_schema: {
       type: "object",
       properties: {
@@ -59,6 +63,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
     description: "Delete a file from the workspace",
     risk_level: "high",
     requires_approval: true,
+    required_scopes: ["workspace:write"],
     input_schema: {
       type: "object",
       properties: { path: { type: "string" } },
@@ -70,6 +75,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
     description: "Create a todo",
     risk_level: "low",
     requires_approval: false,
+    required_scopes: ["todo:write"],
     input_schema: {
       type: "object",
       properties: {
@@ -84,6 +90,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
     description: "Update a todo",
     risk_level: "low",
     requires_approval: false,
+    required_scopes: ["todo:write"],
     input_schema: {
       type: "object",
       properties: {
@@ -99,6 +106,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
     description: "Present a resource",
     risk_level: "low",
     requires_approval: false,
+    required_scopes: ["presentation"],
     input_schema: {
       type: "object",
       properties: {

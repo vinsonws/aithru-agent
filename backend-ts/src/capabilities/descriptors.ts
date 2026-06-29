@@ -1,8 +1,11 @@
+export type ToolRiskLevel = "low" | "medium" | "high";
+
 export interface AgentToolDescriptor {
   name: string;
   description: string;
-  risk_level: "low" | "medium" | "high";
+  risk_level: ToolRiskLevel;
   requires_approval: boolean;
+  required_scopes: string[];
   input_schema: Record<string, unknown>;
 }
 
@@ -23,4 +26,17 @@ export interface AgentToolCallResult {
     retryable: boolean;
     details?: unknown;
   };
+}
+
+export interface AgentToolApprovalPolicy {
+  requires_approval: boolean;
+  risk_level: ToolRiskLevel;
+  auto_approve_scopes?: string[];
+}
+
+export interface AgentSkillConfig {
+  name: string;
+  allowed_tools: string[];
+  denied_tools: string[];
+  required_scopes: string[];
 }
