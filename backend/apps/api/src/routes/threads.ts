@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
-import { getRuntime } from "../application/runtime.js";
+import { getRuntime } from "../runtime.js";
 import type { AgentThread, AgentMessage } from "@aithru-agent/contracts";
 import {
   CreateThreadRequestSchema,

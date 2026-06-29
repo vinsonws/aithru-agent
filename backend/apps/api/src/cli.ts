@@ -1,4 +1,4 @@
-import { createApp } from "../api/app.js";
+import { createApp } from "./app.js";
 
 async function main() {
   const app = await createApp();

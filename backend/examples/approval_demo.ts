@@ -1,6 +1,6 @@
 // backend/examples/approval_demo.ts
 
-import { createRuntime } from "../src/application/runtime.js";
+import { createRuntime } from "@aithru-agent/api";
 import type { AgentRun } from "@aithru-agent/contracts";
 import type { ToolCallStep } from "@aithru-agent/harness";
 

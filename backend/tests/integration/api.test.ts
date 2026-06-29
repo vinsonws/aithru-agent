@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createApp } from "../../src/api/app.js";
+import { createApp } from "@aithru-agent/api";
 import type { FastifyInstance } from "fastify";
 
 let app: FastifyInstance;
