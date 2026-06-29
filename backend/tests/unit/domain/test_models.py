@@ -29,6 +29,9 @@ from aithru_agent.domain import (
     AgentMessage,
     AgentModelCapabilities,
     AgentModelReasoningEffort,
+    AgentToolFailureKind,
+    AgentToolRecovery,
+    AgentToolRecoveryAction,
     AgentRun,
     AgentRunExportArtifactResult,
     AgentRunExportBundle,
@@ -1109,3 +1112,41 @@ def test_operator_follow_up_options_validate_provenance() -> None:
             action_label="Retry sandbox run",
             action_reason="Create a follow-up.",
         )
+
+
+def test_tool_recovery_contract_serializes_stable_values() -> None:
+    recovery = AgentToolRecovery(
+        recoverable=True,
+        kind=AgentToolFailureKind.INVALID_INPUT,
+        action=AgentToolRecoveryAction.RETRY_WITH_CORRECTED_INPUT,
+        message="Path is outside allowed workspace paths.",
+        model_guidance="Retry with an absolute path under /artifacts.",
+        suggested_input={"path": "/artifacts/index.html"},
+        allowed_values={"allowed_paths": ["/artifacts"]},
+        retry_after_ms=None,
+        attempt_key="workspace_path_policy",
+        max_attempts=2,
+    )
+    result = AgentToolCallResult(
+        status="denied",
+        error={"message": "Path is outside allowed workspace paths: index.html"},
+        recovery=recovery,
+        redaction="none",
+    )
+
+    dumped = result.model_dump(mode="json")
+
+    assert dumped["recovery"] == {
+        "recoverable": True,
+        "kind": "invalid_input",
+        "action": "retry_with_corrected_input",
+        "message": "Path is outside allowed workspace paths.",
+        "model_guidance": "Retry with an absolute path under /artifacts.",
+        "suggested_input": {"path": "/artifacts/index.html"},
+        "allowed_values": {"allowed_paths": ["/artifacts"]},
+        "retry_after_ms": None,
+        "attempt_key": "workspace_path_policy",
+        "max_attempts": 2,
+    }
+    assert AgentToolFailureKind.POLICY_DENIED.value == "policy_denied"
+    assert AgentToolRecoveryAction.FAIL_RUN.value == "fail_run"

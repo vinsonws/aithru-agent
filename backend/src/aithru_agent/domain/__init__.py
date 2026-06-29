@@ -158,8 +158,11 @@ from .tool import (
     AgentToolCallRequest,
     AgentToolCallResult,
     AgentToolDescriptor,
+    AgentToolFailureKind,
     AgentToolFailurePolicy,
     AgentToolKind,
+    AgentToolRecovery,
+    AgentToolRecoveryAction,
     AgentToolRiskLevel,
 )
 from .usage import (
@@ -356,8 +359,11 @@ __all__ = [
     "AgentToolCallRequest",
     "AgentToolCallResult",
     "AgentToolDescriptor",
+    "AgentToolFailureKind",
     "AgentToolFailurePolicy",
     "AgentToolKind",
+    "AgentToolRecovery",
+    "AgentToolRecoveryAction",
     "AgentToolRiskLevel",
     "AgentUsageCounters",
     "AgentWorkspace",
