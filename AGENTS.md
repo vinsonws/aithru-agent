@@ -86,7 +86,8 @@ Core must not depend on Agent packages.
 Workbench may call Agent through explicit node/API boundaries.
 ```
 
-Model providers are implementation details under `backend/src/model`.
+Model providers are implementation details under
+`backend/packages/model/src`.
 Provider SDK objects must not become public Aithru API contracts.
 
 ## Backend Ownership
@@ -94,18 +95,21 @@ Provider SDK objects must not become public Aithru API contracts.
 Current TypeScript backend modules:
 
 ```txt
-backend/src/
-  api/              Fastify routes
-  application/      runtime assembly
-  capabilities/     tool descriptors, policy, router, local tools
-  contracts/        TypeBox Agent product contracts
-  core/             native run loop and model turn loop
-  external/         controlled web, MCP, and Workflow capability adapters
-  model/            provider-neutral model adapters and profiles
-  persistence/      in-memory and SQLite stores
-  stream/           AgentStreamEvent writer/store/SSE
-  trace/            event-to-span projection
-  worker/           Agent run execution
+backend/
+  apps/api/src/                 Fastify routes and runtime assembly
+  packages/capabilities/src/    tool descriptors, policy, router, local tools
+  packages/contracts/src/       TypeBox Agent product contracts
+  packages/external/src/        controlled web, MCP, and Workflow capability adapters
+  packages/harness/src/         native run loop and model turn loop
+  packages/memory/src/          local memory provider
+  packages/model/src/           provider-neutral model adapters and profiles
+  packages/persistence/src/     in-memory and SQLite stores
+  packages/skills/src/          SKILL.md loader and registry
+  packages/snapshots/src/       run snapshot, summary, tree projections
+  packages/stream/src/          AgentStreamEvent writer/store/SSE
+  packages/subagents/src/       child-run delegation
+  packages/trace/src/           event-to-span projection
+  packages/worker/src/          Agent run execution
 ```
 
 Package meanings:
@@ -115,8 +119,14 @@ Package meanings:
 - `stream`: canonical event log and SSE formatting.
 - `trace`: projection from Agent events to spans.
 - `capabilities`: every real tool action enters here.
-- `core`: Aithru-owned run loop, model turn loop, and harness state.
+- `harness`: Aithru-owned run loop, model turn loop, and harness state.
 - `model`: low-level provider adapters only; they never execute tools.
+- `persistence`: in-memory and SQLite-backed Agent state stores.
+- `external`: controlled external web, MCP, and Workflow capability adapters.
+- `skills`: SKILL.md loading and registry behavior.
+- `memory`: local memory provider behavior.
+- `snapshots`: read models for run snapshots, summaries, and trees.
+- `subagents`: child-run delegation behavior.
 - `worker`: run execution, pause/resume, cancellation.
 - `api`: HTTP control plane only.
 

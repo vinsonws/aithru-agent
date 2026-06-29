@@ -37,21 +37,20 @@ The active backend is the native TypeScript implementation in `backend/`:
 
 ```txt
 backend/
-  api/              Fastify control plane
-  application/      runtime assembly
-  capabilities/     capability router, policy, local tools, audit projection
-  contracts/        TypeBox Agent product contracts
-  core/             run loop, model turn loop, retry
-  external/         controlled web, MCP, Workflow capability adapters
-  memory/           local memory provider
-  model/            provider-neutral model adapters and profiles
-  persistence/      in-memory and SQLite stores
-  skills/           SKILL.md loader and registry
-  snapshots/        run snapshot, summary, tree projections
-  stream/           AgentStreamEvent writer, redaction, SSE
-  subagent/         child-run delegation
-  trace/            event-to-span projection
-  worker/           run execution, recovery, external waits
+  apps/api/src/                 Fastify control plane and runtime assembly
+  packages/capabilities/src/    capability router, policy, local tools, audit projection
+  packages/contracts/src/       TypeBox Agent product contracts
+  packages/harness/src/         run loop, model turn loop, retry
+  packages/external/src/        controlled web, MCP, Workflow capability adapters
+  packages/memory/src/          local memory provider
+  packages/model/src/           provider-neutral model adapters and profiles
+  packages/persistence/src/     in-memory and SQLite stores
+  packages/skills/src/          SKILL.md loader and registry
+  packages/snapshots/src/       run snapshot, summary, tree projections
+  packages/stream/src/          AgentStreamEvent writer, redaction, SSE
+  packages/subagents/src/       child-run delegation
+  packages/trace/src/           event-to-span projection
+  packages/worker/src/          run execution, recovery, external waits
 ```
 
 The repository has one active backend. The previous Python backend package has
@@ -76,7 +75,8 @@ load run
   -> complete, fail, cancel, or pause run
 ```
 
-Model providers are low-level I/O adapters under `backend/src/model`. They
+Model providers are low-level I/O adapters under
+`backend/packages/model/src`. They
 receive Aithru-built input and emit normalized model events:
 
 ```txt

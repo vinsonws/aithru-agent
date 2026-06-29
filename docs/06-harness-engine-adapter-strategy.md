@@ -200,11 +200,11 @@ Any future adapter or library use is acceptable only if:
 
 ## Implementation Plan
 
-1. Keep `backend/src/contracts` as the public contract layer.
-2. Keep `backend/src/core` as the native harness core.
-3. Keep `backend/src/model` limited to provider adapters and normalized
+1. Keep `backend/packages/contracts/src` as the public contract layer.
+2. Keep `backend/packages/harness/src` as the native harness core.
+3. Keep `backend/packages/model/src` limited to provider adapters and normalized
    model events.
-4. Keep `backend/src/capabilities` as the only path to real actions.
+4. Keep `backend/packages/capabilities/src` as the only path to real actions.
 5. Add tests for any future adapter proving that direct execution is impossible.
 
 ## Final Rule

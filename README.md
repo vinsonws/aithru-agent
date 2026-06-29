@@ -46,22 +46,20 @@ boundaries. It must not parse, schedule, or execute workflow graphs.
 
 ```txt
 backend/
-  src/
-    api/              Fastify routes
-    application/      runtime assembly
-    capabilities/     descriptors, policy, router, audit projection
-    contracts/        TypeBox Agent product contracts
-    core/             run loop, model turn loop, retry
-    external/         controlled web, MCP, Workflow capability adapters
-    memory/           local memory provider
-    model/            provider-neutral model adapters and profiles
-    persistence/      in-memory and SQLite stores
-    skills/           SKILL.md loader and registry
-    snapshots/        run snapshot, summary, tree projections
-    stream/           AgentStreamEvent writer, redaction, SSE
-    subagent/         child-run delegation
-    trace/            event-to-span projection
-    worker/           run execution, recovery, external waits
+  apps/api/src/                 Fastify routes and runtime assembly
+  packages/contracts/src/       TypeBox Agent product contracts
+  packages/capabilities/src/    descriptors, policy, router, audit projection
+  packages/harness/src/         run loop, model turn loop, retry
+  packages/external/src/        controlled web, MCP, Workflow capability adapters
+  packages/memory/src/          local memory provider
+  packages/model/src/           provider-neutral model adapters and profiles
+  packages/persistence/src/     in-memory and SQLite stores
+  packages/skills/src/          SKILL.md loader and registry
+  packages/snapshots/src/       run snapshot, summary, tree projections
+  packages/stream/src/          AgentStreamEvent writer, redaction, SSE
+  packages/subagents/src/       child-run delegation
+  packages/trace/src/           event-to-span projection
+  packages/worker/src/          run execution, recovery, external waits
 ```
 
 Important boundaries:

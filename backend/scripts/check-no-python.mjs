@@ -4,7 +4,13 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const DEFAULT_RELATIVE_PATHS = ["src", "examples", "scripts", "package.json"];
+const DEFAULT_RELATIVE_PATHS = [
+  "apps",
+  "packages",
+  "examples",
+  "scripts",
+  "package.json",
+];
 const SKIPPED_DIRECTORIES = new Set([".git", "coverage", "dist", "node_modules"]);
 const SKIPPED_FILES = new Set([
   "scripts/check-no-python.mjs",

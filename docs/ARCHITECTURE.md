@@ -17,6 +17,24 @@ The active implementation is the native TypeScript backend under `backend/`.
 The previous Python backend package has been removed from tracked source.
 
 ```txt
+backend/
+  apps/api/src/                 Fastify API and runtime composition root
+  packages/contracts/src/       Agent product contracts
+  packages/harness/src/         native TypeScript scripted core and model turn loop
+  packages/capabilities/src/    policy, approval, audit, and tool boundary
+  packages/external/src/        controlled external and Workflow capability adapters
+  packages/memory/src/          local memory provider
+  packages/model/src/           provider-neutral model adapters and profiles
+  packages/persistence/src/     in-memory and SQLite stores
+  packages/skills/src/          SKILL.md loader and registry
+  packages/snapshots/src/       run snapshot, summary, and tree projections
+  packages/stream/src/          AgentStreamEvent writer/store/SSE
+  packages/subagents/src/       child-run delegation
+  packages/trace/src/           trace projection
+  packages/worker/src/          run execution and recovery
+```
+
+```txt
 Fastify API
   -> Agent application runtime
   -> Agent worker

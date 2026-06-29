@@ -70,22 +70,21 @@ state. They are not `WorkflowSpec` and must not become editable workflow graphs.
 ## Current Backend Layout
 
 ```txt
-backend/src/
-  api/              Fastify HTTP/SSE control plane
-  application/      runtime assembly
-  capabilities/     descriptors, policy, audit, router, adapters
-  contracts/        Aithru-owned TypeBox schemas and TypeScript types
-  core/             native harness loop, scripted core, model-turn loop
-  external/         controlled external capability providers
-  memory/           memory provider interfaces
-  model/            model adapter interfaces and provider wrappers
-  persistence/      in-memory and SQLite stores
-  skills/           SKILL.md loading and registry
-  snapshots/        read models for API/UI
-  stream/           AgentStreamEvent writer/store/SSE/redaction
-  subagent/         subagent runner contracts
-  trace/            event-to-span projection
-  worker/           run execution, recovery, external-run continuation
+backend/
+  apps/api/src/                 Fastify HTTP/SSE control plane and runtime assembly
+  packages/capabilities/src/    descriptors, policy, audit, router, adapters
+  packages/contracts/src/       Aithru-owned TypeBox schemas and TypeScript types
+  packages/harness/src/         native harness loop, scripted core, model-turn loop
+  packages/external/src/        controlled external capability providers
+  packages/memory/src/          memory provider interfaces
+  packages/model/src/           model adapter interfaces and provider wrappers
+  packages/persistence/src/     in-memory and SQLite stores
+  packages/skills/src/          SKILL.md loading and registry
+  packages/snapshots/src/       read models for API/UI
+  packages/stream/src/          AgentStreamEvent writer/store/SSE/redaction
+  packages/subagents/src/       subagent runner contracts
+  packages/trace/src/           event-to-span projection
+  packages/worker/src/          run execution, recovery, external-run continuation
 ```
 
 ## Harness Kernel
