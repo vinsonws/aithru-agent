@@ -53,24 +53,36 @@ export interface TodoEntry {
   sequence?: number;
 }
 
-export interface DisplayCardEntry {
+export interface PresentationEntry {
   id: string;
-  type: "file" | "artifact" | "approval" | "todo" | "memory" | "search_result" | "generic";
-  status: "pending" | "ready" | "failed";
+  status: "pending" | "ready" | "failed" | "dismissed";
+  priority: "low" | "normal" | "high";
   title: string;
   summary?: string;
-  surface: "conversation" | "side_panel" | "both";
-  resource?: {
-    kind: "workspace_file" | "artifact" | "external_url" | "none";
+  reason?: string;
+  resource: {
+    kind: "artifact" | "workspace_file" | "approval" | "todo" | "run" | "trace_span" | "external_url" | "none";
     id?: string;
     path?: string;
     url?: string;
   };
+  surfaces: Array<"conversation" | "side_panel" | "approval_panel" | "activity" | "header">;
+  preferredView: "html_preview" | "source_text" | "markdown" | "json" | "image" | "pdf" | "diff" | "approval_review" | "activity_detail" | "download" | "open_external" | "none";
+  availableViews: PresentationEntry["preferredView"][];
+  effects?: Array<{
+    kind: "open_panel" | "focus_presentation" | "scroll_to" | "highlight" | "none";
+    panel?: string;
+    surface?: PresentationEntry["surfaces"][number];
+    presentationId?: string;
+    mode?: "soft" | "assertive";
+  }>;
   actions?: Array<{
-    kind: "preview" | "download" | "open" | "none";
+    kind: "open_view" | "download" | "approve" | "reject" | "retry" | "continue" | "open_in_workbench" | "open_external" | "copy_reference" | "none";
     label?: string;
-    target?: string;
-    disabled?: boolean;
+    view?: PresentationEntry["preferredView"];
+    path?: string;
+    method?: "GET" | "POST";
+    requiresConfirmation?: boolean;
   }>;
   sequence?: number;
   lastSequence?: number;
@@ -98,7 +110,7 @@ export interface RunStreamState {
   assistantOutputSegments: ChatMessage[];
   todos: TodoEntry[];
   inlineRequests: InlineRequest[];
-  displayCards: DisplayCardEntry[];
+  presentations: PresentationEntry[];
   tokenUsage?: { input?: number; output?: number; total?: number };
   error?: string;
   runStartedSequence?: number;
@@ -120,7 +132,7 @@ const initialState: RunStreamState = {
   assistantOutputSegments: [],
   todos: [],
   inlineRequests: [],
-  displayCards: [],
+  presentations: [],
 };
 
 function summarizeValue(v: unknown, max = 160): string {
@@ -208,13 +220,23 @@ function hasToolEventBetween(state: RunStreamState, after: number | undefined, b
   });
 }
 
+function hasAssistantOutputBetween(state: RunStreamState, after: number | undefined, before: number): boolean {
+  if (after == null || before <= after) return false;
+  return (state.assistantOutputSegments ?? []).some((segment) => {
+    const sequences = [segment.sequence, segment.lastSequence, segment.completedSequence].filter(
+      (value): value is number => typeof value === "number",
+    );
+    return sequences.some((sequence) => sequence > after && sequence < before);
+  });
+}
+
 function hasProcessEventBetween(state: RunStreamState, after: number | undefined, before: number): boolean {
   if (after == null || before <= after) return false;
   const processSequences = [
     ...state.toolCalls.flatMap((tool) => [tool.sequence, tool.lastSequence]),
     ...state.reasoningSegments.flatMap((segment) => [segment.sequence, segment.lastSequence]),
     ...state.todos.map((todo) => todo.sequence),
-    ...(state.displayCards ?? []).flatMap((card) => [card.sequence, card.lastSequence]),
+    ...(state.presentations ?? []).flatMap((p) => [p.sequence, p.lastSequence]),
   ].filter((value): value is number => typeof value === "number");
 
   return processSequences.some((sequence) => sequence > after && sequence < before);
@@ -248,7 +270,12 @@ function upsertReasoningSegment(
       : currentSegments.find((segment) => segment.id === baseId);
   let id = existing?.id ?? baseId;
 
-  if (options.append && existing && hasToolEventBetween(state, segmentSequence(existing), eventSequence)) {
+  if (
+    options.append &&
+    existing &&
+    (hasToolEventBetween(state, segmentSequence(existing), eventSequence) ||
+      hasAssistantOutputBetween(state, segmentSequence(existing), eventSequence))
+  ) {
     const previousId = existing.id;
     currentSegments = currentSegments.map((segment) =>
       segment.id === previousId
@@ -798,36 +825,36 @@ export function reduceEvent(state: RunStreamState, event: AgentStreamEvent): Run
     case "run.paused":
       return { ...state, status: (p.status as AgentRunStatus) ?? state.status };
 
-    case "display.card.created":
-    case "display.card.updated": {
-      const rawCard = p.card;
-      if (!rawCard || typeof rawCard !== "object") return state;
-      const cardPayload = rawCard as Record<string, unknown>;
-      const id = (cardPayload.id as string | undefined) ?? event.id;
-      const existing = (state.displayCards ?? []).find((card) => card.id === id);
-      const patchBase: DisplayCardEntry = {
+    case "presentation.created":
+    case "presentation.updated": {
+      const rawPresentation = p.presentation;
+      if (!rawPresentation || typeof rawPresentation !== "object") return state;
+      const payload = rawPresentation as Record<string, unknown>;
+      const id = (payload.id as string | undefined) ?? event.id;
+      const existing = (state.presentations ?? []).find((item) => item.id === id);
+      const patch: PresentationEntry = {
         id,
-        type: (cardPayload.type as DisplayCardEntry["type"] | undefined) ?? existing?.type ?? "generic",
-        status: (cardPayload.status as DisplayCardEntry["status"] | undefined) ?? existing?.status ?? "ready",
-        title: (cardPayload.title as string | undefined) ?? existing?.title ?? "Card",
-        surface: (cardPayload.surface as DisplayCardEntry["surface"] | undefined) ?? existing?.surface ?? "conversation",
+        status: (payload.status as PresentationEntry["status"] | undefined) ?? existing?.status ?? "ready",
+        priority: (payload.priority as PresentationEntry["priority"] | undefined) ?? existing?.priority ?? "normal",
+        title: (payload.title as string | undefined) ?? existing?.title ?? "Presentation",
+        summary: (payload.summary as string | undefined) ?? existing?.summary,
+        reason: (payload.reason as string | undefined) ?? existing?.reason,
+        resource: (payload.resource as PresentationEntry["resource"] | undefined) ?? existing?.resource ?? { kind: "none" },
+        surfaces: (payload.surfaces as PresentationEntry["surfaces"] | undefined) ?? existing?.surfaces ?? ["conversation"],
+        preferredView: (payload.preferred_view as PresentationEntry["preferredView"] | undefined) ?? existing?.preferredView ?? "none",
+        availableViews: (payload.available_views as PresentationEntry["availableViews"] | undefined) ?? existing?.availableViews ?? ["none"],
+        effects: (payload.effects as PresentationEntry["effects"] | undefined) ?? existing?.effects,
+        actions: (payload.actions as PresentationEntry["actions"] | undefined) ?? existing?.actions,
         sequence: existing?.sequence ?? sequenceOf(event),
         lastSequence: sequenceOf(event),
         createdAt: existing?.createdAt ?? event.timestamp,
         updatedAt: event.timestamp,
       };
-      if (cardPayload.summary !== undefined) patchBase.summary = cardPayload.summary as string;
-      else if (existing?.summary !== undefined) patchBase.summary = existing.summary;
-      if (cardPayload.resource !== undefined) patchBase.resource = cardPayload.resource as DisplayCardEntry["resource"];
-      else if (existing?.resource) patchBase.resource = existing.resource;
-      if (cardPayload.actions !== undefined) patchBase.actions = cardPayload.actions as DisplayCardEntry["actions"];
-      else if (existing?.actions) patchBase.actions = existing.actions;
-      const patch = patchBase;
       return {
         ...state,
-        displayCards: existing
-          ? state.displayCards.map((card) => (card.id === id ? { ...card, ...patch } : card))
-          : [...state.displayCards, patch],
+        presentations: existing
+          ? state.presentations.map((item) => (item.id === id ? { ...item, ...patch } : item))
+          : [...state.presentations, patch],
       };
     }
 
@@ -861,9 +888,64 @@ export function buildRunStreamState(events: AgentStreamEvent[]): RunStreamState 
 const TERMINAL: AgentRunStatus[] = ["completed", "failed", "cancelled"];
 const STREAM_REVEAL_INTERVAL_MS = 16;
 const STREAM_REVEAL_CHARS_PER_TICK = 3;
+const STREAM_RECONNECT_DELAY_MS = 250;
+
+export interface RunStreamClient {
+  stream: (
+    runId: string,
+    onEvent: (event: AgentStreamEvent) => void,
+    signal?: AbortSignal,
+    afterSequence?: number,
+  ) => Promise<void>;
+}
+
+export interface FollowRunStreamOptions {
+  initialState: RunStreamState;
+  onState: (state: RunStreamState) => void;
+  signal?: AbortSignal;
+  reconnectDelayMs?: number;
+}
 
 function isTerminalStatus(status: RunStreamState["status"]): boolean {
   return status !== "idle" && TERMINAL.includes(status);
+}
+
+function waitForRunStreamReconnect(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted || delayMs <= 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      globalThis.clearTimeout(timeout);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timeout = globalThis.setTimeout(done, delayMs);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
+export async function followRunStreamUntilTerminal(
+  runId: string,
+  client: RunStreamClient,
+  options: FollowRunStreamOptions,
+): Promise<void> {
+  let current = options.initialState;
+  const applyEvent = (event: AgentStreamEvent) => {
+    current = reduceEvent(current, event);
+    options.onState(current);
+  };
+
+  while (!options.signal?.aborted && !isTerminalStatus(current.status)) {
+    try {
+      await client.stream(runId, applyEvent, options.signal, current.lastEventSequence ?? 0);
+    } catch {
+      if (options.signal?.aborted) return;
+    }
+    if (options.signal?.aborted || isTerminalStatus(current.status)) return;
+    await waitForRunStreamReconnect(
+      options.reconnectDelayMs ?? STREAM_RECONNECT_DELAY_MS,
+      options.signal,
+    );
+  }
 }
 
 function revealText(currentText: string, targetText: string, maxChars: number): string {
@@ -950,17 +1032,25 @@ export function useRunStream(runId: string | null) {
   const [displayState, setDisplayState] = React.useState<RunStreamState>(initialState);
   const [backfilledRunId, setBackfilledRunId] = React.useState<string | null>(null);
   const [streaming, setStreaming] = React.useState(false);
+  const rawStateRef = React.useRef<RunStreamState>(initialState);
   const qc = useQueryClient();
+
+  React.useEffect(() => {
+    rawStateRef.current = rawState;
+  }, [rawState]);
 
   // Backfill history when a run is selected (non-streaming).
   React.useEffect(() => {
     if (!runId) {
+      rawStateRef.current = initialState;
       setRawState(initialState);
       setDisplayState(initialState);
       setBackfilledRunId(null);
+      setStreaming(false);
       return;
     }
     let cancelled = false;
+    rawStateRef.current = initialState;
     setRawState(initialState);
     setDisplayState(initialState);
     setBackfilledRunId(null);
@@ -969,6 +1059,7 @@ export function useRunStream(runId: string | null) {
         const events = await runsApi.events(runId);
         if (cancelled) return;
         const nextState = buildRunStreamState(events);
+        rawStateRef.current = nextState;
         setRawState(nextState);
         setDisplayState(nextState);
         setBackfilledRunId(runId);
@@ -986,28 +1077,28 @@ export function useRunStream(runId: string | null) {
   React.useEffect(() => {
     if (!runId) return;
     if (backfilledRunId !== runId) return;
-    if (isTerminalStatus(rawState.status)) return;
+    if (isTerminalStatus(rawStateRef.current.status)) return;
 
     const controller = new AbortController();
     setStreaming(true);
-    const afterSequence = rawState.lastEventSequence ?? 0;
 
-    runsApi
-      .stream(
-        runId,
-        (event) => {
-          setRawState((prev) => reduceEvent(prev, event as AgentStreamEvent));
-        },
-        controller.signal,
-        afterSequence,
-      )
+    followRunStreamUntilTerminal(runId, runsApi, {
+      initialState: rawStateRef.current,
+      signal: controller.signal,
+      onState(nextState) {
+        rawStateRef.current = nextState;
+        setRawState(nextState);
+      },
+    })
       .catch(() => {
-        // network errors handled by backfill on next mount
+        // transport errors reconnect inside the stream follower unless aborted
       })
-      .finally(() => setStreaming(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setStreaming(false);
+      });
 
     return () => controller.abort();
-  }, [backfilledRunId, runId, rawState.status]);
+  }, [backfilledRunId, runId]);
 
   React.useEffect(() => {
     if (isTerminalStatus(rawState.status)) {

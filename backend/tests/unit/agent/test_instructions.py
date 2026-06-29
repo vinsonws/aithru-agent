@@ -27,6 +27,19 @@ from aithru_agent.persistence.memory.store import InMemoryAgentStore
 from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 
 
+@pytest.mark.asyncio
+async def test_instruction_builder_warns_model_not_to_invent_artifact_links() -> None:
+    deps = await build_deps(store=InMemoryAgentStore())
+
+    instructions = await InstructionBuilder("Base instructions.").build(deps)
+
+    assert "## Artifact Link Guidance" in instructions
+    assert "Do not invent public artifact URLs" in instructions
+    assert "https://aithru.ai/artifact/" in instructions
+    assert "presentation entries or the Files panel" in instructions
+    assert "presentation.present" in instructions
+
+
 def file_report_skill() -> AgentSkill:
     return AgentSkill(
         id="skill_1",
@@ -90,6 +103,12 @@ async def test_instruction_builder_combines_base_and_skill_instructions() -> Non
         "- Simple informational questions you can answer directly\n"
         "- Tasks where the task is clear enough to start working\n"
         "- Situations where you already have enough context from the workspace or memory\n\n"
+        "## Artifact Link Guidance\n\n"
+        "Artifacts are platform resources rendered by Aithru as presentation entries or in the Files panel.\n"
+        "Do not invent public artifact URLs such as https://aithru.ai/artifact/{org_id}/{artifact_id}.\n"
+        "When an artifact is created, refer to it by name and artifact id only, and let Aithru Presentation handle preview and download actions.\n"
+        "Use `presentation.present` when you need to request a specific safe view such as html_preview, source_text, markdown, image, pdf, or download.\n"
+        "If you need to mention where the user can open an artifact, say it is available in the presentation entries or the Files panel.\n\n"
         "Skill instructions:\nRead files first. Then write a report."
     )
 
@@ -141,6 +160,12 @@ async def test_instruction_builder_adds_run_harness_instructions() -> None:
         "- Simple informational questions you can answer directly\n"
         "- Tasks where the task is clear enough to start working\n"
         "- Situations where you already have enough context from the workspace or memory\n\n"
+        "## Artifact Link Guidance\n\n"
+        "Artifacts are platform resources rendered by Aithru as presentation entries or in the Files panel.\n"
+        "Do not invent public artifact URLs such as https://aithru.ai/artifact/{org_id}/{artifact_id}.\n"
+        "When an artifact is created, refer to it by name and artifact id only, and let Aithru Presentation handle preview and download actions.\n"
+        "Use `presentation.present` when you need to request a specific safe view such as html_preview, source_text, markdown, image, pdf, or download.\n"
+        "If you need to mention where the user can open an artifact, say it is available in the presentation entries or the Files panel.\n\n"
         "Run instructions:\nUse terse bullet points."
     )
 

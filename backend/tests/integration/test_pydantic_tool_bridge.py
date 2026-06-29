@@ -699,7 +699,7 @@ async def test_pydantic_tool_bridge_emits_artifact_event_for_research_report() -
         "tool.started",
         "artifact.created",
         "tool.completed",
-        "display.card.created",
+        "presentation.created",
     ]
     assert events[2].payload["id"] == result["artifact"]["id"]
 
@@ -765,7 +765,7 @@ async def test_pydantic_tool_bridge_creates_degraded_research_report_artifact() 
         "tool.started",
         "artifact.created",
         "tool.completed",
-        "display.card.created",
+        "presentation.created",
     ]
 
 
@@ -1139,7 +1139,7 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
         "tool.started",
         "workspace.file.created",
         "tool.completed",
-        "display.card.created",
+        "presentation.created",
         "message.delta",
         "message.delta",
         "model.usage",
@@ -1151,7 +1151,7 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_workspace_write_file_emits_display_card_after_tool_completed() -> None:
+async def test_workspace_write_file_emits_presentation_after_tool_completed() -> None:
     runtime = create_agent_runtime(
         settings=AgentSettings(model="test"),
         agent_runtime=AgentRuntime(
@@ -1170,24 +1170,23 @@ async def test_workspace_write_file_emits_display_card_after_tool_completed() ->
     event_types = [event.type for event in events]
 
     tool_completed_index = event_types.index("tool.completed")
-    card_index = event_types.index("display.card.created")
+    presentation_index = event_types.index("presentation.created")
 
-    assert card_index > tool_completed_index
-    card_event = events[card_index]
-    assert card_event.payload["card"]["type"] == "file"
-    assert card_event.payload["card"]["resource"] == {
+    assert presentation_index > tool_completed_index
+    presentation_event = events[presentation_index]
+    assert presentation_event.payload["presentation"]["resource"] == {
         "kind": "workspace_file",
         "path": "/a",
     }
-    assert card_event.payload["card"]["source"]["tool_name"] == "workspace.write_file"
+    assert presentation_event.payload["presentation"]["source"]["tool_name"] == "workspace.write_file"
 
 
 @pytest.mark.asyncio
-async def test_present_resources_emits_display_cards_from_validated_tool_output() -> None:
+async def test_presentation_created_emits_from_validated_tool_output() -> None:
     runtime = create_agent_runtime(
         settings=AgentSettings(model="test"),
         agent_runtime=AgentRuntime(
-            model=TestModel(call_tools=["workspace.write_file", "present_resources"], custom_output_text="done")
+            model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
         ),
         policy=ToolPolicy(require_approval_for_risk=[]),
     )
@@ -1195,11 +1194,11 @@ async def test_present_resources_emits_display_cards_from_validated_tool_output(
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        task_msg="Write and present a file",
+        task_msg="Write a file",
         scopes=["agent.workspace.write", "agent.workspace.read"],
     )
     events = await runtime.event_store.list_by_run(run.id)
-    cards = [event for event in events if event.type == "display.card.created"]
+    presentations = [event for event in events if event.type == "presentation.created"]
 
-    assert len(cards) >= 1
-    assert cards[-1].payload["card"]["source"]["created_by"] in {"harness", "model_request"}
+    assert len(presentations) >= 1
+    assert presentations[-1].payload["presentation"]["source"]["created_by"] in {"harness", "model_request"}

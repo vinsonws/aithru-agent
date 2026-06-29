@@ -24,7 +24,7 @@ function baseState(patch = {}) {
     assistantOutputSegments: [],
     todos: [],
     inlineRequests: [],
-    displayCards: [],
+    presentations: [],
     ...patch,
   };
 }
@@ -141,6 +141,8 @@ test("buildChatTimeline interleaves assistant output segments with reasoning and
   const timeline = buildChatTimeline(
     baseState({
       modelStartedSequence: 10,
+      modelStartedAt: "2026-06-23T00:00:10.000Z",
+      modelCompletedAt: "2026-06-23T00:01:00.000Z",
       runCompletedSequence: 30,
       messages: [
         { id: "msg_user", role: "user", content: "创建文件", sequence: 2 },
@@ -153,15 +155,37 @@ test("buildChatTimeline interleaves assistant output segments with reasoning and
         },
       ],
       reasoningSegments: [
-        { id: "think_1", content: "准备写文件。", sequence: 11, lastSequence: 12 },
-        { id: "think_2", content: "工具完成。", sequence: 16, lastSequence: 16 },
+        {
+          id: "think_1",
+          content: "准备写文件。",
+          sequence: 11,
+          lastSequence: 12,
+          createdAt: "2026-06-23T00:00:11.000Z",
+          completedAt: "2026-06-23T00:00:12.000Z",
+        },
+        {
+          id: "think_2",
+          content: "工具完成。",
+          sequence: 16,
+          lastSequence: 16,
+          createdAt: "2026-06-23T00:00:16.000Z",
+          completedAt: "2026-06-23T00:00:17.000Z",
+        },
       ],
       assistantOutputSegments: [
         { id: "msg_assistant:output:13", role: "assistant", content: "马上创建。", sequence: 13, lastSequence: 13 },
         { id: "msg_assistant:output:17", role: "assistant", content: "已创建。", sequence: 17, lastSequence: 18 },
       ],
       toolCalls: [
-        { id: "tool_1", toolName: "workspace.write_file", status: "completed", sequence: 14, lastSequence: 15 },
+        {
+          id: "tool_1",
+          toolName: "workspace.write_file",
+          status: "completed",
+          sequence: 14,
+          lastSequence: 15,
+          createdAt: "2026-06-23T00:00:14.000Z",
+          updatedAt: "2026-06-23T00:00:15.000Z",
+        },
       ],
     }),
   );
@@ -181,6 +205,51 @@ test("buildChatTimeline interleaves assistant output segments with reasoning and
       "process:workspace.write_file|工具完成。",
       "message:已创建。",
       "completion",
+    ],
+  );
+
+  assert.deepEqual(
+    timeline
+      .filter((item) => item.kind === "message")
+      .map((item) => ({
+        content: item.message.content,
+        showFooter: item.showFooter ?? true,
+        footerContent: item.footerMessage?.content,
+      })),
+    [
+      {
+        content: "创建文件",
+        showFooter: true,
+        footerContent: undefined,
+      },
+      {
+        content: "马上创建。",
+        showFooter: false,
+        footerContent: "马上创建。已创建。",
+      },
+      {
+        content: "已创建。",
+        showFooter: true,
+        footerContent: "马上创建。已创建。",
+      },
+    ],
+  );
+
+  const processItems = timeline.filter((item) => item.kind === "assistantProcess");
+  assert.deepEqual(
+    processItems.map((item) => ({
+      startedAt: item.startedAt,
+      completedAt: item.completedAt,
+    })),
+    [
+      {
+        startedAt: "2026-06-23T00:00:11.000Z",
+        completedAt: "2026-06-23T00:00:12.000Z",
+      },
+      {
+        startedAt: "2026-06-23T00:00:14.000Z",
+        completedAt: "2026-06-23T00:00:17.000Z",
+      },
     ],
   );
 });
@@ -295,14 +364,16 @@ test("buildChatTimeline interleaves cards between tool completion and assistant 
       toolCalls: [
         { id: "tool_1", toolName: "workspace.write_file", status: "completed", sequence: 14, lastSequence: 15 },
       ],
-      displayCards: [
+      presentations: [
         {
-          id: "card_1",
-          type: "file",
+          id: "presentation_1",
           status: "ready",
+          priority: "normal",
           title: "a.txt",
-          surface: "conversation",
           resource: { kind: "workspace_file", path: "/a.txt" },
+          surfaces: ["conversation"],
+          preferredView: "source_text",
+          availableViews: ["source_text", "download"],
           sequence: 16,
           lastSequence: 16,
         },
@@ -317,14 +388,14 @@ test("buildChatTimeline interleaves cards between tool completion and assistant 
     timeline.map((item) => {
       if (item.kind === "message") return `message:${item.message.content}`;
       if (item.kind === "assistantProcess") return "process";
-      if (item.kind === "card") return `card:${item.card.title}`;
+      if (item.kind === "presentation") return `presentation:${item.presentation.title}`;
       return item.kind;
     }),
-    ["message:创建文件", "process", "card:a.txt", "message:已创建。", "completion"],
+    ["message:创建文件", "process", "presentation:a.txt", "message:已创建。", "completion"],
   );
 });
 
-test("buildChatTimeline shows cards before assistant output starts", async () => {
+test("buildChatTimeline shows presentations before assistant output starts", async () => {
   const { buildChatTimeline } = await loadChatTimeline();
   const timeline = buildChatTimeline(
     baseState({
@@ -335,14 +406,16 @@ test("buildChatTimeline shows cards before assistant output starts", async () =>
       toolCalls: [
         { id: "tool_1", toolName: "workspace.write_file", status: "completed", sequence: 14, lastSequence: 15 },
       ],
-      displayCards: [
+      presentations: [
         {
-          id: "card_1",
-          type: "file",
+          id: "presentation_1",
           status: "ready",
+          priority: "normal",
           title: "a.txt",
-          surface: "conversation",
           resource: { kind: "workspace_file", path: "/a.txt" },
+          surfaces: ["conversation"],
+          preferredView: "source_text",
+          availableViews: ["source_text", "download"],
           sequence: 16,
           lastSequence: 16,
         },
@@ -355,10 +428,10 @@ test("buildChatTimeline shows cards before assistant output starts", async () =>
     timeline.map((item) => {
       if (item.kind === "message") return `message:${item.message.content}`;
       if (item.kind === "assistantProcess") return "process";
-      if (item.kind === "card") return `card:${item.card.title}`;
+      if (item.kind === "presentation") return `presentation:${item.presentation.title}`;
       return item.kind;
     }),
-    ["message:创建文件", "process", "card:a.txt"],
+    ["message:创建文件", "process", "presentation:a.txt"],
   );
 });
 

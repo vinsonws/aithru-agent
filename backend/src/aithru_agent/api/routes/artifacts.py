@@ -1,5 +1,6 @@
 """Artifact routes."""
 
+import mimetypes
 from pathlib import PurePosixPath
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -154,10 +155,13 @@ async def _artifact_content(
             raise HTTPException(status_code=404, detail="Artifact content not found") from err
         return (
             workspace_content.content,
-            artifact.media_type or workspace_content.media_type or "application/octet-stream",
+            _artifact_media_type(
+                artifact,
+                fallback=workspace_content.media_type or "application/octet-stream",
+            ),
         )
     if isinstance(artifact.content, str | bytes):
-        return artifact.content, artifact.media_type or "text/plain"
+        return artifact.content, _artifact_media_type(artifact, fallback="text/plain")
     raise HTTPException(status_code=404, detail="Artifact content not found")
 
 
@@ -192,7 +196,7 @@ def _download_info(
     pointer = _content_pointer(artifact)
     return AgentArtifactDownloadInfo(
         artifact_id=artifact.id,
-        filename=_download_filename(artifact),
+        filename=_download_filename(artifact, media_type),
         media_type=media_type,
         content_length=_content_length(content),
         disposition=disposition,
@@ -210,15 +214,35 @@ def _content_disposition(info: AgentArtifactDownloadInfo) -> str:
     return f'{info.disposition}; filename="{info.filename}"'
 
 
-def _download_filename(artifact: AgentArtifact) -> str:
-    stem = "_".join(part for part in artifact.name.strip().split() if part)
+def _download_filename(artifact: AgentArtifact, media_type: str) -> str:
+    suffix = PurePosixPath(artifact.uri or "").suffix or PurePosixPath(artifact.name).suffix
+    name = artifact.name.strip()
+    if suffix and name.endswith(suffix):
+        name = name[: -len(suffix)]
+    stem = "_".join(part for part in name.split() if part)
     if not stem:
         stem = artifact.id
     safe_stem = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in stem)
-    suffix = PurePosixPath(artifact.uri or "").suffix
-    if not suffix and artifact.media_type == "text/html":
+    if not suffix and media_type.split(";", 1)[0].strip().lower() == "text/html":
         suffix = ".html"
     return f"{safe_stem}{suffix}"
+
+
+def _artifact_media_type(artifact: AgentArtifact, *, fallback: str) -> str:
+    if artifact.media_type:
+        return artifact.media_type
+    guessed = _guess_artifact_media_type(artifact)
+    return guessed or fallback
+
+
+def _guess_artifact_media_type(artifact: AgentArtifact) -> str | None:
+    for candidate in (artifact.uri, artifact.name):
+        if not candidate:
+            continue
+        media_type, _ = mimetypes.guess_type(candidate)
+        if media_type:
+            return media_type
+    return None
 
 
 def _build_artifact_list_page(

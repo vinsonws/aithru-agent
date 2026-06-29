@@ -6,9 +6,14 @@ import { useHost } from "@/lib/host/HostProvider";
 import { useTranslation } from "react-i18next";
 import type { ChatMessage, RunStreamState } from "./useRunStream";
 import type { AgentMessage } from "@/lib/api";
-import { DisplayCard } from "./DisplayCard";
+import { PresentationItem } from "./PresentationItem";
+import { presentationEffectKey, previewTargetForPresentationEffect } from "./presentationEffects";
 import { ToolCallCard } from "./ToolCallCard";
 import { InlineRequestCard } from "./InlineRequestCard";
+import {
+  buildArtifactLinkResolver,
+  copyMessageContentWithArtifactLinks,
+} from "./artifactLinks";
 import { buildChatTimeline } from "./chatTimeline";
 import type { ChatTimelineItem } from "./chatTimeline";
 import { buildMessageActions, buildEditAndRerunPrompt } from "./messageActions";
@@ -40,20 +45,29 @@ function MessageBubble({
   locale,
   onPrefillComposer,
   onOpenTrace,
+  resolveLinkHref,
+  showFooter = true,
+  footerMessage,
 }: {
   message: ChatMessage;
   locale: string;
   onPrefillComposer?: (text: string) => void;
   onOpenTrace?: () => void;
+  resolveLinkHref?: (href: string) => string;
+  showFooter?: boolean;
+  footerMessage?: ChatMessage;
 }) {
   const isUser = message.role === "user";
-  const actions = buildMessageActions(message);
+  const footerSource = footerMessage ?? message;
+  const actions = showFooter ? buildMessageActions(footerSource) : [];
+
+  const copyContent = copyMessageContentWithArtifactLinks(footerSource, resolveLinkHref);
 
   const handleMessageAction = (kind: string, _messageId: string) => {
     if (kind === "copy") {
-      navigator.clipboard.writeText(message.content).catch(() => {});
+      navigator.clipboard.writeText(copyContent).catch(() => {});
     } else if (kind === "editAndRerun") {
-      onPrefillComposer?.(buildEditAndRerunPrompt(message));
+      onPrefillComposer?.(buildEditAndRerunPrompt(footerSource));
     } else if (kind === "viewTrace") {
       onOpenTrace?.();
     }
@@ -75,28 +89,27 @@ function MessageBubble({
           </div>
         ) : message.content ? (
           <div className="relative min-w-0 text-foreground">
-            <Markdown variant="chat">{message.content}</Markdown>
-            {message.streaming && (
-              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-accent align-text-bottom" />
-            )}
+            <Markdown variant="chat" resolveLinkHref={resolveLinkHref}>{message.content}</Markdown>
           </div>
         ) : (
           <LoadingDots />
         )}
-        <div className={cn("flex items-center gap-2", isUser ? "justify-end" : "justify-start")}>
-          {message.createdAt && (
-            <p className={cn("text-xs text-muted-foreground", isUser && "text-right")}>
-              {relativeTime(message.createdAt, locale)}
-            </p>
-          )}
-          {actions.length > 0 && (
-            <MessageActions
-              actions={actions}
-              messageId={message.id}
-              onAction={handleMessageAction}
-            />
-          )}
-        </div>
+        {showFooter && (
+          <div className={cn("flex items-center gap-2", isUser ? "justify-end" : "justify-start")}>
+            {footerSource.createdAt && (
+              <p className={cn("text-xs text-muted-foreground", isUser && "text-right")}>
+                {relativeTime(footerSource.createdAt, locale)}
+              </p>
+            )}
+            {actions.length > 0 && (
+              <MessageActions
+                actions={actions}
+                messageId={footerSource.id}
+                onAction={handleMessageAction}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -119,6 +132,8 @@ function AssistantProcess({
   const summary = buildProcessSummary(item.state, {
     hasThinkingContent,
     toolCount,
+    startedAt: item.startedAt,
+    completedAt: item.completedAt,
     t,
   });
 
@@ -163,17 +178,12 @@ function AssistantProcess({
                 return <ToolCallCard key={step.id} entry={step.tool} />;
               }
               return (
-                <div key={step.id} className="space-y-1 py-1">
-                  <div className="text-xs font-medium text-muted-foreground">
-                    {t("chat:process.thinkingLabel")}
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    {step.content.trim() ? (
-                      <Markdown variant="chat">{step.content}</Markdown>
-                    ) : (
-                      <LoadingDots />
-                    )}
-                  </div>
+                <div key={step.id} className="py-1 text-sm text-muted-foreground">
+                  {step.content.trim() ? (
+                    <Markdown variant="chat">{step.content}</Markdown>
+                  ) : (
+                    <LoadingDots />
+                  )}
                 </div>
               );
             })}
@@ -254,15 +264,25 @@ function buildProcessSummary(
   {
     hasThinkingContent,
     toolCount,
+    startedAt,
+    completedAt,
     t,
   }: {
     hasThinkingContent: boolean;
     toolCount: number;
+    startedAt?: string;
+    completedAt?: string;
     t: Translate;
   },
 ): string {
   const parts: string[] = [];
-  const duration = processDurationLabel(state, t);
+  const duration = processDurationLabel(
+    {
+      startedAt: startedAt ?? state.modelStartedAt,
+      completedAt: completedAt ?? (startedAt ? undefined : state.modelCompletedAt ?? state.runCompletedAt),
+    },
+    t,
+  );
   if (duration) {
     parts.push(
       hasThinkingContent
@@ -282,10 +302,19 @@ function buildProcessSummary(
   return parts.join(" · ");
 }
 
-function processDurationLabel(state: RunStreamState, t: Translate): string | null {
-  if (!state.modelStartedAt) return null;
-  const start = new Date(state.modelStartedAt).getTime();
-  const end = new Date(state.modelCompletedAt ?? state.runCompletedAt ?? new Date().toISOString()).getTime();
+function processDurationLabel(
+  {
+    startedAt,
+    completedAt,
+  }: {
+    startedAt?: string;
+    completedAt?: string;
+  },
+  t: Translate,
+): string | null {
+  if (!startedAt) return null;
+  const start = new Date(startedAt).getTime();
+  const end = new Date(completedAt ?? new Date().toISOString()).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
 
   const seconds = Math.max(1, Math.round((end - start) / 1000));
@@ -342,6 +371,24 @@ export function ChatPanel({
     }
   }, [timeline, atBottom]);
 
+  const artifactLinkResolver = React.useMemo(
+    () => buildArtifactLinkResolver([state, ...Object.values(historicalRunStates)]),
+    [state, historicalRunStates],
+  );
+  const appliedPresentationEffectsRef = React.useRef<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    if (!onPreviewFile) return;
+    for (const presentation of state.presentations ?? []) {
+      const previewTarget = previewTargetForPresentationEffect(presentation);
+      if (!previewTarget) continue;
+      const effectKey = presentationEffectKey(presentation);
+      if (appliedPresentationEffectsRef.current.has(effectKey)) continue;
+      appliedPresentationEffectsRef.current.add(effectKey);
+      onPreviewFile(previewTarget);
+    }
+  }, [onPreviewFile, state.presentations]);
+
   const running = state.status === "running" || state.status === "queued";
   const failed = state.status === "failed";
   const hasProcessItem = timeline.some((item) => item.kind === "assistantProcess");
@@ -365,16 +412,19 @@ export function ChatPanel({
                   locale={locale}
                   onPrefillComposer={onPrefillComposer}
                   onOpenTrace={onOpenTrace}
+                  resolveLinkHref={artifactLinkResolver}
+                  showFooter={item.showFooter ?? true}
+                  footerMessage={item.footerMessage}
                 />
               );
             }
             if (item.kind === "assistantProcess") {
               return <AssistantProcess key={item.id} item={item} />;
             }
-            if (item.kind === "card") {
+            if (item.kind === "presentation") {
               return (
                 <div key={item.id} className={ASSISTANT_GUIDE_CLASSNAME}>
-                  <DisplayCard card={item.card} onPreviewFile={onPreviewFile} />
+                  <PresentationItem presentation={item.presentation} onPreviewFile={onPreviewFile} />
                 </div>
               );
             }

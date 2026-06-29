@@ -26,6 +26,7 @@ def test_builtin_skills_load_all_ten() -> None:
         assert skill.status == "published"
         assert skill.enabled is True
         assert skill.instructions
+        assert "presentation.present" in skill.allowed_tools
 
 
 def test_builtin_deep_research_skill() -> None:
@@ -43,6 +44,7 @@ def test_builtin_deep_research_skill() -> None:
         "research.create_report",
         "artifact.create",
         "artifact.finalize",
+        "presentation.present",
     ]
     assert isinstance(skill.workspace_policy, AgentWorkspacePolicy)
     assert skill.workspace_policy.read is True

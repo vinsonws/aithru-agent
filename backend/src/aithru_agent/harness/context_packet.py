@@ -14,6 +14,7 @@ from aithru_agent.domain import (
     AgentRunContextCounts,
     AgentRunContextMessage,
     AgentRunContextPacket,
+    AgentRunContextPresentation,
     AgentRunContextToolResult,
     AgentRunContextTodo,
     AgentRunResearchActionContext,
@@ -25,6 +26,7 @@ from aithru_agent.domain import (
     ResearchPlanSection,
     ResearchReport,
 )
+from aithru_agent.stream.presentations import presentations_from_events
 from aithru_agent.memory import (
     LongTermMemoryProvider,
     LongTermMemorySearchResult,
@@ -125,6 +127,22 @@ class ContextPacketBuilder:
             dropped_research_evidence=dropped_research_evidence,
         )
         latest_message = thread_messages[-1] if thread_messages else None
+        events = await event_store.list_by_run(run.id) if event_store is not None else []
+        presentations = [
+            AgentRunContextPresentation(
+                id=presentation.id,
+                title=presentation.title,
+                status=presentation.status,
+                resource_kind=presentation.resource.kind,
+                resource_id=presentation.resource.id,
+                resource_path=presentation.resource.path,
+                surfaces=list(presentation.surfaces),
+                preferred_view=presentation.preferred_view,
+                available_views=list(presentation.available_views),
+                source_sequence=presentation.sequence or 0,
+            )
+            for presentation in presentations_from_events(events)[-10:]
+        ]
         return AgentRunContextPacket(
             run_id=run.id,
             thread_id=run.thread_id,
@@ -140,6 +158,7 @@ class ContextPacketBuilder:
             tool_results=tool_results,
             research=research,
             memory=memory,
+            presentations=presentations,
         )
 
     async def build_memory_recall(

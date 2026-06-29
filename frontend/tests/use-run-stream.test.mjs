@@ -52,7 +52,7 @@ function state() {
     assistantOutputSegments: [],
     todos: [],
     inlineRequests: [],
-    displayCards: [],
+    presentations: [],
   };
 }
 
@@ -129,6 +129,43 @@ test("buildRunStreamState records the latest replayed event sequence", async () 
   assert.equal(projected.lastEventSequence, 9);
 });
 
+test("followRunStreamUntilTerminal reconnects after a non-terminal stream close", async () => {
+  const { followRunStreamUntilTerminal } = await loadRunStreamModule();
+  const states = [];
+  const streamAfterSequences = [];
+  let streamCalls = 0;
+  const client = {
+    async stream(_runId, onEvent, _signal, afterSequence) {
+      streamCalls += 1;
+      streamAfterSequences.push(afterSequence);
+      if (streamCalls === 1) {
+        onEvent(event("run.started", { status: "running" }, 1));
+        return;
+      }
+      onEvent(
+        event(
+          "run.failed",
+          { status: "failed", error: { message: "tool exploded" } },
+          2,
+        ),
+      );
+    },
+  };
+
+  await followRunStreamUntilTerminal("run_1", client, {
+    initialState: state(),
+    reconnectDelayMs: 0,
+    onState(nextState) {
+      states.push(nextState);
+    },
+  });
+
+  assert.equal(streamCalls, 2);
+  assert.deepEqual(streamAfterSequences, [0, 1]);
+  assert.equal(states.at(-1).status, "failed");
+  assert.equal(states.at(-1).error, "tool exploded");
+});
+
 test("reduceEvent accumulates real reasoning segments without inventing content", async () => {
   const reduceEvent = await loadReduceEvent();
   const events = [
@@ -198,6 +235,45 @@ test("reduceEvent splits repeated reasoning id when a tool call happens between 
       },
       {
         content: "工作区为空，再搜索记忆。",
+        sequence: 14,
+        lastSequence: 15,
+        streaming: false,
+      },
+    ],
+  );
+  assert.equal(projected.reasoningSegments[0].id, "think_1");
+  assert.match(projected.reasoningSegments[1].id, /^think_1:chunk:14$/);
+});
+
+test("reduceEvent splits repeated reasoning id when assistant output happens between deltas", async () => {
+  const reduceEvent = await loadReduceEvent();
+  const events = [
+    event("message.created", { message_id: "msg_assistant", role: "assistant" }, 10),
+    event("reasoning.delta", { message_id: "msg_assistant", reasoning_id: "think_1", delta: "先构思。" }, 11),
+    event("reasoning.completed", { message_id: "msg_assistant", reasoning_id: "think_1" }, 12),
+    event("message.delta", { message_id: "msg_assistant", delta: "普通回复。" }, 13),
+    event("reasoning.delta", { message_id: "msg_assistant", reasoning_id: "think_1", delta: "继续思考。" }, 14),
+    event("reasoning.completed", { message_id: "msg_assistant", reasoning_id: "think_1" }, 15),
+  ];
+
+  const projected = events.reduce((current, nextEvent) => reduceEvent(current, nextEvent), state());
+
+  assert.deepEqual(
+    projected.reasoningSegments.map((segment) => ({
+      content: segment.content,
+      sequence: segment.sequence,
+      lastSequence: segment.lastSequence,
+      streaming: segment.streaming,
+    })),
+    [
+      {
+        content: "先构思。",
+        sequence: 11,
+        lastSequence: 12,
+        streaming: false,
+      },
+      {
+        content: "继续思考。",
         sequence: 14,
         lastSequence: 15,
         streaming: false,
@@ -287,23 +363,25 @@ test("revealRunStreamState releases streaming message text in small chunks", asy
   assert.equal(revealed.messages[0].content, "你好，这是");
 });
 
-test("reduceEvent projects display card events into stream state", async () => {
+test("reduceEvent projects presentation events into stream state", async () => {
   const reduceEvent = await loadReduceEvent();
   const projected = reduceEvent(
     state(),
     event(
-      "display.card.created",
+      "presentation.created",
       {
-        card: {
-          id: "card_1",
+        presentation: {
+          id: "presentation_1",
           run_id: "run_1",
           thread_id: "thread_1",
-          surface: "conversation",
-          type: "file",
           status: "ready",
+          priority: "normal",
           title: "a.txt",
           resource: { kind: "workspace_file", path: "/a.txt" },
-          actions: [{ kind: "preview", label: "Preview" }],
+          surfaces: ["conversation"],
+          preferred_view: "source_text",
+          available_views: ["source_text", "download"],
+          actions: [{ kind: "download", label: "Download" }],
           source: { created_by: "harness", tool_call_id: "tool_1" },
         },
       },
@@ -311,21 +389,15 @@ test("reduceEvent projects display card events into stream state", async () => {
     ),
   );
 
-  assert.deepEqual(projected.displayCards, [
-    {
-      id: "card_1",
-      type: "file",
-      status: "ready",
-      title: "a.txt",
-      surface: "conversation",
-      resource: { kind: "workspace_file", path: "/a.txt" },
-      actions: [{ kind: "preview", label: "Preview" }],
-      sequence: 16,
-      lastSequence: 16,
-      createdAt: "2026-06-23T00:00:00.000Z",
-      updatedAt: "2026-06-23T00:00:00.000Z",
-    },
-  ]);
+  assert.equal(projected.presentations.length, 1);
+  const p = projected.presentations[0];
+  assert.equal(p.id, "presentation_1");
+  assert.equal(p.status, "ready");
+  assert.equal(p.title, "a.txt");
+  assert.equal(p.preferredView, "source_text");
+  assert.deepEqual(p.resource, { kind: "workspace_file", path: "/a.txt" });
+  assert.deepEqual(p.surfaces, ["conversation"]);
+  assert.equal(p.sequence, 16);
 });
 
 test("revealRunStreamState flushes remaining text when a run is terminal", async () => {

@@ -58,6 +58,38 @@ test("assistant process auto-expands while thinking and auto-collapses when fina
   assert.match(source, /const open = manualOpen \?\? autoOpen/);
 });
 
+test("assistant process reasoning content omits repeated Thinking subheading", async () => {
+  const source = await src("features/chat/ChatPanel.tsx");
+
+  assert.doesNotMatch(source, /chat:process\.thinkingLabel/);
+  assert.match(source, /<Markdown variant="chat">\{step\.content\}<\/Markdown>/);
+});
+
+test("assistant process summary uses per-process timing", async () => {
+  const source = await src("features/chat/ChatPanel.tsx");
+
+  assert.match(source, /startedAt:\s*item\.startedAt/);
+  assert.match(source, /completedAt:\s*item\.completedAt/);
+  assert.doesNotMatch(source, /processDurationLabel\(state,\s*t\)/);
+});
+
+test("assistant output fragments only show message footer on the final fragment", async () => {
+  const source = await src("features/chat/ChatPanel.tsx");
+
+  assert.match(source, /showFooter = true/);
+  assert.match(source, /footerMessage\?: ChatMessage/);
+  assert.match(source, /showFooter=\{item\.showFooter \?\? true\}/);
+  assert.match(source, /footerMessage=\{item\.footerMessage\}/);
+});
+
+test("assistant message text does not render a streaming cursor", async () => {
+  const source = await src("features/chat/ChatPanel.tsx");
+
+  assert.doesNotMatch(source, /message\.streaming\s*&&/);
+  assert.doesNotMatch(source, /align-text-bottom/);
+  assert.doesNotMatch(source, /animate-pulse bg-accent/);
+});
+
 test("FileCard renders artifact files in the chat timeline when present", async () => {
   const fileCardSource = await src("features/chat/FileCard.tsx");
 

@@ -2,6 +2,8 @@ import pytest
 from pydantic_ai.messages import (
     PartDeltaEvent,
     PartEndEvent,
+    PartStartEvent,
+    TextPart,
     TextPartDelta,
     ThinkingPart,
     ThinkingPartDelta,
@@ -143,6 +145,36 @@ class ThinkingAgentRuntime(AgentRuntime):
         return ThinkingAgent()
 
 
+class PartStartStream:
+    async def __aenter__(self):  # type: ignore[no-untyped-def]
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+        return False
+
+    def __aiter__(self):  # type: ignore[no-untyped-def]
+        return self._events().__aiter__()
+
+    async def _events(self):  # type: ignore[no-untyped-def]
+        yield PartStartEvent(index=0, part=ThinkingPart(content="先"))
+        yield PartDeltaEvent(index=0, delta=ThinkingPartDelta(content_delta="确认。"))
+        yield PartEndEvent(index=0, part=ThinkingPart(content="先确认。"))
+        yield PartStartEvent(index=1, part=TextPart(content="You"))
+        yield PartDeltaEvent(index=1, delta=TextPartDelta(content_delta="'ve asked for a surprise."))
+
+
+class PartStartAgent:
+    def run_stream_events(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        del args, kwargs
+        return PartStartStream()
+
+
+class PartStartAgentRuntime(AgentRuntime):
+    async def build_agent(self, deps):  # type: ignore[no-untyped-def]
+        del deps
+        return PartStartAgent()
+
+
 class RecordingSettingsStream:
     async def __aenter__(self):  # type: ignore[no-untyped-def]
         return self
@@ -232,6 +264,30 @@ async def test_pydantic_ai_runtime_streams_thinking_deltas() -> None:
         event.payload["reasoning_id"] for event in events if event.type == "reasoning.completed"
     ] == ["msg_1:thinking:0"]
     assert "".join(event.payload["delta"] for event in events if event.type == "message.delta") == "done"
+
+
+@pytest.mark.asyncio
+async def test_pydantic_ai_runtime_streams_part_start_content() -> None:
+    runtime = _runtime(agent_runtime=PartStartAgentRuntime())
+
+    run = await runtime.runner.start_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        task_msg="Say done with part starts",
+        scopes=["*"],
+    )
+    events = await runtime.event_store.list_by_run(run.id)
+
+    assert run.status == AgentRunStatus.COMPLETED
+    assert [
+        event.payload["delta"] for event in events if event.type == "reasoning.delta"
+    ] == ["先", "确认。"]
+    assert [
+        event.payload["delta"] for event in events if event.type == "message.delta"
+    ] == ["You", "'ve asked for a surprise."]
+    assert next(event for event in events if event.type == "message.completed").payload["content"] == (
+        "You've asked for a surprise."
+    )
 
 
 @pytest.mark.asyncio

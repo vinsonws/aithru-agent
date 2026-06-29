@@ -74,6 +74,20 @@ export interface RequestOptions {
   raw?: boolean;
 }
 
+export interface EventStreamOptions {
+  /** Abort the stream if no bytes arrive during this window. Set <= 0 to disable. */
+  idleTimeoutMs?: number;
+}
+
+const DEFAULT_EVENT_STREAM_IDLE_TIMEOUT_MS = 45_000;
+
+export class EventStreamKeepaliveTimeoutError extends Error {
+  constructor(message = "Event stream keepalive timed out") {
+    super(message);
+    this.name = "EventStreamKeepaliveTimeoutError";
+  }
+}
+
 function withQuery(path: string, query?: RequestOptions["query"]): string {
   if (!query) return path;
   const params = new URLSearchParams();
@@ -112,11 +126,37 @@ export function openEventStream(
   path: string,
   onEvent: (event: unknown) => void,
   signal?: AbortSignal,
+  options: EventStreamOptions = {},
 ): Promise<void> {
   const headers = buildHeaders({ accept: "text/event-stream" });
+  const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_EVENT_STREAM_IDLE_TIMEOUT_MS;
+  const controller = new AbortController();
+  let idleTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  let keepaliveTimedOut = false;
+
+  const clearIdleTimer = () => {
+    if (idleTimer !== undefined) {
+      globalThis.clearTimeout(idleTimer);
+      idleTimer = undefined;
+    }
+  };
+  const resetIdleTimer = () => {
+    if (idleTimeoutMs <= 0) return;
+    clearIdleTimer();
+    idleTimer = globalThis.setTimeout(() => {
+      keepaliveTimedOut = true;
+      controller.abort();
+    }, idleTimeoutMs);
+  };
+  const abortFromCaller = () => controller.abort();
+  if (signal?.aborted) return Promise.resolve();
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  resetIdleTimer();
+
   // fetch-based SSE: read the streaming body and parse `data:` frames.
-  return fetch(path, { method: "GET", headers, signal })
+  return fetch(path, { method: "GET", headers, signal: controller.signal })
     .then(async (res) => {
+      resetIdleTimer();
       if (!res.ok || !res.body) throw await parseError(res);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -124,6 +164,7 @@ export function openEventStream(
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        resetIdleTimer();
         buffer += decoder.decode(value, { stream: true });
         const frames = buffer.split("\n\n");
         buffer = frames.pop() ?? "";
@@ -145,6 +186,11 @@ export function openEventStream(
     })
     .catch((err) => {
       if (signal?.aborted) return;
+      if (keepaliveTimedOut) throw new EventStreamKeepaliveTimeoutError();
       throw err;
+    })
+    .finally(() => {
+      clearIdleTimer();
+      signal?.removeEventListener("abort", abortFromCaller);
     });
 }

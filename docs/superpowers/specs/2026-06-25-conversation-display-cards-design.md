@@ -74,7 +74,7 @@ the same stream ordering as reasoning and tool calls.
 User asks to create a file
 
 Thought for 3s
-  Thinking
+  Reasoning content, when available
   Tool workspace.write_file
 
 File card: a.txt

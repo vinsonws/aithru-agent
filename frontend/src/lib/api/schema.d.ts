@@ -2124,92 +2124,6 @@ export interface components {
             sequence: number;
             audit: components["schemas"]["AgentCapabilityAuditEvent"];
         };
-        /** AgentDisplayCard */
-        AgentDisplayCard: {
-            /** Id */
-            id: string;
-            /** Thread Id */
-            thread_id?: string | null;
-            /** Run Id */
-            run_id: string;
-            /** Sequence */
-            sequence?: number | null;
-            /**
-             * Surface
-             * @default conversation
-             * @enum {string}
-             */
-            surface: "conversation" | "side_panel" | "both";
-            /**
-             * Type
-             * @default generic
-             * @enum {string}
-             */
-            type: "file" | "artifact" | "approval" | "todo" | "memory" | "search_result" | "generic";
-            /**
-             * Status
-             * @default ready
-             * @enum {string}
-             */
-            status: "pending" | "ready" | "failed";
-            /** Title */
-            title: string;
-            /** Summary */
-            summary?: string | null;
-            resource?: components["schemas"]["AgentDisplayCardResource"];
-            /** Actions */
-            actions?: components["schemas"]["AgentDisplayCardAction"][];
-            source: components["schemas"]["AgentDisplayCardSource"];
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
-        };
-        /** AgentDisplayCardAction */
-        AgentDisplayCardAction: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "preview" | "download" | "open" | "none";
-            /** Label */
-            label?: string | null;
-            /** Target */
-            target?: string | null;
-            /**
-             * Disabled
-             * @default false
-             */
-            disabled: boolean;
-        };
-        /** AgentDisplayCardResource */
-        AgentDisplayCardResource: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "workspace_file" | "artifact" | "external_url" | "none";
-            /** Id */
-            id?: string | null;
-            /** Path */
-            path?: string | null;
-            /** Url */
-            url?: string | null;
-        };
-        /** AgentDisplayCardSource */
-        AgentDisplayCardSource: {
-            /**
-             * Created By
-             * @enum {string}
-             */
-            created_by: "harness" | "tool" | "model_request";
-            /** Event Id */
-            event_id?: string | null;
-            /** Tool Call Id */
-            tool_call_id?: string | null;
-            /** Tool Name */
-            tool_name?: string | null;
-        };
         /** AgentExternalApprovalRef */
         AgentExternalApprovalRef: {
             /**
@@ -2756,6 +2670,130 @@ export interface components {
          * @enum {string}
          */
         AgentModelReasoningEffort: "none" | "low" | "medium" | "high";
+        /** AgentPresentation */
+        AgentPresentation: {
+            /** Id */
+            id: string;
+            /** Org Id */
+            org_id?: string | null;
+            /** Thread Id */
+            thread_id?: string | null;
+            /** Run Id */
+            run_id: string;
+            /** Sequence */
+            sequence?: number | null;
+            /**
+             * Status
+             * @default ready
+             * @enum {string}
+             */
+            status: "pending" | "ready" | "failed" | "dismissed";
+            /**
+             * Priority
+             * @default normal
+             * @enum {string}
+             */
+            priority: "low" | "normal" | "high";
+            /** Title */
+            title: string;
+            /** Summary */
+            summary?: string | null;
+            /** Reason */
+            reason?: string | null;
+            resource?: components["schemas"]["AgentPresentationResource"];
+            /** Surfaces */
+            surfaces?: ("conversation" | "side_panel" | "approval_panel" | "activity" | "header")[];
+            /**
+             * Preferred View
+             * @default none
+             * @enum {string}
+             */
+            preferred_view: "html_preview" | "source_text" | "markdown" | "json" | "image" | "pdf" | "diff" | "approval_review" | "activity_detail" | "download" | "open_external" | "none";
+            /** Available Views */
+            available_views?: ("html_preview" | "source_text" | "markdown" | "json" | "image" | "pdf" | "diff" | "approval_review" | "activity_detail" | "download" | "open_external" | "none")[];
+            /** Effects */
+            effects?: components["schemas"]["AgentPresentationEffect"][];
+            /** Actions */
+            actions?: components["schemas"]["AgentPresentationAction"][];
+            source: components["schemas"]["AgentPresentationSource"];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** AgentPresentationAction */
+        AgentPresentationAction: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "open_view" | "download" | "approve" | "reject" | "retry" | "continue" | "open_in_workbench" | "open_external" | "copy_reference" | "none";
+            /** Label */
+            label: string;
+            /** View */
+            view?: ("html_preview" | "source_text" | "markdown" | "json" | "image" | "pdf" | "diff" | "approval_review" | "activity_detail" | "download" | "open_external" | "none") | null;
+            /** Path */
+            path?: string | null;
+            /** Method */
+            method?: ("GET" | "POST") | null;
+            /**
+             * Requires Confirmation
+             * @default false
+             */
+            requires_confirmation: boolean;
+        };
+        /** AgentPresentationEffect */
+        AgentPresentationEffect: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "open_panel" | "focus_presentation" | "scroll_to" | "highlight" | "none";
+            /** Panel */
+            panel?: string | null;
+            /** Surface */
+            surface?: ("conversation" | "side_panel" | "approval_panel" | "activity" | "header") | null;
+            /** Presentation Id */
+            presentation_id?: string | null;
+            /**
+             * Mode
+             * @default soft
+             * @enum {string}
+             */
+            mode: "soft" | "assertive";
+        };
+        /** AgentPresentationResource */
+        AgentPresentationResource: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "artifact" | "workspace_file" | "approval" | "todo" | "run" | "trace_span" | "external_url" | "none";
+            /** Id */
+            id?: string | null;
+            /** Path */
+            path?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /** AgentPresentationSource */
+        AgentPresentationSource: {
+            /**
+             * Created By
+             * @enum {string}
+             */
+            created_by: "harness" | "tool" | "model_request";
+            /** Event Id */
+            event_id?: string | null;
+            /** Tool Call Id */
+            tool_call_id?: string | null;
+            /** Tool Name */
+            tool_name?: string | null;
+        };
         /** AgentRun */
         AgentRun: {
             /** Id */
@@ -5696,8 +5734,8 @@ export interface components {
             resume: components["schemas"]["RunResumeSnapshot"];
             /** Subagents */
             subagents?: components["schemas"]["AgentSubagentRun"][];
-            /** Display Cards */
-            display_cards?: components["schemas"]["AgentDisplayCard"][];
+            /** Presentations */
+            presentations?: components["schemas"]["AgentPresentation"][];
         };
         /** RunTreeDelegation */
         RunTreeDelegation: {
@@ -7203,7 +7241,8 @@ export interface operations {
                 after_sequence?: number;
                 follow?: boolean;
                 poll_interval_seconds?: number;
-                timeout_seconds?: number;
+                timeout_seconds?: number | null;
+                keepalive_interval_seconds?: number;
             };
             header?: never;
             path: {
@@ -7239,7 +7278,8 @@ export interface operations {
                 after_sequence?: number;
                 follow?: boolean;
                 poll_interval_seconds?: number;
-                timeout_seconds?: number;
+                timeout_seconds?: number | null;
+                keepalive_interval_seconds?: number;
             };
             header?: never;
             path: {

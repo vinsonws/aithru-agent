@@ -345,6 +345,19 @@ class AgentRunResumeContext(AithruBaseModel):
         return None
 
 
+class AgentRunContextPresentation(AithruBaseModel):
+    id: str
+    title: str
+    status: str
+    resource_kind: str
+    resource_id: str | None = None
+    resource_path: str | None = None
+    surfaces: list[str] = Field(default_factory=list)
+    preferred_view: str
+    available_views: list[str] = Field(default_factory=list)
+    source_sequence: int = Field(ge=0)
+
+
 class AgentRunContextPacket(AithruBaseModel):
     run_id: str
     thread_id: str | None = None
@@ -360,6 +373,7 @@ class AgentRunContextPacket(AithruBaseModel):
     tool_results: list[AgentRunContextToolResult] = Field(default_factory=list)
     research: AgentRunResearchContinuationContext | None = None
     memory: AgentMemoryRecall | None = None
+    presentations: list[AgentRunContextPresentation] = Field(default_factory=list)
 
     @computed_field
     @property
@@ -385,6 +399,7 @@ class AgentRunContextPacket(AithruBaseModel):
             or self.tool_results
             or self.research
             or (self.memory and self.memory.items)
+            or self.presentations
         )
 
     @computed_field

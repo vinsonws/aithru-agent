@@ -5,7 +5,7 @@ from .events import (
     AgentStreamVisibility,
 )
 from .redaction import REDACTED_VALUE, combine_redaction, redact_stream_payload
-from .sse import format_sse_event
+from .sse import format_sse_comment, format_sse_event
 from .store import InMemoryAgentEventStore
 from .writer import AgentEventWriter
 
@@ -18,6 +18,7 @@ __all__ = [
     "InMemoryAgentEventStore",
     "REDACTED_VALUE",
     "combine_redaction",
+    "format_sse_comment",
     "format_sse_event",
     "redact_stream_payload",
 ]

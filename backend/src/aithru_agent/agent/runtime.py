@@ -9,6 +9,8 @@ from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     PartDeltaEvent,
     PartEndEvent,
+    PartStartEvent,
+    TextPart,
     TextPartDelta,
     ThinkingPart,
     ThinkingPartDelta,
@@ -136,7 +138,7 @@ class AgentRuntime:
             model_settings=_model_settings_for_run(deps.run),
         ) as stream:
             async for event in stream:
-                if isinstance(event, PartDeltaEvent | PartEndEvent):
+                if isinstance(event, PartStartEvent | PartDeltaEvent | PartEndEvent):
                     await _emit_model_stream_part_event(
                         deps,
                         event=event,
@@ -200,7 +202,7 @@ class AgentRuntime:
             model_settings=_model_settings_for_run(deps.run),
         ) as stream:
             async for event in stream:
-                if isinstance(event, PartDeltaEvent | PartEndEvent):
+                if isinstance(event, PartStartEvent | PartDeltaEvent | PartEndEvent):
                     await _emit_model_stream_part_event(
                         deps,
                         event=event,
@@ -449,7 +451,7 @@ class AgentRuntime:
             model_settings=_model_settings_for_run(deps.run),
         ) as stream:
             async for event in stream:
-                if isinstance(event, PartDeltaEvent | PartEndEvent):
+                if isinstance(event, PartStartEvent | PartDeltaEvent | PartEndEvent):
                     await _emit_model_stream_part_event(
                         deps,
                         event=event,
@@ -508,10 +510,36 @@ def _result_content(content_parts: list[str], final_output: str | None) -> str:
 async def _emit_model_stream_part_event(
     deps: PydanticAgentDeps,
     *,
-    event: PartDeltaEvent | PartEndEvent,
+    event: PartStartEvent | PartDeltaEvent | PartEndEvent,
     message_id: str,
     content_parts: list[str],
 ) -> None:
+    if isinstance(event, PartStartEvent):
+        if isinstance(event.part, TextPart) and event.part.content:
+            content_parts.append(event.part.content)
+            await deps.event_writer.write(
+                run_id=deps.run.id,
+                thread_id=deps.run.thread_id,
+                type="message.delta",
+                source={"kind": "model"},
+                payload={"message_id": message_id, "delta": event.part.content},
+            )
+            return
+
+        if isinstance(event.part, ThinkingPart) and event.part.content:
+            await deps.event_writer.write(
+                run_id=deps.run.id,
+                thread_id=deps.run.thread_id,
+                type="reasoning.delta",
+                source={"kind": "model"},
+                payload={
+                    "message_id": message_id,
+                    "reasoning_id": _thinking_part_id(message_id, event.index),
+                    "delta": event.part.content,
+                },
+            )
+        return
+
     if isinstance(event, PartDeltaEvent):
         if isinstance(event.delta, TextPartDelta):
             if event.delta.content_delta:

@@ -719,7 +719,9 @@ POST   /api/model-profiles/{profile_id_or_key}/disable
 ```
 
 Run streams replay existing events by default. Add `follow=true` to wait for new
-SSE events until the run reaches a terminal state or the stream timeout expires.
+SSE events until the run emits `run.completed`, `run.failed`, or `run.cancelled`.
+Follow streams send SSE keepalive comments while idle. `timeout_seconds` is an
+optional debugging/test guard, not the default close condition.
 Completed runs expose `result.content`, `result.artifact_ids`, and message
 references on the run record and in the `run.completed` event payload.
 `POST /api/runs` accepts optional `harness_options.model_profile_key`,

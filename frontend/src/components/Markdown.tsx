@@ -1,3 +1,4 @@
+import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -16,12 +17,37 @@ export interface MarkdownProps {
   className?: string;
   /** Render with chat-friendly spacing (tighter, no huge headings). */
   variant?: "default" | "chat";
+  resolveLinkHref?: (href: string) => string;
 }
 
 const remarkPlugins = [remarkGfm];
 const rehypePlugins = [rehypeHighlight];
 
-export function Markdown({ children, className, variant = "default" }: MarkdownProps) {
+export function Markdown({
+  children,
+  className,
+  variant = "default",
+  resolveLinkHref,
+}: MarkdownProps) {
+  const components: Components | undefined = resolveLinkHref
+    ? {
+        a({ href, children, node: _node, ...props }) {
+          const resolvedHref = href ? resolveLinkHref(href) : undefined;
+          const external = Boolean(resolvedHref && /^https?:\/\//i.test(resolvedHref));
+          return (
+            <a
+              {...props}
+              href={resolvedHref}
+              target={external ? "_blank" : undefined}
+              rel={external ? "noreferrer" : undefined}
+            >
+              {children}
+            </a>
+          );
+        },
+      }
+    : undefined;
+
   return (
     <div
       className={cn(
@@ -37,7 +63,7 @@ export function Markdown({ children, className, variant = "default" }: MarkdownP
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
         {children}
       </ReactMarkdown>
     </div>
