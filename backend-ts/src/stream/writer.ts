@@ -1,12 +1,10 @@
+import { nanoid } from "nanoid";
 import type { AgentStreamEvent, AgentStreamSource } from "../contracts/types.js";
 import { InMemoryStore } from "../persistence/store.js";
 import { VISIBILITY, REDACTION } from "./events.js";
 
-let nextEventId = 0;
-
 function generateEventId(): string {
-  nextEventId += 1;
-  return `evt_${nextEventId.toString(36)}_${Date.now().toString(36)}`;
+  return `evt_${nanoid(12)}`;
 }
 
 export class AgentEventWriter {

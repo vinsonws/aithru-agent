@@ -66,11 +66,7 @@ export function registerThreadRoutes(app: FastifyInstance): void {
     async (request) => {
       const { org_id } = (request.query as any) || {};
       const runtime = getRuntime();
-      let threads = [...runtime.store["_dump"]().threads];
-      if (org_id) {
-        threads = threads.filter((t) => t.org_id === org_id);
-      }
-      return threads;
+      return runtime.store.listThreads(org_id);
     },
   );
 

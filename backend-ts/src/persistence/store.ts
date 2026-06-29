@@ -54,8 +54,10 @@ export class InMemoryStore {
     return this.threads.get(id);
   }
 
-  listThreads(orgId: string): AgentThread[] {
-    return [...this.threads.values()].filter((t) => t.org_id === orgId);
+  listThreads(orgId?: string): AgentThread[] {
+    let threads = [...this.threads.values()];
+    if (orgId) threads = threads.filter((t) => t.org_id === orgId);
+    return threads;
   }
 
   updateThread(id: string, patch: Partial<AgentThread>): AgentThread {

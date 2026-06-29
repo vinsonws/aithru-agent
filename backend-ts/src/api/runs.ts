@@ -74,9 +74,10 @@ export function registerRunRoutes(app: FastifyInstance): void {
         },
       },
     },
-    async () => {
+    async (request) => {
+      const { org_id, thread_id } = (request.query as any) || {};
       const runtime = getRuntime();
-      return [...runtime.store["_dump"]().runs];
+      return runtime.store.listRuns({ org_id, thread_id });
     },
   );
 

@@ -2,7 +2,6 @@ import { InMemoryStore } from "../persistence/store.js";
 import { AgentEventWriter } from "../stream/writer.js";
 import type { CapabilityRouter } from "../capabilities/router.js";
 import { ScriptedHarnessCore, type ScriptedHarnessScript } from "../core/harness.js";
-import { EVENT_TYPES } from "../stream/events.js";
 import type { AgentRun } from "../contracts/types.js";
 
 export class WorkerRunner {
@@ -24,14 +23,6 @@ export class WorkerRunner {
     run: AgentRun,
     script: ScriptedHarnessScript,
   ): Promise<AgentRun> {
-    // Emit run.created (happens once, usually at API creation time)
-    this.eventWriter.write(
-      run.id,
-      run.thread_id || null,
-      EVENT_TYPES.RUN_CREATED,
-      { run_id: run.id, status: run.status },
-    );
-
     // Set status to running
     this.store.updateRun(run.id, { status: "running" });
 
