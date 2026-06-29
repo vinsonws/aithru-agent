@@ -88,8 +88,7 @@ describe("RecoveryScanner", () => {
 
     const recovered = await scanner.recoverRun(run, "recovery_worker");
     expect(recovered.status).toBe("failed");
-    expect(recovered.error).toBeDefined();
-    expect(recovered.error!.code).toBe("WORKER_DIED");
+    expect(recovered.error).toMatchObject({ code: "WORKER_DIED" });
 
     // Claim should be released
     const updated = store.getRun(run.id)!;

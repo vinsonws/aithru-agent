@@ -4,6 +4,10 @@
   "description": "TypeScript backend for the Aithru Agent harness.",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -12,8 +16,8 @@
     "test:capability-boundary": "vitest run tests/capability/",
     "check:no-python-backend": "node scripts/check-no-python.mjs",
     "examples:file-report": "npx tsx examples/file_report_agent.ts",
-    "dev": "npx tsx src/cli/server.ts",
-    "start": "node --loader ts-node/esm src/cli/server.ts"
+    "dev": "npx tsx apps/api/src/cli.ts",
+    "start": "node --loader ts-node/esm apps/api/src/cli.ts"
   },
   "dependencies": {
     "@fastify/swagger": "^9.4.0",

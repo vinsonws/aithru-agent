@@ -5,16 +5,41 @@
     "moduleResolution": "NodeNext",
     "lib": ["ES2023"],
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "allowJs": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@aithru-agent/api": ["apps/api/src/index.ts"],
+      "@aithru-agent/contracts": ["packages/contracts/src/index.ts"],
+      "@aithru-agent/domain": ["packages/domain/src/index.ts"],
+      "@aithru-agent/stream": ["packages/stream/src/index.ts"],
+      "@aithru-agent/trace": ["packages/trace/src/index.ts"],
+      "@aithru-agent/capabilities": ["packages/capabilities/src/index.ts"],
+      "@aithru-agent/harness": ["packages/harness/src/index.ts"],
+      "@aithru-agent/model": ["packages/model/src/index.ts"],
+      "@aithru-agent/persistence": ["packages/persistence/src/index.ts"],
+      "@aithru-agent/external": ["packages/external/src/index.ts"],
+      "@aithru-agent/skills": ["packages/skills/src/index.ts"],
+      "@aithru-agent/memory": ["packages/memory/src/index.ts"],
+      "@aithru-agent/snapshots": ["packages/snapshots/src/index.ts"],
+      "@aithru-agent/subagents": ["packages/subagents/src/index.ts"],
+      "@aithru-agent/worker": ["packages/worker/src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "tests", "examples"]
+  "include": [
+    "apps/**/*.ts",
+    "packages/**/*.ts",
+    "examples/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.mjs"
+  ],
+  "exclude": ["node_modules", "dist"]
 }
