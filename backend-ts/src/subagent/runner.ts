@@ -6,7 +6,6 @@ import type { CapabilityRouter } from "../capabilities/router.js";
 import { WorkerRunner } from "../worker/runner.js";
 import type { AgentRun } from "../contracts/types.js";
 import type { ToolCallStep } from "../core/run-loop.js";
-import { InMemoryStore } from "../persistence/store.js";
 
 export interface SubagentSpec {
   task: string;
@@ -56,7 +55,7 @@ export class SubagentRunner {
     // Wait for completion (simplified: run synchronously in P2)
     if (script) {
       const worker = new WorkerRunner({
-        store: this.store as InMemoryStore,
+        store: this.store,
         eventWriter: this.eventWriter,
         capabilityRouter: this.capabilityRouter,
       });

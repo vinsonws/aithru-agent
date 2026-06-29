@@ -1,7 +1,7 @@
 import { createApp } from "../api/app.js";
 
 async function main() {
-  const app = createApp();
+  const app = await createApp();
 
   const port = parseInt(process.env.PORT || "8000", 10);
   const host = process.env.HOST || "0.0.0.0";

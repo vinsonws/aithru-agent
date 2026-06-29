@@ -5,11 +5,11 @@ import { registerRunRoutes } from "./runs.js";
 import { registerApprovalRoutes } from "./approvals.js";
 import { createRuntime } from "../application/runtime.js";
 
-export function createApp() {
+export async function createApp() {
   const app = Fastify({ logger: true });
 
   // Initialize runtime
-  createRuntime();
+  await createRuntime();
 
   // Register routes
   registerHealthRoutes(app);

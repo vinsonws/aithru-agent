@@ -24,7 +24,7 @@ export class SkillLoader {
   }
 
   private parseSkillMd(filePath: string, content: string): SkillPackage {
-    const name = filePath.split("/").slice(-2, -1)[0] || "unknown";
+    const name = filePath.replace(/\\/g, "/").split("/").slice(-2, -1)[0] || "unknown";
     const metadata: Record<string, string> = {};
 
     // Extract frontmatter if present

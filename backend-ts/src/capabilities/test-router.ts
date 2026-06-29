@@ -5,7 +5,7 @@ import type {
   AgentToolCallResult,
 } from "./descriptors.js";
 import type { RunContext } from "./policy.js";
-import { InMemoryStore } from "../persistence/store.js";
+import type { AgentStore } from "../persistence/protocols.js";
 
 const P0_TOOLS: AgentToolDescriptor[] = [
   {
@@ -121,7 +121,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
 ];
 
 export class TestCapabilityRouter implements CapabilityRouter {
-  constructor(private store: InMemoryStore) {}
+  constructor(private store: AgentStore) {}
 
   async listTools(_ctx: RunContext): Promise<AgentToolDescriptor[]> {
     return P0_TOOLS;

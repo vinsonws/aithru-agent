@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import type { AgentStreamEvent, AgentStreamSource } from "../contracts/types.js";
-import { InMemoryStore } from "../persistence/store.js";
+import type { AgentStore } from "../persistence/protocols.js";
 import { VISIBILITY, REDACTION } from "./events.js";
 import { redactPayload } from "./redaction.js";
 
@@ -9,7 +9,7 @@ function generateEventId(): string {
 }
 
 export class AgentEventWriter {
-  constructor(private store: InMemoryStore) {}
+  constructor(private store: AgentStore) {}
 
   write(
     runId: string,

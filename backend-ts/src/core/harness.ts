@@ -1,5 +1,5 @@
 import type { AgentRun } from "../contracts/types.js";
-import { InMemoryStore } from "../persistence/store.js";
+import type { AgentStore } from "../persistence/protocols.js";
 import { AgentEventWriter } from "../stream/writer.js";
 import type { CapabilityRouter } from "../capabilities/router.js";
 import { RunLoop, type ToolCallStep } from "./run-loop.js";
@@ -15,12 +15,12 @@ export interface ScriptedHarnessScript {
 }
 
 export class ScriptedHarnessCore implements HarnessCore {
-  private store: InMemoryStore;
+  private store: AgentStore;
   private eventWriter: AgentEventWriter;
   private capabilityRouter: CapabilityRouter;
 
   constructor(deps: {
-    store: InMemoryStore;
+    store: AgentStore;
     eventWriter: AgentEventWriter;
     capabilityRouter: CapabilityRouter;
   }) {

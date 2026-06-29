@@ -9,7 +9,7 @@ function now(): string {
 }
 
 async function main() {
-  const runtime = createRuntime();
+  const runtime = await createRuntime();
 
   // Create a run with WRITE scopes (allowed)
   const run: AgentRun = {

@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { InMemoryStore } from "../persistence/store.js";
+import type { AgentStore } from "../persistence/protocols.js";
 import { AgentEventWriter } from "../stream/writer.js";
 import type { CapabilityRouter } from "../capabilities/router.js";
 import { ScriptedHarnessCore, type ScriptedHarnessScript } from "../core/harness.js";
@@ -9,12 +9,12 @@ import { EVENT_TYPES } from "../stream/events.js";
 
 export class WorkerRunner {
   private harness: ScriptedHarnessCore;
-  private store: InMemoryStore;
+  private store: AgentStore;
   private eventWriter: AgentEventWriter;
   private workerId: string;
 
   constructor(deps: {
-    store: InMemoryStore;
+    store: AgentStore;
     eventWriter: AgentEventWriter;
     capabilityRouter: CapabilityRouter;
   }) {

@@ -2,13 +2,13 @@ import type { AgentRun, AgentStreamEvent } from "../contracts/types.js";
 import type { CapabilityRouter, ToolPrepareResult } from "../capabilities/router.js";
 import type { AgentToolCallRequest, AgentToolCallResult } from "../capabilities/descriptors.js";
 import { AgentEventWriter } from "../stream/writer.js";
-import { InMemoryStore } from "../persistence/store.js";
+import type { AgentStore } from "../persistence/protocols.js";
 import { EVENT_TYPES } from "../stream/events.js";
 import { validateRunStatusTransition } from "../contracts/schemas.js";
 
 export interface RunLoopContext {
   run: AgentRun;
-  store: InMemoryStore;
+  store: AgentStore;
   eventWriter: AgentEventWriter;
   capabilityRouter: CapabilityRouter;
 }

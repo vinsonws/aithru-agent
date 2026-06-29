@@ -2,7 +2,7 @@ import type { CapabilityRouter, ToolPrepareResult } from "./router.js";
 import type { AgentToolDescriptor, AgentToolCallRequest, AgentToolCallResult } from "./descriptors.js";
 import type { RunContext } from "./policy.js";
 import { PolicyEngine, resolveSkillPolicy } from "./policy.js";
-import { InMemoryStore } from "../persistence/store.js";
+import type { AgentStore } from "../persistence/protocols.js";
 import { AgentEventWriter } from "../stream/writer.js";
 import { EVENT_TYPES, VISIBILITY } from "../stream/events.js";
 
@@ -135,7 +135,7 @@ const PRODUCTION_TOOLS: AgentToolDescriptor[] = [
 
 export class ProductionCapabilityRouter implements CapabilityRouter {
   constructor(
-    private store: InMemoryStore,
+    private store: AgentStore,
     private eventWriter: AgentEventWriter,
   ) {}
 

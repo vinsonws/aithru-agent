@@ -7,7 +7,7 @@ function now(): string {
 }
 
 async function main() {
-  const runtime = createRuntime();
+  const runtime = await createRuntime();
 
   // Create a run (mimics what API would do)
   const run: AgentRun = {

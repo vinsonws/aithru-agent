@@ -66,6 +66,11 @@ export interface AgentStore {
   listArtifacts(runId: string): AgentArtifact[];
   finalizeArtifact(id: string): AgentArtifact;
 
+  // Claims
+  acquireClaim(runId: string, workerId: string, leaseSeconds?: number): boolean;
+  releaseClaim(runId: string, workerId: string): void;
+  findStaleClaims(): AgentRun[];
+
   // Lifecycle
   close(): void;
 }

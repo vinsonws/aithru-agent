@@ -114,14 +114,16 @@ export class SqliteStore implements AgentStore {
   // ── Runs ─────────────────────────────────────────────────────────────
 
   createRun(run: AgentRun): AgentRun {
+    const { claim: _claim, current_approval_id: _cap, ...flat } = run as any;
     this.db
       .insertInto("runs")
       .values({
-        ...run,
+        ...flat,
         scopes: JSON.stringify(run.scopes),
         harness_options: run.harness_options
           ? JSON.stringify(run.harness_options)
           : null,
+        current_approval_id: run.current_approval_id ?? null,
         claim_worker_id: run.claim?.worker_id ?? null,
         claim_claimed_at: run.claim?.claimed_at ?? null,
         claim_heartbeat_at: run.claim?.last_heartbeat_at ?? null,
@@ -483,18 +485,21 @@ export class SqliteStore implements AgentStore {
   findStaleClaims(now?: string): AgentRun[] {
     const ts =
       now || new Date().toISOString().replace(/\.\d{3}/, "");
-    return (
-      this.db
-        .selectFrom("runs")
-        .selectAll()
-        .where("status", "in", [
-          "running",
-          "waiting_approval",
-          "waiting_subagent",
-        ])
-        .where("claim_lease_expires_at", "<=", ts)
-        .execute() as unknown as any[]
-    ).map((r: any) => this._hydrateRun(r));
+    const rows = this.db
+      .selectFrom("runs")
+      .selectAll()
+      .where((eb) =>
+        eb.and([
+          eb("status", "in", [
+            "running",
+            "waiting_approval",
+            "waiting_subagent",
+          ]),
+          eb("claim_lease_expires_at", "<=", ts),
+        ]),
+      )
+      .execute();
+    return (rows as unknown as any[]).map((r: any) => this._hydrateRun(r));
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────
