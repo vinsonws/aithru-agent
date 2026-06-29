@@ -32,6 +32,7 @@ from aithru_agent.domain.research import (
 )
 from aithru_agent.agent.tools.recovery import (
     model_visible_recovery_payload,
+    recovery_attempt_from_events,
     recovery_attempt_key,
     recovery_attempt_payload,
     recovery_event_payload,
@@ -381,7 +382,33 @@ class PydanticAIToolBridge:
         recovery = getattr(result, "recovery", None)
         if recovery is None or not recovery.recoverable:
             return None
-        attempt = 1
+        attempt_key = recovery_attempt_key(tool_name, recovery)
+        prior_events = (
+            await self._deps.event_store.list_by_run(self._run.id)
+            if self._deps.event_store is not None
+            else []
+        )
+        attempt = recovery_attempt_from_events(events=prior_events, attempt_key=attempt_key)
+        attempt_payload = recovery_attempt_payload(
+            tool_name=tool_name,
+            recovery=recovery,
+            attempt=attempt,
+        )
+        if attempt > recovery.max_attempts:
+            await self._event_writer.write(
+                run_id=self._run.id,
+                thread_id=self._run.thread_id,
+                type="tool.recovery.exhausted",
+                source={"kind": "tool"},
+                visibility="debug",
+                payload={
+                    "tool_call_id": tool_call_id,
+                    "tool_name": tool_name,
+                    "error": getattr(result, "error", None),
+                    **attempt_payload,
+                },
+            )
+            return None
         await self._event_writer.write(
             run_id=self._run.id,
             thread_id=self._run.thread_id,
@@ -391,11 +418,7 @@ class PydanticAIToolBridge:
             payload={
                 "tool_call_id": tool_call_id,
                 "tool_name": tool_name,
-                **recovery_attempt_payload(
-                    tool_name=tool_name,
-                    recovery=recovery,
-                    attempt=attempt,
-                ),
+                **attempt_payload,
             },
         )
         return model_visible_recovery_payload(tool_name=tool_name, result=result)

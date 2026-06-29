@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from aithru_agent.capabilities import AithruCapabilityRouter, AgentRunContext
 from aithru_agent.domain import AgentRun, AgentRunContextPacket, AgentSkill
-from aithru_agent.persistence.protocols import AgentStore
+from aithru_agent.persistence.protocols import AgentEventStore, AgentStore
 from aithru_agent.skills.packages import SkillPackage
 from aithru_agent.stream import AgentEventWriter
 
@@ -18,6 +18,7 @@ class PydanticAgentDeps:
     event_writer: AgentEventWriter
     capability_router: AithruCapabilityRouter
     store: AgentStore
+    event_store: AgentEventStore | None = None
     skill: AgentSkill | None = None
     context_packet: AgentRunContextPacket | None = None
     tool_name_aliases: dict[str, str] = field(default_factory=dict)

@@ -313,6 +313,7 @@ class AgentWorkerRunner:
             run=run,
             run_context=self._context_builder.build(run, run.scopes, skill),
             event_writer=self._event_writer,
+            event_store=self._event_store,
             capability_router=self._capability_router,
             store=self._store,
             skill=skill,

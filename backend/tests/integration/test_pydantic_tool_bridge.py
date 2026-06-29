@@ -1369,3 +1369,65 @@ async def test_pydantic_tool_bridge_returns_generic_recoverable_tool_result() ->
     offered_event = next(event for event in events if event.type == "tool.recovery.offered")
     assert offered_event.payload["attempt_key"] == "local.recoverable:invalid_value"
     assert offered_event.payload["attempt"] == 1
+
+
+@pytest.mark.asyncio
+async def test_pydantic_tool_bridge_exhausts_recoverable_tool_budget() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    run = await store.create_run(
+        org_id="org_1",
+        actor_user_id="user_1",
+        source="api",
+        task_msg="Use recoverable local tool too many times",
+        workspace_id=workspace.id,
+    )
+    context = AgentRunContext(
+        run_id=run.id,
+        org_id="org_1",
+        actor_user_id="user_1",
+        workspace_id=workspace.id,
+        scopes=["*"],
+    )
+    bridge = PydanticAIToolBridge(
+        deps=PydanticAgentDeps(
+            run=run,
+            run_context=context,
+            event_writer=writer,
+            event_store=event_store,
+            capability_router=AithruCapabilityRouter(
+                adapters=[RecoverableLocalTool()],
+                policy=ToolPolicy(require_approval_for_risk=[]),
+            ),
+            store=store,
+        ),
+    )
+
+    first = await bridge.call_tool(
+        ToolContext("tc_recoverable_1"),
+        tool_name="local.recoverable",
+        tool_input={"value": "bad"},
+    )
+    second = await bridge.call_tool(
+        ToolContext("tc_recoverable_2"),
+        tool_name="local.recoverable",
+        tool_input={"value": "still_bad"},
+    )
+    with pytest.raises(AgentError) as exc_info:
+        await bridge.call_tool(
+            ToolContext("tc_recoverable_3"),
+            tool_name="local.recoverable",
+            tool_input={"value": "still_bad_again"},
+        )
+    events = await event_store.list_by_run(run.id)
+
+    assert first["recoverable"] is True
+    assert second["recoverable"] is True
+    assert exc_info.value.code == "TOOL_FAILED"
+    assert [event.type for event in events].count("tool.recovery.offered") == 2
+    assert [event.type for event in events].count("tool.recovery.exhausted") == 1
+    exhausted = next(event for event in events if event.type == "tool.recovery.exhausted")
+    assert exhausted.payload["attempt"] == 3
+    assert exhausted.payload["max_attempts"] == 2
