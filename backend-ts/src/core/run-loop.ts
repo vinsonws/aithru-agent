@@ -37,6 +37,7 @@ export class RunLoop {
   // ── Lifecycle ─────────────────────────────────────────────────────
 
   emitRunStarted(): AgentStreamEvent {
+    validateRunStatusTransition(this.ctx.run.status as string, "running");
     const run = this.ctx.store.updateRun(this.runId, {
       status: "running",
     });
@@ -47,6 +48,7 @@ export class RunLoop {
   }
 
   emitRunCompleted(result?: { content?: string; workspace_paths?: string[] }): AgentStreamEvent {
+    validateRunStatusTransition(this.ctx.run.status as string, "completed");
     const run = this.ctx.store.updateRun(this.runId, {
       status: "completed",
       completed_at: new Date().toISOString().replace(/\.\d{3}/, ""),
@@ -63,6 +65,7 @@ export class RunLoop {
   }
 
   emitRunFailed(error: { code: string; message: string }): AgentStreamEvent {
+    validateRunStatusTransition(this.ctx.run.status as string, "failed");
     const run = this.ctx.store.updateRun(this.runId, {
       status: "failed",
       completed_at: new Date().toISOString().replace(/\.\d{3}/, ""),

@@ -6,7 +6,7 @@ import { RunLoop, type ToolCallStep } from "./run-loop.js";
 import { AgentError } from "./errors.js";
 
 export interface HarnessCore {
-  execute(run: AgentRun, script: ScriptedHarnessScript): Promise<AgentRun>;
+  execute(run: AgentRun, options?: unknown): Promise<AgentRun>;
 }
 
 export interface ScriptedHarnessScript {
@@ -31,8 +31,9 @@ export class ScriptedHarnessCore implements HarnessCore {
 
   async execute(
     run: AgentRun,
-    script: ScriptedHarnessScript,
+    options?: unknown,
   ): Promise<AgentRun> {
+    const script = options as ScriptedHarnessScript;
     const loop = new RunLoop({
       run,
       store: this.store,
@@ -75,7 +76,9 @@ export class ScriptedHarnessCore implements HarnessCore {
         content: accumulatedContent,
       });
 
-      return this.store.getRun(run.id)!;
+      const completedRun = this.store.getRun(run.id);
+      if (!completedRun) throw new AgentError("HARNESS_ERROR", "Run not found after execution");
+      return completedRun;
     } catch (err: any) {
       const errorPayload = {
         code: err.code || "HARNESS_ERROR",
