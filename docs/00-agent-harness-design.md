@@ -1179,19 +1179,39 @@ later replace the local provider behind the same capability boundary.
 
 ## Migration direction
 
-1. Keep Agent as a Python backend with Aithru-owned contracts.
-2. Use FastAPI for the control plane.
-3. Use Pydantic AI as the default real harness driver.
-4. Keep a scripted driver for deterministic tests.
-5. Route every real action through the Aithru capability router.
-6. Add Workflow Capability HTTP integration only through explicit tools.
-7. Complete the P0-P2 backend maturity items from
-   `docs/01-deerflow-benchmark.md`: runtime processors, run-tree usage,
-   semantic summarization, clarification/title processors, async memory
-   extraction, multimodal/image handling, file conversion, skill/tool
-   configuration, and model profiles.
-8. Add Platform hosted UI only after the backend run/event/tool loop and P0-P2
-   maturity items are stable.
+The active implementation remains the Python/FastAPI/Pydantic AI backend until a
+replacement backend reaches parity. The approved replacement target is now a
+native TypeScript backend with an Aithru-owned harness core rather than another
+third-party agent framework.
+
+See
+`docs/superpowers/specs/2026-06-29-native-ts-agent-backend-replacement-design.md`
+for the replacement design.
+
+Replacement direction:
+
+1. Add a `backend-ts/` implementation beside the current backend.
+2. Do not start or depend on any Python backend process from the first runnable
+   TypeScript backend.
+3. Keep Aithru-owned contracts, stream events, trace projection, workspace,
+   artifact, memory, approval, subagent, and capability-router semantics as the
+   public product boundary.
+4. Implement the Agent Harness core in TypeScript: run loop, model turn loop,
+   tool proposal handling, approval/input/external-run pause and resume,
+   context packet construction, subagent join semantics, retries, cancellation,
+   and worker recovery.
+5. Use model SDKs or direct HTTP calls only as low-level model I/O adapters.
+   They must not execute tools, own memory/workspace state, or define public
+   Aithru API contracts.
+6. Do not use Mastra, LangGraph.js, Vercel AI SDK agent abstractions, Claude
+   Agent SDK, or any similar framework as the harness core.
+7. Route every real action through the Aithru Capability Router with policy,
+   scope, approval, audit, event, trace, and redaction handling.
+8. Keep Workbench/Core integration on explicit API/tool boundaries, without
+   importing Workbench internals or creating Agent-owned WorkflowSpec semantics.
+9. After TypeScript parity, remove or archive the Python backend and update
+   README, AGENTS, backend docs, and verification commands to TS-first active
+   backend wording.
 
 ## Verification checklist
 

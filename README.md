@@ -762,6 +762,7 @@ uv run python examples/file_report_agent.py
 ## Key Design Docs
 
 - [Agent Harness Design](./docs/00-agent-harness-design.md)
+- [Native TypeScript Agent Backend Replacement Design](./docs/superpowers/specs/2026-06-29-native-ts-agent-backend-replacement-design.md)
 - [Harness Engine Adapter Strategy](./docs/06-harness-engine-adapter-strategy.md)
 - [Workflow Capability Integration](./docs/08-workflow-capability-integration.md)
 - [Python Pydantic AI Backend Design](./docs/superpowers/specs/2026-06-16-python-pydantic-ai-agent-backend-design.md)
