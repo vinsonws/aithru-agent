@@ -25,7 +25,7 @@ class WorkbenchLocalTool:
             AgentToolDescriptor(
                 name="workbench.workflow_draft.create",
                 kind=AgentToolKind.LOCAL_TOOL,
-                description="Create a non-executable Workbench workflow draft artifact for human review.",
+                description="Create a non-executable Workbench workflow draft workspace file for human review.",
                 input_schema={
                     "type": "object",
                     "required": ["title", "summary", "suggested_steps"],
@@ -41,7 +41,7 @@ class WorkbenchLocalTool:
                 },
                 output_schema={"type": "object"},
                 risk_level=AgentToolRiskLevel.WRITE,
-                required_scopes=["agent.artifact.write", "agent.workbench.write"],
+                required_scopes=["agent.workspace.write", "agent.workbench.write"],
                 approval_policy="on_risk",
             )
         ]
@@ -71,26 +71,16 @@ class WorkbenchLocalTool:
             open_questions=_optional_string_list(input_data.get("open_questions")) or [],
             handoff_notes=_optional_string(input_data.get("handoff_notes")),
         )
-        artifact = await self._store.create_artifact(
-            org_id=context.org_id,
+        path = f"/workbench-drafts/{_safe_filename(draft.title)}.workflow-draft.json"
+        file = await self._store.write_workspace_file(
             workspace_id=context.workspace_id,
-            run_id=context.run_id,
-            type="workflow_draft",
-            name=f"Workbench workflow draft: {draft.title}",
+            path=path,
             media_type=WORKBENCH_WORKFLOW_DRAFT_MEDIA_TYPE,
-            content=draft.model_dump(mode="json"),
-            metadata={
-                "workbench": {
-                    "draft": True,
-                    "draft_kind": draft.draft_kind,
-                    "executable": False,
-                    "source": "workbench.workflow_draft.create",
-                }
-            },
+            content=draft.model_dump_json(indent=2),
         )
         return AgentToolCallResult(
             status="completed",
-            output=artifact.model_dump(mode="json"),
+            output=file.model_dump(mode="json"),
             redaction="none",
         )
 
@@ -115,3 +105,10 @@ def _optional_string_list(value: object) -> list[str] | None:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise TypeError("Workbench draft list fields must be string arrays")
     return value
+
+
+def _safe_filename(value: str) -> str:
+    slug = "".join(char.lower() if char.isalnum() else "-" for char in value).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "workflow-draft"

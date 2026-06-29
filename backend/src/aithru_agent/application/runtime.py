@@ -25,7 +25,6 @@ from aithru_agent.capabilities import (
     WorkflowCapabilitySpec,
 )
 from aithru_agent.capabilities.local_tools import (
-    ArtifactLocalTool,
     ClarificationLocalTool,
     InputLocalTool,
     MemoryLocalTool,
@@ -142,7 +141,6 @@ def create_agent_application(
     tool_adapters = [
         WorkspaceLocalTool(resolved_store),
         TodoLocalTool(resolved_store),
-        ArtifactLocalTool(resolved_store),
         ClarificationLocalTool(),
         InputLocalTool(),
         PresentationLocalTool(resolved_store),

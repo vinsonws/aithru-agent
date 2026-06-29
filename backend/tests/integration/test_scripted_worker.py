@@ -1,7 +1,7 @@
 import pytest
 
 from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
-from aithru_agent.capabilities.local_tools import ArtifactLocalTool, TodoLocalTool, WorkspaceLocalTool
+from aithru_agent.capabilities.local_tools import TodoLocalTool, WorkspaceLocalTool
 from aithru_agent.domain import AgentRunStatus
 from aithru_agent.domain.errors import AgentError
 from tests.utils.step_runtime import Step, StepAgentRuntime
@@ -19,7 +19,6 @@ def make_runner(driver: StepAgentRuntime) -> tuple[AgentWorkerRunner, InMemoryAg
         adapters=[
             WorkspaceLocalTool(store),
             TodoLocalTool(store),
-            ArtifactLocalTool(store),
         ],
         policy=ToolPolicy(require_approval_for_risk=[]),
     )
@@ -35,15 +34,6 @@ async def test_scripted_worker_executes_tools_writes_events_and_completes_run() 
             Step.tool(
                 "workspace.write_file",
                 {"path": "/reports/report.md", "content": "# Report\nDone.\n", "media_type": "text/markdown"},
-            ),
-            Step.tool(
-                "artifact.create",
-                {
-                    "type": "report",
-                    "name": "Report",
-                    "uri": "/reports/report.md",
-                    "content": {"path": "/reports/report.md"},
-                },
             ),
             Step.message("Report complete."),
             Step.finish(),
@@ -67,9 +57,7 @@ async def test_scripted_worker_executes_tools_writes_events_and_completes_run() 
     assert stored_run.result is not None
     assert stored_run.result.content == "I will inspect the workspace.\nReport complete."
     assert file.content == "# Report\nDone.\n"
-    artifacts = await store.list_artifacts(run_id=run.id)
-    assert artifacts
-    assert stored_run.result.artifact_ids == [artifacts[0].id]
+    assert stored_run.result.workspace_paths == ["/reports/report.md"]
     assert event_types == [
         "run.created",
         "run.started",
@@ -84,66 +72,12 @@ async def test_scripted_worker_executes_tools_writes_events_and_completes_run() 
         "tool.started",
         "workspace.file.created",
         "tool.completed",
-        "presentation.created",
-        "tool.proposed",
-        "tool.started",
-        "artifact.created",
-        "tool.completed",
-        "presentation.created",
         "message.delta",
         "model.completed",
         "message.completed",
         "run.completed",
     ]
     assert events[-1].payload["result"] == stored_run.result.model_dump(mode="json")
-
-
-@pytest.mark.asyncio
-async def test_scripted_worker_emits_artifact_finalized_event_and_trace() -> None:
-    store = InMemoryAgentStore()
-    event_store = InMemoryAgentEventStore()
-    writer = AgentEventWriter(event_store)
-    workspace = await store.create_workspace(org_id="org_1")
-    run = await store.create_run(
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        task_msg="Finalize artifact",
-        workspace_id=workspace.id,
-        scopes=["*"],
-    )
-    artifact = await store.create_artifact(
-        org_id=run.org_id,
-        workspace_id=run.workspace_id,
-        run_id=run.id,
-        type="report",
-        name="Report",
-    )
-    runner = AgentWorkerRunner(
-        store=store,
-        event_writer=writer,
-        capability_router=AithruCapabilityRouter(
-            adapters=[ArtifactLocalTool(store)],
-            policy=ToolPolicy(require_approval_for_risk=[]),
-        ),
-        agent_runtime=StepAgentRuntime(
-            [
-                Step.tool("artifact.finalize", {"artifact_id": artifact.id}),
-                Step.finish(),
-            ]
-        ),
-    )
-
-    completed = await runner.execute_run(run.id)
-    events = await event_store.list_by_run(run.id)
-    spans = project_trace_spans(events)
-    event_types = [event.type for event in events]
-
-    assert completed.status == AgentRunStatus.COMPLETED
-    assert "artifact.finalized" in event_types
-    assert next(span for span in spans if span.id == f"artifact:{artifact.id}").status == "completed"
-
-
 @pytest.mark.asyncio
 async def test_worker_can_cancel_a_stored_run() -> None:
     driver = StepAgentRuntime([])

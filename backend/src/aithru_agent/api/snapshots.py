@@ -8,7 +8,6 @@ from pydantic import Field, model_validator
 
 from aithru_agent.domain import (
     AgentApproval,
-    AgentArtifact,
     AgentPresentation,
     AgentRun,
     AgentRunOperatorFollowUpOptions,
@@ -49,7 +48,7 @@ ResearchReviewStatus = Literal["none", "pass", "warn", "fail"]
 ResearchReviewFindingSeverity = Literal["info", "warning", "error"]
 ResearchReviewFindingCode = Literal[
     "missing_report",
-    "missing_report_artifact",
+    "missing_report_file",
     "partial_report",
     "insufficient_evidence_report",
     "missing_evidence",
@@ -79,7 +78,6 @@ RunTreeAttentionReason = Literal[
     "self_degraded",
     "self_sandbox_failed",
     "self_sandbox_workspace_side_effect",
-    "self_sandbox_artifact_promotion",
     "self_sandbox_persistence_error",
     "descendant_failed",
     "descendant_cancelled",
@@ -89,7 +87,6 @@ RunTreeAttentionReason = Literal[
     "descendant_degraded",
     "descendant_sandbox_failed",
     "descendant_sandbox_workspace_side_effect",
-    "descendant_sandbox_artifact_promotion",
     "descendant_sandbox_persistence_error",
 ]
 RunInspectionHealth = Literal[
@@ -113,7 +110,6 @@ RunInspectionAttentionReason = Literal[
     "health_waiting_input",
     "sandbox_failed",
     "sandbox_workspace_side_effect",
-    "sandbox_artifact_promotion",
     "sandbox_persistence_error",
 ]
 RunResumeKind = Literal["none", "input", "approval", "external_approval", "external_run", "subagent"]
@@ -136,7 +132,6 @@ RunSandboxOperatorActionKind = Literal[
     "inspect_sandbox_error",
     "inspect_workspace_file",
     "review_workspace_policy",
-    "review_artifact_promotions",
     "retry_sandbox_run",
 ]
 RunSandboxOperatorActionMethod = Literal["GET", "POST"]
@@ -157,15 +152,14 @@ class RunTreeNode(AithruBaseModel):
     subagent_name: str | None = None
     subagent_status: str | None = None
     child_count: int = Field(default=0, ge=0)
-    artifact_count: int = Field(default=0, ge=0)
-    result_artifact_ids: list[str] = Field(default_factory=list)
+    workspace_file_count: int = Field(default=0, ge=0)
+    result_workspace_paths: list[str] = Field(default_factory=list)
     terminal: bool = False
     needs_attention: bool = False
     attention_reasons: list[RunTreeAttentionReason] = Field(default_factory=list)
     sandbox_run_count: int = Field(default=0, ge=0)
     failed_sandbox_run_count: int = Field(default=0, ge=0)
     sandbox_workspace_file_count: int = Field(default=0, ge=0)
-    sandbox_artifact_promotion_count: int = Field(default=0, ge=0)
     sandbox_persistence_error_count: int = Field(default=0, ge=0)
     sandbox_operator_action_count: int = Field(default=0, ge=0)
     research_status: ResearchSnapshotStatus = "none"
@@ -180,7 +174,6 @@ class RunTreeNode(AithruBaseModel):
     descendant_degraded_count: int = Field(default=0, ge=0)
     descendant_failed_sandbox_run_count: int = Field(default=0, ge=0)
     descendant_sandbox_workspace_file_count: int = Field(default=0, ge=0)
-    descendant_sandbox_artifact_promotion_count: int = Field(default=0, ge=0)
     descendant_sandbox_persistence_error_count: int = Field(default=0, ge=0)
     descendant_sandbox_operator_action_count: int = Field(default=0, ge=0)
 
@@ -212,14 +205,13 @@ class RunTreeSummary(AithruBaseModel):
     waiting_runs: int = Field(ge=0)
     failed_runs: int = Field(ge=0)
     completed_runs: int = Field(ge=0)
-    artifact_count: int = Field(ge=0)
+    workspace_file_count: int = Field(ge=0)
     attention_runs: int = Field(ge=0)
     degraded_runs: int = Field(ge=0)
     sandbox_attention_runs: int = Field(default=0, ge=0)
     sandbox_run_count: int = Field(default=0, ge=0)
     failed_sandbox_run_count: int = Field(default=0, ge=0)
     sandbox_workspace_file_count: int = Field(default=0, ge=0)
-    sandbox_artifact_promotion_count: int = Field(default=0, ge=0)
     sandbox_persistence_error_count: int = Field(default=0, ge=0)
     sandbox_operator_action_count: int = Field(default=0, ge=0)
     root_needs_attention: bool = False
@@ -247,8 +239,8 @@ class ResearchSnapshotTodo(AithruBaseModel):
     status: str
 
 
-class ResearchSnapshotReportArtifact(AithruBaseModel):
-    artifact_id: str
+class ResearchSnapshotReportFile(AithruBaseModel):
+    path: str
     name: str
     uri: str | None = None
     report_status: ResearchReportStatus
@@ -264,7 +256,7 @@ class ResearchSnapshotSummary(AithruBaseModel):
     failed_web_span_count: int = 0
     web_failures: list[ResearchSnapshotWebFailure] = Field(default_factory=list)
     blocked_todos: list[ResearchSnapshotTodo] = Field(default_factory=list)
-    report_artifacts: list[ResearchSnapshotReportArtifact] = Field(default_factory=list)
+    report_files: list[ResearchSnapshotReportFile] = Field(default_factory=list)
     limitations: list[ResearchLimitation] = Field(default_factory=list)
 
 
@@ -292,7 +284,7 @@ class ResearchExecutionStep(AithruBaseModel):
     related_tool_names: list[str] = Field(default_factory=list)
     web_success_count: int = Field(default=0, ge=0)
     web_failure_count: int = Field(default=0, ge=0)
-    report_artifact_ids: list[str] = Field(default_factory=list)
+    report_workspace_paths: list[str] = Field(default_factory=list)
     limitation_codes: list[str] = Field(default_factory=list)
     attention: bool = False
 
@@ -307,7 +299,7 @@ class ResearchExecutionProgress(AithruBaseModel):
     terminal_steps: int = Field(ge=0)
     web_success_count: int = Field(ge=0)
     web_failure_count: int = Field(ge=0)
-    report_artifact_count: int = Field(ge=0)
+    report_file_count: int = Field(ge=0)
     limitation_count: int = Field(ge=0)
 
     @model_validator(mode="after")
@@ -337,8 +329,8 @@ class ResearchExecutionSnapshot(AithruBaseModel):
     summary: ResearchSnapshotSummary
 
 
-class ResearchEvidenceLedgerReportArtifact(AithruBaseModel):
-    artifact_id: str
+class ResearchEvidenceLedgerReportFile(AithruBaseModel):
+    path: str
     name: str
     uri: str | None = None
     report_status: ResearchReportStatus
@@ -361,7 +353,7 @@ class ResearchEvidenceLedgerCounts(AithruBaseModel):
     section_count: int = Field(default=0, ge=0)
     missing_section_count: int = Field(default=0, ge=0)
     weak_section_count: int = Field(default=0, ge=0)
-    report_artifact_count: int = Field(default=0, ge=0)
+    report_file_count: int = Field(default=0, ge=0)
 
 
 class ResearchEvidenceLedgerSection(AithruBaseModel):
@@ -399,7 +391,7 @@ class ResearchEvidenceLedger(AithruBaseModel):
     limitations: list[ResearchLimitation] = Field(default_factory=list)
     sections: list[ResearchEvidenceLedgerSection] = Field(default_factory=list)
     section_summary: list[ResearchEvidenceSectionSummary] = Field(default_factory=list)
-    report_artifacts: list[ResearchEvidenceLedgerReportArtifact] = Field(default_factory=list)
+    report_files: list[ResearchEvidenceLedgerReportFile] = Field(default_factory=list)
     counts: ResearchEvidenceLedgerCounts
 
     @model_validator(mode="after")
@@ -425,7 +417,7 @@ class ResearchReviewCounts(AithruBaseModel):
     source_count: int = Field(default=0, ge=0)
     evidence_count: int = Field(default=0, ge=0)
     limitation_count: int = Field(default=0, ge=0)
-    report_artifact_count: int = Field(default=0, ge=0)
+    report_file_count: int = Field(default=0, ge=0)
     blocked_step_count: int = Field(default=0, ge=0)
     web_failure_count: int = Field(default=0, ge=0)
     high_quality_source_count: int = Field(default=0, ge=0)
@@ -441,7 +433,7 @@ class ResearchReviewSnapshot(AithruBaseModel):
     ready_for_answer: bool = False
     report_status: ResearchSnapshotStatus = "none"
     reviewed_event_sequence: int | None = Field(default=None, ge=0)
-    report_artifact_ids: list[str] = Field(default_factory=list)
+    report_workspace_paths: list[str] = Field(default_factory=list)
     counts: ResearchReviewCounts
     findings: list[ResearchReviewFinding] = Field(default_factory=list)
 
@@ -643,7 +635,7 @@ class RunInspectionSummary(AithruBaseModel):
     event_count: int
     todo_count: int
     blocked_todo_count: int
-    artifact_count: int
+    workspace_file_count: int
     approval_count: int
     failed_trace_count: int
     research_status: ResearchSnapshotStatus
@@ -662,7 +654,6 @@ class RunInspectionSummary(AithruBaseModel):
     sandbox_run_count: int = Field(default=0, ge=0)
     failed_sandbox_run_count: int = Field(default=0, ge=0)
     sandbox_workspace_file_count: int = Field(default=0, ge=0)
-    sandbox_artifact_promotion_count: int = Field(default=0, ge=0)
     sandbox_persistence_error_count: int = Field(default=0, ge=0)
     sandbox_operator_actions: list[RunSandboxOperatorAction] = Field(default_factory=list)
     sandbox_operator_action_count: int = Field(default=0, ge=0)
@@ -698,9 +689,6 @@ class RunInspectionSummary(AithruBaseModel):
         )
         if self.sandbox_workspace_file_count != workspace_file_count:
             raise ValueError("sandbox workspace file count must match sandbox runs")
-        promotion_count = sum(run.workspace_effects.promoted_count for run in self.sandbox_runs)
-        if self.sandbox_artifact_promotion_count != promotion_count:
-            raise ValueError("sandbox artifact promotion count must match sandbox runs")
         persistence_error_count = sum(
             1 for run in self.sandbox_runs if run.workspace_effects.persistence_error is not None
         )
@@ -790,7 +778,6 @@ class RunSnapshotResponse(AithruBaseModel):
     todos: list[AgentTodo] = Field(default_factory=list)
     approvals: list[AgentApproval] = Field(default_factory=list)
     workspace_files: list[AgentWorkspaceFile] = Field(default_factory=list)
-    artifacts: list[AgentArtifact] = Field(default_factory=list)
     research: ResearchSnapshotSummary
     research_execution: ResearchExecutionSnapshot
     research_evidence: ResearchEvidenceLedger
@@ -808,7 +795,7 @@ def build_run_tree_snapshot(
     root_run: AgentRun,
     runs: list[AgentRun],
     subagents: list[AgentSubagentRun],
-    artifacts: list[AgentArtifact],
+    workspace_files: list[AgentWorkspaceFile],
     events_by_run: dict[str, list[AgentStreamEvent]] | None = None,
     todos_by_run: dict[str, list[AgentTodo]] | None = None,
     trace_by_run: dict[str, list[AgentTraceSpan]] | None = None,
@@ -820,10 +807,9 @@ def build_run_tree_snapshot(
     for parent_id in subagents_by_parent:
         subagents_by_parent[parent_id].sort(key=lambda item: item.id)
 
-    artifacts_by_run: dict[str, list[AgentArtifact]] = {}
-    for artifact in artifacts:
-        if artifact.run_id is not None:
-            artifacts_by_run.setdefault(artifact.run_id, []).append(artifact)
+    workspace_files_by_workspace: dict[str, list[AgentWorkspaceFile]] = {}
+    for workspace_file in workspace_files:
+        workspace_files_by_workspace.setdefault(workspace_file.workspace_id, []).append(workspace_file)
 
     nodes: list[RunTreeNode] = []
     delegations: list[RunTreeDelegation] = []
@@ -846,12 +832,12 @@ def build_run_tree_snapshot(
                 depth=depth,
                 inbound=inbound,
                 child_count=len(children),
-                artifact_count=len(artifacts_by_run.get(run.id, [])),
+                workspace_file_count=len(workspace_files_by_workspace.get(run.workspace_id, [])),
                 events=(events_by_run or {}).get(run.id, []),
                 research=build_research_snapshot_summary(
                     events=(events_by_run or {}).get(run.id, []),
                     todos=(todos_by_run or {}).get(run.id, []),
-                    artifacts=artifacts_by_run.get(run.id, []),
+                    workspace_files=workspace_files_by_workspace.get(run.workspace_id, []),
                     trace=(trace_by_run or {}).get(run.id, []),
                 ),
             )
@@ -966,7 +952,7 @@ def _run_tree_node(
     depth: int,
     inbound: AgentSubagentRun | None,
     child_count: int,
-    artifact_count: int,
+    workspace_file_count: int,
     events: list[AgentStreamEvent],
     research: ResearchSnapshotSummary,
 ) -> RunTreeNode:
@@ -980,9 +966,6 @@ def _run_tree_node(
     sandbox_workspace_file_count = sum(
         item.workspace_effects.persisted_count for item in sandbox_runs
     )
-    sandbox_artifact_promotion_count = sum(
-        item.workspace_effects.promoted_count for item in sandbox_runs
-    )
     sandbox_persistence_error_count = sum(
         1
         for item in sandbox_runs
@@ -994,7 +977,6 @@ def _run_tree_node(
         research,
         failed_sandbox_run_count=failed_sandbox_run_count,
         sandbox_workspace_file_count=sandbox_workspace_file_count,
-        sandbox_artifact_promotion_count=sandbox_artifact_promotion_count,
         sandbox_persistence_error_count=sandbox_persistence_error_count,
     )
     return RunTreeNode(
@@ -1010,15 +992,14 @@ def _run_tree_node(
         subagent_name=inbound.name if inbound else None,
         subagent_status=_status_value(inbound.status) if inbound else None,
         child_count=child_count,
-        artifact_count=artifact_count,
-        result_artifact_ids=list(run.result.artifact_ids) if run.result else [],
+        workspace_file_count=workspace_file_count,
+        result_workspace_paths=list(run.result.workspace_paths) if run.result else [],
         terminal=status in {"completed", "failed", "cancelled"},
         needs_attention=bool(attention_reasons),
         attention_reasons=attention_reasons,
         sandbox_run_count=len(sandbox_runs),
         failed_sandbox_run_count=failed_sandbox_run_count,
         sandbox_workspace_file_count=sandbox_workspace_file_count,
-        sandbox_artifact_promotion_count=sandbox_artifact_promotion_count,
         sandbox_persistence_error_count=sandbox_persistence_error_count,
         sandbox_operator_action_count=sandbox_operator_action_count,
         research_status=research.status,
@@ -1032,7 +1013,6 @@ def _local_run_tree_attention_reasons(
     *,
     failed_sandbox_run_count: int,
     sandbox_workspace_file_count: int,
-    sandbox_artifact_promotion_count: int,
     sandbox_persistence_error_count: int,
 ) -> list[RunTreeAttentionReason]:
     reasons: list[RunTreeAttentionReason] = []
@@ -1052,7 +1032,6 @@ def _local_run_tree_attention_reasons(
         _self_sandbox_run_tree_attention_reasons(
             failed_sandbox_run_count=failed_sandbox_run_count,
             sandbox_workspace_file_count=sandbox_workspace_file_count,
-            sandbox_artifact_promotion_count=sandbox_artifact_promotion_count,
             sandbox_persistence_error_count=sandbox_persistence_error_count,
         )
     )
@@ -1063,7 +1042,6 @@ def _self_sandbox_run_tree_attention_reasons(
     *,
     failed_sandbox_run_count: int,
     sandbox_workspace_file_count: int,
-    sandbox_artifact_promotion_count: int,
     sandbox_persistence_error_count: int,
 ) -> list[RunTreeAttentionReason]:
     reasons: list[RunTreeAttentionReason] = []
@@ -1071,8 +1049,6 @@ def _self_sandbox_run_tree_attention_reasons(
         reasons.append("self_sandbox_failed")
     if sandbox_workspace_file_count:
         reasons.append("self_sandbox_workspace_side_effect")
-    if sandbox_artifact_promotion_count:
-        reasons.append("self_sandbox_artifact_promotion")
     if sandbox_persistence_error_count:
         reasons.append("self_sandbox_persistence_error")
     return reasons
@@ -1124,10 +1100,6 @@ def _roll_up_run_tree_attention(nodes: list[RunTreeNode]) -> None:
                 child.descendant_sandbox_workspace_file_count
                 + child.sandbox_workspace_file_count
             )
-            node.descendant_sandbox_artifact_promotion_count += (
-                child.descendant_sandbox_artifact_promotion_count
-                + child.sandbox_artifact_promotion_count
-            )
             node.descendant_sandbox_persistence_error_count += (
                 child.descendant_sandbox_persistence_error_count
                 + child.sandbox_persistence_error_count
@@ -1163,8 +1135,6 @@ def _descendant_run_tree_attention_reasons(node: RunTreeNode) -> list[RunTreeAtt
         reasons.append("descendant_sandbox_failed")
     if node.descendant_sandbox_workspace_file_count:
         reasons.append("descendant_sandbox_workspace_side_effect")
-    if node.descendant_sandbox_artifact_promotion_count:
-        reasons.append("descendant_sandbox_artifact_promotion")
     if node.descendant_sandbox_persistence_error_count:
         reasons.append("descendant_sandbox_persistence_error")
     return reasons
@@ -1213,7 +1183,6 @@ def _run_tree_summary(
         for node in nodes
         if node.failed_sandbox_run_count
         or node.sandbox_workspace_file_count
-        or node.sandbox_artifact_promotion_count
         or node.sandbox_persistence_error_count
     )
     return RunTreeSummary(
@@ -1225,7 +1194,7 @@ def _run_tree_summary(
         waiting_runs=sum(1 for status in statuses if status.startswith("waiting_")),
         failed_runs=sum(1 for status in statuses if status == "failed"),
         completed_runs=sum(1 for status in statuses if status == "completed"),
-        artifact_count=sum(node.artifact_count for node in nodes),
+        workspace_file_count=sum(node.workspace_file_count for node in nodes),
         attention_runs=sum(1 for node in nodes if node.needs_attention),
         degraded_runs=sum(1 for node in nodes if node.research_degraded),
         sandbox_attention_runs=sandbox_attention_runs,
@@ -1233,9 +1202,6 @@ def _run_tree_summary(
         failed_sandbox_run_count=sum(node.failed_sandbox_run_count for node in nodes),
         sandbox_workspace_file_count=sum(
             node.sandbox_workspace_file_count for node in nodes
-        ),
-        sandbox_artifact_promotion_count=sum(
-            node.sandbox_artifact_promotion_count for node in nodes
         ),
         sandbox_persistence_error_count=sum(
             node.sandbox_persistence_error_count for node in nodes
@@ -1252,7 +1218,7 @@ def build_run_inspection_summary(
     run: AgentRun,
     events: list[AgentStreamEvent],
     todos: list[AgentTodo],
-    artifacts: list[AgentArtifact],
+    workspace_files: list[AgentWorkspaceFile],
     approvals: list[AgentApproval],
     trace: list[AgentTraceSpan],
     reference_time: str | None = None,
@@ -1261,7 +1227,7 @@ def build_run_inspection_summary(
     research = build_research_snapshot_summary(
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         trace=trace,
     )
     health = _run_health(run, research)
@@ -1275,9 +1241,6 @@ def build_run_inspection_summary(
     sandbox_workspace_file_count = sum(
         item.workspace_effects.persisted_count for item in sandbox_runs
     )
-    sandbox_artifact_promotion_count = sum(
-        item.workspace_effects.promoted_count for item in sandbox_runs
-    )
     sandbox_persistence_error_count = sum(
         1
         for item in sandbox_runs
@@ -1288,7 +1251,6 @@ def build_run_inspection_summary(
         health=health,
         failed_sandbox_run_count=failed_sandbox_run_count,
         sandbox_workspace_file_count=sandbox_workspace_file_count,
-        sandbox_artifact_promotion_count=sandbox_artifact_promotion_count,
         sandbox_persistence_error_count=sandbox_persistence_error_count,
     )
     active_external_run = _active_external_run_diagnostic(
@@ -1304,7 +1266,7 @@ def build_run_inspection_summary(
         event_count=len(events),
         todo_count=len(todos),
         blocked_todo_count=sum(1 for todo in todos if _todo_status(todo) == "blocked"),
-        artifact_count=len(artifacts),
+        workspace_file_count=len(workspace_files),
         approval_count=len(approvals),
         failed_trace_count=sum(1 for span in trace if span.status == "failed"),
         research_status=research.status,
@@ -1320,7 +1282,6 @@ def build_run_inspection_summary(
         sandbox_run_count=len(sandbox_runs),
         failed_sandbox_run_count=failed_sandbox_run_count,
         sandbox_workspace_file_count=sandbox_workspace_file_count,
-        sandbox_artifact_promotion_count=sandbox_artifact_promotion_count,
         sandbox_persistence_error_count=sandbox_persistence_error_count,
         sandbox_operator_actions=sandbox_operator_actions,
         sandbox_operator_action_count=len(sandbox_operator_actions),
@@ -1342,7 +1303,6 @@ def _run_inspection_attention_reasons(
     health: RunInspectionHealth,
     failed_sandbox_run_count: int,
     sandbox_workspace_file_count: int,
-    sandbox_artifact_promotion_count: int,
     sandbox_persistence_error_count: int,
 ) -> list[RunInspectionAttentionReason]:
     reasons: list[RunInspectionAttentionReason] = []
@@ -1361,8 +1321,6 @@ def _run_inspection_attention_reasons(
         reasons.append("sandbox_failed")
     if sandbox_workspace_file_count:
         reasons.append("sandbox_workspace_side_effect")
-    if sandbox_artifact_promotion_count:
-        reasons.append("sandbox_artifact_promotion")
     if sandbox_persistence_error_count:
         reasons.append("sandbox_persistence_error")
     return reasons
@@ -1372,15 +1330,15 @@ def build_research_snapshot_summary(
     *,
     events: list[AgentStreamEvent],
     todos: list[AgentTodo],
-    artifacts: list[AgentArtifact],
+    workspace_files: list[AgentWorkspaceFile],
     trace: list[AgentTraceSpan],
 ) -> ResearchSnapshotSummary:
     """Build a research-specific run summary from already persisted run facts."""
     web_failures = _web_failures_from_events(events)
     blocked_todos = _blocked_research_todos(todos)
-    report_artifacts = _research_report_artifacts(artifacts)
+    report_files = _research_report_files(events, workspace_files)
     limitations = _research_limitations(events, web_failures)
-    status = _research_status(report_artifacts)
+    status = _research_status(report_files)
 
     return ResearchSnapshotSummary(
         status=status,
@@ -1397,7 +1355,7 @@ def build_research_snapshot_summary(
         ),
         web_failures=web_failures,
         blocked_todos=blocked_todos,
-        report_artifacts=report_artifacts,
+        report_files=report_files,
         limitations=limitations,
     )
 
@@ -1518,17 +1476,6 @@ def _sandbox_operator_actions(
                 kind="review_workspace_policy",
                 label="Review workspace policy",
                 reason="A declared sandbox workspace output could not be persisted.",
-            )
-        )
-    if sandbox.workspace_effects.promoted_count:
-        artifacts_path = f"/api/artifacts?run_id={quote(run_id, safe='')}" if run_id else None
-        actions.append(
-            RunSandboxOperatorAction(
-                kind="review_artifact_promotions",
-                label="Review artifact promotions",
-                reason="Review artifacts promoted from sandbox workspace outputs.",
-                method="GET" if artifacts_path else None,
-                path=artifacts_path,
             )
         )
     if sandbox.status == "failed":
@@ -1724,14 +1671,14 @@ def build_research_execution_snapshot(
     run: AgentRun,
     events: list[AgentStreamEvent],
     todos: list[AgentTodo],
-    artifacts: list[AgentArtifact],
+    workspace_files: list[AgentWorkspaceFile],
     trace: list[AgentTraceSpan],
 ) -> ResearchExecutionSnapshot:
     """Build a research execution projection without adding persisted plan state."""
     summary = build_research_snapshot_summary(
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         trace=trace,
     )
     plan_output = _latest_research_plan_output(events)
@@ -1764,17 +1711,17 @@ def build_research_evidence_ledger(
     *,
     run: AgentRun,
     events: list[AgentStreamEvent],
-    artifacts: list[AgentArtifact],
+    workspace_files: list[AgentWorkspaceFile],
 ) -> ResearchEvidenceLedger:
     """Build a source/evidence ledger from structured research report events."""
     report_result = _latest_research_report(events)
-    report_artifacts = _research_evidence_ledger_report_artifacts(artifacts)
+    report_files = _research_evidence_ledger_report_files(events, workspace_files)
     if report_result is None:
         return ResearchEvidenceLedger(
             run_id=run.id,
-            report_artifacts=report_artifacts,
+            report_files=report_files,
             counts=ResearchEvidenceLedgerCounts(
-                report_artifact_count=len(report_artifacts),
+                report_file_count=len(report_files),
             ),
         )
 
@@ -1794,7 +1741,7 @@ def build_research_evidence_ledger(
         limitations=report.limitations,
         sections=sections,
         section_summary=report.section_summary,
-        report_artifacts=report_artifacts,
+        report_files=report_files,
         counts=ResearchEvidenceLedgerCounts(
             source_input_count=report.source_input_count,
             duplicate_source_count=report.duplicate_source_count,
@@ -1804,7 +1751,7 @@ def build_research_evidence_ledger(
             section_count=len(sections),
             missing_section_count=sum(1 for section in sections if not section.covered),
             weak_section_count=sum(1 for section in sections if section.weak_quality),
-            report_artifact_count=len(report_artifacts),
+            report_file_count=len(report_files),
         ),
     )
 
@@ -1887,7 +1834,7 @@ def build_research_review_snapshot(
     run: AgentRun,
     events: list[AgentStreamEvent],
     todos: list[AgentTodo],
-    artifacts: list[AgentArtifact],
+    workspace_files: list[AgentWorkspaceFile],
     trace: list[AgentTraceSpan],
 ) -> ResearchReviewSnapshot:
     """Build a quality gate over existing research projections."""
@@ -1895,13 +1842,13 @@ def build_research_review_snapshot(
         run=run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         trace=trace,
     )
     ledger = build_research_evidence_ledger(
         run=run,
         events=events,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
     )
     findings = _research_review_findings(execution=execution, ledger=ledger)
     high_quality_source_count, low_quality_source_count = _research_review_quality_counts(ledger)
@@ -1909,7 +1856,7 @@ def build_research_review_snapshot(
         source_count=ledger.counts.source_count,
         evidence_count=ledger.counts.evidence_count,
         limitation_count=ledger.counts.limitation_count,
-        report_artifact_count=ledger.counts.report_artifact_count,
+        report_file_count=ledger.counts.report_file_count,
         blocked_step_count=execution.progress.blocked_steps,
         web_failure_count=execution.progress.web_failure_count,
         high_quality_source_count=high_quality_source_count,
@@ -1929,7 +1876,7 @@ def build_research_review_snapshot(
         ready_for_answer=status == "pass",
         report_status=ledger.status,
         reviewed_event_sequence=ledger.source_event_sequence,
-        report_artifact_ids=[artifact.artifact_id for artifact in ledger.report_artifacts],
+        report_workspace_paths=[workspace_file.path for workspace_file in ledger.report_files],
         counts=counts,
         findings=findings,
     )
@@ -1940,7 +1887,7 @@ def build_research_continuation_snapshot(
     run: AgentRun,
     events: list[AgentStreamEvent],
     todos: list[AgentTodo],
-    artifacts: list[AgentArtifact],
+    workspace_files: list[AgentWorkspaceFile],
     trace: list[AgentTraceSpan],
 ) -> ResearchContinuationSnapshot:
     """Build typed next-action suggestions from existing research review facts."""
@@ -1948,19 +1895,19 @@ def build_research_continuation_snapshot(
         run=run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         trace=trace,
     )
     ledger = build_research_evidence_ledger(
         run=run,
         events=events,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
     )
     review = build_research_review_snapshot(
         run=run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         trace=trace,
     )
     actions = _research_continuation_actions(
@@ -2305,12 +2252,12 @@ def _research_continuation_actions(
                 kind="regenerate_report",
                 priority="medium",
                 title="Regenerate the research report",
-                reason="After evidence or limitation repairs, create a fresh report artifact and review it again.",
+                reason="After evidence or limitation repairs, create a fresh report workspace_file and review it again.",
                 related_finding_codes=_ordered_finding_codes(
                     finding_codes,
                     [
                         "missing_report",
-                        "missing_report_artifact",
+                        "missing_report_file",
                         "partial_report",
                         "insufficient_evidence_report",
                         "missing_evidence",
@@ -2373,7 +2320,7 @@ def _research_continuation_should_regenerate_report(
         return False
     if "missing_report" in [finding.code for finding in review.findings]:
         return True
-    if "missing_report_artifact" in [finding.code for finding in review.findings]:
+    if "missing_report_file" in [finding.code for finding in review.findings]:
         return True
     return ledger.status != "none" and bool(actions)
 
@@ -2450,12 +2397,12 @@ def _research_review_findings(
             )
         )
 
-    if ledger.status != "none" and ledger.counts.report_artifact_count == 0:
+    if ledger.status != "none" and ledger.counts.report_file_count == 0:
         findings.append(
             ResearchReviewFinding(
-                code="missing_report_artifact",
+                code="missing_report_file",
                 severity="warning",
-                message="The latest research report has no persisted report artifact.",
+                message="The latest research report has no persisted report workspace_file.",
             )
         )
 
@@ -2528,7 +2475,7 @@ def _has_research_review_facts(
     return (
         execution.status != "none"
         or ledger.status != "none"
-        or ledger.counts.report_artifact_count > 0
+        or ledger.counts.report_file_count > 0
         or ledger.counts.source_count > 0
         or ledger.counts.evidence_count > 0
     )
@@ -2640,34 +2587,33 @@ def _research_report_value(value: object) -> ResearchReport | None:
         return None
 
 
-def _research_evidence_ledger_report_artifacts(
-    artifacts: list[AgentArtifact],
-) -> list[ResearchEvidenceLedgerReportArtifact]:
-    report_artifacts: list[ResearchEvidenceLedgerReportArtifact] = []
-    for artifact in artifacts:
-        metadata = _dict_value(artifact.metadata)
-        if metadata.get("generated_by") != "research.create_report":
-            continue
-        report_status = _report_status_value(metadata.get("report_status"))
-        if report_status is None:
-            continue
-        report_artifacts.append(
-            ResearchEvidenceLedgerReportArtifact(
-                artifact_id=artifact.id,
-                name=artifact.name,
-                uri=artifact.uri,
-                report_status=report_status,
-                source_count=_int_value(metadata.get("source_count")),
-                source_input_count=_int_value(metadata.get("source_input_count")),
-                duplicate_source_count=_int_value(metadata.get("duplicate_source_count")),
-                evidence_count=_int_value(metadata.get("evidence_count")),
-                limitation_count=_int_value(metadata.get("limitation_count")),
-                section_count=_int_value(metadata.get("section_count")),
-                section_summary=_research_section_summary_values(metadata.get("section_summary")),
-                quality_summary=_dict_value_or_none(metadata.get("quality_summary")),
+def _research_evidence_ledger_report_files(
+    events: list[AgentStreamEvent],
+    workspace_files: list[AgentWorkspaceFile],
+) -> list[ResearchEvidenceLedgerReportFile]:
+    report_files: list[ResearchEvidenceLedgerReportFile] = []
+    workspace_files_by_path = {file.path: file for file in workspace_files}
+    for report, path in _research_report_file_outputs(events):
+        workspace_file = workspace_files_by_path.get(path)
+        report_files.append(
+            ResearchEvidenceLedgerReportFile(
+                path=path,
+                name=_workspace_file_name(workspace_file, path),
+                uri=path,
+                report_status=report.status,
+                source_count=len(report.sources),
+                source_input_count=report.source_input_count,
+                duplicate_source_count=report.duplicate_source_count,
+                evidence_count=len(report.evidence),
+                limitation_count=len(report.limitations),
+                section_count=len(report.sections),
+                section_summary=list(report.section_summary),
+                quality_summary=report.quality_summary.model_dump(mode="json")
+                if report.quality_summary is not None
+                else None,
             )
         )
-    return report_artifacts
+    return report_files
 
 
 def _research_section_summary_values(value: object) -> list[ResearchEvidenceSectionSummary]:
@@ -2779,7 +2725,7 @@ def _research_execution_steps(
                 )
             )
 
-    if not steps and summary.report_artifacts:
+    if not steps and summary.report_files:
         steps.append(
             _research_execution_step(
                 phase="report",
@@ -2805,8 +2751,8 @@ def _research_execution_step(
 ) -> ResearchExecutionStep:
     web_success_count = _web_success_count_for_phase(events, phase)
     web_failure_count = _web_failure_count_for_phase(summary.web_failures, phase)
-    report_artifact_ids = (
-        [artifact.artifact_id for artifact in summary.report_artifacts]
+    report_workspace_paths = (
+        [workspace_file.path for workspace_file in summary.report_files]
         if phase == "report"
         else []
     )
@@ -2818,7 +2764,7 @@ def _research_execution_step(
     status = _research_execution_step_status(
         todo=todo,
         phase=phase,
-        report_artifact_ids=report_artifact_ids,
+        report_workspace_paths=report_workspace_paths,
         web_failure_count=web_failure_count,
     )
     return ResearchExecutionStep(
@@ -2831,7 +2777,7 @@ def _research_execution_step(
         related_tool_names=_research_related_tools_for_phase(phase),
         web_success_count=web_success_count,
         web_failure_count=web_failure_count,
-        report_artifact_ids=report_artifact_ids,
+        report_workspace_paths=report_workspace_paths,
         limitation_codes=limitation_codes,
         attention=(
             status in {"blocked", "cancelled"}
@@ -2858,14 +2804,14 @@ def _research_execution_step_status(
     *,
     todo: AgentTodo | None,
     phase: ResearchPlanPhase,
-    report_artifact_ids: list[str],
+    report_workspace_paths: list[str],
     web_failure_count: int,
 ) -> ResearchExecutionStepStatus:
     if todo is not None:
         status = _todo_status(todo)
         if status in {"pending", "running", "done", "blocked", "cancelled"}:
             return cast(ResearchExecutionStepStatus, status)
-    if phase == "report" and report_artifact_ids:
+    if phase == "report" and report_workspace_paths:
         return "done"
     if web_failure_count:
         return "blocked"
@@ -2890,7 +2836,7 @@ def _research_execution_progress(
         ),
         web_success_count=sum(step.web_success_count for step in steps),
         web_failure_count=sum(step.web_failure_count for step in steps),
-        report_artifact_count=len(summary.report_artifacts),
+        report_file_count=len(summary.report_files),
         limitation_count=len(summary.limitations),
     )
 
@@ -2906,12 +2852,12 @@ def _research_execution_status(
         has_plan
         or has_research_events
         or progress.total_steps > 0
-        or progress.report_artifact_count > 0
+        or progress.report_file_count > 0
         or summary.status != "none"
     )
     if not has_research_facts:
         return "none"
-    if progress.report_artifact_count:
+    if progress.report_file_count:
         return "degraded" if summary.degraded else "completed"
     if progress.blocked_steps or progress.cancelled_steps or progress.web_failure_count:
         return "blocked"
@@ -3188,30 +3134,54 @@ def _blocked_research_todos(todos: list[AgentTodo]) -> list[ResearchSnapshotTodo
     ]
 
 
-def _research_report_artifacts(
-    artifacts: list[AgentArtifact],
-) -> list[ResearchSnapshotReportArtifact]:
-    report_artifacts: list[ResearchSnapshotReportArtifact] = []
-    for artifact in artifacts:
-        metadata = _dict_value(artifact.metadata)
-        if metadata.get("generated_by") != "research.create_report":
-            continue
-        report_status = _report_status_value(metadata.get("report_status"))
-        if report_status is None:
-            continue
-        report_artifacts.append(
-            ResearchSnapshotReportArtifact(
-                artifact_id=artifact.id,
-                name=artifact.name,
-                uri=artifact.uri,
-                report_status=report_status,
-                source_count=_int_value(metadata.get("source_count")),
-                evidence_count=_int_value(metadata.get("evidence_count")),
-                limitation_count=_int_value(metadata.get("limitation_count")),
-                quality_summary=_dict_value_or_none(metadata.get("quality_summary")),
+def _research_report_files(
+    events: list[AgentStreamEvent],
+    workspace_files: list[AgentWorkspaceFile],
+) -> list[ResearchSnapshotReportFile]:
+    report_files: list[ResearchSnapshotReportFile] = []
+    workspace_files_by_path = {file.path: file for file in workspace_files}
+    for report, path in _research_report_file_outputs(events):
+        workspace_file = workspace_files_by_path.get(path)
+        report_files.append(
+            ResearchSnapshotReportFile(
+                path=path,
+                name=_workspace_file_name(workspace_file, path),
+                uri=path,
+                report_status=report.status,
+                source_count=len(report.sources),
+                evidence_count=len(report.evidence),
+                limitation_count=len(report.limitations),
+                quality_summary=report.quality_summary.model_dump(mode="json")
+                if report.quality_summary is not None
+                else None,
             )
         )
-    return report_artifacts
+    return report_files
+
+
+def _research_report_file_outputs(events: list[AgentStreamEvent]) -> list[tuple[ResearchReport, str]]:
+    outputs: list[tuple[ResearchReport, str]] = []
+    for event in events:
+        if event.type != "tool.completed":
+            continue
+        payload = _dict_value(event.payload)
+        if payload.get("tool_name") != "research.create_report":
+            continue
+        output = _dict_value(payload.get("output"))
+        report = _research_report_value(output.get("report"))
+        if report is None:
+            continue
+        workspace_file = _dict_value(output.get("workspace_file"))
+        path = _string_value(workspace_file.get("path")) or _string_value(output.get("path"))
+        if path is None:
+            continue
+        outputs.append((report, path))
+    return outputs
+
+
+def _workspace_file_name(file: AgentWorkspaceFile | None, fallback_path: str) -> str:
+    path = file.path if file is not None else fallback_path
+    return path.rstrip("/").rsplit("/", 1)[-1] or path
 
 
 def _research_limitations(
@@ -3245,11 +3215,11 @@ def _research_limitations(
 
 
 def _research_status(
-    report_artifacts: list[ResearchSnapshotReportArtifact],
+    report_files: list[ResearchSnapshotReportFile],
 ) -> ResearchSnapshotStatus:
-    if not report_artifacts:
+    if not report_files:
         return "none"
-    return report_artifacts[-1].report_status
+    return report_files[-1].report_status
 
 
 def _append_unique_limitation(

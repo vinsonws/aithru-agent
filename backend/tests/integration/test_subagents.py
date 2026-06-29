@@ -31,19 +31,15 @@ class ToolContext:
         self.tool_call_approved = False
 
 
-class DelegatingArtifactRuntime(AgentRuntime):
+class DelegatingWorkspaceFileRuntime(AgentRuntime):
     async def run(self, task_msg: str, deps: PydanticAgentDeps) -> AgentRuntimeResult:
         del task_msg
         if deps.run.source == AgentRunSource.DELEGATED_TASK:
-            await deps.store.create_artifact(
-                org_id=deps.run.org_id,
+            await deps.store.write_workspace_file(
                 workspace_id=deps.run.workspace_id,
-                run_id=deps.run.id,
-                type="report",
-                name="Child Report",
-                media_type="text/markdown",
-                uri="/reports/child.md",
+                path="/reports/child.md",
                 content="# Child Report\nImportant findings.",
+                media_type="text/markdown",
             )
             return AgentRuntimeResult(content="Child result.")
 
@@ -124,12 +120,12 @@ async def test_subagent_delegate_creates_child_run_and_parent_events() -> None:
 
 @pytest.mark.asyncio
 async def test_completed_subagent_persists_structured_result_summary() -> None:
-    runtime = create_agent_runtime(agent_runtime=DelegatingArtifactRuntime())
+    runtime = create_agent_runtime(agent_runtime=DelegatingWorkspaceFileRuntime())
 
     parent = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        task_msg="Delegate artifact research",
+        task_msg="Delegate workspace file research",
         scopes=["*"],
     )
     subagent_run = (await runtime.store.list_subagent_runs(parent_run_id=parent.id))[0]
@@ -149,13 +145,13 @@ async def test_completed_subagent_persists_structured_result_summary() -> None:
     assert completed.status == AgentSubagentRunStatus.COMPLETED
     assert completed.result_summary is not None
     assert completed.result_summary.content == "Child result."
-    assert completed.result_summary.artifact_count == 1
-    assert completed.result_summary.artifacts[0].name == "Child Report"
+    assert completed.result_summary.workspace_file_count == 1
+    assert completed.result_summary.workspace_paths == ["/reports/child.md"]
+    assert completed.result_summary.workspace_files[0].path == "/reports/child.md"
     assert completed_event.payload["result_summary"]["content"] == "Child result."
-    assert completed_event.payload["result_summary"]["artifacts"][0]["summary"] == (
-        "# Child Report\nImportant findings."
-    )
-    assert subagent_span.refs["artifact_count"] == 1
+    assert completed_event.payload["result_summary"]["workspace_paths"] == ["/reports/child.md"]
+    assert completed_event.payload["result_summary"]["workspace_files"][0]["path"] == "/reports/child.md"
+    assert subagent_span.refs["workspace_file_count"] == 1
     assert subagent_span.refs["result_content_length"] == len("Child result.")
 
 

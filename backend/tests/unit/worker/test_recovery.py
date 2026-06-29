@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 from aithru_agent.domain import (
     AgentApproval,
     AgentApprovalDecision,
     AgentApprovalStatus,
-    AgentArtifact,
     AgentRunResult,
     AgentRun,
     AgentRunStatus,
     AgentSubagentRun,
     AgentSubagentRunStatus,
+    AgentWorkspaceFile,
 )
 from aithru_agent.stream.events import AgentStreamEvent
 from aithru_agent.worker.recovery import decide_run_recovery
@@ -83,18 +85,14 @@ def child(status: AgentRunStatus, *, result: AgentRunResult | None = None) -> Ag
     )
 
 
-def artifact() -> AgentArtifact:
-    return AgentArtifact(
-        id="artifact_1",
-        org_id="org_1",
+def workspace_file() -> AgentWorkspaceFile:
+    return AgentWorkspaceFile(
         workspace_id="workspace_1",
-        run_id="run_child",
-        type="report",
-        name="Child Report",
+        path="/reports/child.md",
+        size=34,
         media_type="text/markdown",
-        uri="/reports/child.md",
-        content="# Child Report\nImportant findings.",
         created_at="2026-06-18T00:00:00Z",
+        updated_at="2026-06-18T00:00:00Z",
     )
 
 
@@ -245,7 +243,7 @@ def test_recovery_decision_does_not_auto_resume_completed_subagent_child_without
     assert decision.reason == "subagent_completed_requires_model_continuation"
 
 
-def test_recovery_decision_resumes_completed_subagent_child_with_artifact_summary() -> None:
+def test_recovery_decision_resumes_completed_subagent_child_with_workspace_file_summary() -> None:
     decision = decide_run_recovery(
         run=run(AgentRunStatus.WAITING_SUBAGENT),
         events=[
@@ -264,19 +262,17 @@ def test_recovery_decision_resumes_completed_subagent_child_with_artifact_summar
         child_runs=[
             child(
                 AgentRunStatus.COMPLETED,
-                result=AgentRunResult(artifact_ids=["artifact_1"]),
+                result=AgentRunResult(workspace_paths=["/reports/child.md"]),
             )
         ],
-        child_artifacts=[artifact()],
+        child_workspace_files=[workspace_file()],
     )
 
     assert decision.action == "resume_subagent"
     assert decision.reason == "subagent_completed"
     assert decision.child_result is None
-    assert len(decision.child_artifacts) == 1
-    assert decision.child_artifacts[0].id == "artifact_1"
-    assert decision.child_artifacts[0].name == "Child Report"
-    assert decision.child_artifacts[0].summary == "# Child Report\nImportant findings."
+    assert len(decision.child_workspace_files) == 1
+    assert decision.child_workspace_files[0].path == "/reports/child.md"
     assert decision.child_result_summary is not None
-    assert decision.child_result_summary.artifact_ids == ["artifact_1"]
-    assert decision.child_result_summary.artifact_count == 1
+    assert decision.child_result_summary.workspace_paths == ["/reports/child.md"]
+    assert decision.child_result_summary.workspace_file_count == 1

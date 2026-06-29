@@ -14,7 +14,7 @@ def test_file_skill_loader_loads_published_skill_manifest(tmp_path: Path) -> Non
           "key": "file-report",
           "name": "File Report",
           "instructions": "Analyze files and write a concise report.",
-          "allowed_tools": ["workspace.read_file", "artifact.create"],
+          "allowed_tools": ["workspace.read_file", "presentation.present"],
           "allowed_subagents": [],
           "version": "0.1.0",
           "status": "published"
@@ -30,7 +30,7 @@ def test_file_skill_loader_loads_published_skill_manifest(tmp_path: Path) -> Non
     assert skill is not None
     assert skill.id == "skill_1"
     assert skill.instructions == "Analyze files and write a concise report."
-    assert skill.allowed_tools == ["workspace.read_file", "artifact.create"]
+    assert skill.allowed_tools == ["workspace.read_file", "presentation.present"]
 
 
 def test_file_skill_loader_returns_none_for_missing_or_unpublished_skill(tmp_path: Path) -> None:

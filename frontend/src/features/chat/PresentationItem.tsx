@@ -1,4 +1,4 @@
-import { Download, ExternalLink, FileText, Image, Package, ShieldCheck } from "lucide-react";
+import { Download, ExternalLink, FileText, Image, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PresentationEntry } from "./useRunStream";
 
@@ -65,15 +65,20 @@ function previewFileId(presentation: PresentationEntry): string | null {
   if (presentation.resource.kind === "workspace_file" && presentation.resource.path) {
     return `ws-${presentation.resource.path}`;
   }
-  if (presentation.resource.kind === "artifact" && presentation.resource.id) {
-    return `artifact-${presentation.resource.id}`;
-  }
   return null;
 }
 
 function downloadUrl(presentation: PresentationEntry): string | null {
-  if (presentation.resource.kind === "artifact" && presentation.resource.id) {
-    return `/api/artifacts/${encodeURIComponent(presentation.resource.id)}/download`;
+  if (presentation.resource.kind === "workspace_file" && presentation.resource.path) {
+    const workspaceId = presentation.metadata?.workspace_id;
+    if (typeof workspaceId !== "string" || !workspaceId) return null;
+    const encodedPath = presentation.resource.path
+      .replace(/^\/+/, "")
+      .split("/")
+      .filter(Boolean)
+      .map(encodeURIComponent)
+      .join("/");
+    return `/api/workspaces/${encodeURIComponent(workspaceId)}/files/${encodedPath}/download`;
   }
   return null;
 }
@@ -83,7 +88,6 @@ function actionLabel(action: NonNullable<PresentationEntry["actions"]>[number] |
 }
 
 function iconForPresentation(presentation: PresentationEntry) {
-  if (presentation.resource.kind === "artifact") return Package;
   if (presentation.resource.kind === "approval") return ShieldCheck;
   if (presentation.preferredView === "image") return Image;
   return FileText;

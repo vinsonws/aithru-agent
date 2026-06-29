@@ -24,7 +24,7 @@ from aithru_agent.capabilities import (
 from aithru_agent.capabilities.recovery import recoverable_tool_result
 from aithru_agent.capabilities.web import WebToolInvocation, WebToolProvider, WebToolResult
 from aithru_agent.capabilities.local_tools import (
-    ArtifactLocalTool,
+    PresentationLocalTool,
     ResearchLocalTool,
     TodoLocalTool,
     WorkspaceLocalTool,
@@ -306,7 +306,7 @@ async def test_pydantic_tool_bridge_calls_capability_router_and_emits_events() -
         scopes=["*"],
     )
     router = AithruCapabilityRouter(
-        adapters=[WorkspaceLocalTool(store), TodoLocalTool(store), ArtifactLocalTool(store)],
+        adapters=[WorkspaceLocalTool(store), TodoLocalTool(store)],
         policy=ToolPolicy(require_approval_for_risk=[]),
     )
     bridge = PydanticAIToolBridge(
@@ -371,7 +371,7 @@ async def test_pydantic_tool_bridge_emits_external_run_events_for_workflow_capab
     result = await bridge.call_tool(
         ToolContext("tc_workflow"),
         tool_name="workflow.report_review",
-        tool_input={"artifact_id": "artifact_1"},
+        tool_input={"workspace_path": "/reports/report.md"},
     )
     events = await event_store.list_by_run(run.id)
     completed = next(event for event in events if event.type == "tool.completed")
@@ -444,7 +444,7 @@ async def test_pydantic_tool_bridge_pauses_for_workflow_owned_approval() -> None
         await bridge.call_tool(
             ToolContext("tc_waiting_workflow"),
             tool_name="workflow.report_review",
-            tool_input={"artifact_id": "artifact_1"},
+            tool_input={"workspace_path": "/reports/report.md"},
         )
     paused = await store.get_run(running.id)
     events = await event_store.list_by_run(running.id)
@@ -515,7 +515,7 @@ async def test_pydantic_tool_bridge_pauses_for_running_workflow_capability_run()
         await bridge.call_tool(
             ToolContext("tc_running_workflow"),
             tool_name="workflow.report_review",
-            tool_input={"artifact_id": "artifact_1"},
+            tool_input={"workspace_path": "/reports/report.md"},
         )
     paused = await store.get_run(running.id)
     events = await event_store.list_by_run(running.id)
@@ -657,7 +657,7 @@ async def test_pydantic_tool_bridge_redacts_sensitive_stream_payload_fields() ->
 
 
 @pytest.mark.asyncio
-async def test_pydantic_tool_bridge_emits_artifact_event_for_research_report() -> None:
+async def test_pydantic_tool_bridge_emits_presentation_for_research_report_workspace_file() -> None:
     store = InMemoryAgentStore()
     event_store = InMemoryAgentEventStore()
     writer = AgentEventWriter(event_store)
@@ -706,11 +706,11 @@ async def test_pydantic_tool_bridge_emits_artifact_event_for_research_report() -
     )
     events = await event_store.list_by_run(run.id)
 
-    assert result["artifact"]["type"] == "report"
-    assert result["artifact"]["metadata"]["evidence_count"] == 1
-    assert result["artifact"]["metadata"]["source_input_count"] == 1
-    assert result["artifact"]["metadata"]["duplicate_source_count"] == 0
-    assert result["artifact"]["metadata"]["quality_summary"] == {
+    assert result["workspace_file"]["path"] == "/reports/aithru-research.md"
+    assert result["workspace_file"]["media_type"] == "text/markdown"
+    assert result["report"]["source_input_count"] == 1
+    assert result["report"]["duplicate_source_count"] == 0
+    assert result["report"]["quality_summary"] == {
         "high": 0,
         "medium": 1,
         "low": 0,
@@ -735,15 +735,12 @@ async def test_pydantic_tool_bridge_emits_artifact_event_for_research_report() -
     assert [event.type for event in events] == [
         "tool.proposed",
         "tool.started",
-        "artifact.created",
         "tool.completed",
-        "presentation.created",
     ]
-    assert events[2].payload["id"] == result["artifact"]["id"]
 
 
 @pytest.mark.asyncio
-async def test_pydantic_tool_bridge_creates_degraded_research_report_artifact() -> None:
+async def test_pydantic_tool_bridge_creates_degraded_research_report_workspace_file() -> None:
     store = InMemoryAgentStore()
     event_store = InMemoryAgentEventStore()
     writer = AgentEventWriter(event_store)
@@ -792,18 +789,17 @@ async def test_pydantic_tool_bridge_creates_degraded_research_report_artifact() 
         },
     )
     events = await event_store.list_by_run(run.id)
+    report_file = await store.read_workspace_file(workspace.id, "/reports/aithru-degraded-research.md")
 
     assert result["report"]["status"] == "insufficient_evidence"
-    assert result["artifact"]["metadata"]["report_status"] == "insufficient_evidence"
-    assert result["artifact"]["metadata"]["source_count"] == 0
-    assert result["artifact"]["metadata"]["limitation_count"] == 1
-    assert "Controlled search returned no results." in result["artifact"]["content"]
+    assert result["workspace_file"]["path"] == "/reports/aithru-degraded-research.md"
+    assert len(result["report"]["sources"]) == 0
+    assert len(result["report"]["limitations"]) == 1
+    assert "Controlled search returned no results." in str(report_file.content)
     assert [event.type for event in events] == [
         "tool.proposed",
         "tool.started",
-        "artifact.created",
         "tool.completed",
-        "presentation.created",
     ]
 
 
@@ -1063,7 +1059,7 @@ async def test_pydantic_tool_bridge_returns_recoverable_workspace_path_denial() 
         actor_user_id="user_1",
         workspace_id=workspace.id,
         scopes=["agent.workspace.write"],
-        workspace_allowed_paths=["/workspace", "/artifacts"],
+        workspace_allowed_paths=["/workspace", "/outputs"],
     )
     deps = PydanticAgentDeps(
         run=run,
@@ -1097,8 +1093,8 @@ async def test_pydantic_tool_bridge_returns_recoverable_workspace_path_denial() 
         "failure_kind": "invalid_input",
         "message": "Path is outside allowed workspace paths.",
         "guidance": "Retry with an absolute workspace path under one of the allowed workspace paths.",
-        "suggested_input": {"path": "/artifacts/cosmic-dreamscape.html"},
-        "allowed_values": {"allowed_paths": ["/workspace", "/artifacts"]},
+        "suggested_input": {"path": "/outputs/cosmic-dreamscape.html"},
+        "allowed_values": {"allowed_paths": ["/workspace", "/outputs"]},
     }
     assert [event.type for event in events] == [
         "tool.proposed",
@@ -1175,7 +1171,7 @@ async def test_pydantic_tool_bridge_rejects_non_deferred_approval_required_tool(
         scopes=["*"],
     )
     router = AithruCapabilityRouter(
-        adapters=[WorkspaceLocalTool(store), TodoLocalTool(store), ArtifactLocalTool(store)],
+        adapters=[WorkspaceLocalTool(store), TodoLocalTool(store)],
         policy=ToolPolicy(require_approval_for_risk=["write"]),
     )
     bridge = PydanticAIToolBridge(
@@ -1237,13 +1233,12 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
 
     assert resumed.status == AgentRunStatus.COMPLETED
     assert file.content == "a"
-    assert [event.type for event in events][-13:] == [
+    assert [event.type for event in events][-12:] == [
         "approval.resolved",
         "run.resumed",
         "tool.started",
         "workspace.file.created",
         "tool.completed",
-        "presentation.created",
         "message.delta",
         "message.delta",
         "model.usage",
@@ -1255,7 +1250,7 @@ async def test_pydantic_approval_resume_executes_persisted_tool_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_workspace_write_file_emits_presentation_after_tool_completed() -> None:
+async def test_workspace_write_file_does_not_auto_emit_presentation() -> None:
     runtime = create_agent_runtime(
         settings=AgentSettings(model="test"),
         agent_runtime=AgentRuntime(
@@ -1273,39 +1268,67 @@ async def test_workspace_write_file_emits_presentation_after_tool_completed() ->
     events = await runtime.event_store.list_by_run(run.id)
     event_types = [event.type for event in events]
 
-    tool_completed_index = event_types.index("tool.completed")
-    presentation_index = event_types.index("presentation.created")
-
-    assert presentation_index > tool_completed_index
-    presentation_event = events[presentation_index]
-    assert presentation_event.payload["presentation"]["resource"] == {
-        "kind": "workspace_file",
-        "path": "/a",
-    }
-    assert presentation_event.payload["presentation"]["source"]["tool_name"] == "workspace.write_file"
+    assert "tool.completed" in event_types
+    assert "presentation.created" not in event_types
 
 
 @pytest.mark.asyncio
-async def test_presentation_created_emits_from_validated_tool_output() -> None:
-    runtime = create_agent_runtime(
-        settings=AgentSettings(model="test"),
-        agent_runtime=AgentRuntime(
-            model=TestModel(call_tools=["workspace.write_file"], custom_output_text="done")
-        ),
-        policy=ToolPolicy(require_approval_for_risk=[]),
+async def test_presentation_created_emits_from_presentation_present_output() -> None:
+    store = InMemoryAgentStore()
+    event_store = InMemoryAgentEventStore()
+    writer = AgentEventWriter(event_store)
+    workspace = await store.create_workspace(org_id="org_1")
+    await store.write_workspace_file(
+        workspace_id=workspace.id,
+        path="/reports/report.md",
+        content="# Report",
+        media_type="text/markdown",
     )
-
-    run = await runtime.runner.start_run(
+    run = await store.create_run(
         org_id="org_1",
         actor_user_id="user_1",
-        task_msg="Write a file",
+        source="api",
+        task_msg="Present a file",
+        workspace_id=workspace.id,
+    )
+    context = AgentRunContext(
+        run_id=run.id,
+        org_id="org_1",
+        actor_user_id="user_1",
+        workspace_id=workspace.id,
         scopes=["agent.workspace.write", "agent.workspace.read"],
     )
-    events = await runtime.event_store.list_by_run(run.id)
+    bridge = PydanticAIToolBridge(
+        deps=PydanticAgentDeps(
+            run=run,
+            run_context=context,
+            event_writer=writer,
+            capability_router=AithruCapabilityRouter(
+                adapters=[PresentationLocalTool(store)],
+                policy=ToolPolicy(require_approval_for_risk=[]),
+            ),
+            store=store,
+        ),
+    )
+
+    result = await bridge.call_tool(
+        ToolContext("tc_present"),
+        tool_name="presentation.present",
+        tool_input={"resources": [{"kind": "workspace_file", "path": "/reports/report.md"}]},
+    )
+    events = await event_store.list_by_run(run.id)
     presentations = [event for event in events if event.type == "presentation.created"]
 
-    assert len(presentations) >= 1
-    assert presentations[-1].payload["presentation"]["source"]["created_by"] in {"harness", "model_request"}
+    assert result["presentations"][0]["resource"]["path"] == "/reports/report.md"
+    assert len(presentations) == 1
+    assert [event.type for event in events] == [
+        "tool.proposed",
+        "tool.started",
+        "tool.completed",
+        "presentation.created",
+    ]
+    assert presentations[0].payload["presentation"]["source"]["created_by"] == "model_request"
+    assert presentations[0].payload["presentation"]["source"]["tool_name"] == "presentation.present"
 
 
 @pytest.mark.asyncio

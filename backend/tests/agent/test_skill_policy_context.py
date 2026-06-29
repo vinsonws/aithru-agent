@@ -101,7 +101,7 @@ def test_compose_skill_run_context_intersects_allowed_tools() -> None:
         allowed_tools=None,
     )
     packages = [
-        _package("skill-a", allowed_tools=["workspace.read_file", "artifact.create"]),
+        _package("skill-a", allowed_tools=["workspace.read_file", "workspace.write_file"]),
         _package("skill-b", allowed_tools=["workspace.read_file"]),
     ]
     result = compose_skill_run_context(base, packages)
@@ -173,7 +173,7 @@ def test_compose_skill_run_context_deny_wins_over_allow() -> None:
     assert result.allowed_tools == []
 
 
-def test_builtin_surprise_frontend_policy_keeps_html_outputs_in_artifacts() -> None:
+def test_builtin_surprise_frontend_policy_keeps_html_outputs_in_workspace_outputs() -> None:
     resolver = BuiltinPackageResolver()
     packages = [
         package
@@ -191,7 +191,7 @@ def test_builtin_surprise_frontend_policy_keeps_html_outputs_in_artifacts() -> N
     result = compose_skill_run_context(base, packages)
 
     assert result.workspace_allowed_paths is not None
-    assert "/artifacts" in result.workspace_allowed_paths
+    assert "/outputs" in result.workspace_allowed_paths
     assert "/index.html" not in result.workspace_allowed_paths
 
 
@@ -222,7 +222,7 @@ async def _fake_list_tools(self, ctx: object) -> list[AgentToolDescriptor]:
     all_tools = [
         _desc("workspace.list_files"),
         _desc("workspace.write_file"),
-        _desc("artifact.create"),
+        _desc("presentation.present"),
         _desc("sandbox.run_python"),
     ]
     if allowed is not None:
@@ -309,7 +309,7 @@ async def test_loaded_deny_only_skill_policy_filters_aithru_toolset() -> None:
 
     assert "workspace.write_file" not in tools
     assert "workspace.list_files" in tools
-    assert "artifact.create" in tools
+    assert "presentation.present" in tools
 
 
 @pytest.mark.asyncio

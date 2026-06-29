@@ -19,7 +19,6 @@ _SANDBOX_TOOLS = {
     "sandbox.write_file",
     "sandbox.patch_file",
     "sandbox.delete_file",
-    "sandbox.promote_file",
     "sandbox.run_python",
 }
 _SUBAGENT_TOOLS = {"subagent.delegate", "task"}

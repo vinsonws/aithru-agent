@@ -27,18 +27,18 @@ Select **1 to 3** skills and design a creative mashup. The goal is a single cohe
 - Something tied to today's date, season, or trending news
 - A mini creative project the user never asked for but would love
 - A playful "what if" concept
-- An aesthetic artifact combining data + design
+- An aesthetic workspace output combining data + design
 - A fun interactive HTML/React experience
 
 ### Step 3: Fallback — No Other Skills Available
 
 If no other skills are discovered (only surprise-me exists), use one of these fallbacks:
 
-1. **News-based surprise**: Search today's news for a fascinating story, then create a beautifully designed HTML artifact presenting it in a visually striking way
+1. **News-based surprise**: Search today's news for a fascinating story, then create a beautifully designed HTML workspace output presenting it in a visually striking way
 2. **Interactive HTML experience**: Build a creative single-page web experience — generative art, a mini-game, a visual poem, an animated infographic, or an interactive story
-3. **Personalized artifact**: Use known user context to create something personal and delightful
+3. **Personalized workspace output**: Use known user context to create something personal and delightful
 
-For HTML surprises, treat the page as a previewable artifact rather than a deployed website. Save it with a descriptive `.html` filename under `/artifacts`, then present it to the user.
+For HTML surprises, treat the page as a previewable workspace file rather than a deployed website. Save it with a descriptive `.html` filename under `/outputs`, then present it to the user.
 
 ### Step 4: Execute
 
@@ -49,7 +49,7 @@ For HTML surprises, treat the page as a previewable artifact rather than a deplo
 
 ### Step 5: Reveal
 
-Present the surprise with minimal spoilers. A short teaser line, then the artifact.
+Present the surprise with minimal spoilers. A short teaser line, then the output.
 
-- **Good reveal:** "I made you something ✨" + [the artifact]
+- **Good reveal:** "I made you something ✨" + [the output]
 - **Bad reveal:** "I decided to combine the pptx skill with the canvas-design skill to create a presentation about..." (kills the surprise)

@@ -2,7 +2,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileText, FileCode, Image, RefreshCcw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { runsApi, workspacesApi, artifactsApi } from "@/lib/api";
+import { runsApi, workspacesApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState, ErrorState } from "@/components/shared/states";
 import { buildRunFileViews, type RunFileView } from "@/features/inspection/runFilesView";
@@ -38,42 +38,27 @@ export function FileListPanel({ runId, workspaceId, onSelectFile, onClose }: Fil
     enabled: !!workspaceId && !snapshotQuery.data?.workspace_files,
   });
 
-  const artifactsQuery = useQuery({
-    queryKey: ["artifacts", runId],
-    queryFn: () => artifactsApi.list({ run_id: runId! }),
-    enabled: !!runId,
-  });
-
-  const isLoading = snapshotQuery.isLoading || workspaceQuery.isLoading || artifactsQuery.isLoading;
-  const error = snapshotQuery.error || workspaceQuery.error || artifactsQuery.error;
+  const isLoading = snapshotQuery.isLoading || workspaceQuery.isLoading;
+  const error = snapshotQuery.error || workspaceQuery.error;
 
   const snapshot = snapshotQuery.data;
   const workspaceFiles = (snapshot?.workspace_files as Array<{ path: string; size?: number; media_type?: string | null }> | undefined) ?? workspaceQuery.data ?? [];
-  const artifactsData = artifactsQuery.data;
-  const artifacts = Array.isArray(artifactsData)
-    ? artifactsData
-    : (artifactsData as { items?: unknown[] } | undefined)?.items ?? [];
 
   const views = buildRunFileViews({
     snapshot,
+    workspaceId,
     workspaceFiles: workspaceFiles as Array<{ path: string; size?: number; media_type?: string | null }>,
-    artifacts: artifacts as Array<{
-      id: string; name: string; type?: string; media_type?: string | null;
-      created_at?: string; finalized_at?: string | null; finalized?: unknown;
-      uri?: string | null; metadata?: Record<string, unknown> | null;
-    }>,
   });
 
   const handleRefresh = () => {
     snapshotQuery.refetch();
     workspaceQuery.refetch();
-    artifactsQuery.refetch();
   };
 
   if (isLoading) return <LoadingState />;
   if (error) return <ErrorState error={error} onRetry={handleRefresh} />;
 
-  const outputs = views.filter((v) => v.kind === "artifact");
+  const outputs = views.filter((v) => v.kind === "output_file");
   const modifiedFiles = views.filter((v) => v.kind === "modified_file");
 
   return (

@@ -127,7 +127,7 @@ async def test_thread_run_creation_persists_goal_as_user_message() -> None:
             "role": "user",
             "content": "Write the report draft",
             "run_id": run["id"],
-            "artifact_ids": [],
+            "workspace_paths": [],
             "attachments": [],
             "created_at": messages[0]["created_at"],
         }

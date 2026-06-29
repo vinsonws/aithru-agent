@@ -553,7 +553,7 @@ class AgentWorkerRunner:
                 decision.action == "resume_subagent"
                 and decision.subagent_run_id
                 and decision.child_run_id
-                and (decision.child_result is not None or decision.child_artifacts)
+                and (decision.child_result is not None or decision.child_workspace_files)
             ):
                 return await self.resume_after_completed_subagent(run.id, decision=decision)
             if decision.action == "fail_subagent":
@@ -571,16 +571,16 @@ class AgentWorkerRunner:
             ]
             if child is not None
         ]
-        child_artifacts = []
+        child_workspace_files = []
         for child in child_runs:
-            child_artifacts.extend(await self._store.list_artifacts(run_id=child.id))
+            child_workspace_files.extend(await self._store.list_workspace_files(child.workspace_id))
         return decide_run_recovery(
             run=run,
             events=events,
             approvals=await self._store.list_approvals(),
             subagents=subagents,
             child_runs=child_runs,
-            child_artifacts=child_artifacts,
+            child_workspace_files=child_workspace_files,
         )
 
     async def _latest_input_text(self, run_id: str) -> str | None:
@@ -1027,7 +1027,7 @@ class AgentWorkerRunner:
             or not decision.child_run_id
             or (
                 decision.child_result is None
-                and not decision.child_artifacts
+                and not decision.child_workspace_files
                 and not (decision.child_result_summary and decision.child_result_summary.has_output)
             )
         ):
@@ -1062,7 +1062,7 @@ class AgentWorkerRunner:
                 subagent_run_id=decision.subagent_run_id,
                 child_run_id=decision.child_run_id,
                 child_result=decision.child_result,
-                child_artifacts=decision.child_artifacts,
+                child_workspace_files=decision.child_workspace_files,
                 deps=deps,
             )
             if result.pending_approval is not None:
@@ -1156,10 +1156,10 @@ class AgentWorkerRunner:
             source={"kind": "harness"},
             payload=message_payload,
         )
-        artifacts = await self._store.list_artifacts(run_id=run.id)
+        workspace_files = await self._store.list_workspace_files(run.workspace_id)
         result = AgentRunResult(
             content=content or None,
-            artifact_ids=[artifact.id for artifact in artifacts],
+            workspace_paths=[file.path for file in workspace_files],
             message_id=message_id,
             thread_message_id=persisted_message_id,
         )
@@ -1317,8 +1317,8 @@ class AgentWorkerRunner:
         if run.source != AgentRunSource.DELEGATED_TASK:
             return
         subagent_runs = await self._store.list_subagent_runs(child_run_id=run.id)
-        child_artifacts = await self._store.list_artifacts(run_id=run.id)
-        result_summary = build_subagent_result_summary(run, child_artifacts)
+        child_workspace_files = await self._store.list_workspace_files(run.workspace_id)
+        result_summary = build_subagent_result_summary(run, child_workspace_files)
         for subagent_run in subagent_runs:
             completed = await self._store.update_subagent_run(
                 subagent_run.id,

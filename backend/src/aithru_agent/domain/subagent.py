@@ -2,9 +2,9 @@ from enum import StrEnum
 
 from pydantic import Field, field_validator, model_validator
 
-from .artifact import AgentArtifactSummary
 from .base import AithruBaseModel
 from .skill import AgentMemoryPolicy, AgentWorkspacePolicy
+from .workspace import AgentWorkspaceFile
 
 
 class AgentSubagentRunStatus(StrEnum):
@@ -30,22 +30,22 @@ class AgentSubagentSpec(AithruBaseModel):
 class AgentSubagentResultSummary(AithruBaseModel):
     content: str | None = None
     content_truncated: bool = False
-    artifact_ids: list[str] = Field(default_factory=list)
-    artifacts: list[AgentArtifactSummary] = Field(default_factory=list)
-    artifact_count: int = Field(default=0, ge=0)
+    workspace_paths: list[str] = Field(default_factory=list)
+    workspace_files: list[AgentWorkspaceFile] = Field(default_factory=list)
+    workspace_file_count: int = Field(default=0, ge=0)
     has_output: bool = False
     message_id: str | None = None
     thread_message_id: str | None = None
 
-    @field_validator("artifact_ids")
+    @field_validator("workspace_paths")
     @classmethod
-    def artifact_ids_must_be_non_blank(cls, value: list[str]) -> list[str]:
+    def workspace_paths_must_be_non_blank(cls, value: list[str]) -> list[str]:
         deduped: list[str] = []
         seen: set[str] = set()
         for item in value:
             stripped = item.strip()
             if not stripped:
-                raise ValueError("subagent result artifact ids must not be blank")
+                raise ValueError("subagent result workspace paths must not be blank")
             if stripped in seen:
                 continue
             seen.add(stripped)
@@ -56,16 +56,16 @@ class AgentSubagentResultSummary(AithruBaseModel):
     def derive_summary_fields(self) -> "AgentSubagentResultSummary":
         if self.content is None and self.content_truncated:
             raise ValueError("content_truncated requires content")
-        artifact_ids = list(self.artifact_ids)
-        seen = set(artifact_ids)
-        for artifact in self.artifacts:
-            if artifact.id in seen:
+        workspace_paths = list(self.workspace_paths)
+        seen = set(workspace_paths)
+        for file in self.workspace_files:
+            if file.path in seen:
                 continue
-            seen.add(artifact.id)
-            artifact_ids.append(artifact.id)
-        self.artifact_ids = artifact_ids
-        self.artifact_count = len(artifact_ids)
-        self.has_output = bool((self.content or "").strip() or artifact_ids)
+            seen.add(file.path)
+            workspace_paths.append(file.path)
+        self.workspace_paths = workspace_paths
+        self.workspace_file_count = len(workspace_paths)
+        self.has_output = bool((self.content or "").strip() or workspace_paths)
         return self
 
 

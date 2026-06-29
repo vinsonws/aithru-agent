@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 from pydantic_ai.models.test import TestModel
 
@@ -6,10 +8,10 @@ from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.capabilities import ToolPolicy
 from aithru_agent.domain import (
     AgentApprovalDecision,
-    AgentArtifactSummary,
     AgentRunSource,
     AgentRunStatus,
     AgentSubagentRunStatus,
+    AgentWorkspaceFile,
 )
 from tests.utils.step_runtime import Step, StepAgentRuntime
 
@@ -22,14 +24,14 @@ class ResumeSubagentRuntime(AgentRuntime):
         subagent_run_id: str,
         child_run_id: str,
         child_result: str,
-        child_artifacts: list[AgentArtifactSummary] | None = None,
+        child_workspace_files: list[AgentWorkspaceFile] | None = None,
         deps: PydanticAgentDeps,
     ) -> AgentRuntimeResult:
-        del run_id, subagent_run_id, child_run_id, child_artifacts, deps
+        del run_id, subagent_run_id, child_run_id, child_workspace_files, deps
         return AgentRuntimeResult(content=f"Parent continued with: {child_result}")
 
 
-class ResumeSubagentArtifactRuntime(AgentRuntime):
+class ResumeSubagentWorkspaceFileRuntime(AgentRuntime):
     async def resume_subagent(
         self,
         *,
@@ -37,14 +39,12 @@ class ResumeSubagentArtifactRuntime(AgentRuntime):
         subagent_run_id: str,
         child_run_id: str,
         child_result: str | None,
-        child_artifacts: list[AgentArtifactSummary] | None = None,
+        child_workspace_files: list[AgentWorkspaceFile] | None = None,
         deps: PydanticAgentDeps,
     ) -> AgentRuntimeResult:
         del run_id, subagent_run_id, child_run_id, child_result, deps
-        artifacts = child_artifacts or []
-        names = ", ".join(artifact.name for artifact in artifacts)
-        summaries = " | ".join(artifact.summary or "" for artifact in artifacts)
-        return AgentRuntimeResult(content=f"Parent continued with artifacts: {names}: {summaries}")
+        paths = ", ".join(file.path for file in child_workspace_files or [])
+        return AgentRuntimeResult(content=f"Parent continued with workspace files: {paths}")
 
 
 @pytest.mark.asyncio
@@ -267,14 +267,14 @@ async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_r
 
 
 @pytest.mark.asyncio
-async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_artifact() -> None:
-    runtime = create_agent_runtime(agent_runtime=ResumeSubagentArtifactRuntime())
+async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_workspace_file() -> None:
+    runtime = create_agent_runtime(agent_runtime=ResumeSubagentWorkspaceFileRuntime())
     workspace = await runtime.store.create_workspace(org_id="org_1")
     parent = await runtime.store.create_run(
         org_id="org_1",
         actor_user_id="user_1",
         source="api",
-        task_msg="Wait for child artifact",
+        task_msg="Wait for child workspace file",
         workspace_id=workspace.id,
         scopes=["*"],
     )
@@ -282,19 +282,15 @@ async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_a
         org_id="org_1",
         actor_user_id="user_1",
         source=AgentRunSource.DELEGATED_TASK,
-        task_msg="Child artifact work",
+        task_msg="Child workspace file work",
         workspace_id=workspace.id,
         scopes=["*"],
     )
-    artifact = await runtime.store.create_artifact(
-        org_id="org_1",
+    report_file = await runtime.store.write_workspace_file(
         workspace_id=workspace.id,
-        run_id=child.id,
-        type="report",
-        name="Child Report",
-        media_type="text/markdown",
-        uri="/reports/child.md",
         content="# Child Report\nImportant findings.",
+        path="/reports/child.md",
+        media_type="text/markdown",
     )
     running_parent = await runtime.store.claim_run(parent.id)
     running_child = await runtime.store.claim_run(child.id)
@@ -307,7 +303,7 @@ async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_a
     completed_child = await runtime.store.update_run(
         running_child.id,
         status=AgentRunStatus.COMPLETED,
-        result={"artifact_ids": [artifact.id]},
+        result={"workspace_paths": [report_file.path]},
     )
     subagent = await runtime.store.create_subagent_run(
         org_id="org_1",
@@ -341,7 +337,7 @@ async def test_worker_recovery_resumes_parent_when_waited_child_completed_with_a
     assert recovered.id == parent.id
     assert stored.status == AgentRunStatus.COMPLETED
     assert stored.result.content == (
-        "Parent continued with artifacts: Child Report: # Child Report\nImportant findings."
+        "Parent continued with workspace files: /reports/child.md"
     )
     assert event_types.index("run.resumed") < event_types.index("model.completed")
     assert event_types[-1] == "run.completed"

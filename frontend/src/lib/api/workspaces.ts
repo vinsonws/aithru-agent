@@ -8,7 +8,6 @@ import type {
   AgentWorkspaceUploadResult,
   AgentWorkspacePatchResult,
   AgentWorkspaceImageViewResult,
-  AgentArtifactPromotionResult,
 } from "./types";
 
 export interface WorkspaceUploadBody {
@@ -30,7 +29,7 @@ function encodeWorkspacePath(path: string): string {
     .join("/");
 }
 
-function workspaceFileUrl(workspaceId: string, path: string, suffix = ""): string {
+export function workspaceFileUrl(workspaceId: string, path: string, suffix = ""): string {
   return workspaceUrl(workspaceId, `/files/${encodeWorkspacePath(path)}${suffix}`);
 }
 
@@ -40,6 +39,15 @@ export const workspacesApi = {
 
   readFile: (workspaceId: string, path: string) =>
     apiRequest<AgentWorkspaceFileReadResult>(workspaceFileUrl(workspaceId, path)),
+
+  content: (workspaceId: string, path: string) =>
+    apiRequest<Response>(workspaceFileUrl(workspaceId, path, "/content"), { raw: true }),
+
+  contentUrl: (workspaceId: string, path: string) =>
+    workspaceFileUrl(workspaceId, path, "/content"),
+
+  downloadUrl: (workspaceId: string, path: string) =>
+    workspaceFileUrl(workspaceId, path, "/download"),
 
   writeFile: (workspaceId: string, path: string, body: { content: string; media_type?: string | null }) =>
     apiRequest<AgentWorkspaceFile>(workspaceFileUrl(workspaceId, path), {
@@ -63,12 +71,6 @@ export const workspacesApi = {
     apiRequest<AgentWorkspacePatchResult>(
       workspaceFileUrl(workspaceId, path, "/patch"),
       { method: "POST", body },
-    ),
-
-  promote: (workspaceId: string, path: string) =>
-    apiRequest<AgentArtifactPromotionResult>(
-      workspaceFileUrl(workspaceId, path, "/promote"),
-      { method: "POST" },
     ),
 
   convert: (workspaceId: string, path: string) =>

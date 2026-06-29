@@ -441,7 +441,7 @@ def _default_research_plan_steps(query: str) -> list[ResearchPlanStep]:
         ResearchPlanStep(
             phase="report",
             title="Create research report",
-            description="Create the final markdown research report artifact.",
+            description="Create the final markdown research report workspace file.",
         ),
     ]
 

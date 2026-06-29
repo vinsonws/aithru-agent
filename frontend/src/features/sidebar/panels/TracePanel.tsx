@@ -116,7 +116,7 @@ function TodosSection({ runId }: { runId: string }) {
 
 const spanKindColor: Record<string, string> = {
   model: "text-accent", tool: "text-primary", sandbox: "text-warning",
-  workspace: "text-primary", artifact: "text-success", run: "text-muted-foreground",
+  workspace: "text-primary", run: "text-muted-foreground",
   message: "text-muted-foreground", todo: "text-muted-foreground",
 };
 

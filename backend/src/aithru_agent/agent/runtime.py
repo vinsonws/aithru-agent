@@ -30,11 +30,11 @@ from aithru_agent.agent.deps import PydanticAgentDeps
 from aithru_agent.agent.instructions import InstructionBuilder
 from aithru_agent.agent.tools.bridge import PydanticAIToolBridge
 from aithru_agent.domain import (
-    AgentArtifactSummary,
     AgentModelProfileEntry,
     AgentModelReasoningEffort,
     AgentRun,
     AgentRunStatus,
+    AgentWorkspaceFile,
 )
 from aithru_agent.domain.errors import AgentError
 
@@ -236,12 +236,12 @@ class AgentRuntime:
         subagent_run_id: str,
         child_run_id: str,
         child_result: str | None,
-        child_artifacts: list[AgentArtifactSummary] | None = None,
+        child_workspace_files: list[AgentWorkspaceFile] | None = None,
         deps: PydanticAgentDeps,
     ) -> AgentRuntimeResult:
         """Resume a parent run after a delegated child completed."""
         child_output = child_result or "No textual child result was persisted."
-        artifact_context = _render_child_artifact_context(child_artifacts or [])
+        workspace_file_context = _render_child_workspace_file_context(child_workspace_files or [])
         prompt = (
             f"{deps.run.task_msg}\n\n"
             "A delegated subagent run completed while this parent run was paused.\n"
@@ -249,7 +249,7 @@ class AgentRuntime:
             f"Subagent run id: {subagent_run_id}\n"
             f"Child run id: {child_run_id}\n"
             f"Child result:\n{child_output}\n\n"
-            f"{artifact_context}"
+            f"{workspace_file_context}"
             "Continue the parent Agent Run using the child result."
         )
         return await self.run(prompt, deps)
@@ -593,17 +593,13 @@ def _model_settings_for_run(run: AgentRun | None) -> dict[str, bool | str] | Non
     return {"thinking": effort.value}
 
 
-def _render_child_artifact_context(artifacts: list[AgentArtifactSummary]) -> str:
-    if not artifacts:
+def _render_child_workspace_file_context(files: list[AgentWorkspaceFile]) -> str:
+    if not files:
         return ""
-    lines = ["Child artifacts:"]
-    for artifact in artifacts:
-        location = f" ({artifact.uri})" if artifact.uri else ""
-        summary = artifact.summary or "No summary available."
-        suffix = "..." if artifact.truncated else ""
-        lines.append(
-            f"- {artifact.type} {artifact.name}{location}: {summary}{suffix}"
-        )
+    lines = ["Child workspace files:"]
+    for file in files:
+        media_type = f" ({file.media_type})" if file.media_type else ""
+        lines.append(f"- {file.path}{media_type}, {file.size} bytes")
     return "\n".join(lines) + "\n\n"
 
 

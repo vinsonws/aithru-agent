@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 from aithru_agent.api.snapshots import build_research_review_snapshot
-from aithru_agent.domain import (
-    AgentArtifact,
-    AgentRun,
+from aithru_agent.domain import (    AgentRun,
     AgentRunStatus,
     AgentTodo,
     AgentTodoStatus,
+    AgentWorkspaceFile,
 )
 from aithru_agent.stream.events import AgentStreamEvent
 from aithru_agent.trace import project_trace_spans
@@ -53,32 +54,24 @@ def todo(
     )
 
 
-def report_artifact(
+def report_file(
     *,
     report_status: str,
     source_count: int,
     evidence_count: int,
     limitation_count: int,
-) -> AgentArtifact:
-    return AgentArtifact(
-        id="artifact_report",
-        org_id="org_1",
+) -> AgentWorkspaceFile:
+    del report_status, source_count, evidence_count, limitation_count
+    return AgentWorkspaceFile(
         workspace_id="workspace_1",
-        run_id="run_1",
-        type="report",
-        name="Research review report",
-        uri="/reports/review.md",
-        metadata={
-            "generated_by": "research.create_report",
-            "report_status": report_status,
-            "source_count": source_count,
-            "source_input_count": source_count,
-            "duplicate_source_count": 0,
-            "evidence_count": evidence_count,
-            "limitation_count": limitation_count,
-            "quality_summary": {"high": source_count, "medium": 0, "low": 0},
-        },
+        path="/reports/review.md",
+        size=25,
+        media_type="text/markdown",
+        version=1,
+        file_version=1,
+        content_hash="hash_review",
         created_at="2026-06-19T00:01:00Z",
+        updated_at="2026-06-19T00:01:00Z",
     )
 
 
@@ -186,7 +179,7 @@ def test_research_review_snapshot_passes_complete_evidence_report() -> None:
                 "tool_call_id": "report",
                 "tool_name": "research.create_report",
                 "status": "completed",
-                "output": {"report": complete_report(), "artifact": {"id": "artifact_report"}},
+                "output": {"report": complete_report(), "workspace_file": {"path": "/reports/review.md"}},
             },
         ),
     ]
@@ -194,8 +187,8 @@ def test_research_review_snapshot_passes_complete_evidence_report() -> None:
         run=run(),
         events=events,
         todos=[],
-        artifacts=[
-            report_artifact(
+        workspace_files=[
+            report_file(
                 report_status="complete",
                 source_count=1,
                 evidence_count=1,
@@ -215,7 +208,7 @@ def test_research_review_snapshot_passes_complete_evidence_report() -> None:
         "source_count": 1,
         "evidence_count": 1,
         "limitation_count": 0,
-        "report_artifact_count": 1,
+        "report_file_count": 1,
         "blocked_step_count": 0,
         "web_failure_count": 0,
         "high_quality_source_count": 1,
@@ -273,7 +266,7 @@ def test_research_review_snapshot_fails_insufficient_evidence_report() -> None:
                 "tool_call_id": "report",
                 "tool_name": "research.create_report",
                 "status": "completed",
-                "output": {"report": insufficient_report(), "artifact": {"id": "artifact_report"}},
+                "output": {"report": insufficient_report(), "workspace_file": {"path": "/reports/review.md"}},
             },
         ),
     ]
@@ -281,8 +274,8 @@ def test_research_review_snapshot_fails_insufficient_evidence_report() -> None:
         run=run(),
         events=events,
         todos=todos,
-        artifacts=[
-            report_artifact(
+        workspace_files=[
+            report_file(
                 report_status="insufficient_evidence",
                 source_count=0,
                 evidence_count=0,
@@ -300,7 +293,7 @@ def test_research_review_snapshot_fails_insufficient_evidence_report() -> None:
         "source_count": 0,
         "evidence_count": 0,
         "limitation_count": 2,
-        "report_artifact_count": 1,
+        "report_file_count": 1,
         "blocked_step_count": 1,
         "web_failure_count": 1,
         "high_quality_source_count": 0,
@@ -379,7 +372,7 @@ def test_research_review_snapshot_warns_for_weak_report_sections() -> None:
                 "tool_call_id": "report",
                 "tool_name": "research.create_report",
                 "status": "completed",
-                "output": {"report": report, "artifact": {"id": "artifact_report"}},
+                "output": {"report": report, "workspace_file": {"path": "/reports/review.md"}},
             },
         )
     ]
@@ -388,8 +381,8 @@ def test_research_review_snapshot_warns_for_weak_report_sections() -> None:
         run=run(),
         events=events,
         todos=[],
-        artifacts=[
-            report_artifact(
+        workspace_files=[
+            report_file(
                 report_status="complete",
                 source_count=2,
                 evidence_count=2,

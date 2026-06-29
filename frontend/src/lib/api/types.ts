@@ -32,11 +32,6 @@ export type AgentApproval = S["AgentApproval"];
 export type AgentApprovalStatus = S["AgentApprovalStatus"];
 export type AgentApprovalDecision = S["AgentApprovalDecision"];
 
-export type AgentArtifact = S["AgentArtifact"];
-export type AgentArtifactDownloadInfo = S["AgentArtifactDownloadInfo"];
-export type AgentArtifactListPage = S["AgentArtifactListPage"];
-export type AgentArtifactPromotionResult = S["AgentArtifactPromotionResult"];
-
 export type AgentMemoryEntry = S["AgentMemoryEntry"];
 export type AgentMemoryForgetResult = S["AgentMemoryForgetResult"];
 export type AgentMemoryCandidate = S["AgentMemoryCandidate"];

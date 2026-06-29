@@ -54,7 +54,7 @@ async def test_context_packet_builder_collects_bounded_run_context() -> None:
     await store.append_message(
         thread_id=thread.id,
         role="assistant",
-        content="I found an existing report artifact.",
+        content="I found an existing report workspace file.",
     )
     await store.append_message(
         thread_id=thread.id,
@@ -78,20 +78,16 @@ async def test_context_packet_builder_collects_bounded_run_context() -> None:
         status="done",
         description="Find sources that compare Aithru and DeerFlow.",
     )
-    await store.create_artifact(
-        org_id=run.org_id,
+    await store.write_workspace_file(
         workspace_id=run.workspace_id,
-        run_id=run.id,
-        type="report",
-        name="Existing Research",
-        uri="/reports/existing.md",
         media_type="text/markdown",
         content="# Existing Research\n" + ("Evidence. " * 20),
+        path="/reports/existing.md",
     )
 
     packet = await ContextPacketBuilder(
         max_thread_messages=2,
-        max_artifacts=1,
+        max_workspace_files=1,
         max_content_chars=32,
     ).build(run, store)
 
@@ -103,8 +99,8 @@ async def test_context_packet_builder_collects_bounded_run_context() -> None:
     assert packet.thread_messages[-1].content == "Use APAC as the geographic scope"
     assert packet.thread_messages[-1].truncated is True
     assert [todo.title for todo in packet.todos] == ["Search sources"]
-    assert packet.artifacts[0].summary == "# Existing Research\nEvidence. Ev"
-    assert packet.artifacts[0].truncated is True
+    assert packet.workspace_files[0].path == "/reports/existing.md"
+    assert packet.workspace_files[0].media_type == "text/markdown"
     assert packet.has_context is True
     assert packet.has_truncated_content is True
 
@@ -168,29 +164,23 @@ async def test_context_packet_builder_tracks_budget_and_compresses_dropped_conte
         status="pending",
         description="Retained todo details should fit the budget.",
     )
-    await store.create_artifact(
-        org_id=run.org_id,
+    await store.write_workspace_file(
         workspace_id=run.workspace_id,
-        run_id=run.id,
-        type="report",
-        name="Older Report",
-        uri="/reports/older.md",
-        content="Older artifact evidence should be compressed.",
+        path="/reports/older.md",
+        content="Older workspace file evidence should be compressed.",
+        media_type="text/markdown",
     )
-    await store.create_artifact(
-        org_id=run.org_id,
+    await store.write_workspace_file(
         workspace_id=run.workspace_id,
-        run_id=run.id,
-        type="report",
-        name="Latest Report",
-        uri="/reports/latest.md",
-        content="Latest artifact evidence should be retained.",
+        path="/reports/latest.md",
+        content="Latest workspace file evidence should be retained.",
+        media_type="text/markdown",
     )
 
     packet = await ContextPacketBuilder(
         max_thread_messages=2,
         max_todos=1,
-        max_artifacts=1,
+        max_workspace_files=1,
         max_content_chars=80,
         max_total_chars=260,
     ).build(run, store)
@@ -200,20 +190,20 @@ async def test_context_packet_builder_tracks_budget_and_compresses_dropped_conte
         True,
     ]
     assert [todo.title for todo in packet.todos] == ["Search sources"]
-    assert [artifact.name for artifact in packet.artifacts] == ["Latest Report"]
+    assert [file.path for file in packet.workspace_files] == ["/reports/latest.md"]
     assert packet.compressed_context is not None
     assert packet.compressed_context.counts.thread_messages == 3
     assert packet.compressed_context.counts.todos == 1
-    assert packet.compressed_context.counts.artifacts == 1
+    assert packet.compressed_context.counts.workspace_files == 1
     assert packet.compressed_context.summary.startswith(
-        "Compressed context: 3 older thread messages; 1 additional todo; 1 older artifact."
+        "Compressed context: 3 older thread messages; 1 additional todo; 1 older workspace file."
     )
     assert packet.budget is not None
     assert packet.budget.max_chars == 260
     assert packet.budget.used_chars <= 260
     assert packet.budget.dropped_thread_messages == 3
     assert packet.budget.dropped_todos == 1
-    assert packet.budget.dropped_artifacts == 1
+    assert packet.budget.dropped_workspace_files == 1
     assert packet.has_dropped_context is True
 
 
@@ -478,17 +468,11 @@ async def test_context_packet_builder_adds_research_continuation_from_report_eve
         title="Create research report",
         status="pending",
     )
-    artifact = await store.create_artifact(
-        org_id=run.org_id,
+    report_file = await store.write_workspace_file(
         workspace_id=run.workspace_id,
-        run_id=run.id,
-        type="report",
-        name="Aithru Research",
-        uri="/reports/aithru.md",
-        metadata={
-            "generated_by": "research.create_report",
-            "report_status": "partial",
-        },
+        path="/reports/aithru.md",
+        content="# Aithru Research\n",
+        media_type="text/markdown",
     )
     await writer.write(
         run_id=run.id,
@@ -569,7 +553,10 @@ async def test_context_packet_builder_adds_research_continuation_from_report_eve
                     ],
                     "markdown": "# Aithru Research\n",
                 },
-                "artifact": {"id": artifact.id},
+                "workspace_file": report_file.model_dump(mode="json"),
+                "path": report_file.path,
+                "media_type": report_file.media_type,
+                "size": report_file.size,
             },
             "error": None,
         },
@@ -588,8 +575,7 @@ async def test_context_packet_builder_adds_research_continuation_from_report_eve
     assert packet.research.completed_steps == ["Search sources"]
     assert packet.research.pending_steps == ["Create research report"]
     assert packet.research.blocked_steps == ["Fetch and review sources"]
-    assert packet.research.report_artifact_ids == [artifact.id]
-    assert packet.research.report_artifact_uris == ["/reports/aithru.md"]
+    assert packet.research.report_workspace_paths == ["/reports/aithru.md"]
     assert [(section.section_id, section.covered) for section in packet.research.sections] == [
         ("architecture", True),
         ("gaps", False),
@@ -655,17 +641,11 @@ async def test_context_packet_builder_loads_source_run_research_for_continuation
         title="Fetch and review sources",
         status="blocked",
     )
-    artifact = await store.create_artifact(
-        org_id=source_run.org_id,
+    report_file = await store.write_workspace_file(
         workspace_id=source_run.workspace_id,
-        run_id=source_run.id,
-        type="report",
-        name="Source Research",
-        uri="/reports/source.md",
-        metadata={
-            "generated_by": "research.create_report",
-            "report_status": "partial",
-        },
+        path="/reports/source.md",
+        content="# Source Research\n",
+        media_type="text/markdown",
     )
     await writer.write(
         run_id=source_run.id,
@@ -739,7 +719,10 @@ async def test_context_packet_builder_loads_source_run_research_for_continuation
                     ],
                     "markdown": "# Source Research\n",
                 },
-                "artifact": {"id": artifact.id},
+                "workspace_file": report_file.model_dump(mode="json"),
+                "path": report_file.path,
+                "media_type": report_file.media_type,
+                "size": report_file.size,
             },
             "error": None,
         },
@@ -775,7 +758,7 @@ async def test_context_packet_builder_loads_source_run_research_for_continuation
     assert packet.research.target_section_ids == ["gaps"]
     assert packet.research.query == "aithru deerflow parity"
     assert packet.research.status == "degraded"
-    assert packet.research.report_artifact_ids == [artifact.id]
+    assert packet.research.report_workspace_paths == ["/reports/source.md"]
     assert [(section.section_id, section.covered) for section in packet.research.sections] == [
         ("architecture", True),
         ("gaps", False),

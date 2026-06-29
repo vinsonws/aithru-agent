@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 from aithru_agent.api.snapshots import build_research_execution_snapshot
-from aithru_agent.domain import (
-    AgentArtifact,
-    AgentRun,
+from aithru_agent.domain import (    AgentRun,
     AgentRunStatus,
     AgentTodo,
     AgentTodoStatus,
+    AgentWorkspaceFile,
 )
 from aithru_agent.stream.events import AgentStreamEvent
 from aithru_agent.trace import project_trace_spans
@@ -41,23 +42,17 @@ def todo(
     )
 
 
-def artifact() -> AgentArtifact:
-    return AgentArtifact(
-        id="artifact_report",
-        org_id="org_1",
+def report_file() -> AgentWorkspaceFile:
+    return AgentWorkspaceFile(
         workspace_id="workspace_1",
-        run_id="run_1",
-        type="report",
-        name="Aithru parity report",
-        uri="/reports/aithru-parity.md",
-        metadata={
-            "generated_by": "research.create_report",
-            "report_status": "insufficient_evidence",
-            "source_count": 0,
-            "evidence_count": 0,
-            "limitation_count": 2,
-        },
+        path="/reports/aithru-parity.md",
+        size=24,
+        media_type="text/markdown",
+        version=1,
+        file_version=1,
+        content_hash="hash_report",
         created_at="2026-06-19T00:01:00Z",
+        updated_at="2026-06-19T00:01:00Z",
     )
 
 
@@ -140,15 +135,28 @@ def test_research_execution_snapshot_projects_plan_steps_and_progress() -> None:
                 "status": "completed",
                 "output": {
                     "report": {
+                        "title": "Aithru parity report",
+                        "query": "aithru deerflow parity",
+                        "status": "insufficient_evidence",
+                        "summary": "Search was blocked.",
+                        "source_input_count": 0,
+                        "duplicate_source_count": 0,
+                        "quality_summary": {"high": 0, "medium": 0, "low": 0},
+                        "sections": [],
+                        "section_summary": [],
                         "limitations": [
                             {
                                 "code": "research_search_blocked",
                                 "severity": "warning",
                                 "message": "Search was blocked.",
                             }
-                        ]
+                        ],
+                        "findings": [],
+                        "evidence": [],
+                        "sources": [],
+                        "markdown": "# Aithru parity report\n",
                     },
-                    "artifact": {"id": "artifact_report"},
+                    "workspace_file": {"path": "/reports/aithru-parity.md"},
                 },
             },
         ),
@@ -158,7 +166,7 @@ def test_research_execution_snapshot_projects_plan_steps_and_progress() -> None:
         run=run(),
         events=events,
         todos=todos,
-        artifacts=[artifact()],
+        workspace_files=[report_file()],
         trace=project_trace_spans(events),
     ).model_dump(mode="json")
 
@@ -196,7 +204,7 @@ def test_research_execution_snapshot_projects_plan_steps_and_progress() -> None:
         "web_search_failed",
         "research_search_blocked",
     }
-    assert snapshot["steps"][3]["report_artifact_ids"] == ["artifact_report"]
+    assert snapshot["steps"][3]["report_workspace_paths"] == ["/reports/aithru-parity.md"]
     assert snapshot["progress"] == {
         "total_steps": 4,
         "pending_steps": 1,
@@ -207,7 +215,7 @@ def test_research_execution_snapshot_projects_plan_steps_and_progress() -> None:
         "terminal_steps": 3,
         "web_success_count": 0,
         "web_failure_count": 1,
-        "report_artifact_count": 1,
+        "report_file_count": 1,
         "limitation_count": 2,
     }
     assert snapshot["summary"]["status"] == "insufficient_evidence"

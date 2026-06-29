@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Request
 
 from aithru_agent.api.dependencies import (
     ApiDependencies,
-    CreateRunExportArtifactRequest,
+    CreateRunExportFileRequest,
     api_deps,
     dump_model,
 )
@@ -35,8 +35,8 @@ from aithru_agent.domain import (
     AgentCapabilityAuditLog,
     AgentCapabilityAuditLogEntry,
     AgentRun,
-    AgentRunExportArtifactResult,
     AgentRunExportBundle,
+    AgentRunExportFileResult,
     AgentRunExportSummary,
 )
 from aithru_agent.stream import AgentStreamEvent
@@ -117,7 +117,7 @@ async def get_run_snapshot(
     events = await deps.runtime.event_store.list_by_run(run_id)
     trace = project_trace_spans(events)
     todos = await deps.runtime.store.list_todos(run_id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run_id)
+    workspace_files = await deps.runtime.store.list_workspace_files(run.workspace_id)
     approvals = [
         approval
         for approval in await deps.runtime.store.list_approvals()
@@ -129,7 +129,7 @@ async def get_run_snapshot(
         run=run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         approvals=approvals,
         trace=trace,
     )
@@ -140,39 +140,38 @@ async def get_run_snapshot(
         trace=trace,
         todos=todos,
         approvals=approvals,
-        workspace_files=await deps.runtime.store.list_workspace_files(run.workspace_id),
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         presentations=presentations_from_events(events),
         research=build_research_snapshot_summary(
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             trace=trace,
         ),
         research_execution=build_research_execution_snapshot(
             run=run,
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             trace=trace,
         ),
         research_evidence=build_research_evidence_ledger(
             run=run,
             events=events,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
         ),
         research_review=build_research_review_snapshot(
             run=run,
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             trace=trace,
         ),
         research_continuation=build_research_continuation_snapshot(
             run=run,
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             trace=trace,
         ),
         research_lineage=build_research_continuation_lineage_snapshot(
@@ -368,18 +367,18 @@ async def get_run_export(
 
 
 @router.post(
-    "/api/runs/{run_id}/export/artifact",
+    "/api/runs/{run_id}/export/file",
     status_code=201,
-    response_model=AgentRunExportArtifactResult,
+    response_model=AgentRunExportFileResult,
 )
-async def create_run_export_artifact(
+async def create_run_export_file(
     request: Request,
     run_id: str,
-    body: CreateRunExportArtifactRequest,
+    body: CreateRunExportFileRequest,
     deps: ApiDependencies = Depends(api_deps),
-) -> AgentRunExportArtifactResult:
+) -> AgentRunExportFileResult:
     run = await deps.require_run(request, run_id)
-    return await _run_export_artifact_response(run, body, deps)
+    return await _run_export_file_response(run, body, deps)
 
 
 @router.get(
@@ -397,19 +396,19 @@ async def get_thread_run_export(
 
 
 @router.post(
-    "/api/threads/{thread_id}/runs/{run_id}/export/artifact",
+    "/api/threads/{thread_id}/runs/{run_id}/export/file",
     status_code=201,
-    response_model=AgentRunExportArtifactResult,
+    response_model=AgentRunExportFileResult,
 )
-async def create_thread_run_export_artifact(
+async def create_thread_run_export_file(
     request: Request,
     thread_id: str,
     run_id: str,
-    body: CreateRunExportArtifactRequest,
+    body: CreateRunExportFileRequest,
     deps: ApiDependencies = Depends(api_deps),
-) -> AgentRunExportArtifactResult:
+) -> AgentRunExportFileResult:
     run = await deps.require_thread_run(request, thread_id, run_id)
-    return await _run_export_artifact_response(run, body, deps)
+    return await _run_export_file_response(run, body, deps)
 
 
 @router.get("/api/runs/{run_id}/tree", response_model=RunTreeSnapshot)
@@ -470,12 +469,12 @@ async def _research_execution_response(
     events = await deps.runtime.event_store.list_by_run(run.id)
     trace = project_trace_spans(events)
     todos = await deps.runtime.store.list_todos(run.id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run.id)
+    workspace_files = await deps.runtime.store.list_workspace_files(run.workspace_id)
     return build_research_execution_snapshot(
         run=run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         trace=trace,
     )
 
@@ -485,11 +484,11 @@ async def _research_evidence_response(
     deps: ApiDependencies,
 ) -> ResearchEvidenceLedger:
     events = await deps.runtime.event_store.list_by_run(run.id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run.id)
+    workspace_files = await deps.runtime.store.list_workspace_files(run.workspace_id)
     return build_research_evidence_ledger(
         run=run,
         events=events,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
     )
 
 
@@ -500,12 +499,12 @@ async def _research_review_response(
     events = await deps.runtime.event_store.list_by_run(run.id)
     trace = project_trace_spans(events)
     todos = await deps.runtime.store.list_todos(run.id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run.id)
+    workspace_files = await deps.runtime.store.list_workspace_files(run.workspace_id)
     return build_research_review_snapshot(
         run=run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         trace=trace,
     )
 
@@ -517,12 +516,12 @@ async def _research_continuation_response(
     events = await deps.runtime.event_store.list_by_run(run.id)
     trace = project_trace_spans(events)
     todos = await deps.runtime.store.list_todos(run.id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run.id)
+    workspace_files = await deps.runtime.store.list_workspace_files(run.workspace_id)
     return build_research_continuation_snapshot(
         run=run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         trace=trace,
     )
 
@@ -565,7 +564,6 @@ async def _build_run_export_bundle(
         for approval in await deps.runtime.store.list_approvals()
         if approval.run_id == run.id
     ]
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run.id)
     workspace_snapshot = await deps.runtime.store.get_workspace_snapshot(run.workspace_id)
     events_payload = [dump_model(event) for event in events]
     trace_payload = [dump_model(span) for span in trace]
@@ -576,7 +574,6 @@ async def _build_run_export_bundle(
         trace=trace_payload,
         todos=todos,
         approvals=approvals,
-        artifacts=artifacts,
         workspace_snapshot=workspace_snapshot,
         summary=AgentRunExportSummary(
             run_id=run.id,
@@ -586,20 +583,18 @@ async def _build_run_export_bundle(
             trace_span_count=len(trace_payload),
             todo_count=len(todos),
             approval_count=len(approvals),
-            artifact_count=len(artifacts),
             workspace_file_count=workspace_snapshot.file_count,
         ),
     )
 
 
-async def _run_export_artifact_response(
+async def _run_export_file_response(
     run: AgentRun,
-    body: CreateRunExportArtifactRequest,
+    body: CreateRunExportFileRequest,
     deps: ApiDependencies,
-) -> AgentRunExportArtifactResult:
+) -> AgentRunExportFileResult:
     bundle = await _build_run_export_bundle(run, deps)
     path = body.path or f"/exports/runs/{run.id}.export.json"
-    name = body.name or f"Run {run.id} export"
     content = bundle.model_dump_json(indent=2)
     workspace_file = await deps.runtime.store.write_workspace_file(
         workspace_id=run.workspace_id,
@@ -620,23 +615,11 @@ async def _run_export_artifact_response(
             "content_hash": workspace_file.content_hash,
             "event_count": bundle.summary.event_count,
             "trace_span_count": bundle.summary.trace_span_count,
-            "artifact_count": bundle.summary.artifact_count,
         },
     }
-    artifact = await deps.runtime.store.create_artifact(
-        org_id=run.org_id,
-        workspace_id=run.workspace_id,
-        run_id=run.id,
-        type="json",
-        name=name,
-        media_type="application/json",
-        uri=workspace_file.path,
-        content={"path": workspace_file.path},
-        metadata=metadata,
-        retention=body.retention,
-    )
-    return AgentRunExportArtifactResult(
-        artifact=artifact,
+    if body.name:
+        metadata["name"] = body.name
+    return AgentRunExportFileResult(
         workspace_file=workspace_file,
         export_summary=bundle.summary,
         schema_version=bundle.schema_version,
@@ -650,12 +633,16 @@ async def _run_tree_response(run_id: str, deps: ApiDependencies) -> RunTreeSnaps
         raise RuntimeError(f"Run disappeared during tree projection: {run_id}")
     runs = await deps.runtime.store.list_runs()
     subagents = await deps.runtime.store.list_subagent_runs()
-    artifacts = await deps.runtime.store.list_artifacts()
+    workspace_files = [
+        file
+        for tree_run in runs
+        for file in await deps.runtime.store.list_workspace_files(tree_run.workspace_id)
+    ]
     base_snapshot = build_run_tree_snapshot(
         root_run=root_run,
         runs=runs,
         subagents=subagents,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
     )
     run_ids = [node.run_id for node in base_snapshot.nodes]
     events_by_run = {}
@@ -670,7 +657,7 @@ async def _run_tree_response(run_id: str, deps: ApiDependencies) -> RunTreeSnaps
         root_run=root_run,
         runs=runs,
         subagents=subagents,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         events_by_run=events_by_run,
         todos_by_run=todos_by_run,
         trace_by_run=trace_by_run,

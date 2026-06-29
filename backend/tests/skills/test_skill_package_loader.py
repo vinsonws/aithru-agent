@@ -28,7 +28,7 @@ Use workspace evidence and produce concise reports.
 file report evidence
 
 ## Tool Policy
-Allowed: workspace.read_file, artifact.create, sandbox.run_python
+Allowed: workspace.read_file, presentation.present, sandbox.run_python
 Denied: sandbox.run_python
 """,
         encoding="utf-8",
@@ -54,7 +54,7 @@ Denied: sandbox.run_python
     assert skill.when_to_use == "file report evidence"
     assert skill.allowed_tools == [
         "workspace.read_file",
-        "artifact.create",
+        "presentation.present",
         "sandbox.run_python",
     ]
     assert skill.denied_tools == ["sandbox.run_python"]
@@ -101,8 +101,8 @@ enabled: true
 ---
 
 ## Tool Policy
-Allowed: workspace.read_file, artifact.create, sandbox.run_python
-Denied: artifact.create
+Allowed: workspace.read_file, presentation.present, sandbox.run_python
+Denied: presentation.present
 """,
         encoding="utf-8",
     )

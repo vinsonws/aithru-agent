@@ -11,9 +11,9 @@ import { presentationEffectKey, previewTargetForPresentationEffect } from "./pre
 import { ToolCallCard } from "./ToolCallCard";
 import { InlineRequestCard } from "./InlineRequestCard";
 import {
-  buildArtifactLinkResolver,
-  copyMessageContentWithArtifactLinks,
-} from "./artifactLinks";
+  buildWorkspaceLinkResolver,
+  copyMessageContentWithWorkspaceLinks,
+} from "./messageLinks";
 import { buildChatTimeline } from "./chatTimeline";
 import type { ChatTimelineItem } from "./chatTimeline";
 import { buildMessageActions, buildEditAndRerunPrompt } from "./messageActions";
@@ -61,7 +61,7 @@ function MessageBubble({
   const footerSource = footerMessage ?? message;
   const actions = showFooter ? buildMessageActions(footerSource) : [];
 
-  const copyContent = copyMessageContentWithArtifactLinks(footerSource, resolveLinkHref);
+  const copyContent = copyMessageContentWithWorkspaceLinks(footerSource, resolveLinkHref);
 
   const handleMessageAction = (kind: string, _messageId: string) => {
     if (kind === "copy") {
@@ -371,9 +371,9 @@ export function ChatPanel({
     }
   }, [timeline, atBottom]);
 
-  const artifactLinkResolver = React.useMemo(
-    () => buildArtifactLinkResolver([state, ...Object.values(historicalRunStates)]),
-    [state, historicalRunStates],
+  const workspaceLinkResolver = React.useMemo(
+    () => buildWorkspaceLinkResolver(),
+    [],
   );
   const appliedPresentationEffectsRef = React.useRef<Set<string>>(new Set());
 
@@ -412,7 +412,7 @@ export function ChatPanel({
                   locale={locale}
                   onPrefillComposer={onPrefillComposer}
                   onOpenTrace={onOpenTrace}
-                  resolveLinkHref={artifactLinkResolver}
+                  resolveLinkHref={workspaceLinkResolver}
                   showFooter={item.showFooter ?? true}
                   footerMessage={item.footerMessage}
                 />

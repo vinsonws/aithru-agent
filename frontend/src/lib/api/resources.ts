@@ -2,8 +2,6 @@ import { apiRequest } from "./client";
 import type {
   AgentApproval,
   AgentApprovalDecision,
-  AgentArtifact,
-  AgentArtifactDownloadInfo,
   AgentMemoryEntry,
   AgentMemoryForgetResult,
   AgentMemoryCandidate,
@@ -55,26 +53,6 @@ export const approvalsApi = {
 
 // re-export to avoid an extra import of AgentRun for the external-approval return
 import type { AgentRun } from "./types";
-
-export const artifactsApi = {
-  list: (query?: {
-    run_id?: string;
-    workspace_id?: string;
-    artifact_type?: string;
-    finalized?: boolean;
-    include_meta?: boolean;
-    limit?: number;
-    offset?: number;
-  }) => apiRequest<AgentArtifact[] | { items: AgentArtifact[] }>(`/api/artifacts`, { query }),
-
-  get: (artifactId: string) => apiRequest<AgentArtifact>(`/api/artifacts/${artifactId}`),
-
-  content: (artifactId: string) =>
-    apiRequest<Response>(`/api/artifacts/${artifactId}/content`, { raw: true }),
-
-  downloadInfo: (artifactId: string) =>
-    apiRequest<AgentArtifactDownloadInfo>(`/api/artifacts/${artifactId}/download`),
-};
 
 export const memoryApi = {
   list: (query?: { scope?: string; include_expired?: boolean; limit?: number }) =>

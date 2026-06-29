@@ -523,24 +523,7 @@ class PydanticAIToolBridge:
                             source={"kind": "harness"},
                             payload=todo,
                         )
-        elif tool_name == "artifact.create":
-            await self._event_writer.write(
-                run_id=self._run.id,
-                thread_id=self._run.thread_id,
-                type="artifact.created",
-                source={"kind": "artifact"},
-                payload=output,
-            )
         elif tool_name == "research.create_report":
-            artifact = output.get("artifact")
-            if isinstance(artifact, dict):
-                await self._event_writer.write(
-                    run_id=self._run.id,
-                    thread_id=self._run.thread_id,
-                    type="artifact.created",
-                    source={"kind": "artifact"},
-                    payload=artifact,
-                )
             await self._emit_research_todo_progress(tool_name)
         elif tool_name == "web.search":
             results = output.get("results")
@@ -574,14 +557,6 @@ class PydanticAIToolBridge:
                 },
             )
             await self._emit_research_todo_progress(tool_name)
-        elif tool_name == "artifact.finalize":
-            await self._event_writer.write(
-                run_id=self._run.id,
-                thread_id=self._run.thread_id,
-                type="artifact.finalized",
-                source={"kind": "artifact"},
-                payload=output,
-            )
         elif tool_name == "memory.search":
             entries = output.get("entries") if isinstance(output.get("entries"), list) else []
             await self._event_writer.write(

@@ -282,17 +282,6 @@ def project_trace_spans(events: list[AgentStreamEvent]) -> list[AgentTraceSpan]:
             _finish_span(spans, span_id, event, "completed")
             continue
 
-        if event.type in {"artifact.created", "artifact.updated", "artifact.finalized"}:
-            artifact_id = _payload_value(event, "artifact_id", "artifactId", "id") or f"{event.sequence}"
-            span_id = f"artifact:{artifact_id}"
-            spans[span_id] = _start_span(
-                event,
-                "artifact",
-                event.type,
-                refs={"artifact_id": artifact_id},
-            )
-            _finish_span(spans, span_id, event, "completed")
-
         if event.type in {
             "web.search.completed",
             "web.fetch.completed",
@@ -436,12 +425,12 @@ def _subagent_completion_refs(event: AgentStreamEvent) -> dict[str, object]:
     summary = _payload_value(event, "result_summary", "resultSummary")
     refs: dict[str, object] = {}
     if isinstance(summary, dict):
-        artifact_count = summary.get("artifact_count")
-        if isinstance(artifact_count, int):
-            refs["artifact_count"] = artifact_count
-        artifact_ids = summary.get("artifact_ids")
-        if isinstance(artifact_ids, list) and all(isinstance(item, str) for item in artifact_ids):
-            refs["artifact_ids"] = artifact_ids
+        workspace_file_count = summary.get("workspace_file_count")
+        if isinstance(workspace_file_count, int):
+            refs["workspace_file_count"] = workspace_file_count
+        workspace_paths = summary.get("workspace_paths")
+        if isinstance(workspace_paths, list) and all(isinstance(item, str) for item in workspace_paths):
+            refs["workspace_paths"] = workspace_paths
         content = summary.get("content")
         if isinstance(content, str):
             refs["result_content_length"] = len(content)

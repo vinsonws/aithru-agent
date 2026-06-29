@@ -1033,174 +1033,6 @@ async def test_sandbox_diff_fails_without_workspace_store() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sandbox_promote_file_requires_artifact_scope_and_write_approval() -> None:
-    store = InMemoryAgentStore()
-    workspace = await store.create_workspace(org_id="org_1")
-    await store.write_workspace_file(
-        workspace_id=workspace.id,
-        path="/reports/summary.md",
-        content="# Summary",
-        media_type="text/markdown",
-    )
-    event_store = InMemoryAgentEventStore()
-    router = AithruCapabilityRouter(
-        adapters=[SandboxLocalTool(AgentEventWriter(event_store), store=store)],
-        policy=ToolPolicy(require_approval_for_risk=["write"]),
-    )
-    missing_artifact_context = AgentRunContext(
-        run_id="run_1",
-        org_id="org_1",
-        actor_user_id="user_1",
-        workspace_id=workspace.id,
-        scopes=["agent.sandbox.execute", "agent.workspace.read"],
-    )
-    promote_context = missing_artifact_context.model_copy(
-        update={
-            "scopes": [
-                "agent.sandbox.execute",
-                "agent.workspace.read",
-                "agent.artifact.write",
-            ]
-        }
-    )
-    request = AgentToolCallRequest(
-        id="toolcall_promote",
-        tool_name="sandbox.promote_file",
-        input={"path": "/reports/summary.md", "name": "Sandbox Summary", "type": "report"},
-        requested_by="model",
-    )
-
-    missing_scope = await router.execute_tool_call(request, missing_artifact_context)
-    waiting = await router.execute_tool_call(request, promote_context)
-
-    assert missing_scope.status == "denied"
-    assert missing_scope.authorization.missing_scopes == ["agent.artifact.write"]
-    assert waiting.status == "waiting_approval"
-
-
-@pytest.mark.asyncio
-async def test_sandbox_promote_file_creates_managed_artifact_and_event() -> None:
-    store = InMemoryAgentStore()
-    workspace = await store.create_workspace(org_id="org_1")
-    await store.write_workspace_file(
-        workspace_id=workspace.id,
-        path="/reports/summary.md",
-        content="# Summary",
-        media_type="text/markdown",
-    )
-    event_store = InMemoryAgentEventStore()
-    router = AithruCapabilityRouter(
-        adapters=[SandboxLocalTool(AgentEventWriter(event_store), store=store)]
-    )
-    context = AgentRunContext(
-        run_id="run_1",
-        org_id="org_1",
-        actor_user_id="user_1",
-        workspace_id=workspace.id,
-        scopes=["agent.sandbox.execute", "agent.workspace.read", "agent.artifact.write"],
-        workspace_allowed_paths=["/reports"],
-    )
-
-    result = await router.execute_tool_call(
-        AgentToolCallRequest(
-            id="toolcall_promote",
-            tool_name="sandbox.promote_file",
-            input={
-                "path": "/reports/summary.md",
-                "name": "Sandbox Summary",
-                "type": "report",
-                "metadata": {"kind": "sandbox_output"},
-            },
-            requested_by="model",
-        ),
-        context,
-    )
-    artifacts = await store.list_artifacts(run_id="run_1")
-    events = await event_store.list_by_run("run_1")
-
-    assert result.status == "completed"
-    assert result.output["workspace_id"] == workspace.id
-    assert result.output["path"] == "/reports/summary.md"
-    assert result.output["artifact"]["name"] == "Sandbox Summary"
-    assert result.output["artifact"]["type"] == "report"
-    assert result.output["artifact"]["uri"] == "/reports/summary.md"
-    assert result.output["artifact"]["metadata"]["source"] == "workspace_file"
-    assert result.output["artifact"]["metadata"]["kind"] == "sandbox_output"
-    assert result.output["artifact"]["metadata"]["workspace_file"]["path"] == "/reports/summary.md"
-    assert result.output["artifact"]["metadata"]["sandbox"]["source"] == "sandbox.promote_file"
-    assert result.output["artifact"]["metadata"]["sandbox"]["tool_call_id"] == "toolcall_promote"
-    assert [artifact.name for artifact in artifacts] == ["Sandbox Summary"]
-    artifact_event = next(event for event in events if event.type == "artifact.created")
-    assert artifact_event.payload["source"] == "sandbox.promote_file"
-    assert artifact_event.payload["tool_call_id"] == "toolcall_promote"
-    assert artifact_event.payload["artifact_id"] == result.output["artifact"]["id"]
-
-
-@pytest.mark.asyncio
-async def test_sandbox_promote_file_denies_paths_outside_workspace_policy() -> None:
-    store = InMemoryAgentStore()
-    workspace = await store.create_workspace(org_id="org_1")
-    await store.write_workspace_file(
-        workspace_id=workspace.id,
-        path="/private/summary.md",
-        content="secret",
-        media_type="text/markdown",
-    )
-    event_store = InMemoryAgentEventStore()
-    router = AithruCapabilityRouter(
-        adapters=[SandboxLocalTool(AgentEventWriter(event_store), store=store)]
-    )
-    context = AgentRunContext(
-        run_id="run_1",
-        org_id="org_1",
-        actor_user_id="user_1",
-        workspace_id=workspace.id,
-        scopes=["agent.sandbox.execute", "agent.workspace.read", "agent.artifact.write"],
-        workspace_allowed_paths=["/reports"],
-    )
-
-    result = await router.execute_tool_call(
-        AgentToolCallRequest(
-            id="toolcall_promote",
-            tool_name="sandbox.promote_file",
-            input={"path": "/private/summary.md", "name": "Secret Summary"},
-            requested_by="model",
-        ),
-        context,
-    )
-
-    assert result.status == "denied"
-    assert result.error["message"] == "Path is outside allowed workspace paths: /private/summary.md"
-    assert await store.list_artifacts(run_id="run_1") == []
-
-
-@pytest.mark.asyncio
-async def test_sandbox_promote_file_fails_without_workspace_store() -> None:
-    event_store = InMemoryAgentEventStore()
-    tool = SandboxLocalTool(AgentEventWriter(event_store))
-    context = AgentRunContext(
-        run_id="run_1",
-        org_id="org_1",
-        actor_user_id="user_1",
-        workspace_id="workspace_1",
-        scopes=["agent.sandbox.execute", "agent.workspace.read", "agent.artifact.write"],
-    )
-
-    result = await tool.execute(
-        AgentToolCallRequest(
-            id="toolcall_promote",
-            tool_name="sandbox.promote_file",
-            input={"path": "/reports/summary.md", "name": "Sandbox Summary"},
-            requested_by="model",
-        ),
-        context,
-    )
-
-    assert result.status == "failed"
-    assert result.error["message"] == "Sandbox file promotion requires a workspace store"
-
-
-@pytest.mark.asyncio
 async def test_sandbox_tool_delegates_execution_to_provider_and_emits_events() -> None:
     event_store = InMemoryAgentEventStore()
     provider = FakeSandboxProvider()
@@ -1245,13 +1077,12 @@ async def test_sandbox_tool_delegates_execution_to_provider_and_emits_events() -
         "status": "completed",
         "language": "python",
         "execution": result.output["execution"],
-        "workspace_effects": {
-            "declared_count": 0,
-            "persisted_count": 0,
-            "promoted_count": 0,
-            "paths": [],
-            "persistence_error": None,
-        },
+            "workspace_effects": {
+                "declared_count": 0,
+                "persisted_count": 0,
+                "paths": [],
+                "persistence_error": None,
+            },
         "error_code": None,
         "timed_out": False,
     }
@@ -1337,7 +1168,6 @@ async def test_sandbox_tool_persists_declared_workspace_files_and_emits_events()
     assert result.output["diagnostics"]["workspace_effects"] == {
         "declared_count": 1,
         "persisted_count": 1,
-        "promoted_count": 0,
         "paths": ["/reports/summary.md"],
         "persistence_error": None,
     }
@@ -1348,116 +1178,6 @@ async def test_sandbox_tool_persists_declared_workspace_files_and_emits_events()
     assert workspace_event.payload["source"] == "sandbox.run_python"
     assert workspace_event.payload["sandbox_run_id"] == "sandbox_toolcall_1"
     assert workspace_event.payload["path"] == "/reports/summary.md"
-
-
-@pytest.mark.asyncio
-async def test_sandbox_tool_promotes_declared_workspace_file_artifacts() -> None:
-    store = InMemoryAgentStore()
-    workspace = await store.create_workspace(org_id="org_1")
-    event_store = InMemoryAgentEventStore()
-    tool = SandboxLocalTool(
-        AgentEventWriter(event_store),
-        store=store,
-    )
-    context = AgentRunContext(
-        run_id="run_1",
-        org_id="org_1",
-        actor_user_id="user_1",
-        workspace_id=workspace.id,
-        scopes=["agent.sandbox.execute", "agent.workspace.write", "agent.artifact.write"],
-        workspace_allowed_paths=["/reports"],
-    )
-
-    result = await tool.execute(
-        AgentToolCallRequest(
-            id="toolcall_1",
-            tool_name="sandbox.run_python",
-            input={
-                "code": (
-                    "workspace_files = ["
-                    "{"
-                    "'path': '/reports/summary.md', "
-                    "'content': '# Summary', "
-                    "'media_type': 'text/markdown', "
-                    "'artifact': {'name': 'Sandbox Summary', 'type': 'report'}"
-                    "}"
-                    "]\n"
-                    "result = 'created'"
-                )
-            },
-            requested_by="model",
-        ),
-        context,
-    )
-    artifacts = await store.list_artifacts(run_id="run_1")
-    events = await event_store.list_by_run("run_1")
-
-    assert result.status == "completed"
-    promoted = result.output["workspace_files"][0]["artifact"]
-    assert result.output["diagnostics"]["workspace_effects"] == {
-        "declared_count": 1,
-        "persisted_count": 1,
-        "promoted_count": 1,
-        "paths": ["/reports/summary.md"],
-        "persistence_error": None,
-    }
-    assert promoted["artifact"]["name"] == "Sandbox Summary"
-    assert promoted["artifact"]["type"] == "report"
-    assert promoted["artifact"]["uri"] == "/reports/summary.md"
-    assert promoted["artifact"]["metadata"]["source"] == "workspace_file"
-    assert promoted["artifact"]["metadata"]["sandbox"]["sandbox_run_id"] == "sandbox_toolcall_1"
-    assert [artifact.name for artifact in artifacts] == ["Sandbox Summary"]
-    assert "artifact.created" in [event.type for event in events]
-    artifact_event = next(event for event in events if event.type == "artifact.created")
-    assert artifact_event.payload["artifact_id"] == promoted["artifact"]["id"]
-    assert artifact_event.payload["source"] == "sandbox.run_python"
-
-
-@pytest.mark.asyncio
-async def test_sandbox_tool_rejects_artifact_promotion_without_artifact_scope() -> None:
-    store = InMemoryAgentStore()
-    workspace = await store.create_workspace(org_id="org_1")
-    event_store = InMemoryAgentEventStore()
-    tool = SandboxLocalTool(
-        AgentEventWriter(event_store),
-        store=store,
-    )
-    context = AgentRunContext(
-        run_id="run_1",
-        org_id="org_1",
-        actor_user_id="user_1",
-        workspace_id=workspace.id,
-        scopes=["agent.sandbox.execute", "agent.workspace.write"],
-        workspace_allowed_paths=["/reports"],
-    )
-
-    result = await tool.execute(
-        AgentToolCallRequest(
-            id="toolcall_1",
-            tool_name="sandbox.run_python",
-            input={
-                "code": (
-                    "workspace_files = ["
-                    "{"
-                    "'path': '/reports/summary.md', "
-                    "'content': '# Summary', "
-                    "'artifact': {'name': 'Sandbox Summary', 'type': 'report'}"
-                    "}"
-                    "]"
-                )
-            },
-            requested_by="model",
-        ),
-        context,
-    )
-    events = await event_store.list_by_run("run_1")
-
-    assert result.status == "failed"
-    assert "agent.artifact.write" in result.error["message"]
-    assert (await store.list_workspace_files(workspace.id)) == []
-    assert await store.list_artifacts(run_id="run_1") == []
-    assert "workspace.file.created" not in [event.type for event in events]
-    assert "artifact.created" not in [event.type for event in events]
 
 
 @pytest.mark.asyncio
@@ -1501,7 +1221,6 @@ async def test_sandbox_tool_rejects_declared_workspace_files_outside_policy() ->
     assert result.output["diagnostics"]["workspace_effects"] == {
         "declared_count": 1,
         "persisted_count": 0,
-        "promoted_count": 0,
         "paths": [],
         "persistence_error": result.error,
     }

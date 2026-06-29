@@ -37,14 +37,14 @@ def event(sequence: int, payload: dict, *, type: str = "presentation.created") -
 
 
 def test_html_name_resolves_html_preview_even_without_media_type() -> None:
-    assert available_views_for_file(name="index.html", media_type=None, artifact_type="file") == [
+    assert available_views_for_file(name="interactive-demo.html", media_type=None, file_type="file") == [
         "html_preview",
         "source_text",
         "download",
     ]
 
 
-def test_workspace_write_file_result_projects_file_presentation() -> None:
+def test_workspace_write_file_result_does_not_auto_project_presentation() -> None:
     presentations = presentations_for_tool_result(
         run(),
         tool_call_id="tool_1",
@@ -57,44 +57,47 @@ def test_workspace_write_file_result_projects_file_presentation() -> None:
         },
     )
 
-    assert len(presentations) == 1
-    presentation = presentations[0]
-    assert presentation.resource.kind == "workspace_file"
-    assert presentation.resource.path == "/a.txt"
-    assert presentation.title == "a.txt"
-    assert presentation.preferred_view == "source_text"
-    assert presentation.available_views == ["source_text", "download"]
-    assert presentation.source.tool_name == "workspace.write_file"
+    assert presentations == []
 
 
-def test_artifact_result_projects_html_presentation_from_name() -> None:
+def test_research_report_result_does_not_auto_project_presentation() -> None:
     presentations = presentations_for_tool_result(
         run(),
         tool_call_id="tool_2",
-        tool_name="artifact.create",
+        tool_name="research.create_report",
         output={
-            "id": "artifact_1",
-            "name": "index.html",
-            "type": "file",
-            "media_type": None,
+            "workspace_id": "ws_1",
+            "path": "/reports/research.md",
+            "media_type": "text/markdown",
+            "size": 42,
         },
     )
 
-    assert len(presentations) == 1
-    presentation = presentations[0]
-    assert presentation.resource.kind == "artifact"
-    assert presentation.resource.id == "artifact_1"
-    assert presentation.preferred_view == "html_preview"
-    assert "source_text" in presentation.available_views
-    assert presentation.effects[0].kind == "open_panel"
+    assert presentations == []
 
 
 def test_presentations_from_events_fills_sequence_and_preserves_created_sequence_on_update() -> None:
     created = presentations_for_tool_result(
         run(),
         tool_call_id="tool_1",
-        tool_name="workspace.write_file",
-        output={"path": "/a.txt", "media_type": "text/plain"},
+        tool_name="presentation.present",
+        output={
+            "presentations": [
+                {
+                    "id": "presentation_1",
+                    "run_id": "run_1",
+                    "title": "a.txt",
+                    "resource": {"kind": "workspace_file", "path": "/a.txt"},
+                    "preferred_view": "source_text",
+                    "available_views": ["source_text", "download"],
+                    "source": {
+                        "created_by": "model_request",
+                        "tool_call_id": "tool_1",
+                        "tool_name": "presentation.present",
+                    },
+                }
+            ]
+        },
     )[0]
     updated = created.model_copy(update={"status": "failed"})
 

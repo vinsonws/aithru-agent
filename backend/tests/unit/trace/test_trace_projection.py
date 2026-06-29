@@ -14,7 +14,7 @@ def ev(sequence: int, type: str, payload: dict, source_kind: str = "harness") ->
     )
 
 
-def test_projects_run_model_tool_approval_workspace_and_artifact_spans() -> None:
+def test_projects_run_model_tool_approval_and_workspace_spans() -> None:
     spans = project_trace_spans(
         [
             ev(1, "run.created", {"status": "queued"}),
@@ -25,7 +25,6 @@ def test_projects_run_model_tool_approval_workspace_and_artifact_spans() -> None
             ev(6, "tool.completed", {"tool_call_id": "tc_1", "tool_name": "workspace.read_file"}, "tool"),
             ev(7, "approval.requested", {"approval_id": "appr_1", "tool_call_id": "tc_2"}, "approval"),
             ev(8, "approval.resolved", {"approval_id": "appr_1", "decision": "approved"}, "approval"),
-            ev(9, "artifact.created", {"artifact_id": "artifact_1", "name": "Report"}, "artifact"),
             ev(10, "model.completed", {}, "model"),
             ev(11, "run.completed", {"status": "completed"}),
         ]
@@ -40,7 +39,6 @@ def test_projects_run_model_tool_approval_workspace_and_artifact_spans() -> None
     assert by_id["tool:tc_1"].status == "completed"
     assert by_id["approval:appr_1"].status == "completed"
     assert by_id["workspace:run_1:5"].refs == {"path": "/notes.md"}
-    assert by_id["artifact:artifact_1"].status == "completed"
 
 
 def test_failed_run_marks_open_model_span_failed() -> None:
@@ -113,9 +111,9 @@ def test_projects_subagent_span() -> None:
                     "result_summary": {
                         "content": "Done",
                         "content_truncated": False,
-                        "artifact_ids": ["artifact_1"],
-                        "artifacts": [],
-                        "artifact_count": 1,
+                        "workspace_paths": ["/reports/child.md"],
+                        "workspace_files": [],
+                        "workspace_file_count": 1,
                         "has_output": True,
                     },
                 },
@@ -133,8 +131,8 @@ def test_projects_subagent_span() -> None:
     assert by_id["subagent:subagent_run_1"].refs == {
         "subagent_run_id": "subagent_run_1",
         "child_run_id": "run_2",
-        "artifact_count": 1,
-        "artifact_ids": ["artifact_1"],
+        "workspace_file_count": 1,
+        "workspace_paths": ["/reports/child.md"],
         "result_content_length": 4,
     }
 

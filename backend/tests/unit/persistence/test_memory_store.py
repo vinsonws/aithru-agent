@@ -3,7 +3,6 @@ import pytest
 from aithru_agent.domain import (
     AgentApprovalDecision,
     AgentApprovalStatus,
-    AgentArtifactRetentionPolicy,
     AgentContextSummary,
     AgentMemoryCandidate,
     AgentMemoryRetentionPolicy,
@@ -125,17 +124,9 @@ async def test_memory_store_updates_thread_lifecycle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_memory_store_manages_workspace_files_and_artifacts() -> None:
+async def test_memory_store_manages_workspace_files() -> None:
     store = InMemoryAgentStore()
     workspace = await store.create_workspace(org_id="org_1")
-    run = await store.create_run(
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        task_msg="Write report",
-        workspace_id=workspace.id,
-    )
-
     written = await store.write_workspace_file(
         workspace_id=workspace.id,
         path="/reports/report.md",
@@ -143,151 +134,15 @@ async def test_memory_store_manages_workspace_files_and_artifacts() -> None:
         media_type="text/markdown",
     )
     content = await store.read_workspace_file(workspace.id, "/reports/report.md")
-    artifact = await store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="report",
-        name="Report",
-        media_type="text/markdown",
-        uri="/reports/report.md",
-        content={"path": "/reports/report.md"},
-    )
 
     assert written.path == "/reports/report.md"
     assert content.content == "# Report\n"
     assert content.media_type == "text/markdown"
     assert await store.list_workspace_files(workspace.id) == [written]
-    assert await store.get_artifact(artifact.id) == artifact
-    assert await store.list_artifacts(run_id=run.id) == [artifact]
 
     deleted = await store.delete_workspace_file(workspace.id, "/reports/report.md")
     assert deleted == {"path": "/reports/report.md"}
     assert await store.list_workspace_files(workspace.id) == []
-
-
-@pytest.mark.asyncio
-async def test_memory_store_promotes_workspace_file_to_retained_artifact() -> None:
-    store = InMemoryAgentStore()
-    workspace = await store.create_workspace(org_id="org_1")
-    run = await store.create_run(
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        task_msg="Promote report",
-        workspace_id=workspace.id,
-    )
-    written = await store.write_workspace_file(
-        workspace_id=workspace.id,
-        path="reports/report.md",
-        content="# Report\n",
-        media_type="text/markdown",
-    )
-
-    promoted = await store.promote_workspace_file_to_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        path="reports/report.md",
-        run_id=run.id,
-        type="report",
-        name="Promoted report",
-        retention=AgentArtifactRetentionPolicy(
-            mode="expires_at",
-            expires_at="2026-07-01T00:00:00Z",
-        ),
-        metadata={"kind": "promoted"},
-    )
-    artifact = promoted.artifact
-    persisted = await store.get_artifact(artifact.id)
-
-    assert promoted.workspace_id == workspace.id
-    assert promoted.path == "/reports/report.md"
-    assert promoted.version == written.version
-    assert promoted.file_version == written.file_version
-    assert promoted.content_hash == written.content_hash
-    assert artifact.type == "report"
-    assert artifact.uri == "/reports/report.md"
-    assert artifact.content == {"path": "/reports/report.md"}
-    assert artifact.media_type == "text/markdown"
-    assert artifact.retention is not None
-    assert artifact.retention.mode == "expires_at"
-    assert artifact.retention.expires_at == "2026-07-01T00:00:00Z"
-    assert artifact.metadata is not None
-    assert artifact.metadata["kind"] == "promoted"
-    assert artifact.metadata["source"] == "workspace_file"
-    assert artifact.metadata["workspace_file"] == {
-        "workspace_id": workspace.id,
-        "path": "/reports/report.md",
-        "version": written.version,
-        "file_version": written.file_version,
-        "content_hash": written.content_hash,
-        "size": written.size,
-    }
-    assert persisted == artifact
-
-
-@pytest.mark.asyncio
-async def test_memory_store_filters_artifact_listing_by_lifecycle_fields() -> None:
-    store = InMemoryAgentStore()
-    workspace = await store.create_workspace(org_id="org_1")
-    other_workspace = await store.create_workspace(org_id="org_1")
-    run = await store.create_run(
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        task_msg="List artifacts",
-        workspace_id=workspace.id,
-    )
-    default_retained = await store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="report",
-        name="Default retained report",
-    )
-    expiring = await store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="report",
-        name="Expiring report",
-        retention=AgentArtifactRetentionPolicy(
-            mode="expires_at",
-            expires_at="2026-07-01T00:00:00Z",
-        ),
-    )
-    ephemeral = await store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="json",
-        name="Ephemeral data",
-        retention=AgentArtifactRetentionPolicy(mode="ephemeral"),
-    )
-    finalized = await store.finalize_artifact(ephemeral.id)
-    other = await store.create_artifact(
-        org_id="org_1",
-        workspace_id=other_workspace.id,
-        run_id=None,
-        type="report",
-        name="Other workspace",
-    )
-
-    reports = await store.list_artifacts(workspace_id=workspace.id, type="report")
-    retained = await store.list_artifacts(workspace_id=workspace.id, retention_mode="retained")
-    expiring_only = await store.list_artifacts(
-        workspace_id=workspace.id,
-        retention_mode="expires_at",
-    )
-    finalized_only = await store.list_artifacts(workspace_id=workspace.id, finalized=True)
-    unfinished = await store.list_artifacts(workspace_id=workspace.id, finalized=False)
-
-    assert reports == [default_retained, expiring]
-    assert retained == [default_retained]
-    assert expiring_only == [expiring]
-    assert finalized_only == [finalized]
-    assert unfinished == [default_retained, expiring]
-    assert other not in reports
 
 
 @pytest.mark.asyncio

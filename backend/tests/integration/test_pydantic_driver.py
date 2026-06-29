@@ -710,15 +710,11 @@ async def test_pydantic_ai_runtime_injects_context_packet_and_emits_debug_event(
         title="Search sources",
         status="done",
     )
-    await runtime.store.create_artifact(
-        org_id=run.org_id,
+    await runtime.store.write_workspace_file(
         workspace_id=run.workspace_id,
-        run_id=run.id,
-        type="report",
-        name="Draft Report",
-        uri="/reports/draft.md",
-        media_type="text/markdown",
+        path="/reports/draft.md",
         content="# Draft\nEvidence collected.",
+        media_type="text/markdown",
     )
 
     await runtime.runner.execute_run(run.id)
@@ -728,7 +724,7 @@ async def test_pydantic_ai_runtime_injects_context_packet_and_emits_debug_event(
     assert packet_event.visibility == "debug"
     assert packet_event.payload["thread_messages"] == 1
     assert packet_event.payload["todos"] == 1
-    assert packet_event.payload["artifacts"] == 1
+    assert packet_event.payload["workspace_files"] == 1
     assert packet_event.payload["tool_results"] == 0
     assert packet_event.payload["memory"] == 1
     assert packet_event.payload["has_truncated_content"] is False
@@ -737,7 +733,7 @@ async def test_pydantic_ai_runtime_injects_context_packet_and_emits_debug_event(
     assert packet_event.payload["budget"]["used_chars"] > 0
     assert packet_event.payload["budget"]["dropped_thread_messages"] == 0
     assert packet_event.payload["budget"]["dropped_todos"] == 0
-    assert packet_event.payload["budget"]["dropped_artifacts"] == 0
+    assert packet_event.payload["budget"]["dropped_workspace_files"] == 0
     assert packet_event.payload["budget"]["dropped_tool_results"] == 0
     assert packet_event.payload["budget"]["dropped_memory"] == 0
     assert agent_runtime.seen_instructions is not None
@@ -747,7 +743,7 @@ async def test_pydantic_ai_runtime_injects_context_packet_and_emits_debug_event(
     assert "Context budget:" in agent_runtime.seen_instructions
     assert "- user: Use APAC as the scope." in agent_runtime.seen_instructions
     assert "- [done] Search sources" in agent_runtime.seen_instructions
-    assert "- report Draft Report (/reports/draft.md): # Draft\nEvidence collected." in agent_runtime.seen_instructions
+    assert "- /reports/draft.md (text/markdown, 27 bytes)" in agent_runtime.seen_instructions
 
 
 class SearchOnlyProvider:
@@ -811,7 +807,7 @@ class WorkspacePathCorrectionRuntime(AgentRuntime):
         first = await bridge.call_tool(
             ToolContext("tc_bad_path"),
             tool_name="workspace.write_file",
-            tool_input={"path": "index.html", "content": "<html>bad</html>"},
+            tool_input={"path": "interactive-demo.html", "content": "<html>bad</html>"},
         )
         assert isinstance(first, dict)
         assert first["recoverable"] is True
@@ -833,10 +829,10 @@ async def test_runtime_can_continue_after_recoverable_workspace_path_failure() -
         org_id="org_1",
         key="workspace-restricted",
         name="Restricted Workspace",
-        instructions="Write only under /artifacts.",
+        instructions="Write only under /outputs.",
         allowed_tools=["workspace.write_file"],
         allowed_subagents=[],
-        workspace_policy=AgentWorkspacePolicy(read=True, write=True, allowed_paths=["/artifacts"]),
+        workspace_policy=AgentWorkspacePolicy(read=True, write=True, allowed_paths=["/outputs"]),
         version="0.1.0",
         status="published",
     )
@@ -849,12 +845,12 @@ async def test_runtime_can_continue_after_recoverable_workspace_path_failure() -
     run = await runtime.runner.start_run(
         org_id="org_1",
         actor_user_id="user_1",
-        task_msg="Write a small html artifact.",
+        task_msg="Write a small html workspace file.",
         scopes=["agent.workspace.write"],
         skill_id="workspace-restricted",
     )
     events = await runtime.event_store.list_by_run(run.id)
-    written = await runtime.store.read_workspace_file(run.workspace_id, "/artifacts/index.html")
+    written = await runtime.store.read_workspace_file(run.workspace_id, "/outputs/interactive-demo.html")
 
     assert run.status == AgentRunStatus.COMPLETED
     assert written.content == "<html>ok</html>"

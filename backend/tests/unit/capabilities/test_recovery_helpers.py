@@ -11,9 +11,9 @@ def test_recoverable_tool_result_builds_failed_result_with_recovery() -> None:
         kind=AgentToolFailureKind.INVALID_INPUT,
         action=AgentToolRecoveryAction.RETRY_WITH_CORRECTED_INPUT,
         message="Path is outside allowed workspace paths.",
-        model_guidance="Use an absolute workspace path under /artifacts.",
-        suggested_input={"path": "/artifacts/index.html"},
-        allowed_values={"allowed_paths": ["/artifacts"]},
+        model_guidance="Use an absolute workspace path under /outputs.",
+        suggested_input={"path": "/outputs/interactive-demo.html"},
+        allowed_values={"allowed_paths": ["/outputs"]},
         attempt_key="workspace_path_policy",
         max_attempts=2,
     )
@@ -24,7 +24,7 @@ def test_recoverable_tool_result_builds_failed_result_with_recovery() -> None:
     assert result.recovery.recoverable is True
     assert result.recovery.kind == AgentToolFailureKind.INVALID_INPUT
     assert result.recovery.action == AgentToolRecoveryAction.RETRY_WITH_CORRECTED_INPUT
-    assert result.recovery.suggested_input == {"path": "/artifacts/index.html"}
+    assert result.recovery.suggested_input == {"path": "/outputs/interactive-demo.html"}
     assert result.redaction == "none"
 
 

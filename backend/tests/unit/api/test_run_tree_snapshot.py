@@ -1,7 +1,7 @@
+from __future__ import annotations
+
 from aithru_agent.api.snapshots import build_run_tree_snapshot
 from aithru_agent.domain import (
-    AgentArtifact,
-    AgentArtifactSummary,
     AgentRun,
     AgentRunResult,
     AgentRunSource,
@@ -9,6 +9,7 @@ from aithru_agent.domain import (
     AgentSubagentResultSummary,
     AgentSubagentRun,
     AgentSubagentRunStatus,
+    AgentWorkspaceFile,
 )
 from aithru_agent.stream.events import AgentStreamEvent, AgentStreamSource
 
@@ -26,7 +27,7 @@ def run(
         actor_user_id="user_1",
         source=source,
         task_msg=f"Goal for {run_id}",
-        workspace_id="workspace_1",
+        workspace_id=f"workspace_{run_id}",
         status=status,
         result=result,
         started_at="2026-06-18T00:00:00Z",
@@ -54,22 +55,22 @@ def subagent(
     )
 
 
-def artifact(
-    artifact_id: str,
+def workspace_file(
     run_id: str,
+    path: str,
     *,
-    metadata: dict | None = None,
-) -> AgentArtifact:
-    return AgentArtifact(
-        id=artifact_id,
-        org_id="org_1",
-        workspace_id="workspace_1",
-        run_id=run_id,
-        type="report",
-        name=f"Artifact {artifact_id}",
-        uri=f"/reports/{artifact_id}.md",
-        metadata=metadata,
+    size: int = 12,
+) -> AgentWorkspaceFile:
+    return AgentWorkspaceFile(
+        workspace_id=f"workspace_{run_id}",
+        path=path,
+        size=size,
+        media_type="text/markdown",
+        version=1,
+        file_version=1,
+        content_hash=f"hash_{run_id}",
         created_at="2026-06-18T00:00:00Z",
+        updated_at="2026-06-18T00:00:00Z",
     )
 
 
@@ -95,7 +96,6 @@ def sandbox_diagnostics(
     status: str,
     *,
     persisted_count: int = 0,
-    promoted_count: int = 0,
     persistence_error: dict | None = None,
 ) -> dict:
     return {
@@ -115,9 +115,8 @@ def sandbox_diagnostics(
             "timed_out": False,
         },
         "workspace_effects": {
-            "declared_count": persisted_count + promoted_count,
+            "declared_count": persisted_count,
             "persisted_count": persisted_count,
-            "promoted_count": promoted_count,
             "paths": ["/reports/sandbox.md"] if persisted_count else [],
             "persistence_error": persistence_error,
         },
@@ -132,7 +131,7 @@ def test_run_tree_snapshot_projects_descendant_runs_and_delegations() -> None:
         "run_child",
         AgentRunStatus.COMPLETED,
         source=AgentRunSource.DELEGATED_TASK,
-        result=AgentRunResult(content="Child done.", artifact_ids=["artifact_child"]),
+        result=AgentRunResult(content="Child done.", workspace_paths=["/reports/child.md"]),
     )
     grandchild = run(
         "run_grandchild",
@@ -148,10 +147,10 @@ def test_run_tree_snapshot_projects_descendant_runs_and_delegations() -> None:
             subagent("subagent_1", "run_root", "run_child", AgentSubagentRunStatus.COMPLETED),
             subagent("subagent_2", "run_child", "run_grandchild", AgentSubagentRunStatus.FAILED),
         ],
-        artifacts=[
-            artifact("artifact_root", "run_root"),
-            artifact("artifact_child", "run_child"),
-            artifact("artifact_other", "run_other"),
+        workspace_files=[
+            workspace_file("run_root", "/reports/root.md"),
+            workspace_file("run_child", "/reports/child.md"),
+            workspace_file("run_other", "/reports/other.md"),
         ],
     )
 
@@ -166,8 +165,8 @@ def test_run_tree_snapshot_projects_descendant_runs_and_delegations() -> None:
     assert [node["depth"] for node in payload["nodes"]] == [0, 1, 2]
     assert payload["nodes"][1]["parent_run_id"] == "run_root"
     assert payload["nodes"][1]["subagent_run_id"] == "subagent_1"
-    assert payload["nodes"][1]["artifact_count"] == 1
-    assert payload["nodes"][1]["result_artifact_ids"] == ["artifact_child"]
+    assert payload["nodes"][1]["workspace_file_count"] == 1
+    assert payload["nodes"][1]["result_workspace_paths"] == ["/reports/child.md"]
     assert payload["nodes"][2]["needs_attention"] is True
     assert [delegation["subagent_run_id"] for delegation in payload["delegations"]] == [
         "subagent_1",
@@ -182,14 +181,13 @@ def test_run_tree_snapshot_projects_descendant_runs_and_delegations() -> None:
         "waiting_runs": 1,
         "failed_runs": 1,
         "completed_runs": 1,
-        "artifact_count": 2,
+        "workspace_file_count": 2,
         "attention_runs": 3,
         "degraded_runs": 0,
         "sandbox_attention_runs": 0,
         "sandbox_run_count": 0,
         "failed_sandbox_run_count": 0,
         "sandbox_workspace_file_count": 0,
-        "sandbox_artifact_promotion_count": 0,
         "sandbox_persistence_error_count": 0,
         "sandbox_operator_action_count": 0,
         "root_needs_attention": True,
@@ -202,19 +200,12 @@ def test_run_tree_snapshot_exposes_subagent_result_summary_on_delegations() -> N
         "run_child",
         AgentRunStatus.COMPLETED,
         source=AgentRunSource.DELEGATED_TASK,
-        result=AgentRunResult(content="Child done.", artifact_ids=["artifact_child"]),
+        result=AgentRunResult(content="Child done.", workspace_paths=["/reports/child.md"]),
     )
     summary = AgentSubagentResultSummary(
         content="Child done.",
-        artifacts=[
-            AgentArtifactSummary(
-                id="artifact_child",
-                type="report",
-                name="Child Report",
-                uri="/reports/child.md",
-                summary="# Child Report",
-            )
-        ],
+        workspace_paths=["/reports/child.md"],
+        workspace_files=[workspace_file("run_child", "/reports/child.md")],
     )
 
     snapshot = build_run_tree_snapshot(
@@ -229,14 +220,14 @@ def test_run_tree_snapshot_exposes_subagent_result_summary_on_delegations() -> N
                 result_summary=summary,
             ),
         ],
-        artifacts=[artifact("artifact_child", "run_child")],
+        workspace_files=[workspace_file("run_child", "/reports/child.md")],
     )
 
     delegation = snapshot.model_dump(mode="json")["delegations"][0]
 
     assert delegation["result_summary"]["content"] == "Child done."
-    assert delegation["result_summary"]["artifact_ids"] == ["artifact_child"]
-    assert delegation["result_summary"]["artifact_count"] == 1
+    assert delegation["result_summary"]["workspace_paths"] == ["/reports/child.md"]
+    assert delegation["result_summary"]["workspace_file_count"] == 1
 
 
 def test_run_tree_snapshot_rolls_descendant_attention_to_ancestors() -> None:
@@ -259,7 +250,7 @@ def test_run_tree_snapshot_rolls_descendant_attention_to_ancestors() -> None:
             subagent("subagent_1", "run_root", "run_child", AgentSubagentRunStatus.RUNNING),
             subagent("subagent_2", "run_child", "run_grandchild", AgentSubagentRunStatus.FAILED),
         ],
-        artifacts=[],
+        workspace_files=[],
     )
 
     nodes_by_id = {
@@ -305,19 +296,7 @@ def test_run_tree_snapshot_marks_research_degraded_runs_for_attention() -> None:
         subagents=[
             subagent("subagent_1", "run_root", "run_child", AgentSubagentRunStatus.COMPLETED),
         ],
-        artifacts=[
-            artifact(
-                "artifact_child",
-                "run_child",
-                metadata={
-                    "generated_by": "research.create_report",
-                    "report_status": "partial",
-                    "source_count": 1,
-                    "evidence_count": 1,
-                    "limitation_count": 1,
-                },
-            )
-        ],
+        workspace_files=[workspace_file("run_child", "/reports/child.md")],
         events_by_run={
             "run_child": [
                 event(
@@ -329,7 +308,51 @@ def test_run_tree_snapshot_marks_research_degraded_runs_for_attention() -> None:
                         "url": "https://example.test",
                         "error": {"type": "timeout"},
                     },
-                )
+                ),
+                event(
+                    "event_report",
+                    "run_child",
+                    "tool.completed",
+                    {
+                        "tool_call_id": "report",
+                        "tool_name": "research.create_report",
+                        "status": "completed",
+                        "output": {
+                            "report": {
+                                "title": "Child report",
+                                "query": "child research",
+                                "status": "partial",
+                                "summary": "Partial report.",
+                                "source_input_count": 1,
+                                "duplicate_source_count": 0,
+                                "quality_summary": {"high": 1, "medium": 0, "low": 0},
+                                "sections": [],
+                                "section_summary": [],
+                                "limitations": [
+                                    {
+                                        "code": "fetch_partial",
+                                        "severity": "warning",
+                                        "message": "Fetch was partial.",
+                                    }
+                                ],
+                                "findings": ["Partial finding."],
+                                "evidence": [
+                                    {
+                                        "citation_number": 1,
+                                        "title": "Source",
+                                        "url": "https://example.test",
+                                        "quality": {"label": "high", "score": 100, "reasons": []},
+                                    }
+                                ],
+                                "sources": [
+                                    {"title": "Source", "url": "https://example.test"}
+                                ],
+                                "markdown": "# Child report\n",
+                            },
+                            "workspace_file": {"path": "/reports/child.md"},
+                        },
+                    },
+                ),
             ]
         },
     )
@@ -365,7 +388,7 @@ def test_run_tree_snapshot_rolls_sandbox_attention_to_ancestors() -> None:
         subagents=[
             subagent("subagent_1", "run_root", "run_child", AgentSubagentRunStatus.COMPLETED),
         ],
-        artifacts=[],
+        workspace_files=[],
         events_by_run={
             "run_child": [
                 event(
@@ -379,7 +402,6 @@ def test_run_tree_snapshot_rolls_sandbox_attention_to_ancestors() -> None:
                             "sandbox_1",
                             "completed",
                             persisted_count=1,
-                            promoted_count=1,
                         ),
                     },
                 ),
@@ -410,27 +432,23 @@ def test_run_tree_snapshot_rolls_sandbox_attention_to_ancestors() -> None:
     assert nodes_by_id["run_child"]["sandbox_run_count"] == 2
     assert nodes_by_id["run_child"]["failed_sandbox_run_count"] == 1
     assert nodes_by_id["run_child"]["sandbox_workspace_file_count"] == 1
-    assert nodes_by_id["run_child"]["sandbox_artifact_promotion_count"] == 1
     assert nodes_by_id["run_child"]["sandbox_persistence_error_count"] == 1
-    assert nodes_by_id["run_child"]["sandbox_operator_action_count"] == 5
+    assert nodes_by_id["run_child"]["sandbox_operator_action_count"] == 4
     assert nodes_by_id["run_child"]["attention_reasons"] == [
         "self_sandbox_failed",
         "self_sandbox_workspace_side_effect",
-        "self_sandbox_artifact_promotion",
         "self_sandbox_persistence_error",
     ]
 
     assert nodes_by_id["run_root"]["attention_reasons"] == [
         "descendant_sandbox_failed",
         "descendant_sandbox_workspace_side_effect",
-        "descendant_sandbox_artifact_promotion",
         "descendant_sandbox_persistence_error",
     ]
     assert nodes_by_id["run_root"]["descendant_failed_sandbox_run_count"] == 1
     assert nodes_by_id["run_root"]["descendant_sandbox_workspace_file_count"] == 1
-    assert nodes_by_id["run_root"]["descendant_sandbox_artifact_promotion_count"] == 1
     assert nodes_by_id["run_root"]["descendant_sandbox_persistence_error_count"] == 1
-    assert nodes_by_id["run_root"]["descendant_sandbox_operator_action_count"] == 5
+    assert nodes_by_id["run_root"]["descendant_sandbox_operator_action_count"] == 4
 
     summary = payload["summary"]
     assert summary["attention_runs"] == 2
@@ -438,6 +456,5 @@ def test_run_tree_snapshot_rolls_sandbox_attention_to_ancestors() -> None:
     assert summary["sandbox_run_count"] == 2
     assert summary["failed_sandbox_run_count"] == 1
     assert summary["sandbox_workspace_file_count"] == 1
-    assert summary["sandbox_artifact_promotion_count"] == 1
     assert summary["sandbox_persistence_error_count"] == 1
-    assert summary["sandbox_operator_action_count"] == 5
+    assert summary["sandbox_operator_action_count"] == 4

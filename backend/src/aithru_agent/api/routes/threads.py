@@ -120,7 +120,7 @@ class AgentThreadSummaryMessage(BaseModel):
     truncated: bool
     created_at: str
     run_id: str | None = None
-    artifact_ids: list[str] = Field(default_factory=list)
+    workspace_paths: list[str] = Field(default_factory=list)
 
 
 class AgentThreadSummaryRun(BaseModel):
@@ -613,7 +613,7 @@ async def _build_thread_dashboard_action_hints(
     events = await deps.runtime.event_store.list_by_run(run.id)
     trace = project_trace_spans(events)
     todos = await deps.runtime.store.list_todos(run.id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run.id)
+    workspace_files = await deps.runtime.store.list_workspace_files(run.workspace_id)
     approvals = [
         approval
         for approval in await deps.runtime.store.list_approvals()
@@ -632,7 +632,7 @@ async def _build_thread_dashboard_action_hints(
             run=run,
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             trace=trace,
         )
         hints.extend(
@@ -854,7 +854,7 @@ def _message_summary(message: AgentMessage) -> AgentThreadSummaryMessage:
         truncated=len(message.content) > _THREAD_SUMMARY_PREVIEW_CHARS,
         created_at=message.created_at,
         run_id=message.run_id,
-        artifact_ids=message.artifact_ids,
+        workspace_paths=message.workspace_paths,
     )
 
 
@@ -875,7 +875,7 @@ async def _build_run_inspection_summary_for_run(
     events = await deps.runtime.event_store.list_by_run(run.id)
     trace = project_trace_spans(events)
     todos = await deps.runtime.store.list_todos(run.id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run.id)
+    workspace_files = await deps.runtime.store.list_workspace_files(run.workspace_id)
     approvals = [
         approval
         for approval in await deps.runtime.store.list_approvals()
@@ -885,7 +885,7 @@ async def _build_run_inspection_summary_for_run(
         run=run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         approvals=approvals,
         trace=trace,
     )
@@ -898,7 +898,7 @@ async def _build_run_snapshot_response(
     events = await deps.runtime.event_store.list_by_run(run.id)
     trace = project_trace_spans(events)
     todos = await deps.runtime.store.list_todos(run.id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run.id)
+    workspace_files = await deps.runtime.store.list_workspace_files(run.workspace_id)
     approvals = [
         approval
         for approval in await deps.runtime.store.list_approvals()
@@ -912,7 +912,7 @@ async def _build_run_snapshot_response(
             run=run,
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             approvals=approvals,
             trace=trace,
         ),
@@ -920,39 +920,38 @@ async def _build_run_snapshot_response(
         trace=trace,
         todos=todos,
         approvals=approvals,
-        workspace_files=await deps.runtime.store.list_workspace_files(run.workspace_id),
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         presentations=presentations_from_events(events),
         research=build_research_snapshot_summary(
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             trace=trace,
         ),
         research_execution=build_research_execution_snapshot(
             run=run,
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             trace=trace,
         ),
         research_evidence=build_research_evidence_ledger(
             run=run,
             events=events,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
         ),
         research_review=build_research_review_snapshot(
             run=run,
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             trace=trace,
         ),
         research_continuation=build_research_continuation_snapshot(
             run=run,
             events=events,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             trace=trace,
         ),
         research_lineage=build_research_continuation_lineage_snapshot(

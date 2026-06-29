@@ -28,7 +28,7 @@ class WorkflowCapabilityHandler(BaseHTTPRequestHandler):
                 "output": {
                     "accepted": True,
                     "capability_key": payload["capability_key"],
-                    "artifact_id": payload["input"]["artifact_id"],
+                    "workspace_path": payload["input"]["workspace_path"],
                 },
                 "redaction": "partial",
                 "external_run": {
@@ -104,7 +104,7 @@ async def test_controlled_http_workflow_capability_provider_posts_invocation_to_
         tool_call_id="toolcall_1",
         tool_name="workflow.report_review",
         capability_key="report_review",
-        input={"artifact_id": "artifact_1"},
+        input={"workspace_path": "/reports/report.md"},
         run_id="run_1",
         org_id="org_1",
         actor_user_id="user_1",
@@ -122,7 +122,7 @@ async def test_controlled_http_workflow_capability_provider_posts_invocation_to_
     assert result.output == {
         "accepted": True,
         "capability_key": "report_review",
-        "artifact_id": "artifact_1",
+        "workspace_path": "/reports/report.md",
     }
     assert result.redaction == "partial"
     assert result.external_run == AgentExternalRunRef(

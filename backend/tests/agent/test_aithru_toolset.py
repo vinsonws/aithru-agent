@@ -124,7 +124,7 @@ async def test_aithru_toolset_describes_workspace_allowed_paths() -> None:
             actor_user_id=run.actor_user_id,
             workspace_id=run.workspace_id,
             scopes=["agent.workspace.write"],
-            workspace_allowed_paths=["/workspace", "/artifacts"],
+            workspace_allowed_paths=["/workspace", "/outputs"],
         ),
         event_writer=AgentEventWriter(InMemoryAgentEventStore()),
         capability_router=AithruCapabilityRouter(
@@ -141,7 +141,7 @@ async def test_aithru_toolset_describes_workspace_allowed_paths() -> None:
 
     assert "description" in path_schema
     assert "/workspace" in path_schema["description"]
-    assert "/artifacts" in path_schema["description"]
+    assert "/outputs" in path_schema["description"]
 
 
 @pytest.mark.asyncio

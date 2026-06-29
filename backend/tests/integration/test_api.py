@@ -18,9 +18,7 @@ from aithru_agent.capabilities import (
     WorkflowCapabilityResult,
     WorkflowCapabilitySpec,
 )
-from aithru_agent.domain import (
-    AgentArtifactRetentionPolicy,
-    AgentExternalRunRef,
+from aithru_agent.domain import (    AgentExternalRunRef,
     AgentExternalApprovalRef,
     AgentExternalRunWaitRef,
     AgentModelCapabilities,
@@ -50,13 +48,8 @@ def file_report_driver() -> StepAgentRuntime:
                 {"path": "/reports/report.md", "content": "# Report\nDone.\n", "media_type": "text/markdown"},
             ),
             Step.tool(
-                "artifact.create",
-                {
-                    "type": "report",
-                    "name": "Report",
-                    "uri": "/reports/report.md",
-                    "content": {"path": "/reports/report.md"},
-                },
+                "presentation.present",
+                {"resources": [{"kind": "workspace_file", "path": "/reports/report.md"}]},
             ),
             Step.finish(),
         ]
@@ -320,7 +313,7 @@ class AsyncExternalRunRuntime(AgentRuntime):
             await bridge.call_tool(
                 ToolContext("toolcall_workflow"),
                 "workflow.report_review",
-                {"artifact_id": "artifact_1"},
+                {"workspace_path": "/reports/report.md"},
             )
 
         external_result = next(
@@ -338,7 +331,7 @@ class AsyncExternalRunRuntime(AgentRuntime):
 
 
 @pytest.mark.asyncio
-async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() -> None:
+async def test_agent_api_threads_runs_events_stream_workspace_files_and_presentations() -> None:
     runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
@@ -409,40 +402,23 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
         restored_file_content = (
             await client.get(f"/api/workspaces/{run['workspace_id']}/files/reports/second.md")
         ).json()
-        promoted_response = await client.post(
-            f"/api/workspaces/{run['workspace_id']}/files/reports/second.md/promote",
-            json={
-                "name": "Second report",
-                "type": "report",
-                "run_id": run["id"],
-                "retention": {
-                    "mode": "expires_at",
-                    "expires_at": "2026-07-01T00:00:00Z",
-                },
-                "metadata": {"kind": "promoted"},
-            },
+        direct_content = await client.get(
+            f"/api/workspaces/{run['workspace_id']}/files/reports/report.md/content"
         )
-        promoted = promoted_response.json()
-        artifacts = (await client.get("/api/artifacts", params={"run_id": run["id"]})).json()
-        artifact_content = await client.get(f"/api/artifacts/{artifacts[0]['id']}/content")
-        promoted_content = await client.get(f"/api/artifacts/{promoted['artifact']['id']}/content")
+        direct_download = await client.get(
+            f"/api/workspaces/{run['workspace_id']}/files/reports/report.md/download"
+        )
         export_bundle = (await client.get(f"/api/runs/{run['id']}/export")).json()
-        export_artifact_response = await client.post(
-            f"/api/runs/{run['id']}/export/artifact",
-            json={
-                "retention": {"mode": "retained"},
-                "metadata": {"kind": "audit"},
-            },
+        export_file_response = await client.post(
+            f"/api/runs/{run['id']}/export/file",
+            json={"metadata": {"kind": "audit"}},
         )
-        export_artifact = export_artifact_response.json()
-        export_artifact_content = await client.get(
-            f"/api/artifacts/{export_artifact['artifact']['id']}/content"
+        export_file = export_file_response.json()
+        export_file_content = await client.get(
+            f"/api/workspaces/{run['workspace_id']}/files/exports/runs/{run['id']}.export.json/content"
         )
-        export_artifact_download_info = (
-            await client.get(f"/api/artifacts/{export_artifact['artifact']['id']}/download-info")
-        ).json()
-        export_artifact_download = await client.get(
-            f"/api/artifacts/{export_artifact['artifact']['id']}/download"
+        export_file_download = await client.get(
+            f"/api/workspaces/{run['workspace_id']}/files/exports/runs/{run['id']}.export.json/download"
         )
 
     assert health.json() == {"ok": True, "service": "aithru-agent-backend"}
@@ -456,7 +432,7 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
     assert run_detail["summary"]["research_status"] == "none"
     assert run_detail["summary"]["research_degraded"] is False
     assert [event["type"] for event in events][-1] == "run.completed"
-    assert events[-1]["payload"]["result"]["artifact_ids"] == [artifacts[0]["id"]]
+    assert events[-1]["payload"]["result"]["workspace_paths"] == ["/reports/report.md"]
     assert capability_audit == thread_capability_audit
     assert capability_audit["run_id"] == run["id"]
     assert capability_audit["count"] == 3
@@ -468,13 +444,14 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
     assert [entry["audit"]["tool_name"] for entry in capability_audit["entries"]] == [
         "todo.create",
         "workspace.write_file",
-        "artifact.create",
+        "presentation.present",
     ]
     assert capability_audit["entries"][1]["audit"]["authorization_decision"]["status"] == "allowed"
     assert "authorization" not in capability_audit["entries"][1]["audit"]
-    assert {span["kind"] for span in trace} >= {"run", "model", "tool", "workspace", "artifact"}
+    assert {span["kind"] for span in trace} >= {"run", "model", "tool", "workspace"}
     assert next(span for span in trace if span["kind"] == "run")["status"] == "completed"
     assert "event: run.completed" in stream.text
+    assert "event: presentation.created" in stream.text
     assert files[0]["path"] == "/reports/report.md"
     assert file_content["content"] == "# Report\nDone.\n"
     assert [version["file_version"] for version in versions] == [1, 2]
@@ -488,64 +465,39 @@ async def test_agent_api_threads_runs_events_stream_workspace_and_artifacts() ->
         change for change in restore["changes"] if change["path"] == "/reports/second.md"
     )["operation"] == "restored"
     assert restored_file_content["content"] == "first\n"
-    assert promoted_response.status_code == 201
-    assert promoted["artifact"]["type"] == "report"
-    assert promoted["artifact"]["name"] == "Second report"
-    assert promoted["artifact"]["retention"]["mode"] == "expires_at"
-    assert promoted["artifact"]["metadata"]["kind"] == "promoted"
-    assert promoted["artifact"]["metadata"]["source"] == "workspace_file"
-    assert promoted["path"] == "/reports/second.md"
-    assert artifacts[0]["type"] == "report"
-    assert artifact_content.status_code == 200
-    assert artifact_content.text == "# Report\nDone.\n"
-    assert artifact_content.headers["content-type"].startswith("text/markdown")
-    assert promoted_content.status_code == 200
-    assert promoted_content.text == "first\n"
+    assert direct_content.status_code == 200
+    assert direct_content.text == "# Report\nDone.\n"
+    assert direct_content.headers["content-type"].startswith("text/markdown")
+    assert direct_download.status_code == 200
+    assert direct_download.text == "# Report\nDone.\n"
+    assert direct_download.headers["content-disposition"] == 'attachment; filename="report.md"'
     assert export_bundle["schema_version"] == "run_export.v1"
     assert export_bundle["run"]["id"] == run["id"]
     assert export_bundle["summary"]["run_id"] == run["id"]
     assert export_bundle["summary"]["status"] == "completed"
     assert export_bundle["summary"]["event_count"] == len(export_bundle["events"])
     assert export_bundle["summary"]["trace_span_count"] == len(export_bundle["trace"])
-    assert export_bundle["summary"]["artifact_count"] == len(export_bundle["artifacts"])
     assert export_bundle["summary"]["workspace_file_count"] == export_bundle["workspace_snapshot"]["file_count"]
-    assert {artifact["id"] for artifact in export_bundle["artifacts"]} == {artifact["id"] for artifact in artifacts}
     assert "/reports/second.md" in [
         file["path"] for file in export_bundle["workspace_snapshot"]["files"]
     ]
-    assert export_artifact_response.status_code == 201
-    assert export_artifact["schema_version"] == "run_export.v1"
-    assert export_artifact["path"] == f"/exports/runs/{run['id']}.export.json"
-    assert export_artifact["artifact"]["type"] == "json"
-    assert export_artifact["artifact"]["media_type"] == "application/json"
-    assert export_artifact["artifact"]["uri"] == export_artifact["path"]
-    assert export_artifact["artifact"]["content"] == {"path": export_artifact["path"]}
-    assert export_artifact["artifact"]["metadata"]["source"] == "run_export"
-    assert export_artifact["artifact"]["metadata"]["kind"] == "audit"
-    assert export_artifact["artifact"]["retention"]["mode"] == "retained"
-    assert export_artifact["workspace_file"]["path"] == export_artifact["path"]
-    assert export_artifact["workspace_file"]["media_type"] == "application/json"
-    assert export_artifact["export_summary"]["run_id"] == run["id"]
-    assert export_artifact_content.status_code == 200
-    assert export_artifact_content.headers["content-type"].startswith("application/json")
-    archived_bundle = json.loads(export_artifact_content.text)
+    assert export_file_response.status_code == 201
+    assert export_file["schema_version"] == "run_export.v1"
+    assert export_file["path"] == f"/exports/runs/{run['id']}.export.json"
+    assert export_file["workspace_file"]["path"] == export_file["path"]
+    assert export_file["workspace_file"]["media_type"] == "application/json"
+    assert export_file["export_summary"]["run_id"] == run["id"]
+    assert export_file_content.status_code == 200
+    assert export_file_content.headers["content-type"].startswith("application/json")
+    archived_bundle = json.loads(export_file_content.text)
     assert archived_bundle["schema_version"] == "run_export.v1"
     assert archived_bundle["run"]["id"] == run["id"]
-    assert archived_bundle["summary"]["artifact_count"] == len(artifacts)
-    assert export_artifact_download_info == {
-        "artifact_id": export_artifact["artifact"]["id"],
-        "filename": f"Run_{run['id']}_export.json",
-        "media_type": "application/json",
-        "content_length": len(export_artifact_content.text.encode("utf-8")),
-        "disposition": "attachment",
-        "source_path": export_artifact["path"],
-    }
-    assert export_artifact_download.status_code == 200
-    assert export_artifact_download.headers["content-type"].startswith("application/json")
-    assert export_artifact_download.headers["content-disposition"] == (
-        f'attachment; filename="Run_{run["id"]}_export.json"'
+    assert export_file_download.status_code == 200
+    assert export_file_download.headers["content-type"].startswith("application/json")
+    assert export_file_download.headers["content-disposition"] == (
+        f'attachment; filename="{run["id"]}_export.json"'
     )
-    assert json.loads(export_artifact_download.text)["run"]["id"] == run["id"]
+    assert json.loads(export_file_download.text)["run"]["id"] == run["id"]
 
 
 @pytest.mark.asyncio
@@ -1576,7 +1528,7 @@ async def test_agent_api_exposes_thread_workbench_for_deerflow_like_frontend() -
     assert selected_run["research_review"]["status"] == "pass"
     assert selected_run["research_continuation"]["status"] == "ready"
     assert selected_run["events"]
-    assert selected_run["artifacts"]
+    assert selected_run["workspace_files"]
     assert selected_response.status_code == 200
     assert selected_response.json()["selected_run_id"] == run["id"]
     assert hidden_response.status_code == 404
@@ -2117,7 +2069,7 @@ async def test_agent_api_filters_approvals_by_trusted_run_identity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_api_filters_artifacts_by_trusted_run_identity() -> None:
+async def test_agent_api_filters_workspace_files_by_trusted_run_identity() -> None:
     runtime = create_agent_runtime(
         agent_runtime=file_report_driver(),
         settings=AgentSettings(model="test", api_token="secret-token"),
@@ -2142,39 +2094,37 @@ async def test_agent_api_filters_artifacts_by_trusted_run_identity() -> None:
             await client.post("/api/runs", headers=user_b_headers, json={"task_msg": "User B"})
         ).json()
         await runtime.worker.drain()
-        user_a_artifacts = (await client.get("/api/artifacts", headers=user_a_headers)).json()
-        user_b_artifacts = (
+        user_a_files = (
             await client.get(
-                "/api/artifacts",
-                headers=user_b_headers,
-                params={"run_id": user_b_run["id"]},
+                f"/api/workspaces/{user_a_run['workspace_id']}/files",
+                headers=user_a_headers,
             )
         ).json()
-        hidden_artifact = await client.get(
-            f"/api/artifacts/{user_b_artifacts[0]['id']}",
+        user_b_files = (
+            await client.get(
+                f"/api/workspaces/{user_b_run['workspace_id']}/files",
+                headers=user_b_headers,
+            )
+        ).json()
+        hidden_workspace_files = await client.get(
+            f"/api/workspaces/{user_b_run['workspace_id']}/files",
             headers=user_a_headers,
         )
-        hidden_run_artifacts = await client.get(
-            "/api/artifacts",
-            headers=user_a_headers,
-            params={"run_id": user_b_run["id"]},
-        )
-        visible_artifact = await client.get(
-            f"/api/artifacts/{user_a_artifacts[0]['id']}",
+        visible_file_content = await client.get(
+            f"/api/workspaces/{user_a_run['workspace_id']}/files/reports/report.md/content",
             headers=user_a_headers,
         )
 
-    assert [artifact["run_id"] for artifact in user_a_artifacts] == [user_a_run["id"]]
-    assert hidden_artifact.status_code == 404
-    assert hidden_artifact.json()["detail"] == "Artifact not found"
-    assert hidden_run_artifacts.status_code == 404
-    assert hidden_run_artifacts.json()["detail"] == "Run not found"
-    assert visible_artifact.status_code == 200
-    assert visible_artifact.json()["id"] == user_a_artifacts[0]["id"]
+    assert [file["path"] for file in user_a_files] == ["/reports/report.md"]
+    assert [file["path"] for file in user_b_files] == ["/reports/report.md"]
+    assert hidden_workspace_files.status_code == 404
+    assert hidden_workspace_files.json()["detail"] == "Workspace not found"
+    assert visible_file_content.status_code == 200
+    assert visible_file_content.text == "# Report\nDone.\n"
 
 
 @pytest.mark.asyncio
-async def test_agent_api_serves_active_artifact_content_as_attachment() -> None:
+async def test_agent_api_serves_workspace_html_content_inline() -> None:
     runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     workspace = await runtime.store.create_workspace(org_id="org_1")
     await runtime.store.write_workspace_file(
@@ -2183,20 +2133,10 @@ async def test_agent_api_serves_active_artifact_content_as_attachment() -> None:
         content="<h1>Report</h1>",
         media_type="text/html",
     )
-    artifact = await runtime.store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=None,
-        type="file",
-        name="Report HTML",
-        media_type="text/html",
-        uri="/pages/report.html",
-        content={"path": "/pages/report.html"},
-    )
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get(f"/api/artifacts/{artifact.id}/content")
+        response = await client.get(f"/api/workspaces/{workspace.id}/files/pages/report.html/content")
 
     assert response.status_code == 200
     assert response.text == "<h1>Report</h1>"
@@ -2208,134 +2148,62 @@ async def test_agent_api_serves_active_artifact_content_as_attachment() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_api_infers_inline_html_artifact_media_type_from_name() -> None:
+async def test_agent_api_infers_inline_workspace_html_media_type_from_name() -> None:
     runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     workspace = await runtime.store.create_workspace(org_id="org_1")
-    artifact = await runtime.store.create_artifact(
-        org_id="org_1",
+    await runtime.store.write_workspace_file(
         workspace_id=workspace.id,
-        run_id=None,
-        type="file",
-        name="index.html",
+        path="/pages/index.html",
         content="<main>Hello</main>",
     )
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        content_response = await client.get(f"/api/artifacts/{artifact.id}/content")
-        download_info = (
-            await client.get(f"/api/artifacts/{artifact.id}/download-info")
-        ).json()
+        content_response = await client.get(f"/api/workspaces/{workspace.id}/files/pages/index.html/content")
+        download_response = await client.get(f"/api/workspaces/{workspace.id}/files/pages/index.html/download")
 
     assert content_response.status_code == 200
     assert content_response.headers["content-type"].startswith("text/html")
     assert content_response.headers["x-content-type-options"] == "nosniff"
-    assert download_info["filename"] == "index.html"
-    assert download_info["media_type"] == "text/html"
+    assert download_response.status_code == 200
+    assert download_response.headers["content-type"].startswith("text/html")
+    assert download_response.headers["content-disposition"] == 'attachment; filename="index.html"'
 
 
 @pytest.mark.asyncio
-async def test_agent_api_filters_paginates_and_orders_artifacts() -> None:
+async def test_agent_api_lists_workspace_files_directly() -> None:
     runtime = create_agent_runtime(settings=AgentSettings(model="test"))
     workspace = await runtime.store.create_workspace(org_id="org_1")
     other_workspace = await runtime.store.create_workspace(org_id="org_1")
-    run = await runtime.store.create_run(
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        task_msg="List artifacts",
+    await runtime.store.write_workspace_file(
         workspace_id=workspace.id,
+        path="/reports/alpha.md",
+        content="# Alpha",
+        media_type="text/markdown",
     )
-    alpha = await runtime.store.create_artifact(
-        org_id="org_1",
+    await runtime.store.write_workspace_file(
         workspace_id=workspace.id,
-        run_id=run.id,
-        type="report",
-        name="Alpha report",
+        path="/reports/beta.md",
+        content="# Beta",
+        media_type="text/markdown",
     )
-    beta = await runtime.store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="report",
-        name="Beta report",
-        retention=AgentArtifactRetentionPolicy(
-            mode="expires_at",
-            expires_at="2026-07-01T00:00:00Z",
-        ),
-    )
-    gamma = await runtime.store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="json",
-        name="Gamma data",
-        retention=AgentArtifactRetentionPolicy(mode="ephemeral"),
-    )
-    finalized_gamma = await runtime.store.finalize_artifact(gamma.id)
-    other = await runtime.store.create_artifact(
-        org_id="org_1",
+    await runtime.store.write_workspace_file(
         workspace_id=other_workspace.id,
-        run_id=None,
-        type="report",
-        name="Other workspace report",
+        path="/reports/other.md",
+        content="# Other",
+        media_type="text/markdown",
     )
     app = create_app(runtime)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        report_page = (
-            await client.get(
-                "/api/artifacts",
-                params={
-                    "workspace_id": workspace.id,
-                    "type": "report",
-                    "include_meta": True,
-                    "order_by": "name",
-                    "order_direction": "desc",
-                    "limit": 1,
-                    "offset": 0,
-                },
-            )
-        ).json()
-        expiring = (
-            await client.get("/api/artifacts", params={"retention_mode": "expires_at"})
-        ).json()
-        retained = (
-            await client.get(
-                "/api/artifacts",
-                params={"workspace_id": workspace.id, "retention_mode": "retained"},
-            )
-        ).json()
-        finalized = (
-            await client.get(
-                "/api/artifacts",
-                params={"workspace_id": workspace.id, "finalized": True},
-            )
-        ).json()
+        files = (await client.get(f"/api/workspaces/{workspace.id}/files")).json()
+        other_files = (await client.get(f"/api/workspaces/{other_workspace.id}/files")).json()
         missing_workspace = await client.get(
-            "/api/artifacts",
-            params={"workspace_id": "missing-workspace"},
+            "/api/workspaces/missing-workspace/files",
         )
 
-    assert [artifact["id"] for artifact in report_page["items"]] == [beta.id]
-    assert report_page["total"] == 2
-    assert report_page["count"] == 1
-    assert report_page["limit"] == 1
-    assert report_page["offset"] == 0
-    assert report_page["order_by"] == "name"
-    assert report_page["order_direction"] == "desc"
-    assert report_page["filters"] == {
-        "run_id": None,
-        "workspace_id": workspace.id,
-        "type": "report",
-        "retention_mode": None,
-        "finalized": None,
-    }
-    assert alpha.id not in [artifact["id"] for artifact in report_page["items"]]
-    assert other.id not in [artifact["id"] for artifact in report_page["items"]]
-    assert [artifact["id"] for artifact in expiring] == [beta.id]
-    assert [artifact["id"] for artifact in retained] == [alpha.id]
-    assert [artifact["id"] for artifact in finalized] == [finalized_gamma.id]
+    assert [file["path"] for file in files] == ["/reports/alpha.md", "/reports/beta.md"]
+    assert [file["path"] for file in other_files] == ["/reports/other.md"]
     assert missing_workspace.status_code == 404
     assert missing_workspace.json()["detail"] == "Workspace not found"
 
@@ -2771,10 +2639,8 @@ async def test_agent_api_returns_run_snapshot_for_inspection() -> None:
         "tool",
         "todo",
         "workspace",
-        "artifact",
     }
     assert snapshot["todos"][0]["title"] == "Write report"
-    assert snapshot["artifacts"][0]["type"] == "report"
     assert snapshot["workspace_files"][0]["path"] == "/reports/report.md"
     assert snapshot["research"]["status"] == "none"
     assert snapshot["research"]["degraded"] is False
@@ -2830,7 +2696,6 @@ async def test_agent_api_snapshot_includes_sandbox_diagnostics_summary() -> None
     assert snapshot["summary"]["sandbox_run_count"] == 1
     assert snapshot["summary"]["failed_sandbox_run_count"] == 0
     assert snapshot["summary"]["sandbox_workspace_file_count"] == 1
-    assert snapshot["summary"]["sandbox_artifact_promotion_count"] == 0
     assert sandbox_summary["sandbox_run_id"] == "sandbox_toolcall_1"
     assert sandbox_summary["status"] == "completed"
     assert sandbox_summary["workspace_effects"]["paths"] == ["/reports/sandbox.md"]
@@ -2876,12 +2741,12 @@ async def test_agent_api_snapshot_includes_research_recovery_summary() -> None:
     assert [(todo["title"], todo["status"]) for todo in research["blocked_todos"]] == [
         ("Search sources", "blocked"),
     ]
-    assert [(artifact["name"], artifact["report_status"]) for artifact in research["report_artifacts"]] == [
-        ("Aithru Snapshot Recovery", "insufficient_evidence"),
+    assert [(file["name"], file["report_status"]) for file in research["report_files"]] == [
+        ("aithru-snapshot-recovery.md", "insufficient_evidence"),
     ]
-    assert research["report_artifacts"][0]["source_count"] == 0
-    assert research["report_artifacts"][0]["evidence_count"] == 0
-    assert research["report_artifacts"][0]["limitation_count"] == 1
+    assert research["report_files"][0]["source_count"] == 0
+    assert research["report_files"][0]["evidence_count"] == 0
+    assert research["report_files"][0]["limitation_count"] == 1
     assert {limitation["code"] for limitation in research["limitations"]} >= {
         "web_search_failed",
         "research_search_blocked",
@@ -2940,13 +2805,13 @@ async def test_agent_api_research_execution_snapshot_projects_run_progress() -> 
     ]
     assert execution["steps"][0]["attention"] is True
     assert execution["steps"][0]["web_failure_count"] == 1
-    assert execution["steps"][3]["report_artifact_ids"]
+    assert execution["steps"][3]["report_workspace_paths"]
     assert execution["progress"]["total_steps"] == 4
     assert execution["progress"]["pending_steps"] == 1
     assert execution["progress"]["done_steps"] == 2
     assert execution["progress"]["blocked_steps"] == 1
     assert execution["progress"]["web_failure_count"] == 1
-    assert execution["progress"]["report_artifact_count"] == 1
+    assert execution["progress"]["report_file_count"] == 1
     assert execution["summary"]["status"] == "insufficient_evidence"
 
 
@@ -3002,7 +2867,7 @@ async def test_agent_api_research_evidence_ledger_projects_sources_and_evidence(
         "section_count": 0,
         "missing_section_count": 0,
         "weak_section_count": 0,
-        "report_artifact_count": 1,
+        "report_file_count": 1,
     }
     assert ledger["quality_summary"] == {"high": 1, "medium": 0, "low": 0}
     assert ledger["sources"] == [
@@ -3020,7 +2885,7 @@ async def test_agent_api_research_evidence_ledger_projects_sources_and_evidence(
     assert ledger["evidence"][0]["quality"]["label"] == "high"
     assert ledger["evidence"][0]["excerpt"] == "Fetched content for the evidence ledger API."
     assert ledger["limitations"] == []
-    assert ledger["report_artifacts"][0]["report_status"] == "complete"
+    assert ledger["report_files"][0]["report_status"] == "complete"
 
 
 @pytest.mark.asyncio
@@ -3520,7 +3385,7 @@ async def test_agent_api_run_detail_and_list_include_research_inspection_summary
     assert detail_summary["research_status"] == "insufficient_evidence"
     assert detail_summary["research_degraded"] is True
     assert detail_summary["blocked_todo_count"] == 1
-    assert detail_summary["artifact_count"] == 1
+    assert detail_summary["workspace_file_count"] == 1
     assert detail_summary["failed_trace_count"] >= 1
     assert detail_summary["last_event_type"] == "run.completed"
     assert list_summary == detail_summary
@@ -3678,7 +3543,6 @@ async def test_agent_api_filters_runs_by_sandbox_summary() -> None:
                     "workspace_effects": {
                         "declared_count": 0,
                         "persisted_count": 0,
-                        "promoted_count": 0,
                         "paths": [],
                         "persistence_error": None,
                     },
@@ -4222,11 +4086,11 @@ async def test_agent_api_exposes_run_export_contract_schemas() -> None:
     schemas = openapi["components"]["schemas"]
     assert "AgentRunExportBundle" in schemas
     assert "AgentRunExportSummary" in schemas
-    assert "AgentRunExportArtifactResult" in schemas
-    assert "CreateRunExportArtifactRequest" in schemas
+    assert "AgentRunExportFileResult" in schemas
+    assert "CreateRunExportFileRequest" in schemas
 
     export_schema = {"$ref": "#/components/schemas/AgentRunExportBundle"}
-    artifact_schema = {"$ref": "#/components/schemas/AgentRunExportArtifactResult"}
+    file_schema = {"$ref": "#/components/schemas/AgentRunExportFileResult"}
     assert (
         openapi["paths"]["/api/runs/{run_id}/export"]["get"]["responses"]["200"][
             "content"
@@ -4240,16 +4104,16 @@ async def test_agent_api_exposes_run_export_contract_schemas() -> None:
         == export_schema
     )
     assert (
-        openapi["paths"]["/api/runs/{run_id}/export/artifact"]["post"]["responses"][
+        openapi["paths"]["/api/runs/{run_id}/export/file"]["post"]["responses"][
             "201"
         ]["content"]["application/json"]["schema"]
-        == artifact_schema
+        == file_schema
     )
     assert (
         openapi["paths"][
-            "/api/threads/{thread_id}/runs/{run_id}/export/artifact"
+            "/api/threads/{thread_id}/runs/{run_id}/export/file"
         ]["post"]["responses"]["201"]["content"]["application/json"]["schema"]
-        == artifact_schema
+        == file_schema
     )
 
 
@@ -4417,7 +4281,6 @@ async def test_agent_api_exposes_workspace_file_operation_contract_schemas() -> 
     assert "AgentWorkspaceFileReadResult" in schemas
     assert "AgentWorkspaceFileDeleteResult" in schemas
     assert "AgentWorkspaceFile" in schemas
-    assert "AgentArtifactPromotionResult" in schemas
 
     file_path = openapi["paths"]["/api/workspaces/{workspace_id}/files/{path}"]
     assert (
@@ -4438,16 +4301,13 @@ async def test_agent_api_exposes_workspace_file_operation_contract_schemas() -> 
         ]
         == {"$ref": "#/components/schemas/AgentWorkspaceFileDeleteResult"}
     )
-    assert (
-        openapi["paths"]["/api/workspaces/{workspace_id}/files/{path}/promote"][
-            "post"
-        ]["responses"]["201"]["content"]["application/json"]["schema"]
-        == {"$ref": "#/components/schemas/AgentArtifactPromotionResult"}
-    )
+    assert "/api/workspaces/{workspace_id}/files/{path}/content" in openapi["paths"]
+    assert "/api/workspaces/{workspace_id}/files/{path}/download" in openapi["paths"]
+    assert "/api/workspaces/{workspace_id}/files/{path}/promote" not in openapi["paths"]
 
 
 @pytest.mark.asyncio
-async def test_agent_api_exposes_artifact_contract_schemas() -> None:
+async def test_agent_api_no_longer_exposes_artifact_contract_schemas() -> None:
     runtime = create_agent_runtime(agent_runtime=file_report_driver())
     app = create_app(runtime)
 
@@ -4457,29 +4317,8 @@ async def test_agent_api_exposes_artifact_contract_schemas() -> None:
     assert openapi_response.status_code == 200
     openapi = openapi_response.json()
     schemas = openapi["components"]["schemas"]
-    assert "AgentArtifact" in schemas
-    assert "AgentArtifactListPage" in schemas
-    assert "AgentArtifactDownloadInfo" in schemas
-
-    list_schema = openapi["paths"]["/api/artifacts"]["get"]["responses"]["200"][
-        "content"
-    ]["application/json"]["schema"]
-    assert "AgentArtifactListPage" in json.dumps(list_schema)
-    assert "AgentArtifact" in json.dumps(list_schema)
-    assert "array" in json.dumps(list_schema)
-
-    assert (
-        openapi["paths"]["/api/artifacts/{artifact_id}"]["get"]["responses"]["200"][
-            "content"
-        ]["application/json"]["schema"]
-        == {"$ref": "#/components/schemas/AgentArtifact"}
-    )
-    assert (
-        openapi["paths"]["/api/artifacts/{artifact_id}/download-info"]["get"][
-            "responses"
-        ]["200"]["content"]["application/json"]["schema"]
-        == {"$ref": "#/components/schemas/AgentArtifactDownloadInfo"}
-    )
+    assert all("Artifact" not in name for name in schemas)
+    assert all(not path.startswith("/api/artifacts") for path in openapi["paths"])
 
 
 @pytest.mark.asyncio
@@ -5895,8 +5734,6 @@ async def test_agent_api_exposes_default_deep_research_skill_and_filtered_tools(
     }
     assert by_key["id"] == "skill_deep_research"
     assert [tool["name"] for tool in tools] == [
-        "artifact.create",
-        "artifact.finalize",
         "presentation.present",
         "research.create_plan",
         "research.create_report",
@@ -5982,7 +5819,7 @@ async def test_agent_api_registers_marketplace_skill_with_typed_config_and_org_f
         "name": "Research Brief",
         "description": "Summarize collected evidence.",
         "instructions": "Read workspace sources and produce a concise brief.",
-        "allowed_tools": ["workspace.read_file", "artifact.create"],
+        "allowed_tools": ["workspace.read_file", "presentation.present"],
         "denied_tools": ["web.fetch"],
         "allowed_subagents": ["citation-checker"],
         "memory_policy": {"read": True, "write": False, "scopes": ["organization"]},
@@ -6175,15 +6012,15 @@ async def test_agent_api_updates_skill_registry_version_and_runtime_policy_confi
         updated_response = await client.patch(
             "/api/skill-registry/file-report",
             json={
-                "name": "Artifact Report",
-                "description": "Create an artifact-only report.",
+                "name": "Presentation Report",
+                "description": "Present a workspace report.",
                 "version": "0.2.0",
                 "configuration": {
-                    "instructions": "Create an artifact report.",
-                    "allowed_tools": ["artifact.create"],
+                    "instructions": "Present a workspace report.",
+                    "allowed_tools": ["presentation.present"],
                     "denied_tools": ["workspace.write_file"],
                     "allowed_subagents": [],
-                    "workspace_policy": {"read": False, "write": False},
+                    "workspace_policy": {"read": True, "write": False},
                 },
             },
         )
@@ -6194,7 +6031,7 @@ async def test_agent_api_updates_skill_registry_version_and_runtime_policy_confi
                 json={
                     "org_id": "org_1",
                     "actor_user_id": "user_1",
-                    "task_msg": "Create artifact",
+                    "task_msg": "Present report",
                     "skill_id": "file-report",
                     "scopes": ["*"],
                 },
@@ -6204,15 +6041,15 @@ async def test_agent_api_updates_skill_registry_version_and_runtime_policy_confi
 
     assert updated_response.status_code == 200
     updated = updated_response.json()
-    assert updated["name"] == "Artifact Report"
-    assert updated["description"] == "Create an artifact-only report."
+    assert updated["name"] == "Presentation Report"
+    assert updated["description"] == "Present a workspace report."
     assert updated["version"] == "0.2.0"
-    assert updated["configuration"]["allowed_tools"] == ["artifact.create"]
+    assert updated["configuration"]["allowed_tools"] == ["presentation.present"]
     assert updated["configuration"]["denied_tools"] == ["workspace.write_file"]
-    assert updated["configuration"]["workspace_policy"]["read"] is False
+    assert updated["configuration"]["workspace_policy"]["read"] is True
     assert runtime_detail["version"] == "0.2.0"
-    assert runtime_detail["allowed_tools"] == ["artifact.create"]
-    assert [tool["name"] for tool in tools] == ["artifact.create"]
+    assert runtime_detail["allowed_tools"] == ["presentation.present"]
+    assert [tool["name"] for tool in tools] == ["presentation.present"]
 
 
 @pytest.mark.parametrize(
@@ -6315,8 +6152,8 @@ async def test_agent_api_resolves_duplicate_skill_keys_with_authenticated_org() 
         "id": "skill_org_2_shared_report",
         "org_id": "org_2",
         "name": "Org 2 Shared Report",
-        "instructions": "Create artifacts for org 2.",
-        "allowed_tools": ["artifact.create"],
+        "instructions": "Present workspace files for org 2.",
+        "allowed_tools": ["presentation.present"],
     }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -6354,7 +6191,7 @@ async def test_agent_api_resolves_duplicate_skill_keys_with_authenticated_org() 
     assert org_2_run.json()["org_id"] == "org_2"
     assert org_2_run.json()["skill_id"] == "shared-report"
     assert org_2_tools.status_code == 200
-    assert [tool["name"] for tool in org_2_tools.json()] == ["artifact.create"]
+    assert [tool["name"] for tool in org_2_tools.json()] == ["presentation.present"]
 
 
 @pytest.mark.asyncio
@@ -7006,5 +6843,5 @@ async def test_run_snapshot_exposes_presentations_only() -> None:
 
     assert "display" + "_cards" not in snapshot
     assert snapshot["presentations"]
-    assert snapshot["presentations"][0]["resource"]["kind"] in {"workspace_file", "artifact"}
+    assert snapshot["presentations"][0]["resource"]["kind"] == "workspace_file"
     assert snapshot["presentations"][0]["sequence"] is not None

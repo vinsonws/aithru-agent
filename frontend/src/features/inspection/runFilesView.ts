@@ -1,9 +1,8 @@
-export type RunFileKind = "artifact" | "modified_file";
+export type RunFileKind = "output_file" | "modified_file";
 
 export interface RunFileView {
   id: string;
   kind: RunFileKind;
-  artifactId?: string;
   name: string;
   path?: string;
   typeLabel: string;
@@ -19,86 +18,43 @@ export interface RunFileView {
 
 export type RunFilePreviewKind = "markdown" | "json" | "code" | "text" | "image" | "pdf" | "html" | "unsupported";
 
-interface ArtifactInput {
-  id: string;
-  name: string;
-  type?: string;
-  media_type?: string | null;
-  created_at?: string;
-  finalized_at?: string | null;
-  finalized?: unknown;
-  uri?: string | null;
-  metadata?: Record<string, unknown> | null;
-}
-
 interface WorkspaceFileInput {
   path: string;
   size?: number;
   media_type?: string | null;
+  created_at?: string | null;
 }
 
 export function buildRunFileViews(input: {
   snapshot?: unknown;
+  workspaceId?: string | null;
   workspaceFiles?: WorkspaceFileInput[];
-  artifacts?: ArtifactInput[];
 }): RunFileView[] {
   const result: RunFileView[] = [];
 
-  const artifacts = (input.artifacts ?? []).filter(Boolean);
-  const finalized = artifacts.filter((a) => a.finalized || a.finalized_at);
-  const remaining = artifacts.filter((a) => !a.finalized && !a.finalized_at);
-  const artifactSourcePaths = new Set<string>();
-
-  for (const a of [...finalized, ...remaining]) {
-    const name = a.name || "unnamed";
-    const sourcePath = artifactSourcePath(a);
-    if (sourcePath) artifactSourcePaths.add(sourcePath);
-    result.push({
-      id: `artifact-${a.id}`,
-      kind: "artifact",
-      artifactId: a.id,
-      name,
-      path: sourcePath ?? a.name,
-      typeLabel: inferFileTypeLabel({ name, mediaType: a.media_type, artifactType: a.type }),
-      createdAt: a.created_at,
-      href: `/api/artifacts/${a.id}/download`,
-      previewHref: `/api/artifacts/${a.id}/content`,
-      canDownload: true,
-      canPreview: previewKindForFile({ name, mediaType: a.media_type, artifactType: a.type }) !== "unsupported",
-      previewKind: previewKindForFile({ name, mediaType: a.media_type, artifactType: a.type }),
-      language: languageForFile(name),
-    });
-  }
-
   const workspaceFiles = (input.workspaceFiles ?? []).filter(Boolean);
-  for (const f of workspaceFiles.filter((file) => !artifactSourcePaths.has(file.path))) {
+  for (const f of workspaceFiles) {
     const pathParts = f.path.split("/");
     const name = pathParts[pathParts.length - 1] || f.path;
+    const previewKind = previewKindForFile({ name, mediaType: f.media_type });
     result.push({
       id: `ws-${f.path}`,
-      kind: "modified_file",
+      kind: outputLikePath(f.path) ? "output_file" : "modified_file",
       name,
       path: f.path,
       typeLabel: inferFileTypeLabel({ name, mediaType: f.media_type }),
       sizeLabel: formatFileSize(f.size),
-      canDownload: false,
-      canPreview: previewKindForFile({ name, mediaType: f.media_type }) !== "unsupported",
-      previewKind: previewKindForFile({ name, mediaType: f.media_type }),
+      createdAt: f.created_at,
+      href: input.workspaceId ? workspaceFileUrl(input.workspaceId, f.path, "/download") : undefined,
+      previewHref: input.workspaceId ? workspaceFileUrl(input.workspaceId, f.path, "/content") : undefined,
+      canDownload: Boolean(input.workspaceId),
+      canPreview: previewKind !== "unsupported",
+      previewKind,
       language: languageForFile(name),
     });
   }
 
   return result;
-}
-
-function artifactSourcePath(artifact: ArtifactInput): string | undefined {
-  const metadata = artifact.metadata ?? {};
-  const sourcePath = metadata.source_path ?? metadata.workspace_path ?? metadata.path;
-  if (typeof sourcePath === "string" && sourcePath.trim()) return sourcePath;
-  if (artifact.uri?.startsWith("workspace://")) {
-    return artifact.uri.slice("workspace://".length).replace(/^\/+/, "");
-  }
-  return undefined;
 }
 
 const EXTENSION_TYPE_MAP: Record<string, string> = {
@@ -136,12 +92,7 @@ export function inferFileTypeLabel(input: {
   name?: string | null;
   path?: string | null;
   mediaType?: string | null;
-  artifactType?: string | null;
 }): string {
-  if (input.artifactType === "markdown" || input.artifactType === "report") return "Markdown";
-  if (input.artifactType === "json") return "JSON";
-  if (input.artifactType === "text") return "Text";
-
   const mediaType = input.mediaType;
   if (mediaType) {
     for (const [prefix, label] of Object.entries(MEDIA_TYPE_MAP)) {
@@ -162,12 +113,7 @@ export function inferFileTypeLabel(input: {
 export function previewKindForFile(input: {
   name?: string | null;
   mediaType?: string | null;
-  artifactType?: string | null;
 }): RunFilePreviewKind {
-  if (input.artifactType === "markdown" || input.artifactType === "report") return "markdown";
-  if (input.artifactType === "json") return "json";
-  if (input.artifactType === "text") return "text";
-
   const mediaType = input.mediaType?.toLowerCase() ?? "";
   if (mediaType.startsWith("image/")) return "image";
   if (mediaType === "application/pdf") return "pdf";
@@ -220,6 +166,20 @@ function extensionForName(name?: string | null): string | undefined {
   const dotIndex = value.lastIndexOf(".");
   if (dotIndex < 0) return undefined;
   return value.slice(dotIndex + 1).toLowerCase();
+}
+
+function outputLikePath(path: string): boolean {
+  return /^\/?(outputs|reports|exports)\//.test(path);
+}
+
+function workspaceFileUrl(workspaceId: string, path: string, suffix = ""): string {
+  const encodedPath = path
+    .replace(/^\/+/, "")
+    .split("/")
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join("/");
+  return `/api/workspaces/${encodeURIComponent(workspaceId)}/files/${encodedPath}${suffix}`;
 }
 
 export function formatFileSize(bytes?: number | null): string | undefined {

@@ -10,7 +10,7 @@ from tests.utils.step_runtime import Step, StepAgentRuntime
 
 
 @pytest.mark.asyncio
-async def test_deep_research_skill_creates_todos_report_artifact_events_and_trace() -> None:
+async def test_deep_research_skill_creates_todos_report_workspace_file_events_and_trace() -> None:
     runtime = create_agent_runtime(
         agent_runtime=StepAgentRuntime(
             [
@@ -27,19 +27,23 @@ async def test_deep_research_skill_creates_todos_report_artifact_events_and_trac
                     {
                         "title": "Aithru Deep Research",
                         "query": "aithru deerflow parity",
-                        "summary": "Aithru Agent can plan research and create cited report artifacts.",
+                        "summary": "Aithru Agent can plan research and create cited report workspace files.",
                         "sources": [
                             {
                                 "title": "Aithru Agent Harness",
                                 "url": "https://example.com/aithru-agent",
                                 "snippet": (
                                     "Aithru Agent routes real actions through controlled "
-                                    "capabilities and records traceable artifacts."
+                                    "capabilities and records traceable workspace files."
                                 ),
                                 "source": "example",
                             }
                         ],
                     },
+                ),
+                Step.tool(
+                    "presentation.present",
+                    {"resources": [{"kind": "workspace_file", "path": "/reports/aithru-deep-research.md"}]},
                 ),
                 Step.message("Created research report.\n"),
                 Step.finish(),
@@ -55,7 +59,9 @@ async def test_deep_research_skill_creates_todos_report_artifact_events_and_trac
         skill_id="deep-research",
     )
     todos = await runtime.store.list_todos(run.id)
-    artifacts = await runtime.store.list_artifacts(run_id=run.id)
+    files = await runtime.store.list_workspace_files(run.workspace_id)
+    report_file = next(file for file in files if file.path == "/reports/aithru-deep-research.md")
+    report_content = await runtime.store.read_workspace_file(run.workspace_id, report_file.path)
     events = await runtime.event_store.list_by_run(run.id)
     spans = project_trace_spans(events)
 
@@ -66,14 +72,16 @@ async def test_deep_research_skill_creates_todos_report_artifact_events_and_trac
         "Synthesize findings",
         "Create research report",
     ]
-    assert len(artifacts) == 1
-    assert artifacts[0].type == "report"
-    assert artifacts[0].name == "Aithru Deep Research"
-    assert "# Aithru Deep Research" in str(artifacts[0].content)
-    assert run.result is not None
-    assert run.result.artifact_ids == [artifacts[0].id]
+    assert report_file.media_type == "text/markdown"
+    assert "# Aithru Deep Research" in str(report_content.content)
     assert sum(event.type == "todo.created" for event in events) == 4
-    assert sum(event.type == "artifact.created" for event in events) == 1
+    assert any(
+        event.type == "tool.completed"
+        and isinstance(event.payload, dict)
+        and event.payload.get("tool_name") == "research.create_report"
+        for event in events
+    )
+    assert sum(event.type == "presentation.created" for event in events) >= 1
     assert events[-1].type == "run.completed"
     assert {span.kind for span in spans} >= {
         "run",
@@ -81,7 +89,6 @@ async def test_deep_research_skill_creates_todos_report_artifact_events_and_trac
         "message",
         "tool",
         "todo",
-        "artifact",
     }
 
 
@@ -100,5 +107,5 @@ def test_deep_research_example_script_runs_successfully() -> None:
     assert completed.returncode == 0, completed.stderr
     assert "Run status: completed" in completed.stdout
     assert "Todos: 4" in completed.stdout
-    assert "Report artifact: Aithru Deep Research" in completed.stdout
+    assert "Report file: /reports/aithru-deep-research.md" in completed.stdout
     assert "Trace span kinds:" in completed.stdout

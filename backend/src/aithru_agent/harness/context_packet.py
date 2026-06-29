@@ -1,8 +1,7 @@
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 
 from aithru_agent.domain import (
-    AgentArtifact,
     AgentContextSummary,
     AgentMemoryRecall,
     AgentMemoryRecallItem,
@@ -10,13 +9,13 @@ from aithru_agent.domain import (
     AgentRun,
     AgentRunCompressedContext,
     AgentRunContextBudgetUsage,
-    AgentRunContextArtifact,
     AgentRunContextCounts,
     AgentRunContextMessage,
     AgentRunContextPacket,
     AgentRunContextPresentation,
     AgentRunContextToolResult,
     AgentRunContextTodo,
+    AgentRunContextWorkspaceFile,
     AgentRunResearchActionContext,
     AgentRunResearchContinuationContext,
     AgentRunResearchEvidenceContext,
@@ -25,6 +24,7 @@ from aithru_agent.domain import (
     ResearchEvidenceSectionSummary,
     ResearchPlanSection,
     ResearchReport,
+    AgentWorkspaceFile,
 )
 from aithru_agent.stream.presentations import presentations_from_events
 from aithru_agent.memory import (
@@ -39,7 +39,7 @@ from aithru_agent.stream import AgentEventWriter, AgentStreamEvent
 
 DEFAULT_CONTEXT_PACKET_MAX_THREAD_MESSAGES = 12
 DEFAULT_CONTEXT_PACKET_MAX_TODOS = 20
-DEFAULT_CONTEXT_PACKET_MAX_ARTIFACTS = 8
+DEFAULT_CONTEXT_PACKET_MAX_WORKSPACE_FILES = 20
 DEFAULT_CONTEXT_PACKET_MAX_TOOL_RESULTS = 8
 DEFAULT_CONTEXT_PACKET_MAX_MEMORY_ENTRIES = 8
 DEFAULT_CONTEXT_PACKET_MAX_RESEARCH_EVIDENCE = 5
@@ -51,7 +51,7 @@ DEFAULT_CONTEXT_PACKET_MAX_TOTAL_CHARS = 6_000
 class ContextPacketBuilder:
     max_thread_messages: int = DEFAULT_CONTEXT_PACKET_MAX_THREAD_MESSAGES
     max_todos: int = DEFAULT_CONTEXT_PACKET_MAX_TODOS
-    max_artifacts: int = DEFAULT_CONTEXT_PACKET_MAX_ARTIFACTS
+    max_workspace_files: int = DEFAULT_CONTEXT_PACKET_MAX_WORKSPACE_FILES
     max_tool_results: int = DEFAULT_CONTEXT_PACKET_MAX_TOOL_RESULTS
     max_memory_entries: int = DEFAULT_CONTEXT_PACKET_MAX_MEMORY_ENTRIES
     max_research_evidence: int = DEFAULT_CONTEXT_PACKET_MAX_RESEARCH_EVIDENCE
@@ -74,12 +74,12 @@ class ContextPacketBuilder:
             for todo in all_todos[: self.max_todos]
         ]
         dropped_todos = max(0, len(all_todos) - len(todos))
-        all_artifacts = await store.list_artifacts(run_id=run.id)
-        artifacts = [
-            self._artifact_context(artifact)
-            for artifact in all_artifacts[-self.max_artifacts :]
+        all_workspace_files = await store.list_workspace_files(run.workspace_id)
+        workspace_files = [
+            AgentRunContextWorkspaceFile.from_workspace_file(file)
+            for file in all_workspace_files[-self.max_workspace_files :]
         ]
-        dropped_artifacts = max(0, len(all_artifacts) - len(artifacts))
+        dropped_workspace_files = max(0, len(all_workspace_files) - len(workspace_files))
         tool_results, dropped_tool_results = await self._tool_results(run, event_store)
         latest_context_summary = await self._latest_context_summary(
             run,
@@ -97,23 +97,22 @@ class ContextPacketBuilder:
             run,
             store=store,
             todos=all_todos,
-            artifacts=all_artifacts,
             event_store=event_store,
         )
         dropped_research_evidence = research.dropped_evidence if research else 0
         compressed_context = _compressed_context(
             dropped_thread_messages=dropped_thread_messages,
             dropped_todos=dropped_todos,
-            dropped_artifacts=dropped_artifacts,
+            dropped_workspace_files=dropped_workspace_files,
             dropped_tool_results=dropped_tool_results,
             dropped_memory=dropped_memory,
             dropped_research_evidence=dropped_research_evidence,
             durable_summary=latest_context_summary.summary if latest_context_summary else None,
         )
-        thread_messages, todos, artifacts, tool_results, memory, research, compressed_context, budget = _apply_budget(
+        thread_messages, todos, workspace_files, tool_results, memory, research, compressed_context, budget = _apply_budget(
             thread_messages=thread_messages,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             tool_results=tool_results,
             memory=memory,
             research=research,
@@ -121,7 +120,7 @@ class ContextPacketBuilder:
             max_total_chars=self.max_total_chars,
             dropped_thread_messages=dropped_thread_messages,
             dropped_todos=dropped_todos,
-            dropped_artifacts=dropped_artifacts,
+            dropped_workspace_files=dropped_workspace_files,
             dropped_tool_results=dropped_tool_results,
             dropped_memory=dropped_memory,
             dropped_research_evidence=dropped_research_evidence,
@@ -154,7 +153,7 @@ class ContextPacketBuilder:
             budget=budget,
             thread_messages=thread_messages,
             todos=todos,
-            artifacts=artifacts,
+            workspace_files=workspace_files,
             tool_results=tool_results,
             research=research,
             memory=memory,
@@ -255,17 +254,6 @@ class ContextPacketBuilder:
             thread_id=run.thread_id,
         )
         return summaries[-1] if summaries else None
-
-    def _artifact_context(self, artifact: AgentArtifact) -> AgentRunContextArtifact:
-        summary, truncated = _artifact_summary(
-            artifact,
-            max_chars=self.max_content_chars,
-        )
-        return AgentRunContextArtifact.from_artifact(
-            artifact,
-            summary=summary,
-            truncated=truncated,
-        )
 
     async def _tool_results(
         self,
@@ -404,7 +392,6 @@ class ContextPacketBuilder:
         *,
         store: AgentStore,
         todos: list,
-        artifacts: list[AgentArtifact],
         event_store: AgentEventStore | None,
     ) -> AgentRunResearchContinuationContext | None:
         continuation_options = run.harness_options.research_continuation if run.harness_options else None
@@ -413,7 +400,7 @@ class ContextPacketBuilder:
         events = await event_store.list_by_run(run.id) if event_store is not None else []
         report_result = _latest_research_report(events)
         research_todos = [todo for todo in todos if todo.title in _DEFAULT_RESEARCH_TODO_TITLES]
-        report_artifacts = _research_report_artifacts(artifacts)
+        report_workspace_paths = _research_report_workspace_paths(events)
         if report_result is None and continuation_options is not None and event_store is not None:
             source_inputs = await self._source_research_context_inputs(
                 run,
@@ -422,14 +409,14 @@ class ContextPacketBuilder:
                 source_run_id=continuation_options.source_run_id,
             )
             if source_inputs is not None:
-                source_report_result, source_todos, source_artifacts = source_inputs
+                source_report_result, source_todos, source_report_workspace_paths = source_inputs
                 if source_report_result is not None:
                     report_result = source_report_result
                 if not research_todos:
                     research_todos = source_todos
-                if not report_artifacts:
-                    report_artifacts = source_artifacts
-        if report_result is None and not research_todos and not report_artifacts:
+                if not report_workspace_paths:
+                    report_workspace_paths = source_report_workspace_paths
+        if report_result is None and not research_todos and not report_workspace_paths:
             return None
 
         report, sequence = report_result if report_result is not None else (None, None)
@@ -462,10 +449,7 @@ class ContextPacketBuilder:
             completed_steps=completed_steps,
             pending_steps=pending_steps,
             blocked_steps=blocked_steps,
-            report_artifact_ids=[artifact.id for artifact in report_artifacts],
-            report_artifact_uris=[
-                artifact.uri for artifact in report_artifacts if artifact.uri is not None
-            ],
+            report_workspace_paths=report_workspace_paths,
             sections=_research_section_context(report, max_chars=self.max_content_chars),
             evidence=evidence,
             limitations=limitations,
@@ -492,7 +476,7 @@ class ContextPacketBuilder:
         store: AgentStore,
         event_store: AgentEventStore,
         source_run_id: str,
-    ) -> tuple[tuple[ResearchReport, int] | None, list, list[AgentArtifact]] | None:
+    ) -> tuple[tuple[ResearchReport, int] | None, list, list[str]] | None:
         source_run = await store.get_run(source_run_id)
         if not _compatible_research_source_run(run, source_run):
             return None
@@ -503,47 +487,17 @@ class ContextPacketBuilder:
             for todo in await store.list_todos(source_run.id)
             if todo.title in _DEFAULT_RESEARCH_TODO_TITLES
         ]
-        source_artifacts = _research_report_artifacts(
-            await store.list_artifacts(run_id=source_run.id)
-        )
-        if source_report_result is None and not source_todos and not source_artifacts:
+        source_report_workspace_paths = _research_report_workspace_paths(source_events)
+        if source_report_result is None and not source_todos and not source_report_workspace_paths:
             return None
-        return source_report_result, source_todos, source_artifacts
-
-
-def _artifact_summary(artifact: AgentArtifact, *, max_chars: int) -> tuple[str | None, bool]:
-    value = _artifact_summary_value(artifact)
-    if value is None:
-        return None, False
-    if len(value) <= max_chars:
-        return value, False
-    return value[:max_chars], True
-
-
-def _artifact_summary_value(artifact: AgentArtifact) -> str | None:
-    if isinstance(artifact.content, str):
-        return artifact.content
-    if isinstance(artifact.content, bytes):
-        return artifact.content.decode("utf-8", errors="replace")
-    if isinstance(artifact.content, dict):
-        for key in ("summary", "title", "path"):
-            value = artifact.content.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return json.dumps(artifact.content, sort_keys=True)
-    if artifact.metadata:
-        for key in ("summary", "report_status", "quality_label"):
-            value = artifact.metadata.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return None
+        return source_report_result, source_todos, source_report_workspace_paths
 
 
 def _compressed_context(
     *,
     dropped_thread_messages: int,
     dropped_todos: int,
-    dropped_artifacts: int,
+    dropped_workspace_files: int,
     dropped_tool_results: int,
     dropped_memory: int,
     dropped_research_evidence: int,
@@ -553,7 +507,7 @@ def _compressed_context(
         (
             dropped_thread_messages,
             dropped_todos,
-            dropped_artifacts,
+            dropped_workspace_files,
             dropped_tool_results,
             dropped_memory,
             dropped_research_evidence,
@@ -565,8 +519,8 @@ def _compressed_context(
         parts.append(_plural(dropped_thread_messages, "older thread message", "older thread messages"))
     if dropped_todos:
         parts.append(_plural(dropped_todos, "additional todo", "additional todos"))
-    if dropped_artifacts:
-        parts.append(_plural(dropped_artifacts, "older artifact", "older artifacts"))
+    if dropped_workspace_files:
+        parts.append(_plural(dropped_workspace_files, "older workspace file", "older workspace files"))
     if dropped_tool_results:
         parts.append(_plural(dropped_tool_results, "older tool result", "older tool results"))
     if dropped_memory:
@@ -581,7 +535,7 @@ def _compressed_context(
         counts=AgentRunContextCounts(
             thread_messages=dropped_thread_messages,
             todos=dropped_todos,
-            artifacts=dropped_artifacts,
+            workspace_files=dropped_workspace_files,
             tool_results=dropped_tool_results,
             memory=dropped_memory,
             research_evidence=dropped_research_evidence,
@@ -594,7 +548,7 @@ def _apply_budget(
     *,
     thread_messages: list[AgentRunContextMessage],
     todos: list[AgentRunContextTodo],
-    artifacts: list[AgentRunContextArtifact],
+    workspace_files: list[AgentRunContextWorkspaceFile],
     tool_results: list[AgentRunContextToolResult],
     memory: AgentMemoryRecall | None,
     research: AgentRunResearchContinuationContext | None,
@@ -602,14 +556,14 @@ def _apply_budget(
     max_total_chars: int,
     dropped_thread_messages: int,
     dropped_todos: int,
-    dropped_artifacts: int,
+    dropped_workspace_files: int,
     dropped_tool_results: int,
     dropped_memory: int,
     dropped_research_evidence: int,
 ) -> tuple[
     list[AgentRunContextMessage],
     list[AgentRunContextTodo],
-    list[AgentRunContextArtifact],
+    list[AgentRunContextWorkspaceFile],
     list[AgentRunContextToolResult],
     AgentMemoryRecall | None,
     AgentRunResearchContinuationContext | None,
@@ -620,13 +574,12 @@ def _apply_budget(
     compressed_context = _budget_compressed_context(compressed_context, budget)
     thread_messages = [_budget_message(message, budget) for message in thread_messages]
     todos = [_budget_todo(todo, budget) for todo in todos]
-    artifacts = [_budget_artifact(artifact, budget) for artifact in artifacts]
     tool_results = [_budget_tool_result(result, budget) for result in tool_results]
     memory = _budget_memory(memory, budget)
     research = _budget_research(research, budget)
     truncated_items = sum(message.truncated for message in thread_messages) + sum(
         todo.truncated for todo in todos
-    ) + sum(artifact.truncated for artifact in artifacts) + int(
+    ) + sum(file.truncated for file in workspace_files) + int(
         bool(compressed_context and compressed_context.truncated)
     ) + sum(result.truncated for result in tool_results) + (
         sum(item.truncated for item in memory.items) if memory else 0
@@ -638,7 +591,7 @@ def _apply_budget(
     return (
         thread_messages,
         todos,
-        artifacts,
+        workspace_files,
         tool_results,
         memory,
         research,
@@ -648,7 +601,7 @@ def _apply_budget(
             used_chars=budget.used_chars,
             dropped_thread_messages=dropped_thread_messages,
             dropped_todos=dropped_todos,
-            dropped_artifacts=dropped_artifacts,
+            dropped_workspace_files=dropped_workspace_files,
             dropped_tool_results=dropped_tool_results,
             dropped_memory=dropped_memory,
             dropped_research_evidence=dropped_research_evidence,
@@ -684,14 +637,6 @@ def _budget_message(
 def _budget_todo(todo: AgentRunContextTodo, budget: "_ContextBudget") -> AgentRunContextTodo:
     description, truncated = budget.take(todo.description)
     return todo.model_copy(update={"description": description, "truncated": todo.truncated or truncated})
-
-
-def _budget_artifact(
-    artifact: AgentRunContextArtifact,
-    budget: "_ContextBudget",
-) -> AgentRunContextArtifact:
-    summary, truncated = budget.take(artifact.summary)
-    return artifact.model_copy(update={"summary": summary, "truncated": artifact.truncated or truncated})
 
 
 def _budget_tool_result(
@@ -830,11 +775,11 @@ def _tool_output_summary(*, tool_name: str, output: object) -> str:
             )
         if tool_name == "research.create_report":
             report = output.get("report")
-            artifact = output.get("artifact")
+            workspace_file = output.get("workspace_file")
             return _join_summary_parts(
                 [
                     ("report", report.get("summary") if isinstance(report, dict) else None),
-                    ("artifact", artifact.get("uri") if isinstance(artifact, dict) else None),
+                    ("workspace_file", workspace_file.get("path") if isinstance(workspace_file, dict) else output.get("path")),
                 ]
             )
         if tool_name.startswith("workflow."):
@@ -937,13 +882,24 @@ def _research_report_value(value: object) -> ResearchReport | None:
         return None
 
 
-def _research_report_artifacts(artifacts: list[AgentArtifact]) -> list[AgentArtifact]:
-    return [
-        artifact
-        for artifact in artifacts
-        if isinstance(artifact.metadata, dict)
-        and artifact.metadata.get("generated_by") == "research.create_report"
-    ]
+def _research_report_workspace_paths(events: list[AgentStreamEvent]) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    for event in events:
+        if event.type != "tool.completed":
+            continue
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        if payload.get("tool_name") != "research.create_report":
+            continue
+        output = payload.get("output")
+        if not isinstance(output, dict):
+            continue
+        workspace_file = output.get("workspace_file")
+        path = workspace_file.get("path") if isinstance(workspace_file, dict) else output.get("path")
+        if isinstance(path, str) and path and path not in seen:
+            seen.add(path)
+            paths.append(path)
+    return paths
 
 
 def _research_evidence_context(
@@ -1165,7 +1121,7 @@ def _research_action_hints(
                 kind="regenerate_report",
                 priority="medium",
                 title="Regenerate the research report",
-                reason="After repairing evidence gaps, create a fresh report artifact and review it again.",
+                reason="After repairing evidence gaps, create a fresh report file and review it again.",
                 target_section_ids=target_section_ids,
                 suggested_tool_names=["research.create_report"],
                 suggested_research_phases=["report"],

@@ -28,14 +28,14 @@ from aithru_agent.stream import AgentEventWriter, InMemoryAgentEventStore
 
 
 @pytest.mark.asyncio
-async def test_instruction_builder_warns_model_not_to_invent_artifact_links() -> None:
+async def test_instruction_builder_guides_workspace_file_presentation() -> None:
     deps = await build_deps(store=InMemoryAgentStore())
 
     instructions = await InstructionBuilder("Base instructions.").build(deps)
 
-    assert "## Artifact Link Guidance" in instructions
-    assert "Do not invent public artifact URLs" in instructions
-    assert "https://aithru.ai/artifact/" in instructions
+    assert "## Workspace File Presentation Guidance" in instructions
+    assert "Do not invent legacy resource URLs" in instructions
+    assert "When a workspace file is created, refer to it by path" in instructions
     assert "presentation entries or the Files panel" in instructions
     assert "presentation.present" in instructions
 
@@ -103,12 +103,12 @@ async def test_instruction_builder_combines_base_and_skill_instructions() -> Non
         "- Simple informational questions you can answer directly\n"
         "- Tasks where the task is clear enough to start working\n"
         "- Situations where you already have enough context from the workspace or memory\n\n"
-        "## Artifact Link Guidance\n\n"
-        "Artifacts are platform resources rendered by Aithru as presentation entries or in the Files panel.\n"
-        "Do not invent public artifact URLs such as https://aithru.ai/artifact/{org_id}/{artifact_id}.\n"
-        "When an artifact is created, refer to it by name and artifact id only, and let Aithru Presentation handle preview and download actions.\n"
+        "## Workspace File Presentation Guidance\n\n"
+        "Workspace files are platform resources rendered by Aithru as presentation entries or in the Files panel.\n"
+        "Do not invent legacy resource URLs.\n"
+        "When a workspace file is created, refer to it by path and let Aithru Presentation handle preview and download actions.\n"
         "Use `presentation.present` when you need to request a specific safe view such as html_preview, source_text, markdown, image, pdf, or download.\n"
-        "If you need to mention where the user can open an artifact, say it is available in the presentation entries or the Files panel.\n\n"
+        "If you need to mention where the user can open a file, say it is available in the presentation entries or the Files panel.\n\n"
         "Skill instructions:\nRead files first. Then write a report."
     )
 
@@ -160,12 +160,12 @@ async def test_instruction_builder_adds_run_harness_instructions() -> None:
         "- Simple informational questions you can answer directly\n"
         "- Tasks where the task is clear enough to start working\n"
         "- Situations where you already have enough context from the workspace or memory\n\n"
-        "## Artifact Link Guidance\n\n"
-        "Artifacts are platform resources rendered by Aithru as presentation entries or in the Files panel.\n"
-        "Do not invent public artifact URLs such as https://aithru.ai/artifact/{org_id}/{artifact_id}.\n"
-        "When an artifact is created, refer to it by name and artifact id only, and let Aithru Presentation handle preview and download actions.\n"
+        "## Workspace File Presentation Guidance\n\n"
+        "Workspace files are platform resources rendered by Aithru as presentation entries or in the Files panel.\n"
+        "Do not invent legacy resource URLs.\n"
+        "When a workspace file is created, refer to it by path and let Aithru Presentation handle preview and download actions.\n"
         "Use `presentation.present` when you need to request a specific safe view such as html_preview, source_text, markdown, image, pdf, or download.\n"
-        "If you need to mention where the user can open an artifact, say it is available in the presentation entries or the Files panel.\n\n"
+        "If you need to mention where the user can open a file, say it is available in the presentation entries or the Files panel.\n\n"
         "Run instructions:\nUse terse bullet points."
     )
 
@@ -274,7 +274,7 @@ async def test_instruction_builder_renders_context_budget_and_compressed_context
         status="running",
         compressed_context=AgentRunCompressedContext(
             summary="Compressed context: 2 older thread messages; 1 additional todo.",
-            counts=AgentRunContextCounts(thread_messages=2, todos=1, artifacts=0),
+            counts=AgentRunContextCounts(thread_messages=2, todos=1, workspace_files=0),
         ),
         budget=AgentRunContextBudgetUsage(
             max_chars=120,
@@ -293,7 +293,7 @@ async def test_instruction_builder_renders_context_budget_and_compressed_context
     assert "- Compressed context: 2 older thread messages; 1 additional todo." in instructions
     assert (
         "Context budget: 64/120 chars used, 56 remaining; "
-        "dropped details: 2 messages, 1 todo, 0 artifacts, 0 tool results, "
+        "dropped details: 2 messages, 1 todo, 0 workspace files, 0 tool results, "
         "0 memory entries; truncated items: 1"
     ) in instructions
 
@@ -409,8 +409,7 @@ async def test_instruction_builder_renders_research_continuation_context() -> No
             completed_steps=["Search sources"],
             pending_steps=["Create research report"],
             blocked_steps=["Fetch and review sources"],
-            report_artifact_ids=["artifact_report"],
-            report_artifact_uris=["/reports/aithru.md"],
+            report_workspace_paths=["/reports/aithru.md"],
             sections=[
                 AgentRunResearchSectionContext(
                     section_id="architecture",
@@ -486,7 +485,7 @@ async def test_instruction_builder_renders_research_continuation_context() -> No
     assert "- Completed steps: Search sources" in instructions
     assert "- Pending steps: Create research report" in instructions
     assert "- Blocked steps: Fetch and review sources" in instructions
-    assert "- Report artifacts: artifact_report (/reports/aithru.md)" in instructions
+    assert "- Report files: /reports/aithru.md" in instructions
     assert "Research sections:" in instructions
     assert (
         "- Section architecture [covered, high]: Architecture - "

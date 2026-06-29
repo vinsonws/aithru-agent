@@ -66,10 +66,10 @@ async def test_user_skill_package_patch_updates_content_and_policy() -> None:
         patched_response = await client.patch(
             "/api/skill-registry/user/file-report",
             json={
-                "name": "Artifact Report",
-                "description": "Create artifact-only reports.",
-                "body": "# Artifact Report\n\nNew body.",
-                "allowed_tools": ["artifact.create"],
+                "name": "Presentation Report",
+                "description": "Present workspace reports.",
+                "body": "# Presentation Report\n\nNew body.",
+                "allowed_tools": ["presentation.present"],
                 "denied_tools": ["workspace.write_file"],
                 "allowed_subagents": [],
             },
@@ -79,12 +79,12 @@ async def test_user_skill_package_patch_updates_content_and_policy() -> None:
     patched = patched_response.json()
     runtime_detail = runtime_detail_response.json()
     assert patched_response.status_code == 200
-    assert patched["name"] == "Artifact Report"
-    assert patched["configuration"]["allowed_tools"] == ["artifact.create"]
+    assert patched["name"] == "Presentation Report"
+    assert patched["configuration"]["allowed_tools"] == ["presentation.present"]
     assert patched["configuration"]["denied_tools"] == ["workspace.write_file"]
-    assert runtime_detail["name"] == "Artifact Report"
-    assert runtime_detail["instructions"] == "# Artifact Report\n\nNew body."
-    assert runtime_detail["allowed_tools"] == ["artifact.create"]
+    assert runtime_detail["name"] == "Presentation Report"
+    assert runtime_detail["instructions"] == "# Presentation Report\n\nNew body."
+    assert runtime_detail["allowed_tools"] == ["presentation.present"]
 
 
 @pytest.mark.asyncio

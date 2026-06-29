@@ -79,7 +79,7 @@ class ResearchLocalTool:
             AgentToolDescriptor(
                 name="research.create_report",
                 kind=AgentToolKind.LOCAL_TOOL,
-                description="Create an evidence-backed markdown research report artifact.",
+                description="Create an evidence-backed markdown research report workspace file.",
                 input_schema={
                     "type": "object",
                     "required": ["title", "query"],
@@ -141,7 +141,7 @@ class ResearchLocalTool:
                 },
                 output_schema={"type": "object"},
                 risk_level=AgentToolRiskLevel.SAFE,
-                required_scopes=["agent.research.write", "agent.artifact.write"],
+                required_scopes=["agent.research.write", "agent.workspace.write"],
                 approval_policy="never",
             )
         ]
@@ -213,37 +213,21 @@ class ResearchLocalTool:
             )
         report = build_research_report(report_request)
         input_data = report_input if isinstance(report_input, dict) else {}
-        artifact = await self._store.create_artifact(
-            org_id=context.org_id,
+        path = str(input_data.get("uri") or research_report_uri(report.title))
+        file = await self._store.write_workspace_file(
             workspace_id=context.workspace_id,
-            run_id=context.run_id,
-            type="report",
-            name=str(input_data.get("name") or report.title),
-            media_type="text/markdown",
-            uri=str(input_data.get("uri") or research_report_uri(report.title)),
+            path=path,
             content=report.markdown,
-            metadata={
-                "query": report.query,
-                "report_status": report.status,
-                "source_count": len(report.sources),
-                "source_input_count": report.source_input_count,
-                "duplicate_source_count": report.duplicate_source_count,
-                "evidence_count": len(report.evidence),
-                "limitation_count": len(report.limitations),
-                "section_count": len(report.section_summary),
-                "section_summary": [
-                    summary.model_dump(mode="json")
-                    for summary in report.section_summary
-                ],
-                "quality_summary": report.quality_summary.model_dump(mode="json"),
-                "generated_by": "research.create_report",
-            },
+            media_type="text/markdown",
         )
         return AgentToolCallResult(
             status="completed",
             output={
                 "report": report.model_dump(mode="json"),
-                "artifact": artifact.model_dump(mode="json"),
+                "workspace_file": file.model_dump(mode="json"),
+                "path": file.path,
+                "media_type": file.media_type,
+                "size": file.size,
             },
             redaction="none",
         )

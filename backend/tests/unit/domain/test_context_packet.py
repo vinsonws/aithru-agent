@@ -4,12 +4,12 @@ from aithru_agent.domain import (
     AgentMessage,
     AgentRunCompressedContext,
     AgentRunContextBudgetUsage,
-    AgentRunContextArtifact,
     AgentRunContextCounts,
     AgentRunContextMessage,
     AgentRunContextPacket,
     AgentRunContextToolResult,
     AgentRunContextTodo,
+    AgentRunContextWorkspaceFile,
     AgentRunResearchActionContext,
     AgentRunResearchContinuationContext,
     AgentRunResearchEvidenceContext,
@@ -26,7 +26,7 @@ def test_context_message_truncates_content_with_pydantic_metadata() -> None:
         role="user",
         content="Explain Aithru context engineering in detail.",
         run_id="run_1",
-        artifact_ids=[],
+        workspace_paths=[],
         created_at="2026-06-18T00:00:00Z",
     )
 
@@ -37,7 +37,7 @@ def test_context_message_truncates_content_with_pydantic_metadata() -> None:
         "role": "user",
         "content": "Explain Aithru c",
         "run_id": "run_1",
-        "artifact_ids": [],
+        "workspace_paths": [],
         "created_at": "2026-06-18T00:00:00Z",
         "truncated": True,
         "original_length": 45,
@@ -58,7 +58,7 @@ def test_context_packet_exposes_counts_and_truncation_status() -> None:
                 role="user",
                 content="Use APAC.",
                 run_id="run_1",
-                artifact_ids=[],
+                workspace_paths=[],
                 created_at="2026-06-18T00:00:00Z",
             )
         ],
@@ -70,16 +70,14 @@ def test_context_packet_exposes_counts_and_truncation_status() -> None:
                 order=1,
             )
         ],
-        artifacts=[
-            AgentRunContextArtifact(
-                id="artifact_1",
-                type="report",
-                name="Research Report",
-                uri="/reports/research.md",
+        workspace_files=[
+            AgentRunContextWorkspaceFile(
+                path="/reports/research.md",
+                size=26,
                 media_type="text/markdown",
-                summary="Collected source evidence.",
                 truncated=True,
                 created_at="2026-06-18T00:00:00Z",
+                updated_at="2026-06-18T00:00:00Z",
             )
         ],
     )
@@ -87,7 +85,7 @@ def test_context_packet_exposes_counts_and_truncation_status() -> None:
     assert packet.counts.model_dump(mode="json") == {
         "thread_messages": 1,
         "todos": 1,
-        "artifacts": 1,
+        "workspace_files": 1,
         "tool_results": 0,
         "memory": 0,
         "research_evidence": 0,
@@ -105,7 +103,7 @@ def test_context_packet_tracks_budget_and_compressed_context() -> None:
         status="running",
         compressed_context=AgentRunCompressedContext(
             summary="Compressed context: 2 older thread messages, 1 additional todo.",
-            counts=AgentRunContextCounts(thread_messages=2, todos=1, artifacts=0),
+            counts=AgentRunContextCounts(thread_messages=2, todos=1, workspace_files=0),
         ),
         budget=AgentRunContextBudgetUsage(
             max_chars=120,
@@ -123,7 +121,7 @@ def test_context_packet_tracks_budget_and_compressed_context() -> None:
     assert packet.event_payload() == {
         "thread_messages": 0,
         "todos": 0,
-        "artifacts": 0,
+        "workspace_files": 0,
         "tool_results": 0,
         "memory": 0,
         "research_evidence": 0,
@@ -135,7 +133,7 @@ def test_context_packet_tracks_budget_and_compressed_context() -> None:
             "remaining_chars": 24,
             "dropped_thread_messages": 2,
             "dropped_todos": 1,
-            "dropped_artifacts": 0,
+            "dropped_workspace_files": 0,
             "dropped_tool_results": 0,
             "dropped_memory": 0,
             "dropped_research_evidence": 0,
@@ -171,7 +169,7 @@ def test_context_packet_tracks_tool_result_summaries() -> None:
     assert packet.counts.model_dump(mode="json") == {
         "thread_messages": 0,
         "todos": 0,
-        "artifacts": 0,
+        "workspace_files": 0,
         "tool_results": 1,
         "memory": 0,
         "research_evidence": 0,
@@ -217,7 +215,7 @@ def test_context_packet_tracks_memory_recall() -> None:
     assert packet.counts.model_dump(mode="json") == {
         "thread_messages": 0,
         "todos": 0,
-        "artifacts": 0,
+        "workspace_files": 0,
         "tool_results": 0,
         "memory": 1,
         "research_evidence": 0,
@@ -246,8 +244,7 @@ def test_context_packet_tracks_research_continuation_context() -> None:
             completed_steps=["Search sources"],
             pending_steps=["Create research report"],
             blocked_steps=["Fetch and review sources"],
-            report_artifact_ids=["artifact_report"],
-            report_artifact_uris=["/reports/research.md"],
+            report_workspace_paths=["/reports/research.md"],
             sections=[
                 AgentRunResearchSectionContext(
                     section_id="architecture",
@@ -317,7 +314,7 @@ def test_context_packet_tracks_research_continuation_context() -> None:
     assert packet.counts.model_dump(mode="json") == {
         "thread_messages": 0,
         "todos": 0,
-        "artifacts": 0,
+        "workspace_files": 0,
         "tool_results": 0,
         "memory": 0,
         "research_evidence": 1,

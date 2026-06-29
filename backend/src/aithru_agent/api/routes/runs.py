@@ -848,12 +848,12 @@ async def _create_research_continuation_run(
     events = await deps.runtime.event_store.list_by_run(source_run.id)
     trace = project_trace_spans(events)
     todos = await deps.runtime.store.list_todos(source_run.id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=source_run.id)
+    workspace_files = await deps.runtime.store.list_workspace_files(source_run.workspace_id)
     continuation = build_research_continuation_snapshot(
         run=source_run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         trace=trace,
     )
     if not continuation.actions:
@@ -1227,7 +1227,7 @@ async def _build_run_inspection_summary_for_run(
     events = await deps.runtime.event_store.list_by_run(run.id)
     trace = project_trace_spans(events)
     todos = await deps.runtime.store.list_todos(run.id)
-    artifacts = await deps.runtime.store.list_artifacts(run_id=run.id)
+    workspace_files = await deps.runtime.store.list_workspace_files(run.workspace_id)
     approvals = [
         approval
         for approval in await deps.runtime.store.list_approvals()
@@ -1237,7 +1237,7 @@ async def _build_run_inspection_summary_for_run(
         run=run,
         events=events,
         todos=todos,
-        artifacts=artifacts,
+        workspace_files=workspace_files,
         approvals=approvals,
         trace=trace,
     )
@@ -1320,10 +1320,7 @@ def _summary_matches_list_query(summary: RunInspectionSummary, query: RunListQue
     ):
         return False
     if query.sandbox_side_effects is not None:
-        has_sandbox_side_effects = (
-            summary.sandbox_workspace_file_count > 0
-            or summary.sandbox_artifact_promotion_count > 0
-        )
+        has_sandbox_side_effects = summary.sandbox_workspace_file_count > 0
         if has_sandbox_side_effects != query.sandbox_side_effects:
             return False
     if query.needs_operator_action is not None:

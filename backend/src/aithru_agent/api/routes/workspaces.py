@@ -1,8 +1,9 @@
 """Workspace file routes."""
 
+import mimetypes
 from pathlib import PurePosixPath
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import ValidationError
 
 from aithru_agent.application.workspace_conversion import (
@@ -13,14 +14,12 @@ from aithru_agent.application.workspace_conversion import (
 from aithru_agent.api.dependencies import (
     ApiDependencies,
     PatchWorkspaceFileRequest,
-    PromoteWorkspaceFileRequest,
     RestoreWorkspaceSnapshotRequest,
     UploadWorkspaceFileRequest,
     WriteWorkspaceFileRequest,
     api_deps,
 )
 from aithru_agent.domain import (
-    AgentArtifactPromotionResult,
     AgentWorkspaceConversionResult,
     AgentWorkspaceDiff,
     AgentWorkspaceFile,
@@ -40,6 +39,21 @@ from aithru_agent.domain import (
 from aithru_agent.domain.errors import AgentError
 
 router = APIRouter()
+
+SANDBOX_CONTENT_TYPES = {
+    "application/xhtml+xml",
+    "image/svg+xml",
+    "text/html",
+}
+
+_SANDBOX_CSP = (
+    "default-src 'self' 'unsafe-inline' data: blob: https:; "
+    "img-src 'self' data: blob: https:; "
+    "media-src 'self' data: blob: https:; "
+    "font-src 'self' data: https://fonts.googleapis.com https://fonts.gstatic.com; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "script-src 'unsafe-inline' 'unsafe-eval'"
+)
 
 
 @router.get(
@@ -218,42 +232,6 @@ async def convert_workspace_file_to_markdown(
 
 
 @router.post(
-    "/api/workspaces/{workspace_id}/files/{path:path}/promote",
-    status_code=201,
-    response_model=AgentArtifactPromotionResult,
-)
-async def promote_workspace_file_to_artifact(
-    request: Request,
-    workspace_id: str,
-    path: str,
-    body: PromoteWorkspaceFileRequest,
-    deps: ApiDependencies = Depends(api_deps),
-) -> AgentArtifactPromotionResult:
-    workspace = await deps.require_workspace(request, workspace_id)
-    if body.run_id is not None:
-        run = await deps.require_run(request, body.run_id)
-        if run.workspace_id != workspace_id:
-            raise HTTPException(status_code=409, detail="Run does not belong to workspace")
-    normalized_request_path = "/" + path.lstrip("/")
-    name = body.name or PurePosixPath(normalized_request_path).name or normalized_request_path
-    try:
-        return await deps.runtime.store.promote_workspace_file_to_artifact(
-            org_id=workspace.org_id,
-            workspace_id=workspace_id,
-            path=path,
-            name=name,
-            type=body.type,
-            run_id=body.run_id,
-            retention=body.retention,
-            metadata=body.metadata,
-        )
-    except AgentError as err:
-        if err.code == "NOT_FOUND":
-            raise HTTPException(status_code=404, detail=err.message) from err
-        raise HTTPException(status_code=409, detail=err.message) from err
-
-
-@router.post(
     "/api/workspaces/{workspace_id}/files/{path:path}/patch",
     response_model=AgentWorkspacePatchResult,
 )
@@ -301,6 +279,39 @@ async def patch_workspace_file(
         size_after=patched_file.size,
         replacement_count=replacement_count,
         content_hash=patched_file.content_hash,
+    )
+
+
+@router.get("/api/workspaces/{workspace_id}/files/{path:path}/content")
+async def get_workspace_file_content(
+    request: Request,
+    workspace_id: str,
+    path: str,
+    deps: ApiDependencies = Depends(api_deps),
+) -> Response:
+    await deps.require_workspace(request, workspace_id)
+    content, media_type = await _workspace_file_content(deps, workspace_id, path)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers=_content_headers(media_type),
+    )
+
+
+@router.get("/api/workspaces/{workspace_id}/files/{path:path}/download")
+async def download_workspace_file(
+    request: Request,
+    workspace_id: str,
+    path: str,
+    deps: ApiDependencies = Depends(api_deps),
+) -> Response:
+    await deps.require_workspace(request, workspace_id)
+    content, media_type = await _workspace_file_content(deps, workspace_id, path)
+    filename = _download_filename(path, media_type)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -397,3 +408,36 @@ def _workspace_image_http_error(err: ValidationError) -> HTTPException:
     if "maximum image size" in message:
         return HTTPException(status_code=413, detail=message)
     return HTTPException(status_code=409, detail=message)
+
+
+async def _workspace_file_content(
+    deps: ApiDependencies,
+    workspace_id: str,
+    path: str,
+) -> tuple[str | bytes, str]:
+    try:
+        content = await deps.runtime.store.read_workspace_file(workspace_id, path)
+    except AgentError as err:
+        raise HTTPException(status_code=404, detail=err.message) from err
+    media_type = content.media_type or mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return content.content, media_type
+
+
+def _content_headers(media_type: str) -> dict[str, str]:
+    normalized = media_type.split(";", 1)[0].lower()
+    if normalized not in SANDBOX_CONTENT_TYPES:
+        return {}
+    return {
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": _SANDBOX_CSP,
+    }
+
+
+def _download_filename(path: str, media_type: str) -> str:
+    posix_path = PurePosixPath("/" + path.lstrip("/"))
+    suffix = posix_path.suffix
+    stem = posix_path.stem or posix_path.name or "workspace-file"
+    safe_stem = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in stem)
+    if not suffix and media_type.split(";", 1)[0].strip().lower() == "text/html":
+        suffix = ".html"
+    return f"{safe_stem}{suffix}"

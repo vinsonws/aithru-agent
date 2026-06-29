@@ -42,7 +42,6 @@ const WAITING_STATUSES = new Set(["waiting_input", "waiting_approval", "paused"]
 const FILE_TOOL_PATTERNS = [
   "file",
   "workspace",
-  "artifact",
   ".ts",
   ".tsx",
   ".py",

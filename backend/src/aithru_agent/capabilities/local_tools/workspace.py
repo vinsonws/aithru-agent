@@ -337,11 +337,8 @@ def _suggest_workspace_path(path: object, allowed_paths: list[str] | None) -> st
     filename = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
     if not filename or filename in {".", ".."}:
         return None
-    preferred_root = (
-        "/artifacts"
-        if "/artifacts" in {_normalize_for_policy(allowed_path) for allowed_path in allowed_paths}
-        else allowed_paths[0]
-    )
+    normalized_allowed = {_normalize_for_policy(allowed_path) for allowed_path in allowed_paths}
+    preferred_root = "/outputs" if "/outputs" in normalized_allowed else allowed_paths[0]
     return f"{preferred_root.rstrip('/')}/{filename}"
 
 

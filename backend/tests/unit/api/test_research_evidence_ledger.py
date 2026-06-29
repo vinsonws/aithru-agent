@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from aithru_agent.api.snapshots import build_research_evidence_ledger
-from aithru_agent.domain import AgentArtifact, AgentRun, AgentRunStatus
+from aithru_agent.domain import AgentRun, AgentRunStatus, AgentWorkspaceFile
 from aithru_agent.stream.events import AgentStreamEvent
 
 
@@ -30,28 +32,17 @@ def event(sequence: int, payload: dict) -> AgentStreamEvent:
     )
 
 
-def artifact() -> AgentArtifact:
-    return AgentArtifact(
-        id="artifact_report",
-        org_id="org_1",
+def report_file() -> AgentWorkspaceFile:
+    return AgentWorkspaceFile(
         workspace_id="workspace_1",
-        run_id="run_1",
-        type="report",
-        name="Evidence report",
-        uri="/reports/evidence.md",
-        metadata={
-            "generated_by": "research.create_report",
-            "report_status": "partial",
-            "source_count": 1,
-            "source_input_count": 2,
-            "duplicate_source_count": 1,
-            "evidence_count": 1,
-            "limitation_count": 1,
-            "section_count": 1,
-            "section_summary": [{"section_id": "architecture", "source_count": 1, "evidence_count": 1}],
-            "quality_summary": {"high": 1, "medium": 0, "low": 0},
-        },
+        path="/reports/evidence.md",
+        size=18,
+        media_type="text/markdown",
+        version=1,
+        file_version=1,
+        content_hash="hash_evidence",
         created_at="2026-06-19T00:01:00Z",
+        updated_at="2026-06-19T00:01:00Z",
     )
 
 
@@ -137,12 +128,12 @@ def test_research_evidence_ledger_projects_latest_report_output() -> None:
                     "status": "completed",
                     "output": {
                         "report": report,
-                        "artifact": {"id": "artifact_report"},
+                        "workspace_file": {"path": "/reports/evidence.md"},
                     },
                 },
             )
         ],
-        artifacts=[artifact()],
+        workspace_files=[report_file()],
     ).model_dump(mode="json")
 
     assert ledger["run_id"] == "run_1"
@@ -162,7 +153,7 @@ def test_research_evidence_ledger_projects_latest_report_output() -> None:
         "section_count": 2,
         "missing_section_count": 1,
         "weak_section_count": 0,
-        "report_artifact_count": 1,
+        "report_file_count": 1,
     }
     assert ledger["sections"] == [
         {
@@ -194,10 +185,10 @@ def test_research_evidence_ledger_projects_latest_report_output() -> None:
     assert ledger["sources"] == report["sources"]
     assert ledger["evidence"] == report["evidence"]
     assert ledger["limitations"] == report["limitations"]
-    assert ledger["report_artifacts"] == [
+    assert ledger["report_files"] == [
         {
-            "artifact_id": "artifact_report",
-            "name": "Evidence report",
+            "path": "/reports/evidence.md",
+            "name": "evidence.md",
             "uri": "/reports/evidence.md",
             "report_status": "partial",
             "source_count": 1,
@@ -205,7 +196,7 @@ def test_research_evidence_ledger_projects_latest_report_output() -> None:
             "duplicate_source_count": 1,
             "evidence_count": 1,
             "limitation_count": 1,
-            "section_count": 1,
+            "section_count": 2,
             "section_summary": [{"section_id": "architecture", "source_count": 1, "evidence_count": 1}],
             "quality_summary": {"high": 1, "medium": 0, "low": 0},
         }
@@ -310,12 +301,12 @@ def test_research_evidence_ledger_projects_weak_section_quality() -> None:
                     "status": "completed",
                     "output": {
                         "report": report,
-                        "artifact": {"id": "artifact_report"},
+                        "workspace_file": {"path": "/reports/evidence.md"},
                     },
                 },
             )
         ],
-        artifacts=[],
+        workspace_files=[],
     ).model_dump(mode="json")
 
     assert ledger["counts"]["weak_section_count"] == 1

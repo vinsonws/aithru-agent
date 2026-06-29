@@ -8,7 +8,6 @@ from aithru_agent.capabilities import (
     ToolPolicy,
 )
 from aithru_agent.capabilities.local_tools import (
-    ArtifactLocalTool,
     InputLocalTool,
     MemoryLocalTool,
     PresentationLocalTool,
@@ -39,7 +38,6 @@ async def make_context(store: InMemoryAgentStore) -> AgentRunContext:
             "agent.workspace.read",
             "agent.workspace.write",
             "agent.todo.write",
-            "agent.artifact.write",
             "agent.research.write",
             "agent.input.write",
         ],
@@ -51,7 +49,6 @@ def make_router(store: InMemoryAgentStore, policy: ToolPolicy | None = None) -> 
         adapters=[
             WorkspaceLocalTool(store),
             TodoLocalTool(store),
-            ArtifactLocalTool(store),
             InputLocalTool(),
             MemoryLocalTool(store),
             PresentationLocalTool(store),
@@ -69,7 +66,6 @@ def test_local_tool_input_schemas_define_required_properties() -> None:
         for adapter in [
             WorkspaceLocalTool(store),
             TodoLocalTool(store),
-            ArtifactLocalTool(store),
             InputLocalTool(),
             MemoryLocalTool(store),
             PresentationLocalTool(store),
@@ -104,11 +100,10 @@ async def test_router_lists_local_tools_with_risk_and_scopes() -> None:
     assert by_name["workspace.patch_file"].required_scopes == ["agent.workspace.write"]
     assert "edits" in by_name["workspace.patch_file"].input_schema["properties"]
     assert by_name["todo.create"].required_scopes == ["agent.todo.write"]
-    assert by_name["artifact.create"].required_scopes == ["agent.artifact.write"]
     assert by_name["input.request"].required_scopes == ["agent.input.write"]
     assert by_name["research.create_report"].required_scopes == [
         "agent.research.write",
-        "agent.artifact.write",
+        "agent.workspace.write",
     ]
     assert by_name["research.create_plan"].required_scopes == [
         "agent.research.write",
@@ -502,7 +497,7 @@ async def test_workspace_patch_tool_respects_workspace_path_policy() -> None:
 
 
 @pytest.mark.asyncio
-async def test_workbench_workflow_draft_tool_creates_structured_artifact() -> None:
+async def test_workbench_workflow_draft_tool_creates_structured_workspace_file() -> None:
     store = InMemoryAgentStore()
     context = await make_context(store)
     router = make_router(store)
@@ -525,7 +520,7 @@ async def test_workbench_workflow_draft_tool_creates_structured_artifact() -> No
                 "title": "Review generated report",
                 "summary": "Draft a future Workbench workflow for report review.",
                 "suggested_steps": [
-                    "Collect report artifact.",
+                    "Collect report workspace file.",
                     "Ask a reviewer for approval.",
                     "Publish the approved report.",
                 ],
@@ -538,19 +533,15 @@ async def test_workbench_workflow_draft_tool_creates_structured_artifact() -> No
         ),
         scoped_context,
     )
-    artifact = await store.get_artifact(result.output["id"])
+    persisted = await store.read_workspace_file(context.workspace_id, result.output["path"])
 
     assert result.status == "completed"
-    assert result.output["type"] == "workflow_draft"
+    assert result.output["path"] == "/workbench-drafts/review-generated-report.workflow-draft.json"
     assert result.output["media_type"] == "application/vnd.aithru.workbench.workflow-draft+json"
-    assert result.output["content"]["source_run_id"] == context.run_id
-    assert result.output["content"]["source_workspace_id"] == context.workspace_id
-    assert result.output["content"]["draft_kind"] == "workbench_workflow_draft"
-    assert result.output["content"]["executable"] is False
-    assert result.output["metadata"]["workbench"]["draft"] is True
-    assert result.output["metadata"]["workbench"]["executable"] is False
-    assert artifact is not None
-    assert artifact.type == "workflow_draft"
+    assert '"source_run_id": "' + context.run_id + '"' in str(persisted.content)
+    assert '"source_workspace_id": "' + context.workspace_id + '"' in str(persisted.content)
+    assert '"draft_kind": "workbench_workflow_draft"' in str(persisted.content)
+    assert '"executable": false' in str(persisted.content)
 
 
 @pytest.mark.asyncio
@@ -579,7 +570,7 @@ async def test_write_tool_waits_for_approval_when_policy_requires_write_approval
 
 
 @pytest.mark.asyncio
-async def test_todo_and_artifact_tools_return_normalized_results() -> None:
+async def test_todo_tool_returns_normalized_result() -> None:
     store = InMemoryAgentStore()
     context = await make_context(store)
     router = make_router(store)
@@ -593,31 +584,14 @@ async def test_todo_and_artifact_tools_return_normalized_results() -> None:
         ),
         context,
     )
-    artifact_result = await router.execute_tool_call(
-        AgentToolCallRequest(
-            id="toolcall_2",
-            tool_name="artifact.create",
-            input={
-                "type": "report",
-                "name": "Report",
-                "uri": "/reports/report.md",
-                "content": {"summary": "done"},
-            },
-            requested_by="model",
-        ),
-        context,
-    )
 
     assert todo_result.status == "completed"
     assert todo_result.output["title"] == "Read files"
     assert todo_result.output["status"] == "running"
-    assert artifact_result.status == "completed"
-    assert artifact_result.output["type"] == "report"
-    assert artifact_result.output["uri"] == "/reports/report.md"
 
 
 @pytest.mark.asyncio
-async def test_research_create_report_tool_creates_markdown_report_artifact() -> None:
+async def test_research_create_report_tool_creates_markdown_report_workspace_file() -> None:
     store = InMemoryAgentStore()
     context = await make_context(store)
     router = make_router(store)
@@ -643,22 +617,19 @@ async def test_research_create_report_tool_creates_markdown_report_artifact() ->
         context,
     )
 
-    artifacts = await store.list_artifacts(run_id=context.run_id)
+    files = await store.list_workspace_files(context.workspace_id)
+    report_file = await store.read_workspace_file(context.workspace_id, "/reports/aithru-research.md")
 
     assert result.status == "completed"
     assert result.output["report"]["summary"] == "Collected 1 source for `aithru deerflow parity`."
-    assert result.output["artifact"]["type"] == "report"
-    assert result.output["artifact"]["media_type"] == "text/markdown"
-    assert result.output["artifact"]["uri"] == "/reports/aithru-research.md"
-    assert "# Aithru research" in result.output["artifact"]["content"]
+    assert result.output["workspace_file"]["media_type"] == "text/markdown"
+    assert result.output["workspace_file"]["path"] == "/reports/aithru-research.md"
+    assert result.output["path"] == "/reports/aithru-research.md"
+    assert "# Aithru research" in str(report_file.content)
     assert result.output["report"]["section_summary"] == [
         {"section_id": "architecture", "source_count": 1, "evidence_count": 1}
     ]
-    assert result.output["artifact"]["metadata"]["section_count"] == 1
-    assert result.output["artifact"]["metadata"]["section_summary"] == [
-        {"section_id": "architecture", "source_count": 1, "evidence_count": 1}
-    ]
-    assert artifacts[0].id == result.output["artifact"]["id"]
+    assert [file.path for file in files] == ["/reports/aithru-research.md"]
 
 
 @pytest.mark.asyncio
@@ -704,17 +675,22 @@ async def test_research_create_report_tool_auto_adds_limitations_from_blocked_to
             "source_url": None,
         }
     ]
-    assert result.output["artifact"]["metadata"]["limitation_count"] == 1
+    assert len(result.output["report"]["limitations"]) == 1
+    report_file = await store.read_workspace_file(
+        context.workspace_id,
+        "/reports/blocked-aithru-research.md",
+    )
     assert "Research source search was blocked before report creation." in result.output[
-        "artifact"
-    ]["content"]
+        "report"
+    ]["markdown"]
+    assert "Research source search was blocked before report creation." in str(report_file.content)
 
 
 @pytest.mark.asyncio
 async def test_research_create_report_tool_is_scope_controlled() -> None:
     store = InMemoryAgentStore()
     context = await make_context(store)
-    context.scopes = ["agent.artifact.write"]
+    context.scopes = ["agent.workspace.write"]
     router = make_router(store)
 
     result = await router.execute_tool_call(
@@ -849,43 +825,6 @@ async def test_todo_update_cannot_modify_another_run_todo() -> None:
     assert result.status == "denied"
     assert result.error["message"] == f"Todo is outside current run: {other_todo.id}"
     assert other_todos[0].status == "pending"
-
-
-@pytest.mark.asyncio
-async def test_artifact_finalize_cannot_modify_another_run_artifact() -> None:
-    store = InMemoryAgentStore()
-    context = await make_context(store)
-    other_workspace = await store.create_workspace(org_id=context.org_id)
-    other_run = await store.create_run(
-        org_id=context.org_id,
-        actor_user_id=context.actor_user_id,
-        source="api",
-        task_msg="Other run",
-        workspace_id=other_workspace.id,
-    )
-    other_artifact = await store.create_artifact(
-        org_id=context.org_id,
-        workspace_id=other_workspace.id,
-        run_id=other_run.id,
-        type="report",
-        name="Other report",
-    )
-    router = make_router(store)
-
-    result = await router.execute_tool_call(
-        AgentToolCallRequest(
-            id="toolcall_1",
-            tool_name="artifact.finalize",
-            input={"artifact_id": other_artifact.id},
-            requested_by="model",
-        ),
-        context,
-    )
-    persisted = await store.get_artifact(other_artifact.id)
-
-    assert result.status == "denied"
-    assert result.error["message"] == f"Artifact is outside current run: {other_artifact.id}"
-    assert persisted.finalized_at is None
 
 
 @pytest.mark.asyncio

@@ -31,8 +31,7 @@ class InstructionBuilder:
         # Add clarification guidance
         sections.append(_CLARIFICATION_GUIDANCE)
 
-        # Add artifact presentation guidance
-        sections.append(_ARTIFACT_LINK_GUIDANCE)
+        sections.append(_WORKSPACE_FILE_PRESENTATION_GUIDANCE)
 
         if deps.run.harness_options and deps.run.harness_options.instructions:
             sections.append(f"Run instructions:\n{deps.run.harness_options.instructions}")
@@ -181,11 +180,11 @@ def _render_context_packet(packet: AgentRunContextPacket) -> str:
     if packet.research:
         lines.append("Research continuation:")
         lines.extend(_research_lines(packet.research))
-    if packet.artifacts:
-        lines.append("Run artifacts:")
+    if packet.workspace_files:
+        lines.append("Workspace files:")
         lines.extend(
-            _artifact_line(artifact.type, artifact.name, artifact.uri, artifact.summary, artifact.truncated)
-            for artifact in packet.artifacts
+            _workspace_file_line(file)
+            for file in packet.workspace_files
         )
     if packet.tool_results:
         lines.append("Recent tool results:")
@@ -227,7 +226,7 @@ def _budget_line(budget: AgentRunContextBudgetUsage) -> str:
         f"{budget.remaining_chars} remaining; dropped details: "
         f"{_count_label(budget.dropped_thread_messages, 'message', 'messages')}, "
         f"{_count_label(budget.dropped_todos, 'todo', 'todos')}, "
-        f"{_count_label(budget.dropped_artifacts, 'artifact', 'artifacts')}, "
+        f"{_count_label(budget.dropped_workspace_files, 'workspace file', 'workspace files')}, "
         f"{_count_label(budget.dropped_tool_results, 'tool result', 'tool results')}, "
         f"{_count_label(budget.dropped_memory, 'memory entry', 'memory entries')}; "
         f"truncated items: {budget.truncated_items}"
@@ -244,18 +243,16 @@ def _description_suffix(description: str | None) -> str:
     return f" - {description}"
 
 
-def _artifact_line(
-    artifact_type: str,
-    name: str,
-    uri: str | None,
-    summary: str | None,
-    truncated: bool,
-) -> str:
-    location = f" ({uri})" if uri else ""
-    suffix = ""
-    if summary:
-        suffix = f": {_display_truncated(summary, truncated)}"
-    return f"- {artifact_type} {name}{location}{suffix}"
+def _workspace_file_line(file: object) -> str:
+    details = []
+    media_type = getattr(file, "media_type", None)
+    size = getattr(file, "size", None)
+    if media_type:
+        details.append(str(media_type))
+    if isinstance(size, int):
+        details.append(f"{size} bytes")
+    suffix = f" ({', '.join(details)})" if details else ""
+    return f"- {getattr(file, 'path', 'workspace file')}{suffix}"
 
 
 def _memory_line(item: AgentMemoryRecallItem) -> str:
@@ -285,12 +282,11 @@ def _research_lines(research: object) -> list[str]:
         lines.append("- Pending steps: " + ", ".join(pending_steps))
     if blocked_steps:
         lines.append("- Blocked steps: " + ", ".join(blocked_steps))
-    artifact_line = _research_artifact_line(
-        getattr(research, "report_artifact_ids", []),
-        getattr(research, "report_artifact_uris", []),
+    report_file_line = _research_report_file_line(
+        getattr(research, "report_workspace_paths", []),
     )
-    if artifact_line:
-        lines.append(artifact_line)
+    if report_file_line:
+        lines.append(report_file_line)
     sections = getattr(research, "sections", [])
     if sections:
         lines.append("Research sections:")
@@ -309,14 +305,10 @@ def _research_lines(research: object) -> list[str]:
     return lines
 
 
-def _research_artifact_line(ids: list[str], uris: list[str]) -> str | None:
-    if not ids:
+def _research_report_file_line(paths: list[str]) -> str | None:
+    if not paths:
         return None
-    rendered = []
-    for index, artifact_id in enumerate(ids):
-        uri = uris[index] if index < len(uris) else None
-        rendered.append(f"{artifact_id} ({uri})" if uri else artifact_id)
-    return "- Report artifacts: " + ", ".join(rendered)
+    return "- Report files: " + ", ".join(paths)
 
 
 def _research_section_line(section: object) -> str:
@@ -417,13 +409,13 @@ def _memory_scope_id(scope: str, deps: PydanticAgentDeps) -> str | None:
             return None
 
 
-_ARTIFACT_LINK_GUIDANCE = """## Artifact Link Guidance
+_WORKSPACE_FILE_PRESENTATION_GUIDANCE = """## Workspace File Presentation Guidance
 
-Artifacts are platform resources rendered by Aithru as presentation entries or in the Files panel.
-Do not invent public artifact URLs such as https://aithru.ai/artifact/{org_id}/{artifact_id}.
-When an artifact is created, refer to it by name and artifact id only, and let Aithru Presentation handle preview and download actions.
+Workspace files are platform resources rendered by Aithru as presentation entries or in the Files panel.
+Do not invent legacy resource URLs.
+When a workspace file is created, refer to it by path and let Aithru Presentation handle preview and download actions.
 Use `presentation.present` when you need to request a specific safe view such as html_preview, source_text, markdown, image, pdf, or download.
-If you need to mention where the user can open an artifact, say it is available in the presentation entries or the Files panel."""
+If you need to mention where the user can open a file, say it is available in the presentation entries or the Files panel."""
 
 
 _CLARIFICATION_GUIDANCE = """## When to Ask for Clarification

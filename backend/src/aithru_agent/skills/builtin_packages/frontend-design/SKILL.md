@@ -1,6 +1,6 @@
 ---
 name: Frontend Design
-description: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.
+description: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.
 ---
 
 # Frontend Design
@@ -11,9 +11,9 @@ The user provides frontend requirements: a component, page, application, or inte
 
 ## Output Requirements
 
-HTML outputs in Aithru are previewable artifacts, not deployed websites by default.
+HTML outputs in Aithru are previewable workspace files, not deployed websites by default.
 
-**MANDATORY**: Save standalone HTML deliverables as descriptive kebab-case `.html` files under `/artifacts` (for example, `/artifacts/cosmic-field.html`). Use `media_type: text/html` when creating an artifact directly. If a specific preview is needed, use `presentation.present` with `html_preview`.
+**MANDATORY**: Save standalone HTML deliverables as descriptive kebab-case `.html` files under `/outputs` (for example, `/outputs/cosmic-field.html`). Use `media_type: text/html`. If a specific preview is needed, use `presentation.present` with `html_preview`.
 
 Only create a conventional deployable website entry file when the user explicitly asks for a website/app project that needs deployment-style file structure.
 
@@ -75,5 +75,5 @@ This is a design skill — avoid generic "AI aesthetics" at all costs. Specifica
 - Valid, semantic HTML5
 - CSS with modern features (custom properties, grid, flexbox, animations)
 - JavaScript that is clean and unobtrusive
-- Everything in a single descriptive `/artifacts/*.html` file unless otherwise specified
+- Everything in a single descriptive `/outputs/*.html` file unless otherwise specified
 - Responsive design as a baseline, not an afterthought

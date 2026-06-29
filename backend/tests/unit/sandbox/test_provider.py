@@ -44,7 +44,6 @@ def test_sandbox_run_diagnostics_is_pydantic_contract() -> None:
         workspace_effects=SandboxWorkspaceEffectsSummary(
             declared_count=1,
             persisted_count=1,
-            promoted_count=0,
             paths=["/reports/summary.md"],
         ),
     )
@@ -60,16 +59,15 @@ def test_sandbox_run_diagnostics_is_pydantic_contract() -> None:
     assert output.model_dump(mode="json")["diagnostics"]["workspace_effects"] == {
         "declared_count": 1,
         "persisted_count": 1,
-        "promoted_count": 0,
         "paths": ["/reports/summary.md"],
         "persistence_error": None,
     }
 
-    with pytest.raises(ValidationError, match="promoted_count"):
+    with pytest.raises(ValidationError, match="persisted_count"):
         SandboxWorkspaceEffectsSummary(
             declared_count=1,
-            persisted_count=0,
-            promoted_count=1,
+            persisted_count=2,
+            paths=["/reports/a.md", "/reports/b.md"],
         )
 
     with pytest.raises(ValidationError, match="diagnostics execution"):
@@ -120,8 +118,7 @@ async def test_local_python_sandbox_provider_returns_declared_workspace_files() 
                 "{"
                 "'path': '/reports/summary.md', "
                 "'content': '# Summary', "
-                "'media_type': 'text/markdown', "
-                "'artifact': {'name': 'Sandbox Summary', 'type': 'report'}"
+                "'media_type': 'text/markdown'"
                 "}"
                 "]\n"
                 "result = 'created'"
@@ -135,6 +132,5 @@ async def test_local_python_sandbox_provider_returns_declared_workspace_files() 
             "path": "/reports/summary.md",
             "content": "# Summary",
             "media_type": "text/markdown",
-            "artifact": {"name": "Sandbox Summary", "type": "report"},
         }
     ]

@@ -7,7 +7,6 @@ from typing import Literal, Protocol, Self
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
-from aithru_agent.domain.artifact import AgentArtifactRetentionPolicy, AgentArtifactType
 from aithru_agent.domain.base import AithruBaseModel
 from aithru_agent.domain.workspace import AgentWorkspaceFile
 
@@ -184,33 +183,6 @@ class SandboxFileWriteResult(AithruBaseModel):
         return self
 
 
-class SandboxFilePromotionRequest(AithruBaseModel):
-    path: str = Field(min_length=1)
-    name: str | None = Field(default=None, min_length=1)
-    type: AgentArtifactType = "file"
-    retention: AgentArtifactRetentionPolicy | None = None
-    metadata: dict | None = None
-
-    @field_validator("path")
-    @classmethod
-    def _path_must_be_absolute_workspace_path(cls, value: str) -> str:
-        path = value.strip().replace("\\", "/")
-        if not path.startswith("/"):
-            raise ValueError("sandbox file promotion path must be absolute")
-        parts = [part for part in path.split("/") if part]
-        if any(part == ".." for part in parts):
-            raise ValueError("sandbox file promotion path cannot contain traversal")
-        return "/" + "/".join(parts)
-
-    @field_validator("name")
-    @classmethod
-    def _name_must_not_be_blank(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        return stripped or None
-
-
 class SandboxWorkspaceDiffRequest(AithruBaseModel):
     base_version: int | None = Field(default=None, ge=0)
     target_version: int | None = Field(default=None, ge=0)
@@ -255,7 +227,6 @@ class SandboxExecutionSummary(AithruBaseModel):
 class SandboxWorkspaceEffectsSummary(AithruBaseModel):
     declared_count: int = Field(default=0, ge=0)
     persisted_count: int = Field(default=0, ge=0)
-    promoted_count: int = Field(default=0, ge=0)
     paths: list[str] = Field(default_factory=list)
     persistence_error: dict[str, str] | None = None
 
@@ -263,8 +234,6 @@ class SandboxWorkspaceEffectsSummary(AithruBaseModel):
     def _counts_match_effects(self) -> Self:
         if self.persisted_count > self.declared_count:
             raise ValueError("persisted_count cannot exceed declared_count")
-        if self.promoted_count > self.persisted_count:
-            raise ValueError("promoted_count cannot exceed persisted_count")
         if len(self.paths) != self.persisted_count:
             raise ValueError("paths count must match persisted_count")
         return self
@@ -292,24 +261,10 @@ class SandboxRunDiagnostics(AithruBaseModel):
         return self
 
 
-class SandboxWorkspaceOutputArtifact(AithruBaseModel):
-    name: str = Field(min_length=1)
-    type: AgentArtifactType = "file"
-
-    @field_validator("name")
-    @classmethod
-    def _name_must_not_be_blank(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("sandbox workspace output artifact name cannot be blank")
-        return stripped
-
-
 class SandboxWorkspaceOutputFile(AithruBaseModel):
     path: str = Field(min_length=1)
     content: str = Field(max_length=MAX_WORKSPACE_FILE_CHARS)
     media_type: str | None = None
-    artifact: SandboxWorkspaceOutputArtifact | None = None
 
     @field_validator("path")
     @classmethod

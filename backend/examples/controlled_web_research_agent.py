@@ -134,8 +134,16 @@ async def run_demo(base_url: str) -> None:
     events = await runtime.event_store.list_by_run(run.id)
     spans = project_trace_spans(events)
     todos = await runtime.store.list_todos(run.id)
-    artifacts = await runtime.store.list_artifacts(run_id=run.id)
-    report_artifact = artifacts[0] if artifacts else None
+    files = await runtime.store.list_workspace_files(run.workspace_id)
+    report_file = next((file for file in files if file.path.startswith("/reports/")), None)
+    report = None
+    for event in reversed(events):
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        if payload.get("tool_name") == "research.create_report":
+            output = payload.get("output")
+            if isinstance(output, dict) and isinstance(output.get("report"), dict):
+                report = output["report"]
+                break
     web_events = sorted({event.type for event in events if event.type.startswith("web.")})
     done_todos = sum(1 for todo in todos if todo.status.value == "done")
 
@@ -143,16 +151,8 @@ async def run_demo(base_url: str) -> None:
     print(f"Run status: {run.status.value}")
     print(f"Todos: {len(todos)}")
     print(f"Todos done: {done_todos}")
-    evidence_count = (
-        report_artifact.metadata.get("evidence_count")
-        if report_artifact is not None and report_artifact.metadata is not None
-        else 0
-    )
-    quality_summary = (
-        report_artifact.metadata.get("quality_summary")
-        if report_artifact is not None and report_artifact.metadata is not None
-        else None
-    )
+    evidence_count = len(report.get("evidence", [])) if isinstance(report, dict) else 0
+    quality_summary = report.get("quality_summary") if isinstance(report, dict) else None
     print(f"Evidence rows: {evidence_count}")
     if isinstance(quality_summary, dict):
         print(
@@ -162,10 +162,10 @@ async def run_demo(base_url: str) -> None:
             f"low={quality_summary.get('low', 0)}"
         )
     print(f"Web events: {', '.join(web_events)}")
-    if report_artifact is not None:
-        print(f"Report artifact: {report_artifact.name} ({report_artifact.uri})")
+    if report_file is not None:
+        print(f"Report file: {report_file.path}")
     else:
-        print("Report artifact: <none>")
+        print("Report file: <none>")
     print(f"Events: {len(events)}")
     print(f"Trace span kinds: {', '.join(sorted({span.kind for span in spans}))}")
 

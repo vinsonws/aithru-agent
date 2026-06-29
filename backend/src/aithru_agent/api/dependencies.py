@@ -13,9 +13,6 @@ from aithru_agent.application import AgentRuntime
 from aithru_agent.domain import (
     AgentApproval,
     AgentApprovalDecision,
-    AgentArtifact,
-    AgentArtifactRetentionPolicy,
-    AgentArtifactType,
     AgentMemoryEntry,
     AgentMemoryRetentionPolicy,
     AgentMemoryVisibilityPolicy,
@@ -148,18 +145,9 @@ class RestoreWorkspaceSnapshotRequest(BaseModel):
     version: int = Field(ge=0)
 
 
-class PromoteWorkspaceFileRequest(BaseModel):
-    name: str | None = Field(default=None, min_length=1)
-    type: AgentArtifactType = "file"
-    run_id: str | None = None
-    retention: AgentArtifactRetentionPolicy | None = None
-    metadata: dict | None = None
-
-
-class CreateRunExportArtifactRequest(BaseModel):
+class CreateRunExportFileRequest(BaseModel):
     path: str | None = Field(default=None, min_length=1)
     name: str | None = Field(default=None, min_length=1)
-    retention: AgentArtifactRetentionPolicy | None = None
     metadata: dict | None = None
 
 
@@ -236,21 +224,6 @@ class ApiDependencies:
         if not approval or not await self.approval_visible(request, approval):
             raise HTTPException(status_code=404, detail="Approval not found")
         return approval
-
-    async def artifact_visible(self, request: Request, artifact: AgentArtifact) -> bool:
-        if not org_visible(request, artifact.org_id):
-            return False
-        if artifact.run_id:
-            run = await self.runtime.store.get_run(artifact.run_id)
-            return run is not None and run_visible(request, run)
-        workspace = await self.runtime.store.get_workspace(artifact.workspace_id)
-        return workspace is not None and await self.workspace_visible(request, workspace)
-
-    async def require_artifact(self, request: Request, artifact_id: str) -> AgentArtifact:
-        artifact = await self.runtime.store.get_artifact(artifact_id)
-        if not artifact or not await self.artifact_visible(request, artifact):
-            raise HTTPException(status_code=404, detail="Artifact not found")
-        return artifact
 
     def resolve_run_skill(self, run: AgentRun):
         if not run.skill_id:

@@ -23,8 +23,6 @@ DEEP_RESEARCH_PACKAGE_POLICY = AgentSkillConfiguration(
         "web.search",
         "web.fetch",
         "research.create_report",
-        "artifact.create",
-        "artifact.finalize",
         "presentation.present",
     ],
     denied_tools=[],
@@ -32,20 +30,20 @@ DEEP_RESEARCH_PACKAGE_POLICY = AgentSkillConfiguration(
     workspace_policy=AgentWorkspacePolicy(
         read=True,
         write=True,
-        allowed_paths=["/reports", "/workspace", "/artifacts"],
+        allowed_paths=["/reports", "/workspace", "/outputs"],
     ),
 )
 
 _READ_WRITE_WORKSPACE = AgentWorkspacePolicy(
     read=True,
     write=True,
-    allowed_paths=["/workspace", "/artifacts"],
+    allowed_paths=["/workspace", "/outputs", "/reports"],
 )
 
 _READ_ONLY_WORKSPACE = AgentWorkspacePolicy(
     read=True,
     write=False,
-    allowed_paths=["/workspace", "/artifacts"],
+    allowed_paths=["/workspace", "/outputs", "/reports"],
 )
 
 
@@ -59,8 +57,6 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
             allowed_tools=[
                 "workspace.read_file",
                 "workspace.write_file",
-                "artifact.create",
-                "artifact.finalize",
                 "presentation.present",
             ],
             denied_tools=[],
@@ -97,8 +93,6 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
             allowed_tools=[
                 "workspace.read_file",
                 "workspace.write_file",
-                "artifact.create",
-                "artifact.finalize",
                 "presentation.present",
             ],
             denied_tools=[],
@@ -111,8 +105,6 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
             allowed_tools=[
                 "workspace.read_file",
                 "workspace.write_file",
-                "artifact.create",
-                "artifact.finalize",
                 "presentation.present",
             ],
             denied_tools=[],
@@ -133,8 +125,6 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
             allowed_tools=[
                 "workspace.read_file",
                 "workspace.write_file",
-                "artifact.create",
-                "artifact.finalize",
                 "presentation.present",
             ],
             denied_tools=[],
@@ -147,7 +137,6 @@ def _load_builtin_packages(root: Path) -> list[SkillPackage]:
             allowed_tools=[
                 "workspace.read_file",
                 "workspace.write_file",
-                "artifact.create",
                 "presentation.present",
             ],
             denied_tools=[],

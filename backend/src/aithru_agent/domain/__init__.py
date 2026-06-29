@@ -1,19 +1,5 @@
 from .actor import AgentActorContext
 from .approval import AgentApproval, AgentApprovalDecision, AgentApprovalStatus
-from .artifact import (
-    AgentArtifact,
-    AgentArtifactDownloadDisposition,
-    AgentArtifactDownloadInfo,
-    AgentArtifactListFilters,
-    AgentArtifactListOrderBy,
-    AgentArtifactListOrderDirection,
-    AgentArtifactListPage,
-    AgentArtifactPromotionResult,
-    AgentArtifactRetentionMode,
-    AgentArtifactRetentionPolicy,
-    AgentArtifactSummary,
-    AgentArtifactType,
-)
 from .display import (
     AgentPresentation,
     AgentPresentationAction,
@@ -33,13 +19,13 @@ from .display import (
 from .context import (
     AgentRunCompressedContext,
     AgentRunContextBudgetUsage,
-    AgentRunContextArtifact,
     AgentRunContextCounts,
     AgentRunContextMessage,
     AgentRunContextPacket,
     AgentRunContextPresentation,
     AgentRunContextToolResult,
     AgentRunContextTodo,
+    AgentRunContextWorkspaceFile,
     AgentRunResearchActionContext,
     AgentRunResearchContinuationContext,
     AgentRunResearchEvidenceContext,
@@ -47,7 +33,7 @@ from .context import (
     AgentRunResumeContext,
 )
 from .errors import AgentError, AgentErrorCode
-from .export import AgentRunExportArtifactResult, AgentRunExportBundle, AgentRunExportSummary
+from .export import AgentRunExportBundle, AgentRunExportFileResult, AgentRunExportSummary
 from .external_tools import (
     AgentExternalToolActivationStatus,
     AgentExternalToolCacheState,
@@ -215,18 +201,6 @@ __all__ = [
     "AgentApprovalDecision",
     "AgentApprovalPolicy",
     "AgentApprovalStatus",
-    "AgentArtifact",
-    "AgentArtifactDownloadDisposition",
-    "AgentArtifactDownloadInfo",
-    "AgentArtifactListFilters",
-    "AgentArtifactListOrderBy",
-    "AgentArtifactListOrderDirection",
-    "AgentArtifactListPage",
-    "AgentArtifactPromotionResult",
-    "AgentArtifactRetentionMode",
-    "AgentArtifactRetentionPolicy",
-    "AgentArtifactSummary",
-    "AgentArtifactType",
     "AgentCapabilityAuditEvent",
     "AgentCapabilityAuditLog",
     "AgentCapabilityAuditLogEntry",
@@ -248,15 +222,15 @@ __all__ = [
     "AgentContextSummarySource",
     "AgentRunCompressedContext",
     "AgentRunContextBudgetUsage",
-    "AgentRunContextArtifact",
     "AgentRunContextCounts",
     "AgentRunContextMessage",
     "AgentRunContextPacket",
     "AgentRunContextPresentation",
     "AgentRunContextToolResult",
     "AgentRunContextTodo",
-    "AgentRunExportArtifactResult",
+    "AgentRunContextWorkspaceFile",
     "AgentRunExportBundle",
+    "AgentRunExportFileResult",
     "AgentRunExportSummary",
     "AgentRunResearchActionContext",
     "AgentRunResearchContinuationContext",

@@ -1,6 +1,6 @@
 ---
 name: Deep Research
-description: Plan research, use controlled web tools, and produce cited report artifacts.
+description: Plan research, use controlled web tools, and produce cited report workspace files.
 ---
 
 # Deep Research

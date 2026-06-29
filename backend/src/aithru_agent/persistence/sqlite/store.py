@@ -11,9 +11,6 @@ from aithru_agent.domain import (
     AgentApproval,
     AgentApprovalDecision,
     AgentApprovalStatus,
-    AgentArtifact,
-    AgentArtifactPromotionResult,
-    AgentArtifactRetentionPolicy,
     AgentContextSummary,
     AgentMemoryCandidate,
     AgentMemoryCandidateApprovalResult,
@@ -47,7 +44,6 @@ from aithru_agent.domain import (
     AgentWorkspaceSnapshotFile,
     validate_run_status_transition,
 )
-from aithru_agent.domain.artifact import AgentArtifactRetentionMode, AgentArtifactType
 from aithru_agent.domain.base import AithruBaseModel
 from aithru_agent.domain.errors import AgentError
 from aithru_agent.domain.message import AgentMessageRole
@@ -82,12 +78,6 @@ def _content_hash(content: str | bytes) -> str:
     return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
-def _artifact_retention_mode(artifact: AgentArtifact) -> AgentArtifactRetentionMode:
-    if artifact.retention is None:
-        return "retained"
-    return artifact.retention.mode
-
-
 def _memory_retention_policy(
     retention: AgentMemoryRetentionPolicy | dict[str, object] | str | None,
 ) -> AgentMemoryRetentionPolicy | None:
@@ -98,28 +88,6 @@ def _memory_retention_policy(
     if isinstance(retention, str):
         return AgentMemoryRetentionPolicy(mode=retention)
     return AgentMemoryRetentionPolicy.model_validate(retention)
-
-
-def _artifact_matches_filters(
-    artifact: AgentArtifact,
-    *,
-    run_id: str | None = None,
-    workspace_id: str | None = None,
-    type: AgentArtifactType | None = None,
-    retention_mode: AgentArtifactRetentionMode | None = None,
-    finalized: bool | None = None,
-) -> bool:
-    if run_id is not None and artifact.run_id != run_id:
-        return False
-    if workspace_id is not None and artifact.workspace_id != workspace_id:
-        return False
-    if type is not None and artifact.type != type:
-        return False
-    if retention_mode is not None and _artifact_retention_mode(artifact) != retention_mode:
-        return False
-    if finalized is not None and (artifact.finalized_at is not None) != finalized:
-        return False
-    return True
 
 
 def _build_workspace_snapshot(
@@ -388,7 +356,7 @@ class SQLiteAgentStore:
         role: AgentMessageRole,
         content: str,
         run_id: str | None = None,
-        artifact_ids: list[str] | None = None,
+        workspace_paths: list[str] | None = None,
         attachments: list[AgentMessageAttachment] | None = None,
     ) -> AgentMessage:
         message = AgentMessage(
@@ -397,7 +365,7 @@ class SQLiteAgentStore:
             role=role,
             content=content,
             run_id=run_id,
-            artifact_ids=artifact_ids or [],
+            workspace_paths=workspace_paths or [],
             attachments=attachments or [],
             created_at=utc_now(),
         )
@@ -1031,127 +999,6 @@ class SQLiteAgentStore:
         raw = bytes(row["content"])
         content: str | bytes = raw if row["is_bytes"] else raw.decode("utf-8")
         return WorkspaceFileContent(content=content, media_type=row["media_type"])
-
-    async def create_artifact(
-        self,
-        *,
-        org_id: str,
-        workspace_id: str,
-        run_id: str | None,
-        type: AgentArtifactType,
-        name: str,
-        media_type: str | None = None,
-        uri: str | None = None,
-        content: object | None = None,
-        metadata: dict | None = None,
-        retention: AgentArtifactRetentionPolicy | None = None,
-    ) -> AgentArtifact:
-        artifact = AgentArtifact(
-            id=self._next_id("artifact"),
-            org_id=org_id,
-            workspace_id=workspace_id,
-            run_id=run_id,
-            type=type,
-            name=name,
-            media_type=media_type,
-            uri=uri,
-            content=content,
-            metadata=metadata,
-            retention=retention,
-            created_at=utc_now(),
-        )
-        self._save_doc("artifact", artifact.id, artifact)
-        return artifact
-
-    async def promote_workspace_file_to_artifact(
-        self,
-        *,
-        org_id: str,
-        workspace_id: str,
-        path: str,
-        name: str,
-        type: AgentArtifactType = "file",
-        run_id: str | None = None,
-        retention: AgentArtifactRetentionPolicy | None = None,
-        metadata: dict | None = None,
-    ) -> AgentArtifactPromotionResult:
-        safe_path = normalize_path(path)
-        row = self._db.query_one(
-            """
-            SELECT file_payload
-            FROM agent_workspace_files
-            WHERE workspace_id = ? AND path = ?
-            """,
-            (workspace_id, safe_path),
-        )
-        if row is None:
-            raise AgentError("NOT_FOUND", f"File not found: {path}")
-        file = AgentWorkspaceFile.model_validate_json(row["file_payload"])
-        artifact = await self.create_artifact(
-            org_id=org_id,
-            workspace_id=workspace_id,
-            run_id=run_id,
-            type=type,
-            name=name,
-            media_type=file.media_type,
-            uri=safe_path,
-            content={"path": safe_path},
-            metadata={
-                **(metadata or {}),
-                "source": "workspace_file",
-                "workspace_file": {
-                    "workspace_id": workspace_id,
-                    "path": safe_path,
-                    "version": file.version,
-                    "file_version": file.file_version,
-                    "content_hash": file.content_hash,
-                    "size": file.size,
-                },
-            },
-            retention=retention,
-        )
-        return AgentArtifactPromotionResult(
-            artifact=artifact,
-            workspace_id=workspace_id,
-            path=safe_path,
-            version=file.version,
-            file_version=file.file_version,
-            content_hash=file.content_hash,
-        )
-
-    async def get_artifact(self, artifact_id: str) -> AgentArtifact | None:
-        return self._get_doc("artifact", artifact_id, AgentArtifact)
-
-    async def list_artifacts(
-        self,
-        *,
-        run_id: str | None = None,
-        workspace_id: str | None = None,
-        type: AgentArtifactType | None = None,
-        retention_mode: AgentArtifactRetentionMode | None = None,
-        finalized: bool | None = None,
-    ) -> list[AgentArtifact]:
-        artifacts = self._list_docs("artifact", AgentArtifact)
-        return [
-            artifact
-            for artifact in artifacts
-            if _artifact_matches_filters(
-                artifact,
-                run_id=run_id,
-                workspace_id=workspace_id,
-                type=type,
-                retention_mode=retention_mode,
-                finalized=finalized,
-            )
-        ]
-
-    async def finalize_artifact(self, artifact_id: str) -> AgentArtifact:
-        artifact = await self.get_artifact(artifact_id)
-        if artifact is None:
-            raise AgentError("NOT_FOUND", f"Artifact not found: {artifact_id}")
-        finalized = artifact.model_copy(update={"finalized_at": utc_now()})
-        self._save_doc("artifact", artifact_id, finalized)
-        return finalized
 
     async def create_memory_entry(
         self,

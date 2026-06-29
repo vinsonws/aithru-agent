@@ -35,7 +35,7 @@ Generate the chart using available visualization tools:
 - For spreadsheet-like display: Use HTML tables with styling
 
 ### 4. Output
-- Embed charts in a self-contained HTML artifact
+- Embed charts in a self-contained HTML workspace output
 - Include clear titles, labels, and legends
 - Support responsive sizing
 - Use color palettes that are accessible and visually appealing

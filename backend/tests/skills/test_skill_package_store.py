@@ -137,7 +137,7 @@ description: New description.
 
 # New Body
 """,
-            allowed_tools=["artifact.create"],
+            allowed_tools=["presentation.present"],
             denied_tools=["workspace.write_file"],
             allowed_subagents=["reviewer"],
         ),
@@ -147,7 +147,7 @@ description: New description.
     assert updated.metadata.description == "New description."
     assert updated.instructions == "# New Body"
     assert updated.policy.instructions == "# New Body"
-    assert updated.policy.allowed_tools == ["artifact.create"]
+    assert updated.policy.allowed_tools == ["presentation.present"]
     assert updated.policy.denied_tools == ["workspace.write_file"]
     assert updated.policy.allowed_subagents == ["reviewer"]
 

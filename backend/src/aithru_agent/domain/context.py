@@ -3,7 +3,6 @@ from typing import Literal
 
 from pydantic import Field, computed_field, field_validator
 
-from .artifact import AgentArtifact, AgentArtifactType
 from .base import AithruBaseModel
 from .memory import AgentMemoryRecall
 from .message import AgentMessage, AgentMessageRole
@@ -16,6 +15,7 @@ from .research import (
 )
 from .run import AgentRun, AgentRunStatus
 from .todo import AgentTodo, AgentTodoStatus
+from .workspace import AgentWorkspaceFile
 
 
 AgentRunResumeReason = Literal[
@@ -30,7 +30,7 @@ AgentRunResumeReason = Literal[
 class AgentRunContextCounts(AithruBaseModel):
     thread_messages: int = Field(ge=0)
     todos: int = Field(ge=0)
-    artifacts: int = Field(ge=0)
+    workspace_files: int = Field(ge=0)
     tool_results: int = Field(default=0, ge=0)
     memory: int = Field(default=0, ge=0)
     research_evidence: int = Field(default=0, ge=0)
@@ -41,7 +41,7 @@ class AgentRunContextBudgetUsage(AithruBaseModel):
     used_chars: int = Field(ge=0)
     dropped_thread_messages: int = Field(default=0, ge=0)
     dropped_todos: int = Field(default=0, ge=0)
-    dropped_artifacts: int = Field(default=0, ge=0)
+    dropped_workspace_files: int = Field(default=0, ge=0)
     dropped_tool_results: int = Field(default=0, ge=0)
     dropped_memory: int = Field(default=0, ge=0)
     dropped_research_evidence: int = Field(default=0, ge=0)
@@ -65,7 +65,7 @@ class AgentRunContextMessage(AithruBaseModel):
     role: AgentMessageRole
     content: str
     run_id: str | None = None
-    artifact_ids: list[str] = Field(default_factory=list)
+    workspace_paths: list[str] = Field(default_factory=list)
     created_at: str
     truncated: bool = False
     original_length: int = Field(default=0, ge=0)
@@ -86,7 +86,7 @@ class AgentRunContextMessage(AithruBaseModel):
             role=message.role,
             content=content,
             run_id=message.run_id,
-            artifact_ids=message.artifact_ids,
+            workspace_paths=message.workspace_paths,
             created_at=message.created_at,
             truncated=truncated,
             original_length=original_length,
@@ -122,33 +122,27 @@ class AgentRunContextTodo(AithruBaseModel):
         )
 
 
-class AgentRunContextArtifact(AithruBaseModel):
-    id: str
-    type: AgentArtifactType
-    name: str
-    uri: str | None = None
+class AgentRunContextWorkspaceFile(AithruBaseModel):
+    path: str
+    size: int = Field(ge=0)
     media_type: str | None = None
-    summary: str | None = None
+    content_hash: str | None = None
     truncated: bool = False
     created_at: str
+    updated_at: str
 
     @classmethod
-    def from_artifact(
+    def from_workspace_file(
         cls,
-        artifact: AgentArtifact,
-        *,
-        summary: str | None,
-        truncated: bool,
-    ) -> "AgentRunContextArtifact":
+        file: AgentWorkspaceFile,
+    ) -> "AgentRunContextWorkspaceFile":
         return cls(
-            id=artifact.id,
-            type=artifact.type,
-            name=artifact.name,
-            uri=artifact.uri,
-            media_type=artifact.media_type,
-            summary=summary,
-            truncated=truncated,
-            created_at=artifact.created_at,
+            path=file.path,
+            size=file.size,
+            media_type=file.media_type,
+            content_hash=file.content_hash,
+            created_at=file.created_at,
+            updated_at=file.updated_at,
         )
 
 
@@ -245,8 +239,7 @@ class AgentRunResearchContinuationContext(AithruBaseModel):
     completed_steps: list[str] = Field(default_factory=list)
     pending_steps: list[str] = Field(default_factory=list)
     blocked_steps: list[str] = Field(default_factory=list)
-    report_artifact_ids: list[str] = Field(default_factory=list)
-    report_artifact_uris: list[str] = Field(default_factory=list)
+    report_workspace_paths: list[str] = Field(default_factory=list)
     sections: list[AgentRunResearchSectionContext] = Field(default_factory=list)
     evidence: list[AgentRunResearchEvidenceContext] = Field(default_factory=list)
     limitations: list[ResearchLimitation] = Field(default_factory=list)
@@ -369,7 +362,7 @@ class AgentRunContextPacket(AithruBaseModel):
     budget: AgentRunContextBudgetUsage | None = None
     thread_messages: list[AgentRunContextMessage] = Field(default_factory=list)
     todos: list[AgentRunContextTodo] = Field(default_factory=list)
-    artifacts: list[AgentRunContextArtifact] = Field(default_factory=list)
+    workspace_files: list[AgentRunContextWorkspaceFile] = Field(default_factory=list)
     tool_results: list[AgentRunContextToolResult] = Field(default_factory=list)
     research: AgentRunResearchContinuationContext | None = None
     memory: AgentMemoryRecall | None = None
@@ -381,7 +374,7 @@ class AgentRunContextPacket(AithruBaseModel):
         return AgentRunContextCounts(
             thread_messages=len(self.thread_messages),
             todos=len(self.todos),
-            artifacts=len(self.artifacts),
+            workspace_files=len(self.workspace_files),
             tool_results=len(self.tool_results),
             memory=self.memory.count if self.memory else 0,
             research_evidence=len(self.research.evidence) if self.research else 0,
@@ -395,7 +388,7 @@ class AgentRunContextPacket(AithruBaseModel):
             or self.compressed_context
             or self.thread_messages
             or self.todos
-            or self.artifacts
+            or self.workspace_files
             or self.tool_results
             or self.research
             or (self.memory and self.memory.items)
@@ -407,7 +400,7 @@ class AgentRunContextPacket(AithruBaseModel):
     def has_truncated_content(self) -> bool:
         truncated = any(message.truncated for message in self.thread_messages) or any(
             todo.truncated for todo in self.todos
-        ) or any(artifact.truncated for artifact in self.artifacts) or bool(
+        ) or any(file.truncated for file in self.workspace_files) or bool(
             self.compressed_context and self.compressed_context.truncated
         ) or any(result.truncated for result in self.tool_results)
         if truncated:
@@ -426,7 +419,7 @@ class AgentRunContextPacket(AithruBaseModel):
             for count in (
                 self.budget.dropped_thread_messages,
                 self.budget.dropped_todos,
-                self.budget.dropped_artifacts,
+                self.budget.dropped_workspace_files,
                 self.budget.dropped_tool_results,
                 self.budget.dropped_memory,
                 self.budget.dropped_research_evidence,
@@ -437,7 +430,7 @@ class AgentRunContextPacket(AithruBaseModel):
         payload: dict[str, object] = {
             "thread_messages": self.counts.thread_messages,
             "todos": self.counts.todos,
-            "artifacts": self.counts.artifacts,
+            "workspace_files": self.counts.workspace_files,
             "tool_results": self.counts.tool_results,
             "memory": self.counts.memory,
             "research_evidence": self.counts.research_evidence,

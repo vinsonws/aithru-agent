@@ -253,9 +253,16 @@ class AgentRunHarnessOptions(AithruBaseModel):
 
 class AgentRunResult(AithruBaseModel):
     content: str | None = None
-    artifact_ids: list[str] = []
+    workspace_paths: list[str] = []
     message_id: str | None = None
     thread_message_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_legacy_artifact_ids(cls, value: object) -> object:
+        if isinstance(value, dict) and "artifact_ids" in value:
+            return {key: item for key, item in value.items() if key != "artifact_ids"}
+        return value
 
 
 class AgentExternalApprovalRef(AithruBaseModel):

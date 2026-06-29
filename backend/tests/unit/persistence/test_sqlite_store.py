@@ -1,10 +1,10 @@
 from pathlib import Path
+import json
 
 import pytest
 
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.domain import (
-    AgentArtifactRetentionPolicy,
     AgentContextSummary,
     AgentMemoryCandidate,
     AgentMemoryRetentionPolicy,
@@ -70,6 +70,75 @@ async def test_sqlite_store_persists_runs_workspace_files_and_events(tmp_path: P
     assert persisted_approval is not None
     assert persisted_approval.metadata == {"harness_driver": "pydantic_ai"}
     assert [event.type for event in events] == ["run.completed"]
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_reads_legacy_run_result_artifact_ids(tmp_path: Path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    store = SQLiteAgentStore(db_path)
+
+    payload = {
+        "id": "run_legacy",
+        "org_id": "org_1",
+        "actor_user_id": "user_1",
+        "source": "api",
+        "workspace_id": "ws_1",
+        "task_msg": "Read legacy data",
+        "scopes": [],
+        "status": "completed",
+        "started_at": "2026-06-16T00:00:00Z",
+        "completed_at": "2026-06-16T00:01:00Z",
+        "result": {
+            "content": "Legacy result",
+            "artifact_ids": [],
+            "message_id": "msg_1",
+        },
+    }
+    store._db.execute(
+        """
+        INSERT INTO agent_documents (kind, id, payload)
+        VALUES (?, ?, ?)
+        """,
+        ("run", "run_legacy", json.dumps(payload)),
+    )
+
+    run = await store.get_run("run_legacy")
+
+    assert run is not None
+    assert run.result is not None
+    assert run.result.content == "Legacy result"
+    assert run.result.workspace_paths == []
+    assert "artifact_ids" not in run.result.model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_reads_legacy_message_artifact_ids(tmp_path: Path) -> None:
+    db_path = tmp_path / "agent.sqlite"
+    store = SQLiteAgentStore(db_path)
+
+    payload = {
+        "id": "msg_legacy",
+        "thread_id": "thread_1",
+        "role": "assistant",
+        "content": "Legacy message",
+        "run_id": "run_1",
+        "artifact_ids": [],
+        "created_at": "2026-06-16T00:00:00Z",
+    }
+    store._db.execute(
+        """
+        INSERT INTO agent_documents (kind, id, payload)
+        VALUES (?, ?, ?)
+        """,
+        ("message", "msg_legacy", json.dumps(payload)),
+    )
+
+    messages = await store.list_messages("thread_1")
+
+    assert len(messages) == 1
+    assert messages[0].content == "Legacy message"
+    assert messages[0].workspace_paths == []
+    assert "artifact_ids" not in messages[0].model_dump(mode="json")
 
 
 @pytest.mark.asyncio
@@ -214,133 +283,6 @@ async def test_sqlite_store_persists_workspace_file_versions_snapshots_and_diffs
         ("/notes.md", "modified"),
         ("/todo.md", "deleted"),
     ]
-
-
-@pytest.mark.asyncio
-async def test_sqlite_store_promotes_workspace_file_to_retained_artifact(tmp_path: Path) -> None:
-    db_path = tmp_path / "agent.sqlite"
-    store = SQLiteAgentStore(db_path)
-    workspace = await store.create_workspace(org_id="org_1")
-    run = await store.create_run(
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        task_msg="Promote report",
-        workspace_id=workspace.id,
-    )
-    written = await store.write_workspace_file(
-        workspace_id=workspace.id,
-        path="reports/report.md",
-        content="# Report\n",
-        media_type="text/markdown",
-    )
-
-    promoted = await store.promote_workspace_file_to_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        path="reports/report.md",
-        run_id=run.id,
-        type="report",
-        name="Promoted report",
-        retention=AgentArtifactRetentionPolicy(
-            mode="expires_at",
-            expires_at="2026-07-01T00:00:00Z",
-        ),
-        metadata={"kind": "promoted"},
-    )
-    reopened = SQLiteAgentStore(db_path)
-    persisted = await reopened.get_artifact(promoted.artifact.id)
-
-    assert promoted.workspace_id == workspace.id
-    assert promoted.path == "/reports/report.md"
-    assert promoted.version == written.version
-    assert promoted.file_version == written.file_version
-    assert promoted.content_hash == written.content_hash
-    assert persisted is not None
-    assert persisted.type == "report"
-    assert persisted.uri == "/reports/report.md"
-    assert persisted.content == {"path": "/reports/report.md"}
-    assert persisted.media_type == "text/markdown"
-    assert persisted.retention is not None
-    assert persisted.retention.mode == "expires_at"
-    assert persisted.retention.expires_at == "2026-07-01T00:00:00Z"
-    assert persisted.metadata is not None
-    assert persisted.metadata["kind"] == "promoted"
-    assert persisted.metadata["source"] == "workspace_file"
-    assert persisted.metadata["workspace_file"] == {
-        "workspace_id": workspace.id,
-        "path": "/reports/report.md",
-        "version": written.version,
-        "file_version": written.file_version,
-        "content_hash": written.content_hash,
-        "size": written.size,
-    }
-
-
-@pytest.mark.asyncio
-async def test_sqlite_store_filters_artifact_listing_by_lifecycle_fields(tmp_path: Path) -> None:
-    db_path = tmp_path / "agent.sqlite"
-    store = SQLiteAgentStore(db_path)
-    workspace = await store.create_workspace(org_id="org_1")
-    other_workspace = await store.create_workspace(org_id="org_1")
-    run = await store.create_run(
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        task_msg="List artifacts",
-        workspace_id=workspace.id,
-    )
-    default_retained = await store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="report",
-        name="Default retained report",
-    )
-    expiring = await store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="report",
-        name="Expiring report",
-        retention=AgentArtifactRetentionPolicy(
-            mode="expires_at",
-            expires_at="2026-07-01T00:00:00Z",
-        ),
-    )
-    ephemeral = await store.create_artifact(
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="json",
-        name="Ephemeral data",
-        retention=AgentArtifactRetentionPolicy(mode="ephemeral"),
-    )
-    finalized = await store.finalize_artifact(ephemeral.id)
-    other = await store.create_artifact(
-        org_id="org_1",
-        workspace_id=other_workspace.id,
-        run_id=None,
-        type="report",
-        name="Other workspace",
-    )
-    reopened = SQLiteAgentStore(db_path)
-
-    reports = await reopened.list_artifacts(workspace_id=workspace.id, type="report")
-    retained = await reopened.list_artifacts(workspace_id=workspace.id, retention_mode="retained")
-    expiring_only = await reopened.list_artifacts(
-        workspace_id=workspace.id,
-        retention_mode="expires_at",
-    )
-    finalized_only = await reopened.list_artifacts(workspace_id=workspace.id, finalized=True)
-    unfinished = await reopened.list_artifacts(workspace_id=workspace.id, finalized=False)
-
-    assert [artifact.id for artifact in reports] == [default_retained.id, expiring.id]
-    assert [artifact.id for artifact in retained] == [default_retained.id]
-    assert [artifact.id for artifact in expiring_only] == [expiring.id]
-    assert [artifact.id for artifact in finalized_only] == [finalized.id]
-    assert [artifact.id for artifact in unfinished] == [default_retained.id, expiring.id]
-    assert other.id not in [artifact.id for artifact in reports]
 
 
 @pytest.mark.asyncio

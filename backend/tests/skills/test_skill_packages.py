@@ -21,7 +21,7 @@ Read the relevant files, then write a short report.
 """,
         policy=AgentSkillConfiguration(
             instructions="",
-            allowed_tools=["workspace.read_file", "artifact.create"],
+            allowed_tools=["workspace.read_file", "presentation.present"],
             denied_tools=[],
             allowed_subagents=[],
         ),

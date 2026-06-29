@@ -9,9 +9,6 @@ from aithru_agent.domain import (
     AgentApproval,
     AgentApprovalDecision,
     AgentApprovalStatus,
-    AgentArtifact,
-    AgentArtifactPromotionResult,
-    AgentArtifactRetentionPolicy,
     AgentContextSummary,
     AgentMemoryCandidate,
     AgentMemoryCandidateApprovalResult,
@@ -40,7 +37,6 @@ from aithru_agent.domain import (
     AgentWorkspaceRestoreResult,
     AgentWorkspaceSnapshot,
 )
-from aithru_agent.domain.artifact import AgentArtifactRetentionMode, AgentArtifactType
 
 if TYPE_CHECKING:
     from aithru_agent.stream.events import AgentStreamEvent
@@ -85,7 +81,7 @@ class AgentStore(Protocol):
         role: AgentMessageRole,
         content: str,
         run_id: str | None = None,
-        artifact_ids: list[str] | None = None,
+        workspace_paths: list[str] | None = None,
         attachments: list[AgentMessageAttachment] | None = None,
     ) -> AgentMessage:
         ...
@@ -278,53 +274,6 @@ class AgentStore(Protocol):
         ...
 
     async def delete_workspace_file(self, workspace_id: str, path: str) -> dict[str, str]:
-        ...
-
-    async def create_artifact(
-        self,
-        *,
-        org_id: str,
-        workspace_id: str,
-        run_id: str | None,
-        type: AgentArtifactType,
-        name: str,
-        media_type: str | None = None,
-        uri: str | None = None,
-        content: object | None = None,
-        metadata: dict | None = None,
-        retention: AgentArtifactRetentionPolicy | None = None,
-    ) -> AgentArtifact:
-        ...
-
-    async def promote_workspace_file_to_artifact(
-        self,
-        *,
-        org_id: str,
-        workspace_id: str,
-        path: str,
-        name: str,
-        type: AgentArtifactType = "file",
-        run_id: str | None = None,
-        retention: AgentArtifactRetentionPolicy | None = None,
-        metadata: dict | None = None,
-    ) -> AgentArtifactPromotionResult:
-        ...
-
-    async def get_artifact(self, artifact_id: str) -> AgentArtifact | None:
-        ...
-
-    async def list_artifacts(
-        self,
-        *,
-        run_id: str | None = None,
-        workspace_id: str | None = None,
-        type: AgentArtifactType | None = None,
-        retention_mode: AgentArtifactRetentionMode | None = None,
-        finalized: bool | None = None,
-    ) -> list[AgentArtifact]:
-        ...
-
-    async def finalize_artifact(self, artifact_id: str) -> AgentArtifact:
         ...
 
     async def create_memory_entry(

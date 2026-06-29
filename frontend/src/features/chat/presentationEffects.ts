@@ -34,8 +34,5 @@ function previewFileId(presentation: PresentationEntry): string | null {
   if (presentation.resource.kind === "workspace_file" && presentation.resource.path) {
     return `ws-${presentation.resource.path}`;
   }
-  if (presentation.resource.kind === "artifact" && presentation.resource.id) {
-    return `artifact-${presentation.resource.id}`;
-  }
   return null;
 }

@@ -10,7 +10,7 @@ from aithru_agent.trace import project_trace_spans
 
 
 @pytest.mark.asyncio
-async def test_file_report_agent_produces_report_artifact_events_and_trace() -> None:
+async def test_file_report_agent_produces_report_workspace_file_events_and_trace() -> None:
     runtime = create_agent_runtime(
         agent_runtime=StepAgentRuntime(
             [
@@ -23,15 +23,6 @@ async def test_file_report_agent_produces_report_artifact_events_and_trace() -> 
                 Step.tool(
                     "workspace.write_file",
                     {"path": "/reports/report.md", "content": "# Report\nImportant input.\n"},
-                ),
-                Step.tool(
-                    "artifact.create",
-                    {
-                        "type": "report",
-                        "name": "Workspace Report",
-                        "uri": "/reports/report.md",
-                        "content": {"summary": "Important input."},
-                    },
                 ),
                 Step.message("Created /reports/report.md"),
                 Step.finish(),
@@ -46,14 +37,12 @@ async def test_file_report_agent_produces_report_artifact_events_and_trace() -> 
         scopes=["*"],
     )
     report = await runtime.store.read_workspace_file(run.workspace_id, "/reports/report.md")
-    artifacts = await runtime.store.list_artifacts(run_id=run.id)
     events = await runtime.event_store.list_by_run(run.id)
     spans = project_trace_spans(events)
 
     assert report.content == "# Report\nImportant input.\n"
-    assert artifacts[0].type == "report"
     assert events[-1].type == "run.completed"
-    assert {span.kind for span in spans} >= {"run", "model", "tool", "workspace", "artifact"}
+    assert {span.kind for span in spans} >= {"run", "model", "tool", "workspace"}
 
 
 def test_file_report_example_script_runs_successfully() -> None:
@@ -70,5 +59,5 @@ def test_file_report_example_script_runs_successfully() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert "Run status: completed" in completed.stdout
-    assert "Report path: /a" in completed.stdout
+    assert "Report path:" in completed.stdout
     assert "Trace span kinds:" in completed.stdout

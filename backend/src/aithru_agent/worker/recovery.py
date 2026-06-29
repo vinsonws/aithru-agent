@@ -6,8 +6,7 @@ from aithru_agent.domain import (
     AgentApproval,
     AgentApprovalDecision,
     AgentApprovalStatus,
-    AgentArtifact,
-    AgentArtifactSummary,
+    AgentWorkspaceFile,
     AgentRun,
     AgentRunStatus,
     AgentSubagentResultSummary,
@@ -57,7 +56,7 @@ class RunRecoveryDecision(AithruBaseModel):
     child_run_id: str | None = None
     child_status: str | None = None
     child_result: str | None = None
-    child_artifacts: list[AgentArtifactSummary] = Field(default_factory=list)
+    child_workspace_files: list[AgentWorkspaceFile] = Field(default_factory=list)
     child_result_summary: AgentSubagentResultSummary | None = None
 
     @model_validator(mode="after")
@@ -73,7 +72,7 @@ class RunRecoveryDecision(AithruBaseModel):
             or self.child_run_id is None
             or (
                 self.child_result is None
-                and not self.child_artifacts
+                and not self.child_workspace_files
                 and not (self.child_result_summary and self.child_result_summary.has_output)
             )
         ):
@@ -88,7 +87,7 @@ def decide_run_recovery(
     approvals: list[AgentApproval],
     subagents: list[AgentSubagentRun],
     child_runs: list[AgentRun],
-    child_artifacts: list[AgentArtifact] | None = None,
+    child_workspace_files: list[AgentWorkspaceFile] | None = None,
 ) -> RunRecoveryDecision:
     if run.status not in {
         AgentRunStatus.WAITING_INPUT,
@@ -123,7 +122,7 @@ def decide_run_recovery(
             detail="Run is waiting for an external workflow capability run to resolve.",
             pause_sequence=pause.sequence,
         )
-    return _subagent_decision(run, pause, subagents, child_runs, child_artifacts or [])
+    return _subagent_decision(run, pause, subagents, child_runs, child_workspace_files or [])
 
 
 def _input_decision(
@@ -192,7 +191,7 @@ def _subagent_decision(
     pause: AgentStreamEvent,
     subagents: list[AgentSubagentRun],
     child_runs: list[AgentRun],
-    child_artifacts: list[AgentArtifact],
+    child_workspace_files: list[AgentWorkspaceFile],
 ) -> RunRecoveryDecision:
     subagent_run_id = _string_payload(pause.payload, "subagent_run_id")
     child_run_id = _string_payload(pause.payload, "child_run_id")
@@ -211,7 +210,7 @@ def _subagent_decision(
             child_status=child_status,
         )
     if child and child.status == AgentRunStatus.COMPLETED:
-        result_summary = build_subagent_result_summary(child, child_artifacts)
+        result_summary = build_subagent_result_summary(child, child_workspace_files)
         if result_summary.has_output:
             return _decision(
                 run,
@@ -223,7 +222,7 @@ def _subagent_decision(
                 child_run_id=child.id,
                 child_status=child_status,
                 child_result=result_summary.content,
-                child_artifacts=result_summary.artifacts,
+                child_workspace_files=result_summary.workspace_files,
                 child_result_summary=result_summary,
             )
         return _decision(
@@ -262,7 +261,7 @@ def _decision(
     child_run_id: str | None = None,
     child_status: str | None = None,
     child_result: str | None = None,
-    child_artifacts: list[AgentArtifactSummary] | None = None,
+    child_workspace_files: list[AgentWorkspaceFile] | None = None,
     child_result_summary: AgentSubagentResultSummary | None = None,
 ) -> RunRecoveryDecision:
     return RunRecoveryDecision(
@@ -281,7 +280,7 @@ def _decision(
         child_run_id=child_run_id,
         child_status=child_status,
         child_result=child_result,
-        child_artifacts=child_artifacts or [],
+        child_workspace_files=child_workspace_files or [],
         child_result_summary=child_result_summary,
     )
 

@@ -33,26 +33,34 @@ class DeepResearchDemoRuntime(AgentRuntime):
                 "objective": "Check backend parity for controlled research work.",
             },
         )
-        await bridge.call_tool(
+        report_result = await bridge.call_tool(
             ToolContext("research_report"),
             "research.create_report",
             {
                 "title": "Aithru Deep Research",
                 "query": "aithru deerflow parity",
-                "summary": "Aithru Agent can plan research and create cited report artifacts.",
+                "summary": "Aithru Agent can plan research and create cited workspace reports.",
                 "sources": [
                     {
                         "title": "Aithru Agent Harness",
                         "url": "https://example.com/aithru-agent",
                         "snippet": (
                             "Aithru Agent routes real actions through controlled "
-                            "capabilities and records traceable artifacts."
+                            "capabilities and records traceable workspace files."
                         ),
                         "source": "example",
                     }
                 ],
             },
         )
+        report_file = report_result.get("workspace_file") if isinstance(report_result, dict) else None
+        report_path = report_file.get("path") if isinstance(report_file, dict) else None
+        if isinstance(report_path, str):
+            await bridge.call_tool(
+                ToolContext("present_report"),
+                "presentation.present",
+                {"resources": [{"kind": "workspace_file", "path": report_path}]},
+            )
         return AgentRuntimeResult(content="Created research report.")
 
 
@@ -72,16 +80,16 @@ async def main() -> None:
     events = await runtime.event_store.list_by_run(run.id)
     spans = project_trace_spans(events)
     todos = await runtime.store.list_todos(run.id)
-    artifacts = await runtime.store.list_artifacts(run_id=run.id)
-    report_artifact = artifacts[0] if artifacts else None
+    files = await runtime.store.list_workspace_files(run.workspace_id)
+    report_file = next((file for file in files if file.path.startswith("/reports/")), None)
 
     print(f"Run id: {run.id}")
     print(f"Run status: {run.status.value}")
     print(f"Todos: {len(todos)}")
-    if report_artifact is not None:
-        print(f"Report artifact: {report_artifact.name} ({report_artifact.uri})")
+    if report_file is not None:
+        print(f"Report file: {report_file.path}")
     else:
-        print("Report artifact: <none>")
+        print("Report file: <none>")
     print(f"Events: {len(events)}")
     print(f"Trace span kinds: {', '.join(sorted({span.kind for span in spans}))}")
 

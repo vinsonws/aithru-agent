@@ -14,7 +14,6 @@ from .provider import (
     SandboxFileDeleteSource,
     SandboxFileListRequest,
     SandboxFileListResult,
-    SandboxFilePromotionRequest,
     SandboxFileReadContentEncoding,
     SandboxFileReadRequest,
     SandboxFileReadResult,
@@ -26,7 +25,6 @@ from .provider import (
     SandboxRunDiagnostics,
     SandboxWorkspaceDiffRequest,
     SandboxWorkspaceEffectsSummary,
-    SandboxWorkspaceOutputArtifact,
     SandboxWorkspaceOutputFile,
 )
 
@@ -46,7 +44,6 @@ __all__ = [
     "SandboxFileDeleteSource",
     "SandboxFileListRequest",
     "SandboxFileListResult",
-    "SandboxFilePromotionRequest",
     "SandboxFileReadContentEncoding",
     "SandboxFileReadRequest",
     "SandboxFileReadResult",
@@ -58,6 +55,5 @@ __all__ = [
     "SandboxRunDiagnostics",
     "SandboxWorkspaceDiffRequest",
     "SandboxWorkspaceEffectsSummary",
-    "SandboxWorkspaceOutputArtifact",
     "SandboxWorkspaceOutputFile",
 ]

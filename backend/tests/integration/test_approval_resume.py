@@ -3,7 +3,7 @@ from pydantic_ai.models.test import TestModel
 
 from aithru_agent.agent import AgentRuntime
 from aithru_agent.capabilities import AithruCapabilityRouter, ToolPolicy
-from aithru_agent.capabilities.local_tools import ArtifactLocalTool, TodoLocalTool, WorkspaceLocalTool
+from aithru_agent.capabilities.local_tools import TodoLocalTool, WorkspaceLocalTool
 from aithru_agent.domain import (
     AgentApprovalDecision,
     AgentExternalApprovalRef,
@@ -20,7 +20,7 @@ def make_approval_runner() -> tuple[AgentWorkerRunner, InMemoryAgentStore, InMem
     event_store = InMemoryAgentEventStore()
     writer = AgentEventWriter(event_store)
     router = AithruCapabilityRouter(
-        adapters=[WorkspaceLocalTool(store), TodoLocalTool(store), ArtifactLocalTool(store)],
+        adapters=[WorkspaceLocalTool(store), TodoLocalTool(store)],
         policy=ToolPolicy(require_approval_for_risk=["write"]),
     )
     agent_runtime = AgentRuntime(

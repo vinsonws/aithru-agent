@@ -7,13 +7,6 @@ from aithru_agent.domain import (
     AgentCapabilityAuditEvent,
     AgentCapabilityAuditLog,
     AgentCapabilityAuditLogEntry,
-    AgentArtifact,
-    AgentArtifactDownloadInfo,
-    AgentArtifactListFilters,
-    AgentArtifactListPage,
-    AgentArtifactPromotionResult,
-    AgentArtifactRetentionPolicy,
-    AgentArtifactSummary,
     AgentApproval,
     AgentApprovalDecision,
     AgentApprovalPolicy,
@@ -33,8 +26,8 @@ from aithru_agent.domain import (
     AgentToolRecovery,
     AgentToolRecoveryAction,
     AgentRun,
-    AgentRunExportArtifactResult,
     AgentRunExportBundle,
+    AgentRunExportFileResult,
     AgentRunExportSummary,
     AgentRunHarnessOptions,
     AgentRunStatus,
@@ -114,7 +107,7 @@ def test_domain_models_serialize_with_stable_string_values() -> None:
         role="assistant",
         content="Working",
         run_id=run.id,
-        artifact_ids=["artifact_1"],
+        workspace_paths=["/reports/report.md"],
         created_at="2026-06-16T00:00:00Z",
     )
     todo = AgentTodo(
@@ -163,18 +156,6 @@ def test_domain_models_serialize_with_stable_string_values() -> None:
         created_at="2026-06-16T00:00:00Z",
         updated_at="2026-06-16T00:00:00Z",
     )
-    artifact = AgentArtifact(
-        id="artifact_1",
-        org_id="org_1",
-        workspace_id=workspace.id,
-        run_id=run.id,
-        type="report",
-        name="Report",
-        media_type="text/markdown",
-        uri="/reports/report.md",
-        content={"summary": "Done"},
-        created_at="2026-06-16T00:00:00Z",
-    )
     skill = AgentSkill(
         id="skill_1",
         org_id="org_1",
@@ -200,31 +181,31 @@ def test_domain_models_serialize_with_stable_string_values() -> None:
     assert result.model_dump(mode="json")["status"] == "completed"
     assert approval.model_dump(mode="json")["status"] == "pending"
     assert file.model_dump(mode="json")["path"] == "/notes.md"
-    assert artifact.model_dump(mode="json")["type"] == "report"
-    assert message.model_dump(mode="json")["artifact_ids"] == ["artifact_1"]
+    assert message.model_dump(mode="json")["workspace_paths"] == ["/reports/report.md"]
     assert skill.model_dump(mode="json")["status"] == "published"
     assert AgentApprovalDecision.APPROVED.value == "approved"
 
 
-def test_subagent_result_summary_derives_output_and_artifact_counts() -> None:
+def test_subagent_result_summary_derives_output_and_workspace_file_counts() -> None:
     summary = AgentSubagentResultSummary(
         content="Child result.",
-        artifact_ids=["artifact_1", "artifact_1"],
-        artifacts=[
-            AgentArtifactSummary(
-                id="artifact_2",
-                type="report",
-                name="Child Report",
-                uri="/reports/child.md",
-                summary="# Child Report",
+        workspace_paths=["/reports/child.md", "/reports/child.md"],
+        workspace_files=[
+            AgentWorkspaceFile(
+                workspace_id="ws_1",
+                path="/reports/summary.md",
+                size=14,
+                media_type="text/markdown",
+                created_at="2026-06-16T00:00:00Z",
+                updated_at="2026-06-16T00:00:00Z",
             )
         ],
     )
 
     payload = summary.model_dump(mode="json")
 
-    assert payload["artifact_ids"] == ["artifact_1", "artifact_2"]
-    assert payload["artifact_count"] == 2
+    assert payload["workspace_paths"] == ["/reports/child.md", "/reports/summary.md"]
+    assert payload["workspace_file_count"] == 2
     assert payload["has_output"] is True
 
 
@@ -315,9 +296,9 @@ def test_run_harness_options_accept_model_reasoning_effort() -> None:
         AgentRunHarnessOptions(model_reasoning_effort="extreme")
 
 
-def test_subagent_result_summary_rejects_blank_artifact_ids() -> None:
+def test_subagent_result_summary_rejects_blank_workspace_paths() -> None:
     with pytest.raises(ValidationError):
-        AgentSubagentResultSummary(artifact_ids=[" "])
+        AgentSubagentResultSummary(workspace_paths=[" "])
 
 
 def test_context_summary_requires_thread_or_run_and_nonblank_content() -> None:
@@ -582,141 +563,6 @@ def test_memory_visibility_policy_filters_private_entries() -> None:
     assert anonymous_policy.allows(shared) is True
 
 
-def test_artifact_retention_and_promotion_models_are_pydantic_contracts() -> None:
-    retention = AgentArtifactRetentionPolicy(
-        mode="expires_at",
-        expires_at="2026-07-01T00:00:00Z",
-    )
-    artifact = AgentArtifact(
-        id="artifact_1",
-        org_id="org_1",
-        workspace_id="ws_1",
-        run_id="run_1",
-        type="report",
-        name="Report",
-        media_type="text/markdown",
-        uri="/reports/report.md",
-        content={"path": "/reports/report.md"},
-        metadata={"source": "workspace_file"},
-        retention=retention,
-        created_at="2026-06-18T00:00:00Z",
-    )
-    result = AgentArtifactPromotionResult(
-        artifact=artifact,
-        workspace_id="ws_1",
-        path="/reports/report.md",
-        version=3,
-        file_version=2,
-        content_hash="sha256:abc",
-    )
-
-    assert artifact.retention.mode == "expires_at"
-    assert artifact.model_dump(mode="json")["retention"] == {
-        "mode": "expires_at",
-        "expires_at": "2026-07-01T00:00:00Z",
-        "legal_hold": False,
-    }
-    assert result.artifact.id == "artifact_1"
-    assert result.version == 3
-
-    with pytest.raises(ValidationError):
-        AgentArtifactRetentionPolicy(mode="expires_at")
-    with pytest.raises(ValidationError):
-        AgentArtifactRetentionPolicy(mode="ephemeral", legal_hold=True)
-
-
-def test_artifact_list_models_are_pydantic_contracts() -> None:
-    artifact = AgentArtifact(
-        id="artifact_1",
-        org_id="org_1",
-        workspace_id="ws_1",
-        run_id="run_1",
-        type="report",
-        name="Report",
-        retention=AgentArtifactRetentionPolicy(
-            mode="expires_at",
-            expires_at="2026-07-01T00:00:00Z",
-        ),
-        created_at="2026-06-18T00:00:00Z",
-    )
-    filters = AgentArtifactListFilters(
-        run_id="run_1",
-        workspace_id="ws_1",
-        type="report",
-        retention_mode="expires_at",
-        finalized=False,
-    )
-    page = AgentArtifactListPage(
-        items=[artifact],
-        total=3,
-        count=1,
-        limit=1,
-        offset=2,
-        order_by="created_at",
-        order_direction="desc",
-        filters=filters,
-    )
-
-    dumped = page.model_dump(mode="json")
-
-    assert dumped["items"][0]["id"] == "artifact_1"
-    assert dumped["filters"]["retention_mode"] == "expires_at"
-    assert dumped["total"] == 3
-    assert dumped["count"] == 1
-    assert dumped["order_by"] == "created_at"
-    assert dumped["order_direction"] == "desc"
-
-    with pytest.raises(ValidationError):
-        AgentArtifactListFilters(run_id=" ")
-    with pytest.raises(ValidationError):
-        AgentArtifactListPage(
-            items=[artifact],
-            total=1,
-            count=2,
-            limit=1,
-            offset=0,
-            order_direction="asc",
-            filters=AgentArtifactListFilters(),
-        )
-
-
-def test_artifact_download_info_is_pydantic_contract() -> None:
-    info = AgentArtifactDownloadInfo(
-        artifact_id="artifact_1",
-        filename="Run_run_1_export.json",
-        media_type="application/json",
-        content_length=128,
-        disposition="attachment",
-        source_path="/exports/runs/run_1.export.json",
-    )
-
-    assert info.model_dump(mode="json") == {
-        "artifact_id": "artifact_1",
-        "filename": "Run_run_1_export.json",
-        "media_type": "application/json",
-        "content_length": 128,
-        "disposition": "attachment",
-        "source_path": "/exports/runs/run_1.export.json",
-    }
-
-    with pytest.raises(ValidationError):
-        AgentArtifactDownloadInfo(
-            artifact_id="artifact_1",
-            filename="../bad.json",
-            media_type="application/json",
-            content_length=128,
-            disposition="attachment",
-        )
-    with pytest.raises(ValidationError):
-        AgentArtifactDownloadInfo(
-            artifact_id="artifact_1",
-            filename="",
-            media_type="application/json",
-            content_length=128,
-            disposition="attachment",
-        )
-
-
 def test_run_export_bundle_models_are_pydantic_contracts() -> None:
     run = AgentRun(
         id="run_1",
@@ -747,16 +593,6 @@ def test_run_export_bundle_models_are_pydantic_contracts() -> None:
         created_at="2026-06-18T00:00:01Z",
         resolved_at="2026-06-18T00:00:02Z",
     )
-    artifact = AgentArtifact(
-        id="artifact_1",
-        org_id="org_1",
-        workspace_id=run.workspace_id,
-        run_id=run.id,
-        type="report",
-        name="Report",
-        uri="/reports/report.md",
-        created_at="2026-06-18T00:00:03Z",
-    )
     workspace_snapshot = AgentWorkspaceSnapshot(
         workspace_id=run.workspace_id,
         version=1,
@@ -783,7 +619,6 @@ def test_run_export_bundle_models_are_pydantic_contracts() -> None:
         trace_span_count=1,
         todo_count=1,
         approval_count=1,
-        artifact_count=1,
         workspace_file_count=1,
     )
     bundle = AgentRunExportBundle(
@@ -794,7 +629,6 @@ def test_run_export_bundle_models_are_pydantic_contracts() -> None:
         trace=[{"id": "run:run_1", "kind": "run", "status": "completed"}],
         todos=[todo],
         approvals=[approval],
-        artifacts=[artifact],
         workspace_snapshot=workspace_snapshot,
         summary=summary,
     )
@@ -803,7 +637,7 @@ def test_run_export_bundle_models_are_pydantic_contracts() -> None:
 
     assert dumped["schema_version"] == "run_export.v1"
     assert dumped["run"]["id"] == "run_1"
-    assert dumped["summary"]["artifact_count"] == 1
+    assert dumped["summary"]["workspace_file_count"] == 1
     assert dumped["workspace_snapshot"]["file_count"] == 1
 
     with pytest.raises(ValidationError):
@@ -815,13 +649,12 @@ def test_run_export_bundle_models_are_pydantic_contracts() -> None:
             trace=[],
             todos=[todo],
             approvals=[approval],
-            artifacts=[artifact],
             workspace_snapshot=workspace_snapshot,
             summary=summary,
         )
 
 
-def test_run_export_artifact_result_validates_artifact_pointer() -> None:
+def test_run_export_file_result_validates_workspace_file_pointer() -> None:
     summary = AgentRunExportSummary(
         run_id="run_1",
         workspace_id="ws_1",
@@ -830,20 +663,7 @@ def test_run_export_artifact_result_validates_artifact_pointer() -> None:
         trace_span_count=1,
         todo_count=0,
         approval_count=0,
-        artifact_count=1,
         workspace_file_count=1,
-    )
-    artifact = AgentArtifact(
-        id="artifact_1",
-        org_id="org_1",
-        workspace_id="ws_1",
-        run_id="run_1",
-        type="json",
-        name="Run export",
-        media_type="application/json",
-        uri="/exports/runs/run_1.export.json",
-        content={"path": "/exports/runs/run_1.export.json"},
-        created_at="2026-06-18T00:00:00Z",
     )
     workspace_file = AgentWorkspaceFile(
         workspace_id="ws_1",
@@ -856,22 +676,19 @@ def test_run_export_artifact_result_validates_artifact_pointer() -> None:
         created_at="2026-06-18T00:00:00Z",
         updated_at="2026-06-18T00:00:00Z",
     )
-    result = AgentRunExportArtifactResult(
-        artifact=artifact,
+    result = AgentRunExportFileResult(
         workspace_file=workspace_file,
         export_summary=summary,
         schema_version="run_export.v1",
         path="/exports/runs/run_1.export.json",
     )
 
-    assert result.artifact.id == "artifact_1"
     assert result.workspace_file.content_hash == "sha256:abc"
     assert result.export_summary.run_id == "run_1"
 
     with pytest.raises(ValidationError):
-        AgentRunExportArtifactResult(
-            artifact=artifact.model_copy(update={"uri": "/different.json"}),
-            workspace_file=workspace_file,
+        AgentRunExportFileResult(
+            workspace_file=workspace_file.model_copy(update={"path": "/different.json"}),
             export_summary=summary,
             schema_version="run_export.v1",
             path="/exports/runs/run_1.export.json",
@@ -1041,7 +858,7 @@ def test_approval_policy_validates_supported_decision_and_risk_entries() -> None
         AgentApprovalPolicy(require_approval_for_risk=["write", " "])
 
 
-def test_workbench_workflow_draft_is_structured_non_executable_artifact_content() -> None:
+def test_workbench_workflow_draft_is_structured_non_executable_workspace_file_content() -> None:
     draft = WorkbenchWorkflowDraft(
         title="Review generated report",
         summary="Draft a future Workbench workflow for report review.",
@@ -1049,7 +866,7 @@ def test_workbench_workflow_draft_is_structured_non_executable_artifact_content(
         source_workspace_id="workspace_1",
         source_thread_id="thread_1",
         suggested_steps=[
-            "Collect report artifact.",
+            "Collect report workspace file.",
             "Ask a reviewer for approval.",
             "Publish the approved report.",
         ],
@@ -1063,7 +880,7 @@ def test_workbench_workflow_draft_is_structured_non_executable_artifact_content(
 
     assert payload["title"] == "Review generated report"
     assert payload["source_run_id"] == "run_1"
-    assert payload["suggested_steps"][0] == "Collect report artifact."
+    assert payload["suggested_steps"][0] == "Collect report workspace file."
     assert payload["draft_kind"] == "workbench_workflow_draft"
     assert payload["executable"] is False
 
@@ -1120,9 +937,9 @@ def test_tool_recovery_contract_serializes_stable_values() -> None:
         kind=AgentToolFailureKind.INVALID_INPUT,
         action=AgentToolRecoveryAction.RETRY_WITH_CORRECTED_INPUT,
         message="Path is outside allowed workspace paths.",
-        model_guidance="Retry with an absolute path under /artifacts.",
-        suggested_input={"path": "/artifacts/index.html"},
-        allowed_values={"allowed_paths": ["/artifacts"]},
+        model_guidance="Retry with an absolute path under /outputs.",
+        suggested_input={"path": "/outputs/interactive-demo.html"},
+        allowed_values={"allowed_paths": ["/outputs"]},
         retry_after_ms=None,
         attempt_key="workspace_path_policy",
         max_attempts=2,
@@ -1141,9 +958,9 @@ def test_tool_recovery_contract_serializes_stable_values() -> None:
         "kind": "invalid_input",
         "action": "retry_with_corrected_input",
         "message": "Path is outside allowed workspace paths.",
-        "model_guidance": "Retry with an absolute path under /artifacts.",
-        "suggested_input": {"path": "/artifacts/index.html"},
-        "allowed_values": {"allowed_paths": ["/artifacts"]},
+        "model_guidance": "Retry with an absolute path under /outputs.",
+        "suggested_input": {"path": "/outputs/interactive-demo.html"},
+        "allowed_values": {"allowed_paths": ["/outputs"]},
         "retry_after_ms": None,
         "attempt_key": "workspace_path_policy",
         "max_attempts": 2,

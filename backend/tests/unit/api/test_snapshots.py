@@ -327,7 +327,7 @@ def test_inspection_summary_exposes_external_run_diagnostics() -> None:
             ),
         ],
         todos=[],
-        artifacts=[],
+        workspace_files=[],
         approvals=[],
         trace=[],
     )
@@ -364,7 +364,6 @@ def test_inspection_summary_exposes_sandbox_diagnostics() -> None:
         "workspace_effects": {
             "declared_count": 1,
             "persisted_count": 1,
-            "promoted_count": 1,
             "paths": ["/reports/summary.md"],
             "persistence_error": None,
         },
@@ -390,7 +389,6 @@ def test_inspection_summary_exposes_sandbox_diagnostics() -> None:
         "workspace_effects": {
             "declared_count": 1,
             "persisted_count": 0,
-            "promoted_count": 0,
             "paths": [],
             "persistence_error": {"message": "Path is outside allowed workspace paths"},
         },
@@ -422,7 +420,7 @@ def test_inspection_summary_exposes_sandbox_diagnostics() -> None:
             ),
         ],
         todos=[],
-        artifacts=[],
+        workspace_files=[],
         approvals=[],
         trace=[],
     )
@@ -433,17 +431,14 @@ def test_inspection_summary_exposes_sandbox_diagnostics() -> None:
         "health_failed",
         "sandbox_failed",
         "sandbox_workspace_side_effect",
-        "sandbox_artifact_promotion",
         "sandbox_persistence_error",
     ]
     assert summary.failed_sandbox_run_count == 1
     assert summary.sandbox_workspace_file_count == 1
-    assert summary.sandbox_artifact_promotion_count == 1
     assert summary.sandbox_persistence_error_count == 1
-    assert summary.sandbox_operator_action_count == 5
+    assert summary.sandbox_operator_action_count == 4
     assert [action.kind for action in summary.sandbox_operator_actions] == [
         "inspect_workspace_file",
-        "review_artifact_promotions",
         "inspect_sandbox_error",
         "review_workspace_policy",
         "retry_sandbox_run",
@@ -456,7 +451,6 @@ def test_inspection_summary_exposes_sandbox_diagnostics() -> None:
     completed_actions = summary.sandbox_runs[0].operator_actions
     assert [action.kind for action in completed_actions] == [
         "inspect_workspace_file",
-        "review_artifact_promotions",
     ]
     assert completed_actions[0].method == "GET"
     assert completed_actions[0].path == "/api/workspaces/workspace_1/files/reports/summary.md"
@@ -516,7 +510,7 @@ def test_inspection_summary_exposes_active_external_run_staleness() -> None:
             )
         ],
         todos=[],
-        artifacts=[],
+        workspace_files=[],
         approvals=[],
         trace=[],
         reference_time="2026-06-18T01:00:01Z",

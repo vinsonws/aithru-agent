@@ -61,7 +61,7 @@ export interface PresentationEntry {
   summary?: string;
   reason?: string;
   resource: {
-    kind: "artifact" | "workspace_file" | "approval" | "todo" | "run" | "trace_span" | "external_url" | "none";
+    kind: "workspace_file" | "approval" | "todo" | "run" | "trace_span" | "external_url" | "none";
     id?: string;
     path?: string;
     url?: string;
@@ -88,6 +88,7 @@ export interface PresentationEntry {
   lastSequence?: number;
   createdAt?: string;
   updatedAt?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface InlineRequest {
@@ -891,6 +892,7 @@ export function reduceEvent(state: RunStreamState, event: AgentStreamEvent): Run
         availableViews: (payload.available_views as PresentationEntry["availableViews"] | undefined) ?? existing?.availableViews ?? ["none"],
         effects: (payload.effects as PresentationEntry["effects"] | undefined) ?? existing?.effects,
         actions: (payload.actions as PresentationEntry["actions"] | undefined) ?? existing?.actions,
+        metadata: (payload.metadata as Record<string, unknown> | undefined) ?? existing?.metadata,
         sequence: existing?.sequence ?? sequenceOf(event),
         lastSequence: sequenceOf(event),
         createdAt: existing?.createdAt ?? event.timestamp,

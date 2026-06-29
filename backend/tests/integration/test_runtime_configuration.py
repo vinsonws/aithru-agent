@@ -82,7 +82,7 @@ class StaticHandler(BaseHTTPRequestHandler):
                     "status": "completed",
                     "output": {
                         "capability_key": payload["capability_key"],
-                        "artifact_id": payload["input"]["artifact_id"],
+                        "workspace_path": payload["input"]["workspace_path"],
                         "run_id": payload["run_id"],
                     },
                     "redaction": "partial",
@@ -299,7 +299,7 @@ async def test_runtime_installs_workflow_capabilities_only_when_injected() -> No
         AgentToolCallRequest(
             id="toolcall_1",
             tool_name="workflow.report_review",
-            input={"artifact_id": "artifact_1"},
+            input={"workspace_path": "/reports/report.md"},
             requested_by="model",
         ),
         context,
@@ -310,7 +310,7 @@ async def test_runtime_installs_workflow_capabilities_only_when_injected() -> No
     assert result.status == "completed"
     assert result.output == {
         "capability_key": "report_review",
-        "input": {"artifact_id": "artifact_1"},
+            "input": {"workspace_path": "/reports/report.md"},
     }
     assert result.external_run == AgentExternalRunRef(
         kind="workflow_capability",
@@ -573,7 +573,7 @@ async def test_runtime_configured_http_json_workflow_capability_executes_through
         AgentToolCallRequest(
             id="toolcall_1",
             tool_name="workflow.report_review",
-            input={"artifact_id": "artifact_1"},
+            input={"workspace_path": "/reports/report.md"},
             requested_by="model",
         ),
         context,
@@ -582,7 +582,7 @@ async def test_runtime_configured_http_json_workflow_capability_executes_through
     assert result.status == "completed"
     assert result.output == {
         "capability_key": "report_review",
-        "artifact_id": "artifact_1",
+        "workspace_path": "/reports/report.md",
         "run_id": "run_1",
     }
     assert result.redaction == "partial"
@@ -603,10 +603,10 @@ async def test_runtime_installs_workbench_draft_tool_behind_scopes() -> None:
         org_id="org_1",
         actor_user_id="user_1",
         workspace_id="workspace_1",
-        scopes=["agent.artifact.write"],
+        scopes=["agent.workspace.write"],
     )
     scoped_context = base_context.model_copy(
-        update={"scopes": ["agent.artifact.write", "agent.workbench.write"]}
+        update={"scopes": ["agent.workspace.write", "agent.workbench.write"]}
     )
 
     assert "workbench.workflow_draft.create" not in [

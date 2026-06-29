@@ -2,7 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Download, X, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { runsApi, workspacesApi, artifactsApi } from "@/lib/api";
+import { runsApi, workspacesApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Markdown, CodeBlock } from "@/components/Markdown";
 import { LoadingState, EmptyState, ErrorState } from "@/components/shared/states";
@@ -47,27 +47,13 @@ export function FilePreviewPanel({
     enabled: !!workspaceId && !snapshotQuery.data?.workspace_files,
   });
 
-  const artifactsQuery = useQuery({
-    queryKey: ["artifacts", runId],
-    queryFn: () => artifactsApi.list({ run_id: runId! }),
-    enabled: !!runId,
-  });
-
   const snapshot = snapshotQuery.data;
   const workspaceFiles = (snapshot?.workspace_files as Array<{ path: string; size?: number; media_type?: string | null }> | undefined) ?? workspaceQuery.data ?? [];
-  const artifactsData = artifactsQuery.data;
-  const artifacts = Array.isArray(artifactsData)
-    ? artifactsData
-    : (artifactsData as { items?: unknown[] } | undefined)?.items ?? [];
 
   const views = buildRunFileViews({
     snapshot,
+    workspaceId,
     workspaceFiles: workspaceFiles as Array<{ path: string; size?: number; media_type?: string | null }>,
-    artifacts: artifacts as Array<{
-      id: string; name: string; type?: string; media_type?: string | null;
-      created_at?: string; finalized_at?: string | null; finalized?: unknown;
-      uri?: string | null; metadata?: Record<string, unknown> | null;
-    }>,
   });
 
   const openFiles = views.filter((v) => openFileIds.includes(v.id));
@@ -203,24 +189,20 @@ interface FilePreviewData {
 }
 
 async function readFilePreview(file: RunFileView, workspaceId: string | null): Promise<FilePreviewData> {
-  if (file.kind === "artifact" && file.artifactId) {
-    const response = await artifactsApi.content(file.artifactId);
-    const mediaType = response.headers.get("content-type");
-    if (file.previewKind === "html") {
-      return { kind: file.previewKind, mediaType, url: file.previewHref };
-    }
-    if (file.previewKind === "image") {
-      return { kind: file.previewKind, mediaType, dataUrl: await blobToDataUrl(await response.blob()) };
-    }
-    return { kind: file.previewKind, mediaType, content: await response.text(), url: file.previewHref };
-  }
   if (!workspaceId || !file.path) throw new Error("No workspace file is available to preview.");
+  if (file.previewKind === "html" || file.previewKind === "pdf") {
+    return {
+      kind: file.previewKind,
+      mediaType: null,
+      url: workspacesApi.contentUrl(workspaceId, file.path),
+    };
+  }
   if (file.previewKind === "image") {
     const image = await workspacesApi.viewImage(workspaceId, file.path);
     return { kind: "image", mediaType: image.media_type, dataUrl: `data:${image.media_type};base64,${image.content_base64}` };
   }
   const result = await workspacesApi.readFile(workspaceId, file.path);
-  return { kind: file.previewKind, mediaType: result.media_type, content: result.content };
+  return { kind: file.previewKind, mediaType: result.media_type, content: String(result.content) };
 }
 
 function PreviewBody({ file, preview }: { file: RunFileView; preview: FilePreviewData }) {
@@ -269,13 +251,4 @@ function PreviewBody({ file, preview }: { file: RunFileView; preview: FilePrevie
 
 function formatJsonContent(content: string): string {
   try { return JSON.stringify(JSON.parse(content), null, 2); } catch { return content; }
-}
-
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
 }

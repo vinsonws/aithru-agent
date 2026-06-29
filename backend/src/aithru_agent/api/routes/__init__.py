@@ -4,7 +4,6 @@ from fastapi import FastAPI
 
 from aithru_agent.api.routes import (
     approvals,
-    artifacts,
     events,
     external_tools,
     health,
@@ -33,7 +32,6 @@ def include_agent_routes(app: FastAPI) -> None:
         model_profiles.router,
         approvals.router,
         workspaces.router,
-        artifacts.router,
         skills.router,
         subagents.router,
         long_term_memory.router,

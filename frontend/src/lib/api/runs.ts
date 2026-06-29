@@ -6,7 +6,6 @@ import type {
   AgentTraceSpan,
   AgentTodo,
   AgentApproval,
-  AgentArtifact,
   AgentSubagentRun,
   AgentToolDescriptor,
   AgentSubagentSpec,
@@ -23,7 +22,6 @@ export interface RunSnapshot {
   todos?: AgentTodo[];
   approvals?: AgentApproval[];
   workspace_files?: unknown[];
-  artifacts?: AgentArtifact[];
   subagents?: AgentSubagentRun[];
   summary?: unknown;
   [key: string]: unknown;

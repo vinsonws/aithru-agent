@@ -6,7 +6,6 @@ from .base import AithruBaseModel
 
 
 AgentPresentationResourceKind = Literal[
-    "artifact",
     "workspace_file",
     "approval",
     "todo",
@@ -77,8 +76,6 @@ class AgentPresentationResource(AithruBaseModel):
 
     @model_validator(mode="after")
     def _resource_has_required_reference(self) -> "AgentPresentationResource":
-        if self.kind == "artifact" and self.id is None:
-            raise ValueError("artifact presentation resources require id")
         if self.kind == "workspace_file" and self.path is None:
             raise ValueError("workspace file presentation resources require path")
         if self.kind in {"approval", "todo", "run", "trace_span"} and self.id is None:

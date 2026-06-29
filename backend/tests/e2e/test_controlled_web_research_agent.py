@@ -11,6 +11,7 @@ from aithru_agent.agent import AgentRuntime, AgentRuntimeResult, PydanticAgentDe
 from aithru_agent.agent.tools import PydanticAIToolBridge
 from aithru_agent.application.runtime import create_agent_runtime
 from aithru_agent.settings import AgentSettings
+from aithru_agent.stream import AgentStreamEvent
 from aithru_agent.trace import project_trace_spans
 
 
@@ -77,6 +78,17 @@ class ToolContext:
         self.tool_call_id = tool_call_id
         self.run_step = 0
         self.tool_call_approved = False
+
+
+def latest_research_report(events: list[AgentStreamEvent]) -> dict:
+    for event in reversed(events):
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        if payload.get("tool_name") != "research.create_report":
+            continue
+        output = payload.get("output")
+        if isinstance(output, dict) and isinstance(output.get("report"), dict):
+            return output["report"]
+    raise AssertionError("research.create_report output not found")
 
 
 class ControlledWebResearchRuntime(AgentRuntime):
@@ -193,26 +205,28 @@ async def test_deep_research_uses_controlled_web_search_fetch_and_report(
         scopes=["*"],
         skill_id="deep-research",
     )
-    artifacts = await runtime.store.list_artifacts(run_id=run.id)
+    files = await runtime.store.list_workspace_files(run.workspace_id)
     todos = await runtime.store.list_todos(run.id)
     events = await runtime.event_store.list_by_run(run.id)
     spans = project_trace_spans(events)
+    report = latest_research_report(events)
+    report_file = next(file for file in files if file.path == "/reports/aithru-controlled-web-research.md")
+    report_content = await runtime.store.read_workspace_file(run.workspace_id, report_file.path)
 
     assert run.status.value == "completed"
-    assert len(artifacts) == 1
-    assert artifacts[0].name == "Aithru Controlled Web Research"
-    assert artifacts[0].metadata["evidence_count"] == 1
-    assert artifacts[0].metadata["source_input_count"] == 1
-    assert artifacts[0].metadata["duplicate_source_count"] == 0
-    assert artifacts[0].metadata["quality_summary"] == {"high": 1, "medium": 0, "low": 0}
+    assert report_file.media_type == "text/markdown"
+    assert len(report["evidence"]) == 1
+    assert report["source_input_count"] == 1
+    assert report["duplicate_source_count"] == 0
+    assert report["quality_summary"] == {"high": 1, "medium": 0, "low": 0}
     assert "Controlled fetch evidence from Aithru local HTTP provider." in str(
-        artifacts[0].content
+        report_content.content
     )
-    assert "| # | Source | Quality | Evidence |" in str(artifacts[0].content)
+    assert "| # | Source | Quality | Evidence |" in str(report_content.content)
     assert "| 1 | [Local Aithru evidence for aithru controlled web research]" in str(
-        artifacts[0].content
+        report_content.content
     )
-    assert "| high |" in str(artifacts[0].content)
+    assert "| high |" in str(report_content.content)
     assert "web.search.completed" in [event.type for event in events]
     assert "web.fetch.completed" in [event.type for event in events]
     assert {todo.title: todo.status.value for todo in todos} == {
@@ -228,7 +242,6 @@ async def test_deep_research_uses_controlled_web_search_fetch_and_report(
         "tool",
         "todo",
         "web",
-        "artifact",
     }
     assert {span.name for span in spans if span.kind == "web"} == {"web.search", "web.fetch"}
 
@@ -250,18 +263,20 @@ async def test_deep_research_can_continue_after_recoverable_web_failure() -> Non
         scopes=["*"],
         skill_id="deep-research",
     )
-    artifacts = await runtime.store.list_artifacts(run_id=run.id)
+    files = await runtime.store.list_workspace_files(run.workspace_id)
     todos = await runtime.store.list_todos(run.id)
     events = await runtime.event_store.list_by_run(run.id)
     spans = project_trace_spans(events)
+    report = latest_research_report(events)
+    report_file = next(file for file in files if file.path == "/reports/aithru-recoverable-web-failure.md")
+    report_content = await runtime.store.read_workspace_file(run.workspace_id, report_file.path)
 
     assert run.status.value == "completed"
-    assert len(artifacts) == 1
-    assert artifacts[0].metadata["report_status"] == "insufficient_evidence"
-    assert artifacts[0].metadata["source_count"] == 0
-    assert artifacts[0].metadata["limitation_count"] == 1
+    assert report["status"] == "insufficient_evidence"
+    assert len(report["sources"]) == 0
+    assert len(report["limitations"]) == 1
     assert "Research source search was blocked before report creation." in str(
-        artifacts[0].content
+        report_content.content
     )
     assert {todo.title: todo.status.value for todo in todos} == {
         "Search sources": "blocked",
@@ -292,5 +307,5 @@ def test_controlled_web_research_example_script_runs_successfully() -> None:
     assert "Evidence rows: 1" in completed.stdout
     assert "Quality summary: high=1 medium=0 low=0" in completed.stdout
     assert "Web events: web.fetch.completed, web.search.completed" in completed.stdout
-    assert "Report artifact: Aithru Controlled Web Research" in completed.stdout
+    assert "Report file: /reports/aithru-controlled-web-research.md" in completed.stdout
     assert "Trace span kinds:" in completed.stdout

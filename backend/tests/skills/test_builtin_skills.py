@@ -42,8 +42,6 @@ def test_builtin_deep_research_skill() -> None:
         "web.search",
         "web.fetch",
         "research.create_report",
-        "artifact.create",
-        "artifact.finalize",
         "presentation.present",
     ]
     assert isinstance(skill.workspace_policy, AgentWorkspacePolicy)
@@ -60,8 +58,9 @@ def test_builtin_surprise_me_skill() -> None:
     assert skill.id == "skill_surprise_me"
     assert skill.key == "surprise-me"
     assert skill.name == "Surprise Me"
-    assert "artifact.create" in skill.allowed_tools
-    assert "/artifacts" in skill.instructions
+    assert "workspace.write_file" in skill.allowed_tools
+    assert "presentation.present" in skill.allowed_tools
+    assert "/outputs" in skill.instructions
 
 
 def test_builtin_bootstrap_skill() -> None:
@@ -100,9 +99,10 @@ def test_builtin_frontend_design_skill() -> None:
     assert skill.id == "skill_frontend_design"
     assert skill.key == "frontend-design"
     assert skill.name == "Frontend Design"
-    assert "artifact.create" in skill.allowed_tools
+    assert "workspace.write_file" in skill.allowed_tools
+    assert "presentation.present" in skill.allowed_tools
     assert "index.html" not in skill.instructions
-    assert "/artifacts" in skill.instructions
+    assert "/outputs" in skill.instructions
     assert "descriptive" in skill.instructions
 
 
@@ -113,7 +113,8 @@ def test_builtin_chart_visualization_skill() -> None:
     assert skill.id == "skill_chart_visualization"
     assert skill.key == "chart-visualization"
     assert skill.name == "Chart Visualization"
-    assert "artifact.create" in skill.allowed_tools
+    assert "workspace.write_file" in skill.allowed_tools
+    assert "presentation.present" in skill.allowed_tools
 
 
 def test_builtin_web_design_guidelines_skill() -> None:
@@ -133,7 +134,8 @@ def test_builtin_ppt_generation_skill() -> None:
     assert skill.id == "skill_ppt_generation"
     assert skill.key == "ppt-generation"
     assert skill.name == "PPT Generation"
-    assert "artifact.create" in skill.allowed_tools
+    assert "workspace.write_file" in skill.allowed_tools
+    assert "presentation.present" in skill.allowed_tools
 
 
 def test_builtin_data_analysis_skill() -> None:

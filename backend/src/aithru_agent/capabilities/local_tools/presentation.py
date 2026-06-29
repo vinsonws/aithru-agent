@@ -26,9 +26,8 @@ from ..descriptors import AgentRunContext
 
 
 class PresentResourceRef(AithruBaseModel):
-    kind: Literal["workspace_file", "artifact"]
+    kind: Literal["workspace_file"]
     path: str | None = None
-    id: str | None = None
 
 
 class PresentationEffectRequest(AithruBaseModel):
@@ -66,7 +65,7 @@ class PresentationLocalTool:
                 name="presentation.present",
                 kind=AgentToolKind.LOCAL_TOOL,
                 description=(
-                    "Request that existing workspace files or artifacts be presented to the user. "
+                    "Request that existing workspace files be presented to the user. "
                     "The harness validates resources, views, surfaces, actions, and effects; "
                     "the tool does not accept custom UI schemas."
                 ),
@@ -140,12 +139,6 @@ class PresentationLocalTool:
                 request_id=request_id,
                 context=context,
             )
-        return await self._build_artifact_presentation(
-            resource_ref=resource_ref,
-            input_data=input_data,
-            request_id=request_id,
-            context=context,
-        )
 
     async def _build_workspace_file_presentation(
         self,
@@ -180,46 +173,6 @@ class PresentationLocalTool:
                 "workspace_id": file.workspace_id,
                 "media_type": file.media_type,
                 "size": file.size,
-            },
-        )
-
-    async def _build_artifact_presentation(
-        self,
-        *,
-        resource_ref: PresentResourceRef,
-        input_data: PresentationPresentRequest,
-        request_id: str,
-        context: AgentRunContext,
-    ) -> tuple[AgentPresentation | None, dict | None]:
-        if resource_ref.id is None:
-            return None, {"resource": {"kind": "artifact"}, "reason": "artifact resources require id"}
-        artifact = await self._store.get_artifact(resource_ref.id)
-        if artifact is None:
-            return None, {"resource": {"kind": "artifact", "id": resource_ref.id}, "reason": f"Artifact does not exist: {resource_ref.id}"}
-        if artifact.workspace_id != context.workspace_id:
-            return None, {"resource": {"kind": "artifact", "id": resource_ref.id}, "reason": f"Artifact is outside this workspace: {resource_ref.id}"}
-        if artifact.run_id is not None and artifact.run_id != context.run_id:
-            return None, {"resource": {"kind": "artifact", "id": resource_ref.id}, "reason": f"Artifact is outside this run: {resource_ref.id}"}
-        name = artifact.name
-        views = available_views_for_file(name=name, media_type=artifact.media_type, artifact_type=artifact.type)
-        preferred = _coerce_preferred_view(input_data.preferred_view, views)
-        preferred_view, rejection = preferred
-
-        return self._make_presentation(
-            resource=AgentPresentationResource(kind="artifact", id=artifact.id),
-            title=name,
-            summary=artifact.uri,
-            input_data=input_data,
-            request_id=request_id,
-            context=context,
-            available_views=views,
-            preferred_view=preferred_view,
-            rejection=rejection,
-            resource_ref={"kind": "artifact", "id": resource_ref.id},
-            metadata={
-                "type": artifact.type,
-                "media_type": artifact.media_type,
-                "uri": artifact.uri,
             },
         )
 

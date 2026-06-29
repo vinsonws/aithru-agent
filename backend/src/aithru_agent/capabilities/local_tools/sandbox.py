@@ -1,11 +1,9 @@
 import base64
-from pathlib import PurePosixPath
 from typing import Any
 
 from pydantic import ValidationError
 
 from aithru_agent.domain import (
-    AgentArtifactPromotionResult,
     AgentWorkspaceDiff,
     AgentWorkspacePatchResult,
     AgentWorkspaceFile,
@@ -30,7 +28,6 @@ from aithru_agent.sandbox import (
     SandboxFileDeleteResult,
     SandboxFileListRequest,
     SandboxFileListResult,
-    SandboxFilePromotionRequest,
     SandboxFileReadRequest,
     SandboxFileReadResult,
     SandboxFileWriteRequest,
@@ -122,23 +119,6 @@ class SandboxLocalTool:
                 approval_policy="on_risk",
             ),
             AgentToolDescriptor(
-                name="sandbox.promote_file",
-                kind=AgentToolKind.LOCAL_TOOL,
-                description=(
-                    "Promote a current Agent workspace file to a managed artifact through "
-                    "the sandbox boundary."
-                ),
-                input_schema=SandboxFilePromotionRequest.model_json_schema(),
-                output_schema=AgentArtifactPromotionResult.model_json_schema(),
-                risk_level=AgentToolRiskLevel.WRITE,
-                required_scopes=[
-                    "agent.sandbox.execute",
-                    "agent.workspace.read",
-                    "agent.artifact.write",
-                ],
-                approval_policy="on_risk",
-            ),
-            AgentToolDescriptor(
                 name="sandbox.run_python",
                 kind=AgentToolKind.LOCAL_TOOL,
                 description="Run restricted Python code with explicit input and captured output.",
@@ -167,8 +147,6 @@ class SandboxLocalTool:
             return await self._patch_workspace_file(request, context)
         if request.tool_name == "sandbox.delete_file":
             return await self._delete_workspace_file(request, context)
-        if request.tool_name == "sandbox.promote_file":
-            return await self._promote_workspace_file(request, context)
         if request.tool_name != "sandbox.run_python":
             return AgentToolCallResult(
                 status="denied",
@@ -336,8 +314,6 @@ class SandboxLocalTool:
             return [], {"message": "Sandbox declared workspace files but no workspace store is configured"}
         if not _can_write_workspace(context.scopes):
             return [], {"message": "Missing required scope: agent.workspace.write"}
-        if any(file.artifact is not None for file in files) and not _can_write_artifact(context.scopes):
-            return [], {"message": "Missing required scope: agent.artifact.write"}
         for file in files:
             if not _path_allowed(file.path, context.workspace_allowed_paths):
                 return [], {
@@ -363,38 +339,7 @@ class SandboxLocalTool:
                 source={"kind": "workspace"},
                 payload=payload,
             )
-            promotion = None
-            if file.artifact is not None:
-                promotion = await self._store.promote_workspace_file_to_artifact(
-                    org_id=context.org_id,
-                    workspace_id=context.workspace_id,
-                    path=file.path,
-                    name=file.artifact.name,
-                    type=file.artifact.type,
-                    run_id=context.run_id,
-                    metadata={
-                        "sandbox": {
-                            "sandbox_run_id": sandbox_run_id,
-                            "run_id": context.run_id,
-                            "path": file.path,
-                        }
-                    },
-                )
-                await self._event_writer.write(
-                    run_id=context.run_id,
-                    thread_id=context.thread_id,
-                    type="artifact.created",
-                    source={"kind": "artifact"},
-                    payload={
-                        "source": "sandbox.run_python",
-                        "sandbox_run_id": sandbox_run_id,
-                        "artifact_id": promotion.artifact.id,
-                        **promotion.artifact.model_dump(mode="json"),
-                    },
-                )
-            persisted.append(
-                _workspace_output_payload(file=file, written=written, promotion=promotion)
-            )
+            persisted.append(_workspace_output_payload(file=file, written=written))
         return persisted, None
 
     async def _read_workspace_file(
@@ -620,77 +565,6 @@ class SandboxLocalTool:
             redaction="none",
         )
 
-    async def _promote_workspace_file(
-        self,
-        request: AgentToolCallRequest,
-        context: AgentRunContext,
-    ) -> AgentToolCallResult:
-        if self._store is None:
-            return AgentToolCallResult(
-                status="failed",
-                error={"message": "Sandbox file promotion requires a workspace store"},
-                redaction="none",
-            )
-        promotion_request = _file_promotion_request(request.input)
-        if isinstance(promotion_request, AgentToolCallResult):
-            return promotion_request
-        if not _path_allowed(promotion_request.path, context.workspace_allowed_paths):
-            return AgentToolCallResult(
-                status="denied",
-                error={
-                    "message": f"Path is outside allowed workspace paths: {promotion_request.path}"
-                },
-                redaction="none",
-            )
-        name = (
-            promotion_request.name
-            or PurePosixPath(promotion_request.path).name
-            or promotion_request.path
-        )
-        metadata = {
-            **(promotion_request.metadata or {}),
-            "sandbox": {
-                "source": "sandbox.promote_file",
-                "tool_call_id": request.id,
-                "run_id": context.run_id,
-                "path": promotion_request.path,
-            },
-        }
-        try:
-            promotion = await self._store.promote_workspace_file_to_artifact(
-                org_id=context.org_id,
-                workspace_id=context.workspace_id,
-                path=promotion_request.path,
-                name=name,
-                type=promotion_request.type,
-                run_id=context.run_id,
-                retention=promotion_request.retention,
-                metadata=metadata,
-            )
-        except AgentError as err:
-            return AgentToolCallResult(
-                status="denied",
-                error={"message": err.message},
-                redaction="none",
-            )
-        await self._event_writer.write(
-            run_id=context.run_id,
-            thread_id=context.thread_id,
-            type="artifact.created",
-            source={"kind": "artifact"},
-            payload={
-                "source": "sandbox.promote_file",
-                "tool_call_id": request.id,
-                "artifact_id": promotion.artifact.id,
-                **promotion.artifact.model_dump(mode="json"),
-            },
-        )
-        return AgentToolCallResult(
-            status="completed",
-            output=promotion.model_dump(mode="json"),
-            redaction="none",
-        )
-
     async def _write_workspace_file(
         self,
         request: AgentToolCallRequest,
@@ -846,26 +720,6 @@ def _file_delete_request(value: object) -> SandboxFileDeleteRequest | AgentToolC
         )
 
 
-def _file_promotion_request(value: object) -> SandboxFilePromotionRequest | AgentToolCallResult:
-    try:
-        return SandboxFilePromotionRequest.model_validate(_input_dict(value))
-    except ValidationError as err:
-        return AgentToolCallResult(
-            status="denied",
-            error={
-                "message": "Invalid sandbox file promotion request",
-                "details": err.errors(include_context=False),
-            },
-            redaction="none",
-        )
-    except TypeError as err:
-        return AgentToolCallResult(
-            status="denied",
-            error={"message": str(err)},
-            redaction="none",
-        )
-
-
 def _file_patch_request(value: object) -> AgentWorkspaceTextPatchRequest | AgentToolCallResult:
     try:
         return AgentWorkspaceTextPatchRequest.model_validate(_input_dict(value))
@@ -979,7 +833,6 @@ def _workspace_effects_summary(
     return SandboxWorkspaceEffectsSummary(
         declared_count=len(declared_files),
         persisted_count=len(persisted_files),
-        promoted_count=sum(1 for file in persisted_files if file.get("artifact") is not None),
         paths=[
             path
             for file in persisted_files
@@ -1061,24 +914,16 @@ def _can_write_workspace(scopes: list[str]) -> bool:
     return "*" in scopes or "agent.workspace.write" in scopes
 
 
-def _can_write_artifact(scopes: list[str]) -> bool:
-    return "*" in scopes or "agent.artifact.write" in scopes
-
-
 def _workspace_output_payload(
     *,
     file: SandboxWorkspaceOutputFile,
     written: AgentWorkspaceFile,
-    promotion: AgentArtifactPromotionResult | None,
 ) -> dict[str, object]:
-    payload: dict[str, object] = {
+    return {
         "path": file.path,
         "media_type": file.media_type,
         "file": written.model_dump(mode="json"),
     }
-    if promotion is not None:
-        payload["artifact"] = promotion.model_dump(mode="json")
-    return payload
 
 
 def _path_allowed(path: str, allowed_paths: list[str] | None) -> bool:

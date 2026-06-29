@@ -23,8 +23,8 @@ class FakeWorkflowProvider:
                 description="Run the Workbench report review capability.",
                 input_schema={
                     "type": "object",
-                    "properties": {"artifact_id": {"type": "string"}},
-                    "required": ["artifact_id"],
+                    "properties": {"workspace_path": {"type": "string"}},
+                    "required": ["workspace_path"],
                 },
                 output_schema={"type": "object"},
                 risk_level="write",
@@ -40,7 +40,7 @@ class FakeWorkflowProvider:
             status="completed",
             output={
                 "accepted": True,
-                "artifact_id": invocation.input["artifact_id"],
+                "workspace_path": invocation.input["workspace_path"],
             },
             redaction="partial",
             external_run=AgentExternalRunRef(
@@ -148,7 +148,7 @@ async def test_workflow_capability_adapter_lists_and_invokes_provider_runs() -> 
         AgentToolCallRequest(
             id="toolcall_1",
             tool_name="workflow.report_review",
-            input={"artifact_id": "artifact_1"},
+            input={"workspace_path": "/reports/report.md"},
             requested_by="model",
         ),
         context,
@@ -159,7 +159,7 @@ async def test_workflow_capability_adapter_lists_and_invokes_provider_runs() -> 
     assert tools[0].required_scopes == ["workflow.capability.report_review.invoke"]
     assert tools[0].failure_policy == "fail_run"
     assert result.status == "completed"
-    assert result.output == {"accepted": True, "artifact_id": "artifact_1"}
+    assert result.output == {"accepted": True, "workspace_path": "/reports/report.md"}
     assert result.redaction == "partial"
     assert result.external_run == AgentExternalRunRef(
         kind="workflow_capability",
@@ -173,7 +173,7 @@ async def test_workflow_capability_adapter_lists_and_invokes_provider_runs() -> 
             tool_call_id="toolcall_1",
             tool_name="workflow.report_review",
             capability_key="report_review",
-            input={"artifact_id": "artifact_1"},
+            input={"workspace_path": "/reports/report.md"},
             run_id="run_1",
             org_id="org_1",
             actor_user_id="user_1",
@@ -210,7 +210,7 @@ async def test_workflow_capability_adapter_respects_scopes_and_allowed_tools() -
         AgentToolCallRequest(
             id="toolcall_1",
             tool_name="workflow.report_review",
-            input={"artifact_id": "artifact_1"},
+            input={"workspace_path": "/reports/report.md"},
             requested_by="model",
         ),
         base_context,

@@ -70,7 +70,6 @@ export const PERMISSION_POLICIES: ComposerPermissionPolicy[] = [
       "agent.workspace.read",
       "agent.workspace.write",
       "agent.todo.write",
-      "agent.artifact.write",
       "agent.research.write",
       "agent.input.write",
       "agent.memory.read",

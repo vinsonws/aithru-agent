@@ -12,7 +12,6 @@ AgentTraceSpanKind = Literal[
     "approval",
     "subagent",
     "workspace",
-    "artifact",
     "external_run",
     "sandbox",
     "memory",
