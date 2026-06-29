@@ -432,10 +432,13 @@ function completeAssistantOutputSegments(
     };
   }
 
+  const reconciledSegments = content
+    ? reconcileAssistantOutputSegments(currentSegments, messageId, content)
+    : currentSegments;
   const latestId = messageSegments.at(-1)?.id;
   return {
     ...state,
-    assistantOutputSegments: currentSegments.map((segment) =>
+    assistantOutputSegments: reconciledSegments.map((segment) =>
       segment.id === latestId
         ? {
             ...segment,
@@ -455,6 +458,49 @@ function completeAssistantOutputSegments(
           : segment,
     ),
   };
+}
+
+function reconcileAssistantOutputSegments(
+  segments: ChatMessage[],
+  messageId: string,
+  completedContent: string,
+): ChatMessage[] {
+  const sourcePrefix = `${messageId}:output:`;
+  const indexedSegments = segments
+    .map((segment, index) => ({ segment, index }))
+    .filter(({ segment }) => segment.id.startsWith(sourcePrefix));
+  if (indexedSegments.length === 0) return segments;
+
+  const currentContent = indexedSegments.map(({ segment }) => segment.content).join("");
+  if (!completedContent || currentContent === completedContent) return segments;
+
+  let cursor = 0;
+  const repairedContentByIndex = new Map<number, string>();
+  for (const { segment, index } of indexedSegments) {
+    if (!segment.content) {
+      repairedContentByIndex.set(index, "");
+      continue;
+    }
+    const position = completedContent.indexOf(segment.content, cursor);
+    if (position < 0) return segments;
+    repairedContentByIndex.set(index, completedContent.slice(cursor, position) + segment.content);
+    cursor = position + segment.content.length;
+  }
+
+  const last = indexedSegments[indexedSegments.length - 1];
+  if (last && cursor < completedContent.length) {
+    repairedContentByIndex.set(
+      last.index,
+      (repairedContentByIndex.get(last.index) ?? last.segment.content) +
+        completedContent.slice(cursor),
+    );
+  }
+
+  return segments.map((segment, index) =>
+    repairedContentByIndex.has(index)
+      ? { ...segment, content: repairedContentByIndex.get(index) ?? segment.content }
+      : segment,
+  );
 }
 
 /** Reducer that projects AgentStreamEvent into a chat-view state. */

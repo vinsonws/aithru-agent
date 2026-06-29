@@ -324,6 +324,33 @@ test("reduceEvent splits assistant output when process events happen between del
   );
 });
 
+test("reduceEvent repairs assistant output segments from completed content", async () => {
+  const reduceEvent = await loadReduceEvent();
+  const events = [
+    event("message.created", { message_id: "msg_assistant", role: "assistant" }, 10),
+    event("reasoning.delta", { message_id: "msg_assistant", reasoning_id: "think_1", delta: "用户想要惊喜。" }, 11),
+    event("reasoning.completed", { message_id: "msg_assistant", reasoning_id: "think_1" }, 12),
+    event("message.delta", { message_id: "msg_assistant", delta: "'s do this!" }, 13),
+    event("tool.started", { tool_call_id: "tool_1", tool_name: "skill.load" }, 14),
+    event("tool.completed", { tool_call_id: "tool_1", tool_name: "skill.load", output: { skill: "surprise-me" } }, 15),
+    event("message.delta", { message_id: "msg_assistant", delta: "me see what creative tools I can combine." }, 16),
+    event("message.completed", {
+      message_id: "msg_assistant",
+      content: "Let's do this! Let me see what creative tools I can combine.",
+    }, 17),
+  ];
+
+  const projected = events.reduce((current, nextEvent) => reduceEvent(current, nextEvent), state());
+
+  assert.deepEqual(
+    projected.assistantOutputSegments.map((segment) => segment.content),
+    [
+      "Let's do this!",
+      " Let me see what creative tools I can combine.",
+    ],
+  );
+});
+
 test("buildRunStreamState projects replayed events for historical run process", async () => {
   const { buildRunStreamState } = await loadRunStreamModule();
   const projected = buildRunStreamState([
