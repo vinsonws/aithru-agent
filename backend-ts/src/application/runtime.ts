@@ -1,13 +1,13 @@
 import { InMemoryStore } from "../persistence/store.js";
 import { AgentEventWriter } from "../stream/writer.js";
-import { TestCapabilityRouter } from "../capabilities/test-router.js";
+import { ProductionCapabilityRouter } from "../capabilities/production-router.js";
 import { ScriptedHarnessCore } from "../core/harness.js";
 import { WorkerRunner } from "../worker/runner.js";
 
 export interface AgentRuntime {
   store: InMemoryStore;
   eventWriter: AgentEventWriter;
-  capabilityRouter: TestCapabilityRouter;
+  capabilityRouter: ProductionCapabilityRouter;
   harness: ScriptedHarnessCore;
   worker: WorkerRunner;
 }
@@ -19,7 +19,7 @@ export function createRuntime(): AgentRuntime {
 
   const store = new InMemoryStore();
   const eventWriter = new AgentEventWriter(store);
-  const capabilityRouter = new TestCapabilityRouter(store);
+  const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
   const harness = new ScriptedHarnessCore({
     store,
     eventWriter,
