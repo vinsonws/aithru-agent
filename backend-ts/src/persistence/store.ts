@@ -263,6 +263,68 @@ export class InMemoryStore {
     return artifact;
   }
 
+  // ── Claims ───────────────────────────────────────────────────────────
+
+  acquireClaim(
+    runId: string,
+    workerId: string,
+    leaseSeconds: number = 30,
+  ): boolean {
+    const existing = this.runs.get(runId);
+    if (!existing) throw new Error(`Run ${runId} not found`);
+
+    const now = new Date();
+    const nowISO = now.toISOString().replace(/\.\d{3}/, "");
+
+    // If there's an existing claim that hasn't expired and belongs to another worker, deny
+    if (existing.claim) {
+      const expiresAt = new Date(existing.claim.lease_expires_at);
+      if (expiresAt > now && existing.claim.worker_id !== workerId) {
+        return false;
+      }
+    }
+
+    // Acquire or renew the claim
+    const expiresAt = new Date(now.getTime() + leaseSeconds * 1000);
+    const attempt = existing.claim ? existing.claim.attempt + 1 : 1;
+
+    this.runs.set(runId, {
+      ...existing,
+      claim: {
+        worker_id: workerId,
+        claimed_at: nowISO,
+        last_heartbeat_at: nowISO,
+        lease_expires_at: expiresAt.toISOString().replace(/\.\d{3}/, ""),
+        attempt,
+      },
+    });
+    return true;
+  }
+
+  releaseClaim(runId: string, workerId: string): boolean {
+    const existing = this.runs.get(runId);
+    if (!existing) throw new Error(`Run ${runId} not found`);
+    if (!existing.claim) return false;
+    if (existing.claim.worker_id !== workerId) return false;
+
+    const { claim: _removed, ...rest } = existing;
+    this.runs.set(runId, rest);
+    return true;
+  }
+
+  findStaleClaims(maxAgeMs?: number): AgentRun[] {
+    const now = new Date();
+    const ageThreshold = maxAgeMs ?? 60_000; // default 60s
+    const cutoff = new Date(now.getTime() - ageThreshold);
+
+    return [...this.runs.values()].filter((run) => {
+      if (!run.claim) return false;
+      // Claim is stale if lease_expires_at is in the past
+      const expiresAt = new Date(run.claim.lease_expires_at);
+      return expiresAt < now || expiresAt < cutoff;
+    });
+  }
+
   // ── Raw access for testing ────────────────────────────────────────
 
   _dump() {

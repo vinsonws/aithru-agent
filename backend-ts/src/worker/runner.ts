@@ -1,3 +1,4 @@
+import { nanoid } from "nanoid";
 import { InMemoryStore } from "../persistence/store.js";
 import { AgentEventWriter } from "../stream/writer.js";
 import type { CapabilityRouter } from "../capabilities/router.js";
@@ -10,6 +11,7 @@ export class WorkerRunner {
   private harness: ScriptedHarnessCore;
   private store: InMemoryStore;
   private eventWriter: AgentEventWriter;
+  private workerId: string;
 
   constructor(deps: {
     store: InMemoryStore;
@@ -19,12 +21,17 @@ export class WorkerRunner {
     this.store = deps.store;
     this.eventWriter = deps.eventWriter;
     this.harness = new ScriptedHarnessCore(deps);
+    this.workerId = `worker_${nanoid(8)}`;
   }
 
   async startRun(
     run: AgentRun,
     script: ScriptedHarnessScript,
   ): Promise<AgentRun> {
+    // Acquire claim before starting
+    const claimed = this.store.acquireClaim(run.id, this.workerId);
+    if (!claimed) throw new Error("Run is already claimed by another worker");
+
     // Set status to running
     this.store.updateRun(run.id, { status: "running" });
 
@@ -39,6 +46,10 @@ export class WorkerRunner {
   ): Promise<AgentRun> {
     const run = this.store.getRun(runId);
     if (!run) throw new Error(`Run ${runId} not found`);
+
+    // Re-acquire claim
+    const claimed = this.store.acquireClaim(runId, this.workerId);
+    if (!claimed) throw new Error("Run is already claimed by another worker");
 
     validateRunStatusTransition(run.status as string, "running");
     this.store.updateRun(runId, {
