@@ -325,6 +325,12 @@ export class InMemoryStore {
     });
   }
 
+  // ── Lifecycle ───────────────────────────────────────────────────────
+
+  close(): void {
+    // In-memory store has no resources to release
+  }
+
   // ── Raw access for testing ────────────────────────────────────────
 
   _dump() {

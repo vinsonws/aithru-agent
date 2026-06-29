@@ -9,6 +9,7 @@ import {
 import { formatSseEvent, formatSseComment } from "../stream/sse.js";
 import { EVENT_TYPES } from "../stream/events.js";
 import { projectTraceSpans } from "../trace/projector.js";
+import { buildRunSnapshot } from "../snapshots/snapshot.js";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
@@ -195,5 +196,14 @@ export function registerRunRoutes(app: FastifyInstance): void {
     const events = runtime.store.listEvents(run_id);
     const spans = projectTraceSpans(events);
     return spans;
+  });
+
+  // GET /api/runs/:run_id/snapshot
+  app.get("/api/runs/:run_id/snapshot", async (request, reply) => {
+    const { run_id } = request.params as any;
+    const runtime = getRuntime();
+    const snapshot = buildRunSnapshot(runtime.store, run_id);
+    if (!snapshot) { reply.code(404); return { error: "Run not found" }; }
+    return snapshot;
   });
 }
