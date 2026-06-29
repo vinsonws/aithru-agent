@@ -17,8 +17,9 @@ block runs with short goals. This is:
 
 ## Solution
 
-Replace the word-count preflight with a model-driven `ask_clarification` tool, following
-DeerFlow's `ClarificationMiddleware` pattern adapted to Aithru's Pydantic AI architecture.
+Replace the word-count preflight with a model-driven `ask_clarification` tool,
+following DeerFlow's clarification pattern adapted to Aithru's native
+TypeScript harness architecture.
 
 The model itself decides when clarification is needed, calls `ask_clarification` with
 structured parameters, and the system converts the tool call into an `input.requested`
@@ -29,7 +30,7 @@ event with rich options.
 ```
 User: "帮我写报告"
   ↓
-Pydantic AI model run
+native model turn loop
   ↓
 model calls ask_clarification(
     question="需要什么主题的报告？",
@@ -37,7 +38,7 @@ model calls ask_clarification(
     options=["技术方案", "市场分析", "产品规划"]
 )
   ↓
-Pydantic AI returns DeferredToolRequests (tool marked as requires_approval/external)
+native harness converts the tool request into a pauseable input request
   ↓
 agent/runtime._handle_clarification_request()
   → extract question, clarification_type, options from tool args

@@ -6,8 +6,8 @@ Date: 2026-06-29
 
 ## Summary
 
-Aithru Agent should replace the current Python/Pydantic AI backend with a
-native TypeScript backend whose core harness is owned by Aithru.
+Aithru Agent replaces the previous Python/Pydantic AI backend with a native
+TypeScript backend whose core harness is owned by Aithru.
 
 The replacement must not swap Pydantic AI for another agent framework. Mastra,
 LangGraph.js, Vercel AI SDK agent abstractions, Claude Agent SDK, or similar
@@ -19,10 +19,8 @@ HTTP serving, schema validation, database access, model API calls, MCP protocol
 clients, and OpenAPI generation. They must stay below Aithru's harness and
 capability boundary.
 
-The first runnable TypeScript backend must not start or depend on a Python
-backend process. Python code may remain in the repository during migration as
-reference material only. It must not serve API traffic, run the worker, or act
-as the default sandbox.
+The TypeScript backend must not start or depend on a Python backend process.
+Python backend source is no longer part of the tracked active backend.
 
 ## Product Boundary
 
@@ -61,7 +59,7 @@ Do not add:
 
 ## Why Aithru-Owned Core
 
-The current Python backend already has the important product shape:
+The previous Python backend established the important product shape:
 
 - Aithru-owned domain contracts;
 - canonical AgentStreamEvent event log;
@@ -90,7 +88,7 @@ Runtime: Node.js 22 LTS
 API: Fastify
 Contracts: TypeBox + Ajv + @fastify/swagger
 Generated frontend types: openapi-typescript
-Persistence: SQLite first, via Kysely + better-sqlite3
+Persistence: SQLite first, via direct sql.js statement execution with DB_PATH file persistence
 Tests: Vitest
 Streaming: native Server-Sent Events
 Model calls: provider adapters using SDKs or direct HTTP fetch
@@ -102,7 +100,7 @@ Allowed infrastructure libraries:
 - Fastify for HTTP routing and lifecycle;
 - TypeBox, Ajv, or Zod for runtime schema validation;
 - OpenAPI generation and openapi-typescript for frontend contracts;
-- Kysely and SQLite drivers for storage;
+- SQLite storage libraries or drivers used behind Aithru-owned store ports;
 - provider SDKs or fetch wrappers for model APIs;
 - MCP SDKs for MCP protocol transport;
 - OpenTelemetry exporters for optional observability.
@@ -119,11 +117,10 @@ Disallowed core dependencies:
 
 ## Repository Layout
 
-The replacement backend should live beside the existing backend until it is
-ready to become the only backend implementation:
+The active backend lives in `backend/`:
 
 ```txt
-backend-ts/
+backend/
   src/
     api/              Fastify routes, auth middleware, OpenAPI
     application/      runtime assembly and use-case services
@@ -145,9 +142,9 @@ backend-ts/
   examples/
 ```
 
-The existing `backend/` directory remains reference material during the
-migration. It must not be launched by the TypeScript backend or used as a
-sidecar process.
+The previous Python package that originally occupied `backend/` has been
+removed from tracked source. The `backend/` directory now contains the native
+TypeScript implementation.
 
 ## Layer Ownership
 
@@ -577,7 +574,7 @@ Required test groups:
 Recommended commands:
 
 ```bash
-cd backend-ts
+cd backend
 npm run typecheck
 npm run test
 npm run test:contracts
@@ -601,7 +598,7 @@ npm run check:no-python-backend
 
 Deliver:
 
-- `backend-ts` workspace package;
+- `backend` workspace package;
 - Fastify app;
 - schema-first contracts for health, threads, messages, runs, stream events;
 - in-memory store;
@@ -710,10 +707,8 @@ Acceptance:
 
 ## Documentation Updates
 
-During P0-P4, docs should describe the TypeScript backend as the replacement
-target while the Python backend remains the active implementation. After P5,
-README, AGENTS, and backend docs should be updated to state that the TypeScript
-backend is active.
+After P5, README, AGENTS, and backend docs state that the TypeScript backend is
+active and list TypeScript verification commands.
 
 Required docs:
 
@@ -735,7 +730,7 @@ lock behavior with model-adapter fixtures.
 
 ### Schema migration drift
 
-Risk: Pydantic schemas and TypeBox schemas may drift during migration.
+Risk: legacy contract notes and TypeBox schemas may drift during migration.
 
 Mitigation: freeze OpenAPI and event golden fixtures before implementation and
 write compatibility tests against them.
@@ -757,10 +752,10 @@ execution as an optional controlled interpreter provider, not backend runtime.
 
 ### Documentation mismatch
 
-Risk: docs may describe TS-first while Python remains active.
+Risk: docs may drift and imply a second active backend.
 
-Mitigation: use "replacement target" language until P5, then flip active
-backend wording in one documentation pass.
+Mitigation: keep active docs TS-first and treat historical Python references as
+background only, not runnable backend instructions.
 
 ## Acceptance Criteria
 

@@ -1,5 +1,7 @@
 # Aithru Agent Architecture
 
+Status: current architecture
+
 ## Responsibility
 
 ```txt
@@ -11,27 +13,51 @@ Agent is not a workflow runtime and does not own `WorkflowSpec`.
 
 ## Current Backend
 
-The active implementation is the Python backend under `backend/`.
+The active implementation is the native TypeScript backend under `backend/`.
+The previous Python backend package has been removed from tracked source.
 
 ```txt
-FastAPI API
+backend/
+  apps/api/src/                 Fastify API and runtime composition root
+  packages/contracts/src/       Agent product contracts
+  packages/harness/src/         native TypeScript scripted core and model turn loop
+  packages/capabilities/src/    policy, approval, audit, and tool boundary
+  packages/external/src/        controlled external and Workflow capability adapters
+  packages/memory/src/          local memory provider
+  packages/model/src/           provider-neutral model adapters and profiles
+  packages/persistence/src/     in-memory and SQLite stores
+  packages/skills/src/          SKILL.md loader and registry
+  packages/snapshots/src/       run snapshot, summary, and tree projections
+  packages/stream/src/          AgentStreamEvent writer/store/SSE
+  packages/subagents/src/       child-run delegation
+  packages/trace/src/           trace projection
+  packages/worker/src/          run execution and recovery
+```
+
+```txt
+Fastify API
   -> Agent application runtime
   -> Agent worker
-  -> scripted or Pydantic AI harness driver
+  -> native TypeScript scripted core or model turn loop
   -> Aithru capability router
-  -> workspace / todo / artifact local tools
+  -> local, external, or workflow capability adapters
   -> AgentStreamEvent store
   -> trace projection
 ```
+
+The backend must not start, import, shell out to, or depend on a Python backend
+process. Provider SDKs may be wrapped behind Aithru model adapters, but no
+third-party agent framework owns Agent product semantics or tool execution.
 
 ## Agent Owns
 
 - Agent threads, messages, runs, todos, workspaces, artifacts, and Agent-owned
   approvals.
 - Agent stream events and Agent trace projection.
-- Agent-owned local tools.
-- Pydantic AI driver integration through an adapter boundary.
-- Future Workflow Capability client integration.
+- Agent-owned local tools and policy-aware external/workflow tool adapters.
+- The native model turn loop, retry/recovery rules, pause/resume behavior, and
+  capability boundary.
+- Future Workflow Capability client integration through explicit APIs.
 
 ## Agent Does Not Own
 
@@ -40,30 +66,34 @@ FastAPI API
 - Workbench workflow scheduling.
 - Raw workflow node catalog access.
 - Workflow-owned `CapabilityRun` or approval records.
-- Pydantic AI public product semantics.
+- Public semantics from any model SDK or agent framework.
 
 ## Tool Boundary
 
-Agent production tools have two kinds:
+Agent production tools have three kinds:
 
 ```txt
 local_tool
+external_tool
 workflow_capability
 ```
 
-Stage 1 implements local tools in Python. External deterministic actions will
-later go through the Workflow product:
+Every real action flows through the same boundary:
 
 ```txt
-Agent Harness
-  -> Workflow Capability Adapter
-  -> Workflow CapabilityRun API
-  -> Workflow/Core executor
+model adapter
+  -> native model turn loop
+  -> AithruCapabilityRouter
+  -> policy / scope / approval / audit
+  -> concrete adapter
+  -> AgentStreamEvent / trace / artifact / workspace state
 ```
+
+Model adapters propose tool calls. They never execute tools directly.
 
 ## Event And Trace Boundary
 
 `AgentStreamEvent` is the source of truth.
 
-Pydantic AI events are internal driver signals. The backend maps them into
+Model-provider events are internal adapter signals. The backend maps them into
 Aithru events and projects trace spans from the Aithru event log.

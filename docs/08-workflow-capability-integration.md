@@ -250,7 +250,7 @@ that reference through the run-scoped Agent API records terminal
 `external_run.*` events and requeues, fails, or cancels the Agent run around the
 provider-owned result. Completed external results are placed back on the Agent
 worker queue, and the next harness continuation receives the external output
-through bounded Pydantic tool-result context that includes the external
+through bounded typed tool-result context that includes the external
 capability run id.
 Provider retries that repeat the same terminal status for the same CapabilityRun
 are idempotent. A late callback with a different terminal status is rejected so
@@ -266,7 +266,7 @@ hints for checking provider status or resolving the external run through the
 existing Agent control-plane endpoint; the hints are metadata, not execution.
 
 Current Agent backend support covers the provider-side adapter contract:
-injected `WorkflowCapabilityProvider` instances publish Pydantic
+injected `WorkflowCapabilityProvider` instances publish typed
 `WorkflowCapabilitySpec` descriptors, execute through the Aithru capability
 router, and return `AgentExternalRunRef` values that stream as `external_run.*`
 events. `completed`, `failed`, and `cancelled` results are terminal; `running`
@@ -278,7 +278,7 @@ derived diagnostics over `external_run.*` events, so UI surfaces can distinguish
 provider failures from Agent harness failures. Duplicate terminal callbacks with
 the same status return the current Agent Run without writing duplicate events;
 conflicting terminal callbacks return an error. Resolve responses include
-Pydantic idempotency and requeue metadata so clients can distinguish a fresh
+typed idempotency and requeue metadata so clients can distinguish a fresh
 completed callback from a duplicate provider retry. Active waiting external runs
 can be flagged as stale in summaries and run-list filters, and stale summaries
 can include inert operator action hints. The backend also includes a controlled

@@ -41,8 +41,7 @@ Use a Tool Result Recovery Loop:
 
 ```txt
 LLM proposes tool call
-  -> Pydantic AI tool wrapper
-  -> Aithru Tool Bridge
+  -> native model turn loop
   -> Aithru Capability Router prepare/execute
   -> concrete tool adapter
   -> AgentToolCallResult
@@ -279,7 +278,7 @@ Workspace examples:
 Sandbox examples:
 
 - Invalid file operation request:
-  `invalid_input`, include Pydantic validation details only when safe.
+  `invalid_input`, include schema validation details only when safe.
 - Python execution non-zero exit:
   `execution_failed`, guidance to inspect stdout/stderr and adjust code.
 - Sandbox disabled by skill policy:
@@ -302,9 +301,9 @@ External/workflow capability examples:
 - Missing external permission:
   `policy_denied`, not recoverable.
 
-## Bridge Responsibilities
+## Model Turn Loop Responsibilities
 
-The Pydantic AI bridge owns the model-facing recovery decision:
+The native model turn loop owns the model-facing recovery decision:
 
 1. Emit `tool.proposed` before prepare when the call is model-originated.
 2. Emit prepare denials as `tool.denied`.
@@ -386,8 +385,10 @@ Verification:
 
 ```bash
 cd backend
-uv run pytest
-uv run python examples/file_report_agent.py
+npm run typecheck
+npm run test
+npm run check:no-python-backend
+npm run examples:file-report
 ```
 
 ## Acceptance Criteria

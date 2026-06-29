@@ -7,7 +7,7 @@ Read this before changing code or docs.
 
 ## Repository Direction
 
-`aithru-agent` is a Python-first Aithru-native AI harness backend.
+`aithru-agent` is a TypeScript-first Aithru-native AI harness backend.
 
 Target direction:
 
@@ -21,17 +21,20 @@ The active backend is:
 
 ```txt
 backend/
-  FastAPI control plane
-  Pydantic AI harness driver
+  Fastify control plane
+  Aithru-owned TypeScript harness core
   Aithru capability router
-  Agent stream / trace / workspace / artifact / approval model
+  Agent stream / trace / workspace / artifact / approval / memory / subagent model
 ```
+
+The tracked Python backend package has been removed. New backend behavior must
+not require, import, shell out to, or start a Python backend process.
 
 Primary design docs:
 
 ```txt
 docs/00-agent-harness-design.md
-docs/superpowers/specs/2026-06-16-python-pydantic-ai-agent-backend-design.md
+docs/superpowers/specs/2026-06-29-native-ts-agent-backend-replacement-design.md
 ```
 
 ## Hard Boundaries
@@ -61,8 +64,8 @@ Models may propose tool calls. They must not execute real actions directly.
 All real actions must pass through an Aithru capability boundary:
 
 ```txt
-model / Pydantic AI
-  -> Aithru Tool Bridge
+model / provider adapter
+  -> Aithru-owned model turn loop
   -> Aithru Capability Router
   -> policy / scope / approval boundary
   -> concrete local tool or future Workflow Capability API
@@ -83,34 +86,47 @@ Core must not depend on Agent packages.
 Workbench may call Agent through explicit node/API boundaries.
 ```
 
-Pydantic AI is an implementation detail under `backend/src/aithru_agent/harness`.
-Pydantic AI types must not become public Aithru API contracts.
+Model providers are implementation details under
+`backend/packages/model/src`.
+Provider SDK objects must not become public Aithru API contracts.
 
 ## Backend Ownership
 
-Current backend modules:
+Current TypeScript backend modules:
 
 ```txt
-backend/src/aithru_agent/
-  api/              FastAPI routes
-  application/      runtime assembly
-  capabilities/     tool descriptors, policy, router, local tools
-  domain/           Agent product contracts
-  harness/          scripted and Pydantic AI drivers
-  persistence/      stage-1 in-memory store
-  stream/           AgentStreamEvent writer/store/SSE
-  trace/            event-to-span projection
-  worker/           Agent run execution
+backend/
+  apps/api/src/                 Fastify routes and runtime assembly
+  packages/capabilities/src/    tool descriptors, policy, router, local tools
+  packages/contracts/src/       TypeBox Agent product contracts
+  packages/external/src/        controlled web, MCP, and Workflow capability adapters
+  packages/harness/src/         native run loop and model turn loop
+  packages/memory/src/          local memory provider
+  packages/model/src/           provider-neutral model adapters and profiles
+  packages/persistence/src/     in-memory and SQLite stores
+  packages/skills/src/          SKILL.md loader and registry
+  packages/snapshots/src/       run snapshot, summary, tree projections
+  packages/stream/src/          AgentStreamEvent writer/store/SSE
+  packages/subagents/src/       child-run delegation
+  packages/trace/src/           event-to-span projection
+  packages/worker/src/          Agent run execution
 ```
 
 Package meanings:
 
-- `domain`: pure product contracts. No FastAPI, Pydantic AI, provider SDK, or
-  database dependency.
+- `contracts`: pure product contracts. No Fastify, provider SDK, or database
+  dependency.
 - `stream`: canonical event log and SSE formatting.
 - `trace`: projection from Agent events to spans.
 - `capabilities`: every real tool action enters here.
-- `harness`: driver abstraction plus scripted and Pydantic AI drivers.
+- `harness`: Aithru-owned run loop, model turn loop, and harness state.
+- `model`: low-level provider adapters only; they never execute tools.
+- `persistence`: in-memory and SQLite-backed Agent state stores.
+- `external`: controlled external web, MCP, and Workflow capability adapters.
+- `skills`: SKILL.md loading and registry behavior.
+- `memory`: local memory provider behavior.
+- `snapshots`: read models for run snapshots, summaries, and trees.
+- `subagents`: child-run delegation behavior.
 - `worker`: run execution, pause/resume, cancellation.
 - `api`: HTTP control plane only.
 
@@ -175,8 +191,10 @@ Run these before finishing meaningful backend changes:
 
 ```bash
 cd backend
-uv run pytest
-uv run python examples/file_report_agent.py
+npm run typecheck
+npm run test
+npm run check:no-python-backend
+npm run examples:file-report
 ```
 
 ## Pre-Merge Checklist

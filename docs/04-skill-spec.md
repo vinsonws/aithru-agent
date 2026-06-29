@@ -38,8 +38,8 @@ Two MVP sources:
 Both sources expose the same `SkillPackage` contract. The registry is an index
 over packages. The package body (`SKILL.md`) is the source of instructions.
 
-The stage-1 backend still supports legacy `skill.json` manifests while new
-packages converge on `SKILL.md`.
+The native TypeScript backend loads `SKILL.md` packages through the Aithru skill
+loader and registry.
 
 ## Skill Metadata
 
@@ -74,11 +74,13 @@ packages converge on `SKILL.md`.
 
 ## Skill Activation
 
-- Skills are Pydantic AI deferred capabilities.
+- Skills are Aithru capability packages loaded by the native TypeScript
+  registry and injected into the native harness context.
 - `name` and `description` are discovery metadata only.
 - The `SKILL.md` body is loaded only after the skill is selected or triggered by the runtime.
 - User-selected skills (via `skill_id`) are active from run start.
-- Unselected visible skills are deferred; the model may load them via Pydantic AI's `load_capability`.
+- Unselected visible skills may be progressively disclosed by Aithru-owned
+  runtime policy.
 - Aithru does not add a custom `skill.activate` business tool.
 - The allowed tools list is an upper bound; workspace, memory, sandbox,
   approval, and subagent policy can further narrow the tools exposed to a run.
@@ -87,8 +89,8 @@ packages converge on `SKILL.md`.
 - Sandbox tools require an explicit enabled sandbox policy.
 - Workspace `allowedPaths` is enforced by workspace tools at execution time.
 - Approval policy contributes required risk approvals to the capability router.
-- Active skill instructions are injected through a Pydantic AI capability
-  runtime path; Pydantic AI and harness types are not part of the skill contract.
+- Active skill instructions are injected through Aithru-owned harness context;
+  model-provider and harness-internal types are not part of the skill contract.
 
 ## Multi-Skill Policy Composition
 
@@ -104,13 +106,13 @@ When multiple skills are loaded in the same run, policies combine conservatively
 
 - All skill execution events must emit `AgentStreamEvent` for run streaming
 - Include skill start, step events, tool proposals, subagent spawn, completion
-- Emit `skill.activated` events with trigger type (`explicit` or `pydantic_load_capability`)
+- Emit `skill.activated` events with trigger type (`explicit` or `runtime_load`)
 
 ## Guidelines
 
 - Skills must not execute platform capabilities directly.
 - All tool invocations go through the Capability Router:
-  `Pydantic AI -> AithruToolset -> PydanticAIToolBridge -> Aithru Capability Router -> policy/scope/approval boundary -> concrete tool -> event/trace/artifact/redaction`
+  `model adapter -> native model turn loop -> Aithru Capability Router -> policy/scope/approval boundary -> concrete tool -> event/trace/artifact/redaction`
 - Workspace writes and artifact creation go through the Workspace Provider
 - Sandbox execution only via SandboxProvider interface
 - Subagents are spawned via SubagentRunner interface
@@ -120,9 +122,10 @@ When multiple skills are loaded in the same run, policies combine conservatively
 - `SkillPackage` contract with `SKILL.md` parsing
 - Registry entries are indexes over packages
 - `builtin` and `user` as the only supported MVP sources
-- Pydantic AI deferred capabilities for unselected skills
+- Aithru-owned progressive disclosure for unselected skills
 - Explicit `skill_id` for user-selected skills
-- Tool policy enforced in both `AithruToolset.get_tools()` and `PydanticAIToolBridge.call_tool()`
+- Tool policy enforced before exposure and again before execution through the
+  capability router
 
 ## Acceptance criteria
 
