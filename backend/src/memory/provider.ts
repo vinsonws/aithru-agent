@@ -1,4 +1,4 @@
-// backend-ts/src/memory/provider.ts
+// backend/src/memory/provider.ts
 
 interface MemoryEntry<T = string> {
   key: string;

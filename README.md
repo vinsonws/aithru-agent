@@ -3,10 +3,10 @@
 Aithru Agent is the Aithru-native TypeScript AI harness backend for
 long-running, tool-using, permission-aware intelligent work.
 
-The active backend lives in `backend-ts/`:
+The active backend lives in `backend/`:
 
 ```txt
-backend-ts/
+backend/
   Fastify control plane
   TypeBox product contracts
   Aithru-owned harness core and model turn loop
@@ -45,7 +45,7 @@ boundaries. It must not parse, schedule, or execute workflow graphs.
 ## Backend Layout
 
 ```txt
-backend-ts/
+backend/
   src/
     api/              Fastify routes
     application/      runtime assembly
@@ -78,7 +78,7 @@ Important boundaries:
 ## Run Locally
 
 ```bash
-cd backend-ts
+cd backend
 npm install
 npm run typecheck
 npm run test
@@ -90,7 +90,7 @@ npm run dev
 For durable SQLite-backed runtime state:
 
 ```powershell
-cd backend-ts
+cd backend
 $env:DB_PATH=".aithru/agent.sqlite"
 npm run dev
 ```
@@ -107,14 +107,14 @@ GET /api/health
 Before finishing backend work, run:
 
 ```bash
-cd backend-ts
+cd backend
 npm run typecheck
 npm run test
 npm run check:no-python-backend
 npm run examples:file-report
 ```
 
-The no-Python check is cross-platform and guards `backend-ts` against Python
+The no-Python check is cross-platform and guards `backend` against Python
 backend imports, process launches, and package dependencies.
 
 ## HTTP API

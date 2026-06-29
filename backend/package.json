@@ -1,5 +1,5 @@
 {
-  "name": "aithru-agent-backend-ts",
+  "name": "aithru-agent-backend",
   "version": "0.1.0",
   "description": "TypeScript backend for the Aithru Agent harness.",
   "private": true,

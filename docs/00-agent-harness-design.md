@@ -33,10 +33,10 @@ must not become a draggable graph editor or persisted workflow definitions.
 
 ## Active Backend
 
-The active backend is the native TypeScript implementation in `backend-ts/`:
+The active backend is the native TypeScript implementation in `backend/`:
 
 ```txt
-backend-ts/
+backend/
   api/              Fastify control plane
   application/      runtime assembly
   capabilities/     capability router, policy, local tools, audit projection
@@ -76,7 +76,7 @@ load run
   -> complete, fail, cancel, or pause run
 ```
 
-Model providers are low-level I/O adapters under `backend-ts/src/model`. They
+Model providers are low-level I/O adapters under `backend/src/model`. They
 receive Aithru-built input and emit normalized model events:
 
 ```txt
@@ -214,14 +214,14 @@ executes `WorkflowSpec` graphs.
 Meaningful backend changes should pass:
 
 ```bash
-cd backend-ts
+cd backend
 npm run typecheck
 npm run test
 npm run check:no-python-backend
 npm run examples:file-report
 ```
 
-The no-Python check is part of the architecture boundary: `backend-ts` must not
+The no-Python check is part of the architecture boundary: `backend` must not
 depend on a Python backend package or process.
 
 ## Replacement Design

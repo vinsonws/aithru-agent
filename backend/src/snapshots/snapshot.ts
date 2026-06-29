@@ -1,4 +1,4 @@
-// backend-ts/src/snapshots/snapshot.ts
+// backend/src/snapshots/snapshot.ts
 
 import type { AgentStore } from "../persistence/protocols.js";
 import type { AgentRun } from "../contracts/types.js";

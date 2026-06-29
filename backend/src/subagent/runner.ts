@@ -1,4 +1,4 @@
-// backend-ts/src/subagent/runner.ts
+// backend/src/subagent/runner.ts
 
 import type { AgentStore } from "../persistence/protocols.js";
 import type { AgentEventWriter } from "../stream/writer.js";

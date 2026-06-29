@@ -480,7 +480,7 @@ Workspace/artifact/sandbox events may be emitted between `tool.started` and `too
 ## Current backend alignment
 
 The native TypeScript backend keeps public Aithru contracts in
-`backend-ts/src/contracts` and executes real actions only through
+`backend/src/contracts` and executes real actions only through
 `AithruCapabilityRouter`.
 
 Current execution path:

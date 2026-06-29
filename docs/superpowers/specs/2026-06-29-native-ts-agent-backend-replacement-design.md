@@ -117,11 +117,10 @@ Disallowed core dependencies:
 
 ## Repository Layout
 
-The replacement backend should live beside the existing backend until it is
-ready to become the only backend implementation:
+The active backend lives in `backend/`:
 
 ```txt
-backend-ts/
+backend/
   src/
     api/              Fastify routes, auth middleware, OpenAPI
     application/      runtime assembly and use-case services
@@ -143,8 +142,9 @@ backend-ts/
   examples/
 ```
 
-The previous `backend/` Python package has been removed from tracked active
-source. TypeScript implementation work happens in `backend-ts/`.
+The previous Python package that originally occupied `backend/` has been
+removed from tracked source. The `backend/` directory now contains the native
+TypeScript implementation.
 
 ## Layer Ownership
 
@@ -574,7 +574,7 @@ Required test groups:
 Recommended commands:
 
 ```bash
-cd backend-ts
+cd backend
 npm run typecheck
 npm run test
 npm run test:contracts
@@ -598,7 +598,7 @@ npm run check:no-python-backend
 
 Deliver:
 
-- `backend-ts` workspace package;
+- `backend` workspace package;
 - Fastify app;
 - schema-first contracts for health, threads, messages, runs, stream events;
 - in-memory store;

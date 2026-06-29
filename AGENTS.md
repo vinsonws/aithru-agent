@@ -20,7 +20,7 @@ intelligent work.
 The active backend is:
 
 ```txt
-backend-ts/
+backend/
   Fastify control plane
   Aithru-owned TypeScript harness core
   Aithru capability router
@@ -86,7 +86,7 @@ Core must not depend on Agent packages.
 Workbench may call Agent through explicit node/API boundaries.
 ```
 
-Model providers are implementation details under `backend-ts/src/model`.
+Model providers are implementation details under `backend/src/model`.
 Provider SDK objects must not become public Aithru API contracts.
 
 ## Backend Ownership
@@ -94,7 +94,7 @@ Provider SDK objects must not become public Aithru API contracts.
 Current TypeScript backend modules:
 
 ```txt
-backend-ts/src/
+backend/src/
   api/              Fastify routes
   application/      runtime assembly
   capabilities/     tool descriptors, policy, router, local tools
@@ -180,7 +180,7 @@ When changing design or boundaries:
 Run these before finishing meaningful backend changes:
 
 ```bash
-cd backend-ts
+cd backend
 npm run typecheck
 npm run test
 npm run check:no-python-backend

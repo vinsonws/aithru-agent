@@ -384,7 +384,7 @@ Integration tests:
 Verification:
 
 ```bash
-cd backend-ts
+cd backend
 npm run typecheck
 npm run test
 npm run check:no-python-backend

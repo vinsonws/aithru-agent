@@ -13,7 +13,7 @@ Agent is not a workflow runtime and does not own `WorkflowSpec`.
 
 ## Current Backend
 
-The active implementation is the native TypeScript backend under `backend-ts/`.
+The active implementation is the native TypeScript backend under `backend/`.
 The previous Python backend package has been removed from tracked source.
 
 ```txt

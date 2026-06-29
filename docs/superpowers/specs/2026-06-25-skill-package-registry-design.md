@@ -4,7 +4,7 @@ Date: 2026-06-25
 Status: superseded implementation details, product intent retained for native TypeScript backend
 
 This document preserves the package-first skill decision. Implementation work
-must follow the native TypeScript backend under `backend-ts/` and the current
+must follow the native TypeScript backend under `backend/` and the current
 skill spec in `docs/04-skill-spec.md`.
 
 ## Problem

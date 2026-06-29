@@ -1,4 +1,4 @@
-// backend-ts/src/stream/redaction.ts
+// backend/src/stream/redaction.ts
 
 export const REDACTED_VALUE = "***REDACTED***";
 

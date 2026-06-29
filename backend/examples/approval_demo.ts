@@ -1,4 +1,4 @@
-// backend-ts/examples/approval_demo.ts
+// backend/examples/approval_demo.ts
 
 import { createRuntime } from "../src/application/runtime.js";
 import type { AgentRun } from "../src/contracts/types.js";

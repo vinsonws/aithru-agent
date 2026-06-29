@@ -13,5 +13,5 @@ Current backend work must use the native TypeScript direction:
 - `docs/superpowers/specs/2026-06-29-native-ts-agent-backend-replacement-design.md`
 
 Do not implement new backend work from older Python/Pydantic plans. If an older
-idea is still useful, port the product intent into `backend-ts/` using Aithru
+idea is still useful, port the product intent into `backend/` using Aithru
 contracts, the native model turn loop, and the capability router.

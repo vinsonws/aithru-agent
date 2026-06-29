@@ -4,7 +4,7 @@ Status: current product architecture
 
 This document describes the complete Aithru Agent Harness model after the native
 TypeScript backend replacement. The active implementation lives under
-`backend-ts/`. The previous Python backend package has been removed from tracked
+`backend/`. The previous Python backend package has been removed from tracked
 source and is no longer an active implementation target.
 
 ## One-line Definition
@@ -70,7 +70,7 @@ state. They are not `WorkflowSpec` and must not become editable workflow graphs.
 ## Current Backend Layout
 
 ```txt
-backend-ts/src/
+backend/src/
   api/              Fastify HTTP/SSE control plane
   application/      runtime assembly
   capabilities/     descriptors, policy, audit, router, adapters
