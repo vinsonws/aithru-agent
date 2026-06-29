@@ -23,7 +23,7 @@ The backend has no CORS, so dev uses a Vite proxy:
 ```bash
 # 1. backend (test model for local dev)
 cd ../backend
-AITHRU_AGENT_MODEL=test uv run uvicorn aithru_agent.api.main:app --port 8000
+npm run dev
 
 # 2. frontend
 cd ../frontend
@@ -45,10 +45,8 @@ npm run gen:types    # regenerate src/lib/api/schema.d.ts from OpenAPI
 To regenerate types after backend schema changes:
 
 ```bash
-cd ../backend
-AITHRU_AGENT_MODEL=test uv run python -c "import json;from aithru_agent.api.main import app;open('/tmp/aithru_openapi.json','w').write(json.dumps(app.openapi()))"
 cd ../frontend
-cp /tmp/aithru_openapi.json ./openapi.json
+# Refresh openapi.json from the TypeScript backend export when available.
 npx openapi-typescript ./openapi.json -o src/lib/api/schema.d.ts
 ```
 

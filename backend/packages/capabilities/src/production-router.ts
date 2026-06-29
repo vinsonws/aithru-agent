@@ -2,8 +2,38 @@ import type { CapabilityRouter, ToolPrepareResult } from "./router.js";
 import type { AgentToolDescriptor, AgentToolCallRequest, AgentToolCallResult } from "./descriptors.js";
 import type { RunContext } from "./policy.js";
 import { PolicyEngine, resolveSkillPolicy } from "./policy.js";
-import type { AgentStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
+
+interface CapabilityStore {
+  listWorkspaceFiles(workspaceId: string): Array<{ path: string; size: number }>;
+  readFile(workspaceId: string, path: string): { path: string; content: string } | undefined;
+  writeFile(workspaceId: string, path: string, content: string): { path: string; version: number };
+  deleteFile(workspaceId: string, path: string): boolean;
+  createTodo(todo: {
+    id: string;
+    run_id: string;
+    title: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  }): { id: string; title: string; status: string };
+  updateTodo(
+    runId: string,
+    todoId: string,
+    patch: { title?: string; status?: string },
+  ): { id: string; title: string; status: string };
+  createArtifact(artifact: {
+    id: string;
+    run_id: string;
+    title: string;
+    content_type: string;
+    content: string;
+    status: "draft";
+    created_at: string;
+    updated_at: string;
+  }): { id: string; title: string; status: string };
+  finalizeArtifact(id: string): { id: string; status: string };
+}
 
 // P1 production tool set (P0 tools + artifact)
 const PRODUCTION_TOOLS: AgentToolDescriptor[] = [
@@ -134,7 +164,7 @@ const PRODUCTION_TOOLS: AgentToolDescriptor[] = [
 
 export class ProductionCapabilityRouter implements CapabilityRouter {
   constructor(
-    private store: AgentStore,
+    private store: CapabilityStore,
     private eventWriter: AgentEventWriter,
   ) {}
 

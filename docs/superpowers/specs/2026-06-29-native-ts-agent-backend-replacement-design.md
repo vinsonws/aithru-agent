@@ -121,23 +121,20 @@ The active backend lives in `backend/`:
 
 ```txt
 backend/
-  src/
-    api/              Fastify routes, auth middleware, OpenAPI
-    application/      runtime assembly and use-case services
-    contracts/        TypeBox schemas and generated TS contract exports
-    core/             native Aithru harness kernel
-    domain/           pure product transition rules and helpers
-    model/            low-level model provider adapters
-    capabilities/     router, policy, adapters, local tools
-    persistence/      memory and SQLite stores
-    stream/           AgentStreamEvent writer/store/SSE/redaction
-    trace/            event-to-span projection
-    worker/           queue, claim, heartbeat, retry, recovery
-    skills/           SKILL.md package loading and skill policy
-    memory/           local and provider-backed memory abstractions
-    sandbox/          controlled interpreter providers
-    model-profiles/   governed model selection
-    cli/              server and worker commands
+  apps/api/src/                 Fastify routes and runtime assembly
+  packages/capabilities/src/    router, policy, adapters, local tools
+  packages/contracts/src/       TypeBox schemas and generated TS exports
+  packages/external/src/        controlled web, MCP, Workflow adapters
+  packages/harness/src/         native Aithru harness kernel
+  packages/memory/src/          local memory provider
+  packages/model/src/           low-level model provider adapters
+  packages/persistence/src/     memory and SQLite stores
+  packages/skills/src/          SKILL.md package loading and skill policy
+  packages/snapshots/src/       run snapshot, summary, tree projections
+  packages/stream/src/          AgentStreamEvent writer/SSE/redaction
+  packages/subagents/src/       child-run delegation
+  packages/trace/src/           event-to-span projection
+  packages/worker/src/          queue, claim, heartbeat, retry, recovery
   tests/
   examples/
 ```

@@ -11,11 +11,9 @@ BACKEND_URL="${AITHRU_AGENT_BACKEND_URL:-http://${BACKEND_HOST}:${BACKEND_PORT}}
 FRONTEND_HOST="${AITHRU_AGENT_FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${AITHRU_AGENT_FRONTEND_PORT:-5173}"
 
-WORKER_POLL_INTERVAL="${AITHRU_AGENT_WORKER_POLL_INTERVAL:-1}"
 SQLITE_PATH="${AITHRU_AGENT_SQLITE_PATH:-${ROOT_DIR}/backend/.aithru/agent.sqlite}"
 
 backend_pid=""
-worker_pid=""
 frontend_pid=""
 
 require_command() {
@@ -74,9 +72,8 @@ cleanup() {
   trap - EXIT INT TERM
   {
     terminate_process_group "$frontend_pid"
-    terminate_process_group "$worker_pid"
     terminate_process_group "$backend_pid"
-    wait "$frontend_pid" "$worker_pid" "$backend_pid" || true
+    wait "$frontend_pid" "$backend_pid" || true
   } 2>/dev/null
   exit "$status"
 }
@@ -96,7 +93,6 @@ trap cleanup EXIT
 trap 'cleanup 130' INT
 trap 'cleanup 143' TERM
 
-require_command uv
 require_command npm
 
 require_port_available "$BACKEND_HOST" "$BACKEND_PORT" "Backend"
@@ -107,21 +103,15 @@ mkdir -p "$(dirname "$SQLITE_PATH")"
 export AITHRU_AGENT_MODEL="${AITHRU_AGENT_MODEL:-test}"
 export AITHRU_AGENT_PERSISTENCE_BACKEND="${AITHRU_AGENT_PERSISTENCE_BACKEND:-sqlite}"
 export AITHRU_AGENT_SQLITE_PATH="$SQLITE_PATH"
+export DB_PATH="$SQLITE_PATH"
 export AITHRU_AGENT_BACKEND="$BACKEND_URL"
 
 echo "Starting Aithru Agent backend: ${BACKEND_URL}"
 (
   cd "$ROOT_DIR/backend"
-  exec uv run uvicorn aithru_agent.api.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" --reload
+  exec env HOST="$BACKEND_HOST" PORT="$BACKEND_PORT" DB_PATH="$SQLITE_PATH" npm run dev
 ) &
 backend_pid=$!
-
-echo "Starting Aithru Agent worker: sqlite://${SQLITE_PATH}"
-(
-  cd "$ROOT_DIR/backend"
-  exec uv run aithru-agent-worker --loop --poll-interval "$WORKER_POLL_INTERVAL" --sqlite-path "$SQLITE_PATH"
-) &
-worker_pid=$!
 
 echo "Starting Aithru Agent frontend: http://${FRONTEND_HOST}:${FRONTEND_PORT}/"
 (
@@ -130,15 +120,11 @@ echo "Starting Aithru Agent frontend: http://${FRONTEND_HOST}:${FRONTEND_PORT}/"
 ) &
 frontend_pid=$!
 
-echo "Press Ctrl-C to stop backend, worker, and frontend."
+echo "Press Ctrl-C to stop backend and frontend."
 
 while true; do
   if ! jobs -pr | grep -qx "$backend_pid"; then
     finish_when_child_exits "$backend_pid"
-  fi
-
-  if ! jobs -pr | grep -qx "$worker_pid"; then
-    finish_when_child_exits "$worker_pid"
   fi
 
   if ! jobs -pr | grep -qx "$frontend_pid"; then

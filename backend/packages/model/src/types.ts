@@ -1,11 +1,22 @@
-import type { AgentToolCallResult } from "@aithru-agent/capabilities";
 import type { AgentRun, AgentMessage } from "@aithru-agent/contracts";
+
+export interface AgentModelToolResult {
+  id: string;
+  name: string;
+  output: unknown;
+  error?: {
+    code: string;
+    message: string;
+    retryable: boolean;
+    details?: unknown;
+  };
+}
 
 export interface AgentModelTurnInput {
   run: AgentRun;
   messages: AgentMessage[];
   context: Record<string, unknown>;
-  toolResults: AgentToolCallResult[];
+  toolResults: AgentModelToolResult[];
 }
 
 export type ModelTurnEvent =

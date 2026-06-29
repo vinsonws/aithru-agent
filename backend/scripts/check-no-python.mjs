@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { extname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const DEFAULT_RELATIVE_PATHS = [
@@ -9,7 +9,14 @@ const DEFAULT_RELATIVE_PATHS = [
   "scripts",
   "package.json",
 ];
-const SKIPPED_DIRECTORIES = new Set([".git", "coverage", "dist", "node_modules"]);
+const SKIPPED_DIRECTORIES = new Set([
+  ".git",
+  "__pycache__",
+  "coverage",
+  "dist",
+  "node_modules",
+]);
+const SKIPPED_EXTENSIONS = new Set([".pyc", ".pyo"]);
 const SKIPPED_FILES = new Set([
   "scripts/check-no-python.mjs",
   "scripts/check-no-python.sh",
@@ -31,6 +38,10 @@ function normalizePath(path) {
   return path.replace(/\\/g, "/");
 }
 
+function shouldSkipFile(path) {
+  return SKIPPED_FILES.has(path) || SKIPPED_EXTENSIONS.has(extname(path));
+}
+
 function collectFiles(rootDir, relativePaths) {
   const files = [];
 
@@ -45,7 +56,7 @@ function collectFiles(rootDir, relativePaths) {
       walkDirectory(rootDir, absolutePath, files);
     } else if (stats.isFile()) {
       const normalized = normalizePath(relative(rootDir, absolutePath));
-      if (!SKIPPED_FILES.has(normalized)) {
+      if (!shouldSkipFile(normalized)) {
         files.push(absolutePath);
       }
     }
@@ -69,7 +80,7 @@ function walkDirectory(rootDir, directory, files) {
     }
 
     const normalized = normalizePath(relative(rootDir, absolutePath));
-    if (!SKIPPED_FILES.has(normalized)) {
+    if (!shouldSkipFile(normalized)) {
       files.push(absolutePath);
     }
   }

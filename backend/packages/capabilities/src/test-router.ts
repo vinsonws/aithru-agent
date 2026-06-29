@@ -5,7 +5,27 @@ import type {
   AgentToolCallResult,
 } from "./descriptors.js";
 import type { RunContext } from "./policy.js";
-import type { AgentStore } from "@aithru-agent/persistence";
+
+interface TestCapabilityStore {
+  getRun(id: string): { workspace_id: string } | undefined;
+  listWorkspaceFiles(workspaceId: string): Array<{ path: string; size: number }>;
+  readFile(workspaceId: string, path: string): { path: string; content: string } | undefined;
+  writeFile(workspaceId: string, path: string, content: string): { path: string; version: number };
+  deleteFile(workspaceId: string, path: string): boolean;
+  createTodo(todo: {
+    id: string;
+    run_id: string;
+    title: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  }): { id: string; title: string; status: string };
+  updateTodo(
+    runId: string,
+    todoId: string,
+    patch: { title?: string; status?: string },
+  ): { id: string; title: string; status: string };
+}
 
 const P0_TOOLS: AgentToolDescriptor[] = [
   {
@@ -121,7 +141,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
 ];
 
 export class TestCapabilityRouter implements CapabilityRouter {
-  constructor(private store: AgentStore) {}
+  constructor(private store: TestCapabilityStore) {}
 
   async listTools(_ctx: RunContext): Promise<AgentToolDescriptor[]> {
     return P0_TOOLS;

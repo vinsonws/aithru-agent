@@ -84,4 +84,26 @@ describe("check:no-python-backend", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("ignores generated Python caches", async () => {
+    const { scanForPythonBackendViolations } = await loadNoPythonCheckModule();
+
+    const root = mkdtempSync(join(tmpdir(), "aithru-no-python-"));
+    try {
+      mkdirSync(join(root, "examples", "__pycache__"), { recursive: true });
+      writeFileSync(
+        join(root, "examples", "__pycache__", "file_report_agent.cpython-312.pyc"),
+        "aithru_agent.api.main",
+      );
+
+      const violations = scanForPythonBackendViolations({
+        rootDir: root,
+        relativePaths: ["examples"],
+      });
+
+      expect(violations).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
