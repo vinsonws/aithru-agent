@@ -165,7 +165,9 @@ The default is `fail_run`, which preserves normal `TOOL_FAILED` behavior.
 Selected controlled tools, such as web search/fetch, may use
 `return_recoverable` so the model receives a structured failure payload and can
 continue toward a degraded artifact while stream and audit events still record
-the failed tool call.
+the failed tool call. Detailed recoverability is carried by tool-result
+recovery metadata rather than bridge tool-name special cases; see
+`docs/superpowers/specs/2026-06-29-tool-result-recovery-loop-design.md`.
 
 ## Tool call request
 
@@ -199,6 +201,33 @@ type AgentToolCallResult = {
     code: string;
     message: string;
     retryable?: boolean;
+  };
+  recovery?: {
+    recoverable: boolean;
+    kind:
+      | "invalid_input"
+      | "not_found"
+      | "transient"
+      | "execution_failed"
+      | "ambiguous_input"
+      | "policy_denied"
+      | "approval_required"
+      | "fatal_system";
+    action:
+      | "return_to_model"
+      | "retry_with_corrected_input"
+      | "use_alternative_tool"
+      | "ask_user"
+      | "wait_or_degrade"
+      | "require_approval"
+      | "fail_run";
+    message: string;
+    modelGuidance?: string;
+    suggestedInput?: unknown;
+    allowedValues?: Record<string, unknown>;
+    retryAfterMs?: number;
+    attemptKey?: string;
+    maxAttempts?: number;
   };
   redaction: "none" | "partial" | "full";
 };
@@ -414,6 +443,10 @@ Terminal tool events should include safe governance projections when available:
 prepare/execute outcome. The event payload must avoid sensitive field names such
 as `authorization`; nested audit authorization is serialized as
 `authorization_decision` so stream redaction does not remove the policy proof.
+Recoverable failures should include policy-safe recovery metadata and a
+`recovery_attempt` counter. When the bridge returns that failure to the model it
+also emits `tool.recovery.offered`; when the retry budget is exhausted it emits
+`tool.recovery.exhausted` before failing the run.
 
 For denied tool:
 

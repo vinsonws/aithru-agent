@@ -664,6 +664,15 @@ failure payloads so the run may continue toward a degraded report. Ordinary
 non-web tool failures remain non-recoverable unless their Aithru
 `AgentToolDescriptor.failurePolicy` explicitly opts into recoverability. These
 behaviors do not introduce Agent-owned workflow semantics or scheduler behavior.
+General tool self-correction is modeled as a Tool Result Recovery Loop, not as a
+worker-level whole-run retry or an Agent-owned plan state machine. Recoverable
+adapter failures carry typed recovery metadata on `AgentToolCallResult`; the
+Pydantic tool bridge may return a compact redacted recovery payload to the model
+when descriptor policy and retry budget allow it. Every corrected attempt is a
+new model-proposed tool call through the Capability Router. Policy denials,
+approval requirements, and fatal harness errors remain non-recoverable unless an
+explicit controlled path says otherwise. The detailed design is
+`docs/superpowers/specs/2026-06-29-tool-result-recovery-loop-design.md`.
 Run snapshots may derive a research-specific summary from existing events,
 runtime todos, report artifacts, and trace spans. That summary can show degraded
 status, failed web calls, blocked research todos, report evidence/source counts,
