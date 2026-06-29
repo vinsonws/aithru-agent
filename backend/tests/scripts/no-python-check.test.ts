@@ -3,6 +3,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+type NoPythonCheckModule = {
+  scanForPythonBackendViolations: (options: {
+    rootDir: string;
+    relativePaths: string[];
+  }) => Array<{ file: string; line: number; pattern: string }>;
+};
+
+const noPythonCheckModuleUrl = new URL(
+  "../../scripts/check-no-python.mjs",
+  import.meta.url,
+).href;
+
+async function loadNoPythonCheckModule(): Promise<NoPythonCheckModule> {
+  return (await import(/* @vite-ignore */ noPythonCheckModuleUrl)) as NoPythonCheckModule;
+}
+
 describe("check:no-python-backend", () => {
   it("uses a cross-platform Node entrypoint", () => {
     const packageJson = JSON.parse(
@@ -18,14 +34,7 @@ describe("check:no-python-backend", () => {
   });
 
   it("detects Python backend process references without requiring bash", async () => {
-    const { scanForPythonBackendViolations } = (await import(
-      "../../scripts/check-no-python.mjs"
-    )) as {
-      scanForPythonBackendViolations: (options: {
-        rootDir: string;
-        relativePaths: string[];
-      }) => Array<{ file: string; line: number; pattern: string }>;
-    };
+    const { scanForPythonBackendViolations } = await loadNoPythonCheckModule();
 
     const root = mkdtempSync(join(tmpdir(), "aithru-no-python-"));
     try {
@@ -51,14 +60,7 @@ describe("check:no-python-backend", () => {
   });
 
   it("ignores guard names and explanatory comments that do not start Python", async () => {
-    const { scanForPythonBackendViolations } = (await import(
-      "../../scripts/check-no-python.mjs"
-    )) as {
-      scanForPythonBackendViolations: (options: {
-        rootDir: string;
-        relativePaths: string[];
-      }) => Array<{ file: string; line: number; pattern: string }>;
-    };
+    const { scanForPythonBackendViolations } = await loadNoPythonCheckModule();
 
     const root = mkdtempSync(join(tmpdir(), "aithru-no-python-"));
     try {
