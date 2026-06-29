@@ -1,5 +1,14 @@
 # Conversation Display Cards Design
 
+Status: superseded
+
+Superseded by:
+
+- `docs/superpowers/specs/2026-06-29-agent-presentation-model-design.md`
+
+This document is retained only as historical context. Display Card semantics
+should be removed rather than extended or kept as a compatibility layer.
+
 ## Goal
 
 Add a controlled way for Agent runs to show rich, related cards inside the

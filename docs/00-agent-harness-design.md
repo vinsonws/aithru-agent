@@ -135,6 +135,19 @@ approvals, and trace are available through a quiet right-side companion. This is
 a harness UI projection over Agent Thread and Agent Run state, not workflow
 graph editing or persisted workflow semantics.
 
+Agent user-facing presentation is represented by backend-owned
+`AgentPresentation` events, not frontend-owned display card schemas. Models may
+request that scoped resources be presented and may express a preferred view or
+lightweight UI effect, but the harness must validate the resource, view,
+surface, action, effect, policy, and redaction boundary before emitting
+`presentation.created` or `presentation.updated`. The frontend renders only
+trusted presentation events and executes only bounded, whitelisted effects such
+as opening a preview panel or focusing an approval. Prompt context may include a
+compact ledger of backend-confirmed presentations so the model can truthfully
+refer to what has been shown to the user without depending on arbitrary DOM
+state. Display Card semantics are superseded by the Agent Presentation model in
+`docs/superpowers/specs/2026-06-29-agent-presentation-model-design.md`.
+
 ### Skills
 
 Skills are real reusable agent capabilities.
