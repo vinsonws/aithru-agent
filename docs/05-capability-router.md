@@ -45,8 +45,7 @@ The Capability Router must not:
 
 ```txt
 model proposes tool call
-  -> Pydantic AI runtime emits a model tool call
-  -> Aithru Tool Bridge normalizes request
+  -> native model turn loop normalizes request
   -> Skill policy check
   -> Actor/platform authz check
   -> Approval gateway if required
@@ -317,10 +316,11 @@ Rules:
 
 - provider tools are optional runtime inputs, not ambient model access;
 - settings can enable the built-in `web.search` / `web.fetch` catalog or
-  Pydantic-validated MCP-like catalogs, but they are disabled by default;
+  schema-validated MCP-like catalogs, but they are disabled by default;
 - each provider maps its catalog into `ExternalToolSpec` descriptors;
 - every tool keeps explicit risk, scope, approval, provider, and metadata;
-- provider input/output contracts use Pydantic models at the boundary;
+- provider input/output contracts use Aithru-owned TypeScript schemas at the
+  boundary;
 - adapters validate inputs before calling provider executors;
 - actual web/network or MCP execution must be supplied by a controlled executor
   and still passes through scope, risk, approval, trace, and redaction policy;
@@ -479,37 +479,35 @@ Workspace/artifact/sandbox events may be emitted between `tool.started` and `too
 
 ## Current backend alignment
 
-The stage-1 backend uses Pydantic AI and `pydantic-ai-harness` only as internal
-runtime/capability composition details. Public Aithru contracts remain
-`AgentRun`, `AgentToolDescriptor`, `AgentRunContext`, `AgentStreamEvent`,
-artifacts, approvals, workspaces, memory, and subagents.
+The native TypeScript backend keeps public Aithru contracts in
+`backend-ts/src/contracts` and executes real actions only through
+`AithruCapabilityRouter`.
 
 Current execution path:
 
 ```txt
-model / Pydantic AI
-  -> AithruBoundaryCapability / AithruToolset
-  -> PydanticAIToolBridge
+model adapter
+  -> native model turn loop
   -> AithruCapabilityRouter
-  -> local tool adapter or future Workflow Capability API
+  -> local, external, or workflow capability adapter
   -> AgentStreamEvent / trace / artifact / workspace state
 ```
 
-`AithruBoundaryCapability` and `AithruToolset` may mark, filter, and prepare
-Pydantic AI tool definitions. They do not execute concrete actions. Concrete
-workspace, artifact, memory, sandbox, approval, and subagent operations remain
-inside local Aithru adapters behind `AithruCapabilityRouter`.
+Model adapters emit normalized model events. They do not execute concrete
+actions. Concrete workspace, artifact, memory, sandbox, approval, subagent,
+external provider, and workflow capability operations remain inside Aithru
+adapters behind the router.
 
 Skill package policy is applied before tools are exposed: `allowed_tools` is an
 upper bound, `denied_tools` removes tools explicitly, and workspace, memory,
 sandbox, approval, and subagent policy can further narrow availability. Sandbox
-execution is only available through the `sandbox.run_python` local tool and only
-when the active skill/run context exposes that tool.
+execution is only available through controlled sandbox tools and only when the
+active skill/run context exposes those tools.
 
-The model-facing `task(description, prompt, subagent_type)` tool is also a local
-tool adapter behind the router. It creates Aithru child `AgentRun` state and
-`AgentSubagentRun` links, then joins the child result through worker semantics;
-it is not a workflow graph or `WorkflowSpec` branch.
+The model-facing subagent task tool is also a local tool adapter behind the
+router. It creates Aithru child `AgentRun` state and `AgentSubagentRun` links,
+then joins the child result through worker semantics; it is not a workflow graph
+or `WorkflowSpec` branch.
 
 ## Redaction
 

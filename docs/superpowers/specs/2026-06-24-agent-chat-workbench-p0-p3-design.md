@@ -785,7 +785,7 @@ Preferred contracts:
 - verification output summaries;
 - capability and permission policy descriptors.
 
-Pydantic AI types must remain internal to the harness layer and should not become public
+Model-provider types must remain internal to the harness layer and should not become public
 Aithru API contracts.
 
 ## Security And Governance

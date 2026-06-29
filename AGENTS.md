@@ -27,16 +27,14 @@ backend-ts/
   Agent stream / trace / workspace / artifact / approval / memory / subagent model
 ```
 
-The legacy Python backend remains under `backend/` as migration context. New
-backend behavior must not require, import, shell out to, or start a Python
-backend process.
+The tracked Python backend package has been removed. New backend behavior must
+not require, import, shell out to, or start a Python backend process.
 
 Primary design docs:
 
 ```txt
 docs/00-agent-harness-design.md
 docs/superpowers/specs/2026-06-29-native-ts-agent-backend-replacement-design.md
-docs/superpowers/specs/2026-06-16-python-pydantic-ai-agent-backend-design.md
 ```
 
 ## Hard Boundaries
@@ -89,8 +87,7 @@ Workbench may call Agent through explicit node/API boundaries.
 ```
 
 Model providers are implementation details under `backend-ts/src/model`.
-Provider SDK objects and Pydantic AI types must not become public Aithru API
-contracts.
+Provider SDK objects must not become public Aithru API contracts.
 
 ## Backend Ownership
 
