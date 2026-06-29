@@ -1,6 +1,7 @@
 export { AgentEventWriter } from "./writer.js";
 export { InMemoryAgentEventStore } from "./store.js";
 export { formatSseEvent, formatSseComment } from "./sse.js";
+export { redactPayload, REDACTED_VALUE } from "./redaction.js";
 export { VISIBILITY, REDACTION, EVENT_TYPES } from "./events.js";
 export type {
   AgentStreamEvent,

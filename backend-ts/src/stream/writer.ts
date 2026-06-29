@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import type { AgentStreamEvent, AgentStreamSource } from "../contracts/types.js";
 import { InMemoryStore } from "../persistence/store.js";
 import { VISIBILITY, REDACTION } from "./events.js";
+import { redactPayload } from "./redaction.js";
 
 function generateEventId(): string {
   return `evt_${nanoid(12)}`;
@@ -33,7 +34,7 @@ export class AgentEventWriter {
       visibility: opts?.visibility || VISIBILITY.USER,
       redaction: opts?.redaction || REDACTION.NONE,
       summary: opts?.summary || null,
-      payload,
+      payload: redactPayload(payload, opts?.redaction || REDACTION.NONE),
     };
     this.store.appendEvent(runId, event);
     return event;
