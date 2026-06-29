@@ -173,7 +173,7 @@ def test_compose_skill_run_context_deny_wins_over_allow() -> None:
     assert result.allowed_tools == []
 
 
-def test_builtin_surprise_frontend_policy_allows_html_entrypoint() -> None:
+def test_builtin_surprise_frontend_policy_keeps_html_outputs_in_artifacts() -> None:
     resolver = BuiltinPackageResolver()
     packages = [
         package
@@ -191,7 +191,8 @@ def test_builtin_surprise_frontend_policy_allows_html_entrypoint() -> None:
     result = compose_skill_run_context(base, packages)
 
     assert result.workspace_allowed_paths is not None
-    assert "/index.html" in result.workspace_allowed_paths
+    assert "/artifacts" in result.workspace_allowed_paths
+    assert "/index.html" not in result.workspace_allowed_paths
 
 
 from aithru_agent.capabilities import AgentRunContext

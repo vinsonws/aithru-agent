@@ -11,7 +11,11 @@ The user provides frontend requirements: a component, page, application, or inte
 
 ## Output Requirements
 
-**MANDATORY**: The entry HTML file MUST be named `index.html`. This is a strict requirement for artifact display.
+HTML outputs in Aithru are previewable artifacts, not deployed websites by default.
+
+**MANDATORY**: Save standalone HTML deliverables as descriptive kebab-case `.html` files under `/artifacts` (for example, `/artifacts/cosmic-field.html`). Use `media_type: text/html` when creating an artifact directly. If a specific preview is needed, use `presentation.present` with `html_preview`.
+
+Only create a conventional deployable website entry file when the user explicitly asks for a website/app project that needs deployment-style file structure.
 
 ## Design Thinking
 
@@ -71,5 +75,5 @@ This is a design skill — avoid generic "AI aesthetics" at all costs. Specifica
 - Valid, semantic HTML5
 - CSS with modern features (custom properties, grid, flexbox, animations)
 - JavaScript that is clean and unobtrusive
-- Everything in a single `index.html` file unless otherwise specified
+- Everything in a single descriptive `/artifacts/*.html` file unless otherwise specified
 - Responsive design as a baseline, not an afterthought

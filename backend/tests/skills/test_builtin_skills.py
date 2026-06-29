@@ -61,6 +61,7 @@ def test_builtin_surprise_me_skill() -> None:
     assert skill.key == "surprise-me"
     assert skill.name == "Surprise Me"
     assert "artifact.create" in skill.allowed_tools
+    assert "/artifacts" in skill.instructions
 
 
 def test_builtin_bootstrap_skill() -> None:
@@ -100,6 +101,9 @@ def test_builtin_frontend_design_skill() -> None:
     assert skill.key == "frontend-design"
     assert skill.name == "Frontend Design"
     assert "artifact.create" in skill.allowed_tools
+    assert "index.html" not in skill.instructions
+    assert "/artifacts" in skill.instructions
+    assert "descriptive" in skill.instructions
 
 
 def test_builtin_chart_visualization_skill() -> None:

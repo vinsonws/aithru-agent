@@ -38,6 +38,8 @@ If no other skills are discovered (only surprise-me exists), use one of these fa
 2. **Interactive HTML experience**: Build a creative single-page web experience — generative art, a mini-game, a visual poem, an animated infographic, or an interactive story
 3. **Personalized artifact**: Use known user context to create something personal and delightful
 
+For HTML surprises, treat the page as a previewable artifact rather than a deployed website. Save it with a descriptive `.html` filename under `/artifacts`, then present it to the user.
+
 ### Step 4: Execute
 
 1. Read the full SKILL.md body of each selected skill

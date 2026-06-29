@@ -39,7 +39,7 @@ DEEP_RESEARCH_PACKAGE_POLICY = AgentSkillConfiguration(
 _READ_WRITE_WORKSPACE = AgentWorkspacePolicy(
     read=True,
     write=True,
-    allowed_paths=["/workspace", "/artifacts", "/index.html"],
+    allowed_paths=["/workspace", "/artifacts"],
 )
 
 _READ_ONLY_WORKSPACE = AgentWorkspacePolicy(
