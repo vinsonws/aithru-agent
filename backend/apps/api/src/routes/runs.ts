@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { getRuntime } from "../runtime.js";
 import type { AgentRun, AgentMessage, AgentStreamEvent } from "@aithru-agent/contracts";
 import { CreateRunRequestSchema } from "@aithru-agent/contracts";
+import { emitSkillActivated } from "@aithru-agent/harness";
 import { EVENT_TYPES } from "@aithru-agent/stream";
 import { projectTraceSpans } from "@aithru-agent/trace";
 import { buildRunSnapshot } from "@aithru-agent/snapshots";
@@ -23,6 +24,18 @@ function afterSequence(query: unknown): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+function selectedSkillKeys(body: any): string[] {
+  const raw = Array.isArray(body.selected_skill_keys) ? body.selected_skill_keys : [];
+  const keys: string[] = [];
+  for (const value of raw) {
+    if (typeof value !== "string") continue;
+    const key = value.trim();
+    if (!key || keys.includes(key)) continue;
+    keys.push(key);
+  }
+  return keys;
+}
+
 export function registerRunRoutes(app: FastifyInstance): void {
   // POST /api/runs
   app.post(
@@ -36,6 +49,15 @@ export function registerRunRoutes(app: FastifyInstance): void {
       const body = request.body as any;
       const runtime = getRuntime();
       const threadId = typeof body.thread_id === "string" && body.thread_id.length > 0 ? body.thread_id : null;
+      const selectedSkills = [];
+      for (const key of selectedSkillKeys(body)) {
+        const skill = runtime.skillResolver.resolve(key, body.org_id, body.actor_user_id);
+        if (!skill) {
+          reply.code(400);
+          return { error: `Skill not found: ${key}` };
+        }
+        selectedSkills.push(skill);
+      }
       const run: AgentRun = {
         id: `run_${nanoid(12)}`,
         org_id: body.org_id,
@@ -79,6 +101,20 @@ export function registerRunRoutes(app: FastifyInstance): void {
         EVENT_TYPES.RUN_CREATED,
         { run_id: run.id, status: run.status },
       );
+      for (const skill of selectedSkills) {
+        emitSkillActivated({
+          eventWriter: runtime.eventWriter,
+          runId: run.id,
+          threadId: run.thread_id ?? null,
+          key: skill.key,
+          name: skill.name,
+          source: skill.source,
+          version: skill.version,
+          trigger: "explicit",
+          allowedTools: skill.allowed_tools,
+          deniedTools: skill.denied_tools,
+        });
+      }
 
       reply.code(201);
       if (body.wait_for_completion === true) {

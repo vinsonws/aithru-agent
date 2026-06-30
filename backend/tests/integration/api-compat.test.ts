@@ -202,6 +202,50 @@ describe("legacy OpenAPI compatibility", () => {
     });
   });
 
+  it("activates selected skills on compatibility create-run endpoints", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs/wait",
+      payload: {
+        task_msg: "Surprise me",
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        selected_skill_keys: ["surprise-me", "surprise-me"],
+        harness_options: { model_profile_key: "default" },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const run = JSON.parse(res.body);
+    const events = getRuntime().store.listEvents(run.id);
+    expect(
+      events
+        .filter((event) => event.type === "skill.activated")
+        .map((event) => (event.payload as any).key),
+    ).toEqual(["surprise-me"]);
+    expect(events.find((event) => event.type === "skill.activated")?.sequence).toBeLessThan(
+      events.find((event) => event.type === "run.started")!.sequence,
+    );
+  });
+
+  it("rejects unknown selected skills on compatibility create-run endpoints", async () => {
+    const beforeRuns = getRuntime().store.listRuns({}).length;
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs/wait",
+      payload: {
+        task_msg: "Use a missing skill",
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        selected_skill_keys: ["missing-skill"],
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "Skill not found: missing-skill" });
+    expect(getRuntime().store.listRuns({}).length).toBe(beforeRuns);
+  });
+
   it("wakes up an existing queued frontend chat run when its stream is opened", async () => {
     const runtime = getRuntime();
     const run: AgentRun = {

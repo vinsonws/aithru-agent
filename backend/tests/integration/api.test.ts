@@ -220,6 +220,50 @@ describe("Runs API", () => {
     expect(getRuntime().store.getThread(threadId)?.title).toBe("Manual title");
   });
 
+  it("POST /api/runs activates selected skills before model execution", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        source: "chat",
+        task_msg: "Surprise me",
+        selected_skill_keys: ["surprise-me", "surprise-me"],
+        harness_options: { model_profile_key: "default" },
+        wait_for_completion: true,
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    const run = JSON.parse(res.body);
+    const events = getRuntime().store.listEvents(run.id);
+    expect(
+      events
+        .filter((event) => event.type === "skill.activated")
+        .map((event) => (event.payload as any).key),
+    ).toEqual(["surprise-me"]);
+    expect(events.find((event) => event.type === "skill.activated")?.sequence).toBeLessThan(
+      events.find((event) => event.type === "run.started")!.sequence,
+    );
+  });
+
+  it("POST /api/runs rejects unknown selected skills", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        task_msg: "Use a missing skill",
+        selected_skill_keys: ["missing-skill"],
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "Skill not found: missing-skill" });
+  });
+
   it("GET /api/runs lists runs", async () => {
     const res = await app.inject({ method: "GET", url: "/api/runs" });
     expect(res.statusCode).toBe(200);

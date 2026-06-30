@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
 import type { AgentMessage, AgentRun } from "@aithru-agent/contracts";
+import { emitSkillActivated } from "@aithru-agent/harness";
 import { EVENT_TYPES } from "@aithru-agent/stream";
 import { projectTraceSpans } from "@aithru-agent/trace";
 import { projectCapabilityAudit } from "@aithru-agent/capabilities";
@@ -44,14 +45,40 @@ function afterSequence(request: FastifyRequest): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+class SelectedSkillNotFoundError extends Error {
+  constructor(readonly key: string) {
+    super(`Skill not found: ${key}`);
+  }
+}
+
+function selectedSkillKeys(body: any): string[] {
+  const raw = Array.isArray(body.selected_skill_keys) ? body.selected_skill_keys : [];
+  const keys: string[] = [];
+  for (const value of raw) {
+    if (typeof value !== "string") continue;
+    const key = value.trim();
+    if (!key || keys.includes(key)) continue;
+    keys.push(key);
+  }
+  return keys;
+}
+
 async function createRun(body: any, threadId?: string): Promise<AgentRun> {
   const runtime = getRuntime();
+  const orgId = body.org_id ?? "org_1";
+  const actorUserId = body.actor_user_id ?? "user_1";
   const runThreadId =
     threadId ?? (typeof body.thread_id === "string" && body.thread_id.length > 0 ? body.thread_id : null);
+  const selectedSkills = [];
+  for (const key of selectedSkillKeys(body)) {
+    const skill = runtime.skillResolver.resolve(key, orgId, actorUserId);
+    if (!skill) throw new SelectedSkillNotFoundError(key);
+    selectedSkills.push(skill);
+  }
   const run: AgentRun = {
     id: `run_${nanoid(12)}`,
-    org_id: body.org_id ?? "org_1",
-    actor_user_id: body.actor_user_id ?? "user_1",
+    org_id: orgId,
+    actor_user_id: actorUserId,
     source: body.source ?? "chat",
     thread_id: runThreadId,
     workspace_id: workspaceIdForThread(runThreadId),
@@ -89,6 +116,20 @@ async function createRun(body: any, threadId?: string): Promise<AgentRun> {
     EVENT_TYPES.RUN_CREATED,
     { run_id: run.id, status: run.status },
   );
+  for (const skill of selectedSkills) {
+    emitSkillActivated({
+      eventWriter: runtime.eventWriter,
+      runId: run.id,
+      threadId: run.thread_id ?? null,
+      key: skill.key,
+      name: skill.name,
+      source: skill.source,
+      version: skill.version,
+      trigger: "explicit",
+      allowedTools: skill.allowed_tools,
+      deniedTools: skill.denied_tools,
+    });
+  }
   if (body.wait_for_completion === true) {
     return (await runtime.scheduleRunExecution(run, { wait: true })) ?? run;
   }
@@ -220,7 +261,16 @@ async function createRunStream(
   reply: FastifyReply,
   threadId?: string,
 ) {
-  const run = await createRun(body, threadId);
+  let run: AgentRun;
+  try {
+    run = await createRun(body, threadId);
+  } catch (error) {
+    if (error instanceof SelectedSkillNotFoundError) {
+      reply.code(400);
+      return { error: error.message };
+    }
+    throw error;
+  }
   return writeRunStream({
     request,
     reply,
@@ -229,6 +279,18 @@ async function createRunStream(
     minSequence: 0,
     follow: true,
   });
+}
+
+async function createRunResponse(body: any, reply: FastifyReply, threadId?: string) {
+  try {
+    return await createRun(body, threadId);
+  } catch (error) {
+    if (error instanceof SelectedSkillNotFoundError) {
+      reply.code(400);
+      return { error: error.message };
+    }
+    throw error;
+  }
 }
 
 function runUsage(runId: string) {
@@ -921,8 +983,8 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     if (!getRuntime().store.getThread(threadId)) return notFound(reply, "Thread not found");
     return getRuntime().store.listRuns({ thread_id: threadId });
   });
-  register(app, "POST", "/api/threads/:thread_id/runs", async (request: FastifyRequest) =>
-    createRun(request.body ?? {}, params(request).thread_id),
+  register(app, "POST", "/api/threads/:thread_id/runs", async (request: FastifyRequest, reply: FastifyReply) =>
+    createRunResponse(request.body ?? {}, reply, params(request).thread_id),
   );
   register(app, "POST", "/api/threads/:thread_id/runs/stream", async (request: FastifyRequest, reply: FastifyReply) =>
     createRunStream(request.body ?? {}, request, reply, params(request).thread_id),
@@ -931,8 +993,8 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   register(app, "POST", "/api/runs/stream", async (request: FastifyRequest, reply: FastifyReply) =>
     createRunStream(request.body ?? {}, request, reply),
   );
-  register(app, "POST", "/api/runs/wait", async (request: FastifyRequest) =>
-    createRun({ ...(request.body as any), wait_for_completion: true }),
+  register(app, "POST", "/api/runs/wait", async (request: FastifyRequest, reply: FastifyReply) =>
+    createRunResponse({ ...(request.body as any), wait_for_completion: true }, reply),
   );
 
   const runDetail = async (request: FastifyRequest, reply: FastifyReply) => {
