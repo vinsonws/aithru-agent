@@ -280,6 +280,54 @@ describe("Runs API", () => {
     expect(runCreatedEventCount()).toBe(beforeRunCreatedEvents);
   });
 
+  it("POST /api/approvals/:id/resolve resumes a waiting model run", async () => {
+    const runtime = getRuntime();
+    const approvalId = "aprv_api_resume";
+    const run: AgentRun = {
+      id: "run_api_approval_resume",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_api_approval_resume",
+      task_msg: "Continue after approval",
+      scopes: ["*"],
+      harness_options: { model_profile_key: "default" },
+      status: "waiting_approval",
+      current_approval_id: approvalId,
+      started_at: testNow(),
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    };
+    runtime.store.createRun(run);
+    runtime.store.createApproval({
+      id: approvalId,
+      run_id: run.id,
+      tool_call_id: "tc_api_resume",
+      tool_name: "workspace.write_file",
+      status: "pending",
+      created_at: testNow(),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/approvals/${approvalId}/resolve`,
+      payload: { decision: "approved" },
+    });
+    for (let attempt = 0; attempt < 20 && runtime.store.getRun(run.id)?.status !== "completed"; attempt += 1) {
+      await wait(10);
+    }
+
+    expect(res.statusCode).toBe(200);
+    expect(runtime.store.getRun(run.id)?.status).toBe("completed");
+    expect(runtime.store.getRun(run.id)?.current_approval_id).toBeNull();
+    expect(runtime.store.listEvents(run.id).map((event) => event.type)).toEqual(
+      expect.arrayContaining([EVENT_TYPES.APPROVAL_RESOLVED, EVENT_TYPES.RUN_RESUMED, EVENT_TYPES.RUN_COMPLETED]),
+    );
+  });
+
   it("GET /api/runs lists runs", async () => {
     const res = await app.inject({ method: "GET", url: "/api/runs" });
     expect(res.statusCode).toBe(200);

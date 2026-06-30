@@ -58,6 +58,20 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
         },
       );
 
+      if (decision === "approved" && run.status === "waiting_approval" && run.current_approval_id === approval.id) {
+        const resumed = runtime.store.updateRun(run.id, {
+          status: "queued",
+          current_approval_id: null,
+        });
+        runtime.eventWriter.write(
+          run.id,
+          run.thread_id ?? null,
+          EVENT_TYPES.RUN_RESUMED,
+          { status: "queued", resume_reason: "approval_resolved", approval_id: approval.id },
+        );
+        void runtime.scheduleRunExecution(resumed);
+      }
+
       return approvalResponse(approval);
     },
   );
