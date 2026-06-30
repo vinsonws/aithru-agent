@@ -23,7 +23,10 @@ export class ModelTurnLoop {
     },
   ) {}
 
-  async execute(run: AgentRun): Promise<AgentRun> {
+  async execute(
+    run: AgentRun,
+    options: { toolResults?: AgentModelToolResult[] } = {},
+  ): Promise<AgentRun> {
     const loop = new RunLoop({
       run,
       store: this.deps.store,
@@ -35,7 +38,7 @@ export class ModelTurnLoop {
     const messageId = `msg_${nanoid(12)}`;
     loop.emitMessageCreated(messageId, "");
     let content = "";
-    let toolResults: AgentModelToolResult[] = [];
+    let toolResults: AgentModelToolResult[] = options.toolResults ?? [];
     const maxTurns = this.deps.maxTurns ?? 8;
 
     for (let turn = 0; turn < maxTurns; turn += 1) {

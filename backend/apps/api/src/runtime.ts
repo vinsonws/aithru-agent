@@ -6,11 +6,13 @@ import {
   TestModelAdapter,
   createSdkModelAdapter,
   type AgentModelAdapter,
+  type AgentModelToolResult,
 } from "@aithru-agent/model";
 import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
-import { InMemoryStore, SqliteStore, type AgentStore } from "@aithru-agent/persistence";
+import { InMemoryStore, SqliteStore, type AgentApproval, type AgentStore } from "@aithru-agent/persistence";
 import { SkillRegistry, SkillResolver, findBuiltinSkillsRoot } from "@aithru-agent/skills";
 import { WorkerRunner } from "@aithru-agent/worker";
+import { createApprovalResolver, type ScheduleRunExecutionOptions } from "./approval-resolution.js";
 
 export interface AgentRuntime {
   store: AgentStore;
@@ -21,8 +23,9 @@ export interface AgentRuntime {
   skillResolver: SkillResolver;
   scheduleRunExecution: (
     run: AgentRun | string,
-    options?: { wait?: boolean },
+    options?: ScheduleRunExecutionOptions,
   ) => Promise<AgentRun | undefined>;
+  resolveApproval: (approvalId: string, decision: "approved" | "denied") => Promise<AgentApproval>;
 }
 
 let _runtime: AgentRuntime | null = null;
@@ -160,7 +163,10 @@ function createRunScheduler(deps: {
     return failed;
   };
 
-  const execute = async (runId: string): Promise<AgentRun | undefined> => {
+  const execute = async (
+    runId: string,
+    toolResults: AgentModelToolResult[] = [],
+  ): Promise<AgentRun | undefined> => {
     const run = deps.store.getRun(runId);
     if (!run) return undefined;
     if (!modelProfileKey(run)) return run;
@@ -174,13 +180,13 @@ function createRunScheduler(deps: {
         modelAdapter: adapterForRun(deps.store, run),
         skillResolver: deps.skillResolver,
       });
-      return await loop.execute(run);
+      return await loop.execute(run, { toolResults });
     } catch (err) {
       return failRun(run, err);
     }
   };
 
-  return (runOrId: AgentRun | string, options: { wait?: boolean } = {}) => {
+  return (runOrId: AgentRun | string, options: ScheduleRunExecutionOptions = {}) => {
     const runId = typeof runOrId === "string" ? runOrId : runOrId.id;
     const run = typeof runOrId === "string" ? deps.store.getRun(runOrId) : runOrId;
     if (!run || !modelProfileKey(run)) return Promise.resolve(run);
@@ -189,7 +195,7 @@ function createRunScheduler(deps: {
     const existing = activeRuns.get(runId);
     if (existing) return options.wait ? existing : Promise.resolve(deps.store.getRun(runId));
 
-    const task = execute(runId).finally(() => activeRuns.delete(runId));
+    const task = execute(runId, options.toolResults ?? []).finally(() => activeRuns.delete(runId));
     activeRuns.set(runId, task);
     return options.wait ? task : Promise.resolve(deps.store.getRun(runId));
   };
@@ -225,8 +231,23 @@ export async function createRuntime(dbPath?: string): Promise<AgentRuntime> {
     capabilityRouter,
     skillResolver,
   });
+  const resolveApproval = createApprovalResolver({
+    store,
+    eventWriter,
+    capabilityRouter,
+    scheduleRunExecution,
+  });
 
-  _runtime = { store, eventWriter, capabilityRouter, harness, worker, skillResolver, scheduleRunExecution };
+  _runtime = {
+    store,
+    eventWriter,
+    capabilityRouter,
+    harness,
+    worker,
+    skillResolver,
+    scheduleRunExecution,
+    resolveApproval,
+  };
   return _runtime;
 }
 

@@ -35,6 +35,25 @@ function runCreatedEventCount(): number {
     );
 }
 
+function createToolCallRecord(args: {
+  id: string;
+  runId: string;
+  approvalId: string;
+  name: string;
+  input: Record<string, unknown>;
+}) {
+  getRuntime().store.upsertDocument("tool_call_record", args.id, {
+    id: args.id,
+    run_id: args.runId,
+    tool_name: args.name,
+    input: args.input,
+    status: "waiting_approval",
+    approval_id: args.approvalId,
+    created_at: testNow(),
+    updated_at: testNow(),
+  });
+}
+
 describe("Health API", () => {
   it("GET /api/health returns ok", async () => {
     const res = await app.inject({ method: "GET", url: "/api/health" });
@@ -303,8 +322,10 @@ describe("Runs API", () => {
       error: null,
     };
     runtime.store.createRun(run);
-    runtime.eventWriter.write(run.id, null, EVENT_TYPES.TOOL_PROPOSED, {
-      tool_call_id: toolCallId,
+    createToolCallRecord({
+      id: toolCallId,
+      runId: run.id,
+      approvalId,
       name: "workspace.write_file",
       input: { path: "/approved.txt", content: "approved content" },
     });
@@ -339,6 +360,108 @@ describe("Runs API", () => {
         EVENT_TYPES.RUN_COMPLETED,
       ]),
     );
+  });
+
+  it("POST /api/approvals/:id/resolve rejects a pending tool without executing it", async () => {
+    const runtime = getRuntime();
+    const approvalId = "aprv_api_deny";
+    const toolCallId = "tc_api_deny";
+    const run: AgentRun = {
+      id: "run_api_approval_deny",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_api_approval_deny",
+      task_msg: "Continue after denial",
+      scopes: ["*"],
+      harness_options: { model_profile_key: "default" },
+      status: "waiting_approval",
+      current_approval_id: approvalId,
+      started_at: testNow(),
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    };
+    runtime.store.createRun(run);
+    createToolCallRecord({
+      id: toolCallId,
+      runId: run.id,
+      approvalId,
+      name: "workspace.write_file",
+      input: { path: "/denied.txt", content: "denied content" },
+    });
+    runtime.store.createApproval({
+      id: approvalId,
+      run_id: run.id,
+      tool_call_id: toolCallId,
+      tool_name: "workspace.write_file",
+      status: "pending",
+      created_at: testNow(),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/approvals/${approvalId}/resolve`,
+      payload: { decision: "rejected" },
+    });
+    for (let attempt = 0; attempt < 20 && runtime.store.getRun(run.id)?.status !== "completed"; attempt += 1) {
+      await wait(10);
+    }
+
+    expect(res.statusCode).toBe(200);
+    expect(runtime.store.readFile(run.workspace_id, "/denied.txt")).toBeUndefined();
+    expect(runtime.store.getRun(run.id)?.status).toBe("completed");
+    expect(runtime.store.getRun(run.id)?.current_approval_id).toBeNull();
+    expect(runtime.store.listEvents(run.id).map((event) => event.type)).toEqual(
+      expect.arrayContaining([EVENT_TYPES.APPROVAL_RESOLVED, EVENT_TYPES.RUN_RESUMED, EVENT_TYPES.TOOL_DENIED]),
+    );
+  });
+
+  it("GET /api/approvals/:id includes pending tool input", async () => {
+    const runtime = getRuntime();
+    const approvalId = "aprv_api_tool_input";
+    const toolCallId = "tc_api_tool_input";
+    const run: AgentRun = {
+      id: "run_api_tool_input",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_api_tool_input",
+      task_msg: "Show approval input",
+      scopes: ["*"],
+      harness_options: { model_profile_key: "default" },
+      status: "waiting_approval",
+      current_approval_id: approvalId,
+      started_at: testNow(),
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    };
+    runtime.store.createRun(run);
+    createToolCallRecord({
+      id: toolCallId,
+      runId: run.id,
+      approvalId,
+      name: "workspace.write_file",
+      input: { path: "/visible.txt", content: "visible content" },
+    });
+    runtime.store.createApproval({
+      id: approvalId,
+      run_id: run.id,
+      tool_call_id: toolCallId,
+      tool_name: "workspace.write_file",
+      status: "pending",
+      created_at: testNow(),
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/approvals/${approvalId}` });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).tool_input).toEqual({ path: "/visible.txt", content: "visible content" });
   });
 
   it("GET /api/runs lists runs", async () => {

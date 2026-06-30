@@ -5,6 +5,7 @@ import { AgentEventWriter } from "@aithru-agent/stream";
 import type { AgentStore } from "@aithru-agent/persistence";
 import { EVENT_TYPES } from "@aithru-agent/stream";
 import { validateRunStatusTransition } from "@aithru-agent/contracts";
+import { createToolCallRecord, updateToolCallRecord } from "./tool-call-records.js";
 
 export interface RunLoopContext {
   run: AgentRun;
@@ -140,6 +141,15 @@ export class RunLoop {
       input: step.input,
       run_id: this.runId,
     };
+    createToolCallRecord(this.ctx.store, {
+      id: toolCallId,
+      run_id: this.runId,
+      tool_name: step.name,
+      input: step.input,
+      status: "proposed",
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    });
 
     // 1. Propose
     this.ctx.eventWriter.write(
@@ -152,6 +162,12 @@ export class RunLoop {
     // 2. Prepare (check policy)
     const prepared = await this.ctx.capabilityRouter.prepareToolCall(request, { run: this.ctx.run });
     if (!prepared.allowed) {
+      const error = {
+        code: "TOOL_DENIED",
+        message: prepared.reason || "Tool call denied by policy",
+        retryable: false,
+      };
+      updateToolCallRecord(this.ctx.store, toolCallId, { status: "denied", error });
       this.ctx.eventWriter.write(
         this.runId,
         this.threadId,
@@ -170,9 +186,7 @@ export class RunLoop {
           name: step.name,
           output: null,
           error: {
-            code: "TOOL_DENIED",
-            message: prepared.reason || "Tool call denied by policy",
-            retryable: false,
+            ...error,
           },
         },
       };
@@ -181,6 +195,10 @@ export class RunLoop {
     // 3. Approval check — actually pause, not auto-resolve
     if (prepared.requires_approval && !step.autoApprove) {
       const approvalId = `aprv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+      updateToolCallRecord(this.ctx.store, toolCallId, {
+        status: "waiting_approval",
+        approval_id: approvalId,
+      });
 
       // Create approval in store
       this.ctx.store.createApproval({
@@ -227,6 +245,7 @@ export class RunLoop {
     }
 
     // 4. Execute (no approval needed)
+    updateToolCallRecord(this.ctx.store, toolCallId, { status: "running" });
     this.ctx.eventWriter.write(
       this.runId,
       this.threadId,
@@ -235,6 +254,13 @@ export class RunLoop {
     );
 
     const result = await this.ctx.capabilityRouter.executeToolCall(request, { run: this.ctx.run });
+    updateToolCallRecord(
+      this.ctx.store,
+      toolCallId,
+      result.error
+        ? { status: "failed", error: result.error, output: result.output }
+        : { status: "completed", output: result.output, error: null },
+    );
 
     if (result.error) {
       this.ctx.eventWriter.write(
@@ -307,4 +333,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function nowIso(): string {
+  return new Date().toISOString().replace(/\.\d{3}/, "");
 }

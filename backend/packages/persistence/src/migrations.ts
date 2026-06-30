@@ -114,6 +114,14 @@ export function runMigrations(adapter: MigrationExecutor): void {
       payload TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS tool_call_records (
+      id TEXT PRIMARY KEY,
+      org_id TEXT,
+      owner_user_id TEXT,
+      key TEXT,
+      payload TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS todos (
       id TEXT PRIMARY KEY, thread_id TEXT, run_id TEXT NOT NULL, title TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -140,5 +148,6 @@ export function runMigrations(adapter: MigrationExecutor): void {
       ON skill_package_users(org_id, owner_user_id, key);
     CREATE INDEX IF NOT EXISTS idx_subagent_specs_org_key ON subagent_specs(org_id, key);
     CREATE INDEX IF NOT EXISTS idx_external_tool_configs_org_key ON external_tool_configs(org_id, key);
+    CREATE INDEX IF NOT EXISTS idx_tool_call_records_org_key ON tool_call_records(org_id, key);
   `);
 }

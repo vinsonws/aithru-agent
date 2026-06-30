@@ -48,11 +48,11 @@ export function buildModelContextPacket(args: {
 
   let truncatedToolResults = 0;
   const toolLines = args.events
-    .filter((event) => event.type === "tool.completed" || event.type === "tool.failed")
+    .filter((event) => event.type === "tool.completed" || event.type === "tool.failed" || event.type === "tool.denied")
     .slice(-MODEL_CONTEXT_TOOL_RESULT_LIMIT)
     .map((event) => {
       const payload = event.payload as Record<string, unknown>;
-      const body = payload.error ?? payload.output ?? null;
+      const body = payload.error ?? payload.output ?? payload.reason ?? null;
       const compact = compactValue(body);
       if (compact.endsWith("...")) truncatedToolResults += 1;
       return `- ${String(payload.name ?? "tool")} (${String(payload.tool_call_id ?? event.id)}): ${compact}`;

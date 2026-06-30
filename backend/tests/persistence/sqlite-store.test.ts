@@ -139,6 +139,43 @@ describe("SqliteStore", () => {
     }
   });
 
+  it("persists tool call records as dedicated documents", async () => {
+    const dbPath = join(tempDir, "tool-calls.sqlite");
+    const durable = await SqliteStore.create(dbPath);
+    durable.upsertDocument("tool_call_record", "tc_1", {
+      id: "tc_1",
+      run_id: "run_1",
+      tool_name: "workspace.write_file",
+      input: { path: "/approved.txt", content: "hello" },
+      status: "waiting_approval",
+      approval_id: "aprv_1",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    durable.close();
+
+    const reopened = await SqliteStore.create(dbPath);
+    try {
+      expect(reopened.getDocument("tool_call_record", "tc_1")?.payload).toMatchObject({
+        tool_name: "workspace.write_file",
+        input: { path: "/approved.txt", content: "hello" },
+        approval_id: "aprv_1",
+      });
+    } finally {
+      reopened.close();
+    }
+
+    const SQL = await initSqlJs();
+    const raw = new SQL.Database(readFileSync(dbPath));
+    try {
+      const tableRows = raw.exec("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name");
+      const tables = tableRows[0]?.values.map(([name]) => String(name)) ?? [];
+      expect(tables).toContain("tool_call_records");
+    } finally {
+      raw.close();
+    }
+  });
+
   it("persists context summaries outside agent_documents", async () => {
     const dbPath = join(tempDir, "context-summary.sqlite");
     const durable = await SqliteStore.create(dbPath);

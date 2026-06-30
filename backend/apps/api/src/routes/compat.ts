@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
 import type { AgentMessage, AgentRun } from "@aithru-agent/contracts";
-import { emitSkillActivated } from "@aithru-agent/harness";
+import { emitSkillActivated, ensureToolCallRecordForApproval } from "@aithru-agent/harness";
 import { EVENT_TYPES } from "@aithru-agent/stream";
 import { projectTraceSpans } from "@aithru-agent/trace";
 import { projectCapabilityAudit } from "@aithru-agent/capabilities";
@@ -412,9 +412,10 @@ function timestampMillis(value: unknown): number {
 
 function approvalResponse(approval: any) {
   const resolved = approval.status === "approved" || approval.status === "denied";
+  const toolCall = ensureToolCallRecordForApproval(getRuntime().store, approval);
   return {
     ...approval,
-    tool_input: null,
+    tool_input: toolCall?.input ?? null,
     status: resolved ? "resolved" : approval.status,
     decision:
       approval.status === "approved"

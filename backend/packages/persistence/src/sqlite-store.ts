@@ -52,6 +52,7 @@ const DOCUMENT_TABLES = {
   skill_package_user: "skill_package_users",
   subagent_spec: "subagent_specs",
   external_tool_config_entry: "external_tool_configs",
+  tool_call_record: "tool_call_records",
 } as const;
 
 type DocumentKind = keyof typeof DOCUMENT_TABLES;
