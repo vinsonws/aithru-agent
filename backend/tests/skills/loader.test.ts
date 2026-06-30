@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { SkillLoader, SkillRegistry, findBuiltinSkillsRoot } from "@aithru-agent/skills";
+import { InMemoryStore } from "@aithru-agent/persistence";
+import { SkillLoader, SkillRegistry, SkillResolver, findBuiltinSkillsRoot } from "@aithru-agent/skills";
 import { writeFileSync, mkdirSync, rmSync, readdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -262,6 +263,34 @@ describe("SkillRegistry", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("SkillResolver", () => {
+  it("lists visible skill catalog without instructions", () => {
+    const registry = new SkillRegistry();
+    registry.register({
+      key: "catalog-skill",
+      path: "/skills/catalog-skill",
+      name: "Catalog Skill",
+      description: "Visible metadata.",
+      version: "1.0.0",
+      status: "published",
+      enabled: true,
+      allowed_tools: [],
+      denied_tools: [],
+      instructions: "secret body",
+      resources: { references: [], scripts: [], assets: [], examples: [] },
+    });
+    const resolver = new SkillResolver(registry, new InMemoryStore());
+
+    expect(resolver.listVisible("org_1", "user_1")).toEqual([{
+      key: "catalog-skill",
+      name: "Catalog Skill",
+      description: "Visible metadata.",
+      source: "builtin",
+      version: "1.0.0",
+    }]);
   });
 });
 

@@ -19,6 +19,14 @@ export interface ResolvedSkill {
   enabled: boolean;
 }
 
+export interface SkillCatalogEntry {
+  key: string;
+  name: string;
+  description: string | null;
+  source: ResolvedSkill["source"];
+  version: string;
+}
+
 interface SkillEntryPayload {
   key?: string;
   name?: string;
@@ -68,6 +76,25 @@ export class SkillResolver {
     return base;
   }
 
+  listVisible(orgId: string, actorUserId: string): SkillCatalogEntry[] {
+    const keys = new Set<string>();
+    for (const pkg of this.builtins.list()) keys.add(pkg.key);
+    for (const doc of this.store.listDocuments("skill_registry_entry")) {
+      const entry = doc.payload as SkillEntryPayload;
+      if ((entry as any).org_id === orgId && entry.key) keys.add(entry.key);
+    }
+    for (const doc of this.store.listDocuments("skill_package_user")) {
+      const entry = doc.payload as SkillEntryPayload;
+      if ((entry as any).org_id === orgId && (entry as any).owner_user_id === actorUserId && entry.key) {
+        keys.add(entry.key);
+      }
+    }
+    return [...keys]
+      .map((key) => this.resolve(key, orgId, actorUserId))
+      .filter((skill): skill is ResolvedSkill => skill !== null)
+      .map(skillCatalogEntry);
+  }
+
   private findRegistryEntry(orgId: string, key: string): SkillEntryPayload | undefined {
     const byId = this.store.getDocument("skill_registry_entry", key)?.payload as SkillEntryPayload | undefined;
     if (byId && (byId as any).org_id === orgId) return byId;
@@ -76,6 +103,16 @@ export class SkillResolver {
       .map((doc) => doc.payload as SkillEntryPayload)
       .find((entry) => (entry as any).org_id === orgId && entry.key === key);
   }
+}
+
+export function skillCatalogEntry(skill: ResolvedSkill): SkillCatalogEntry {
+  return {
+    key: skill.key,
+    name: skill.name,
+    description: skill.description,
+    source: skill.source,
+    version: skill.version,
+  };
 }
 
 function fromPackage(pkg: SkillPackage, source: ResolvedSkill["source"]): ResolvedSkill {
