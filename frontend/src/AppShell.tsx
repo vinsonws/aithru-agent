@@ -18,6 +18,7 @@ import { ActivityPanel } from "@/features/sidebar/panels/ActivityPanel";
 import { ApprovalsPanel } from "@/features/sidebar/panels/ApprovalsPanel";
 import { TracePanel } from "@/features/sidebar/panels/TracePanel";
 import { buildRunCompanionBadges } from "@/features/chat/runActivity";
+import { buildDraftWorkspaceFiles } from "@/features/inspection/runFilesView";
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 340;
 const MIN_RIGHT_PANEL_WIDTH = 240;
@@ -129,19 +130,33 @@ function RouteContent({
   );
 
   const { state: streamState } = useRunStream(activeRunId);
+  const draftWorkspaceFiles = React.useMemo(
+    () => buildDraftWorkspaceFiles(streamState.toolInputDrafts ?? []),
+    [streamState.toolInputDrafts],
+  );
+  const openedDraftFileIdsRef = React.useRef<Set<string>>(new Set());
 
   const badges = buildRunCompanionBadges(streamState);
 
   const activeRun = runsQuery.data?.find((r: AgentRun) => r.id === activeRunId);
   const workspaceId = (activeRun?.workspace_id as string | undefined) ?? null;
 
-  const handlePreviewFile = (fileId: string) => {
+  const handlePreviewFile = React.useCallback((fileId: string) => {
     onOpenFileIdsChange(
-      openFileIds.includes(fileId) ? openFileIds : [...openFileIds, fileId]
+      openFileIds.includes(fileId) ? openFileIds : [...openFileIds, fileId],
     );
     onActiveFileIdChange(fileId);
     onRightPanelChange("preview");
-  };
+  }, [onActiveFileIdChange, onOpenFileIdsChange, onRightPanelChange, openFileIds]);
+
+  React.useEffect(() => {
+    const draft = draftWorkspaceFiles.find(
+      (file) => file.content.length > 0 && !openedDraftFileIdsRef.current.has(file.id),
+    );
+    if (!draft) return;
+    openedDraftFileIdsRef.current.add(draft.id);
+    handlePreviewFile(draft.id);
+  }, [draftWorkspaceFiles, handlePreviewFile]);
 
   const rightPanelContent = activeRunId && rightPanel ? (
     <>
@@ -149,6 +164,7 @@ function RouteContent({
         <FilePreviewPanel
           runId={activeRunId}
           workspaceId={workspaceId}
+          draftWorkspaceFiles={draftWorkspaceFiles}
           openFileIds={openFileIds}
           activeFileId={activeFileId}
           onSelectFile={handlePreviewFile}
@@ -167,6 +183,7 @@ function RouteContent({
         <FileListPanel
           runId={activeRunId}
           workspaceId={workspaceId}
+          draftWorkspaceFiles={draftWorkspaceFiles}
           onSelectFile={handlePreviewFile}
           onClose={() => onRightPanelChange(null)}
         />

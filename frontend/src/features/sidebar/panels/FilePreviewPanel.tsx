@@ -8,6 +8,7 @@ import { Markdown, CodeBlock } from "@/components/Markdown";
 import { LoadingState, EmptyState, ErrorState } from "@/components/shared/states";
 import {
   buildRunFileViews,
+  type DraftWorkspaceFileInput,
   type RunFileView,
   type RunFilePreviewKind,
 } from "@/features/inspection/runFilesView";
@@ -15,6 +16,7 @@ import {
 interface FilePreviewPanelProps {
   runId: string | null;
   workspaceId: string | null;
+  draftWorkspaceFiles?: DraftWorkspaceFileInput[];
   openFileIds: string[];
   activeFileId: string | null;
   onSelectFile: (fileId: string) => void;
@@ -26,6 +28,7 @@ interface FilePreviewPanelProps {
 export function FilePreviewPanel({
   runId,
   workspaceId,
+  draftWorkspaceFiles = [],
   openFileIds,
   activeFileId,
 
@@ -54,6 +57,7 @@ export function FilePreviewPanel({
     snapshot,
     workspaceId,
     workspaceFiles: workspaceFiles as Array<{ path: string; size?: number; media_type?: string | null }>,
+    draftWorkspaceFiles,
   });
 
   const openFiles = views.filter((v) => openFileIds.includes(v.id));
@@ -62,8 +66,12 @@ export function FilePreviewPanel({
   const previewQuery = useQuery({
     queryKey: ["outputs", "preview", workspaceId, activeFile?.id, activeFile?.previewKind],
     queryFn: () => readFilePreview(activeFile!, workspaceId),
-    enabled: !!activeFile && activeFile.canPreview,
+    enabled: !!activeFile && activeFile.canPreview && activeFile.draftContent === undefined,
   });
+  const draftPreview =
+    activeFile && activeFile.draftContent !== undefined
+      ? previewFromDraftFile(activeFile)
+      : null;
 
   // Empty state: no files selected
   if (openFileIds.length === 0 || !activeFile) {
@@ -160,14 +168,15 @@ export function FilePreviewPanel({
 
       {/* Preview content */}
       <div className="min-h-0 flex-1 overflow-auto p-3">
-        {previewQuery.isLoading && <LoadingState />}
-        {previewQuery.error && (
+        {draftPreview && <PreviewBody file={activeFile} preview={draftPreview} />}
+        {!draftPreview && previewQuery.isLoading && <LoadingState />}
+        {!draftPreview && previewQuery.error && (
           <ErrorState error={previewQuery.error} onRetry={() => previewQuery.refetch()} />
         )}
-        {!previewQuery.isLoading && !previewQuery.error && previewQuery.data && (
+        {!draftPreview && !previewQuery.isLoading && !previewQuery.error && previewQuery.data && (
           <PreviewBody file={activeFile} preview={previewQuery.data} />
         )}
-        {!previewQuery.isLoading && !previewQuery.error && !previewQuery.data && (
+        {!draftPreview && !previewQuery.isLoading && !previewQuery.error && !previewQuery.data && (
           <EmptyState
             title={t("chat:files.previewUnavailable", "Preview unavailable")}
             description={t("chat:files.previewUnavailableDescription", "Download this file to open it locally.")}
@@ -186,6 +195,15 @@ interface FilePreviewData {
   mediaType?: string | null;
   dataUrl?: string;
   url?: string;
+}
+
+function previewFromDraftFile(file: RunFileView): FilePreviewData | null {
+  if (file.draftContent === undefined) return null;
+  return {
+    kind: file.previewKind,
+    mediaType: null,
+    content: file.draftContent,
+  };
 }
 
 async function readFilePreview(file: RunFileView, workspaceId: string | null): Promise<FilePreviewData> {
@@ -217,6 +235,16 @@ function PreviewBody({ file, preview }: { file: RunFileView; preview: FilePrevie
   }
   if (preview.kind === "pdf" && preview.url) {
     return <iframe title={file.name} src={preview.url} className="h-full min-h-[520px] w-full rounded-md border bg-background" />;
+  }
+  if (preview.kind === "html" && preview.content !== undefined) {
+    return (
+      <iframe
+        title={file.name}
+        srcDoc={preview.content}
+        sandbox="allow-scripts"
+        className="h-full min-h-[520px] w-full rounded-md border bg-background"
+      />
+    );
   }
   if (preview.kind === "html" && preview.url) {
     return (

@@ -142,3 +142,13 @@ test("right panel is stored as session-only React state in AppShell", async () =
   // RouteContent wires setRightPanel as onRightPanelChange
   assert.match(source, /onRightPanelChange=\{setRightPanel\}/);
 });
+
+test("app shell derives draft workspace files and auto-opens them once", async () => {
+  const source = await readFile(appShellPath, "utf8");
+
+  assert.match(source, /buildDraftWorkspaceFiles/);
+  assert.match(source, /draftWorkspaceFiles/);
+  assert.match(source, /openedDraftFileIdsRef/);
+  assert.match(source, /handlePreviewFile\(draft\.id\)/);
+  assert.match(source, /draftWorkspaceFiles=\{draftWorkspaceFiles\}/);
+});

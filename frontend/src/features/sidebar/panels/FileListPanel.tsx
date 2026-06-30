@@ -5,11 +5,16 @@ import { useTranslation } from "react-i18next";
 import { runsApi, workspacesApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { LoadingState, EmptyState, ErrorState } from "@/components/shared/states";
-import { buildRunFileViews, type RunFileView } from "@/features/inspection/runFilesView";
+import {
+  buildRunFileViews,
+  type DraftWorkspaceFileInput,
+  type RunFileView,
+} from "@/features/inspection/runFilesView";
 
 interface FileListPanelProps {
   runId: string | null;
   workspaceId: string | null;
+  draftWorkspaceFiles?: DraftWorkspaceFileInput[];
   onSelectFile: (fileId: string) => void;
   onClose: () => void;
 }
@@ -23,7 +28,13 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   Python: <FileCode className="h-4 w-4" />,
 };
 
-export function FileListPanel({ runId, workspaceId, onSelectFile, onClose }: FileListPanelProps) {
+export function FileListPanel({
+  runId,
+  workspaceId,
+  draftWorkspaceFiles = [],
+  onSelectFile,
+  onClose,
+}: FileListPanelProps) {
   const { t } = useTranslation(["chat", "common"]);
 
   const snapshotQuery = useQuery({
@@ -48,6 +59,7 @@ export function FileListPanel({ runId, workspaceId, onSelectFile, onClose }: Fil
     snapshot,
     workspaceId,
     workspaceFiles: workspaceFiles as Array<{ path: string; size?: number; media_type?: string | null }>,
+    draftWorkspaceFiles,
   });
 
   const handleRefresh = () => {
