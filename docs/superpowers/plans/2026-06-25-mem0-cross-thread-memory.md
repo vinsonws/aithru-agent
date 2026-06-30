@@ -62,7 +62,7 @@
 - Produces: `NoopLongTermMemoryProvider`
 - Produces: `can_read_long_term_memory(scopes: list[str]) -> bool`
 - Produces: `can_write_long_term_memory(scopes: list[str]) -> bool`
-- Produces: `identity_for_run(run: AgentRun, *, app_id: str, default_agent_id: str) -> LongTermMemoryIdentity`
+- Produces: `identity_for_run(run: AgentRun, *, app_id: str, default_agent_id: str, active_skill_keys: list[str]) -> LongTermMemoryIdentity`
 
 - [ ] **Step 1: Write failing settings tests**
 
@@ -171,6 +171,7 @@ def test_identity_for_run_is_tenant_safe() -> None:
         run_fixture(),
         app_id="prod:aithru-agent",
         default_agent_id="aithru-agent",
+        active_skill_keys=["research"],
     )
 
     assert identity.user_id == "org_1:user_1"
@@ -181,7 +182,7 @@ def test_identity_for_run_is_tenant_safe() -> None:
     assert identity.metadata["actor_user_id"] == "user_1"
     assert identity.metadata["thread_id"] == "thread_1"
     assert identity.metadata["workspace_id"] == "workspace_1"
-    assert identity.metadata["selected_skill_keys"] == ["research"]
+    assert identity.metadata["active_skill_keys"] == ["research"]
 
 
 async def test_noop_provider_returns_empty_results() -> None:
@@ -783,11 +784,13 @@ class Mem0LongTermMemoryProvider:
         run: AgentRun,
         query: str,
         limit: int,
+        active_skill_keys: Sequence[str] = (),
     ) -> list[LongTermMemorySearchResult]:
         identity = identity_for_run(
             run,
             app_id=self._settings.mem0_app_id,
             default_agent_id=self._settings.mem0_default_agent_id,
+            active_skill_keys=list(active_skill_keys),
         )
         kwargs: dict[str, object] = {
             "filters": {
@@ -808,11 +811,13 @@ class Mem0LongTermMemoryProvider:
         *,
         run: AgentRun,
         messages: Sequence[LongTermMemoryMessage],
+        active_skill_keys: Sequence[str] = (),
     ) -> LongTermMemoryAddResult:
         identity = identity_for_run(
             run,
             app_id=self._settings.mem0_app_id,
             default_agent_id=self._settings.mem0_default_agent_id,
+            active_skill_keys=list(active_skill_keys),
         )
         raw = await self._client.add(  # type: ignore[attr-defined]
             messages=[
