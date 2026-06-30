@@ -46,6 +46,24 @@ test("historical assistant process state is display-only and not part of new run
   assert.doesNotMatch(requestBody, /historicalRunStates|threadMessages|streamState|reasoningSegments|toolCalls/);
 });
 
+test("chat composer create-run request sends selected skill keys and omits skill_id", async () => {
+  const composer = await src("features/chat/ChatComposer.tsx");
+  const requestBody = composer.match(/const body: CreateRunRequest = \{[\s\S]*?\n\s*\};/)?.[0] ?? "";
+
+  assert.match(requestBody, /selected_skill_keys: vars\.selectedSkillKeys/);
+  assert.doesNotMatch(requestBody, /skill_id:/);
+  assert.match(composer, /selectedSkillKeys:\s*command\.selectedSkillKeys \?\? \[\]/);
+});
+
+test("new thread create-run request sends selected skill keys and omits skill_id", async () => {
+  const newThreadPage = await src("features/conversation/NewThreadPage.tsx");
+  const requestBody = newThreadPage.match(/const run = await runsApi\.create\(\{[\s\S]*?\n\s*\}\);/)?.[0] ?? "";
+
+  assert.match(requestBody, /selected_skill_keys: vars\.selectedSkillKeys/);
+  assert.doesNotMatch(requestBody, /skill_id:/);
+  assert.match(newThreadPage, /selectedSkillKeys:\s*command\.selectedSkillKeys \?\? \[\]/);
+});
+
 test("creating a run from a run route navigates to the new run stream", async () => {
   const source = await src("AppShell.tsx");
 
