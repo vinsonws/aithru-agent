@@ -112,3 +112,34 @@ Frontend:
   - Result: pass (`36` files, `215` tests; no-python check passed; file report example completed)
 - `cd frontend && npm test -- tests/slash-commands.test.mjs tests/runs-api.test.mjs tests/chat-composer-options.test.mjs && npm run typecheck`
   - Result: pass (`181` tests)
+
+## Task 7 Review Fix 2
+
+### Scoped fixes
+
+- Updated `frontend/openapi.json` so `AgentMessage` now advertises
+  `workspace_paths` instead of stale `artifact_ids`, and aligned
+  `AppendMessageRequest` with the backend contract by restoring optional
+  `run_id`.
+- Regenerated `frontend/src/lib/api/schema.d.ts` from the checked-in OpenAPI
+  snapshot with `openapi-typescript`.
+- Corrected the chat workbench plan example to send
+  `selected_skill_keys` as `vars.skillId ? [vars.skillId] : null`.
+- Reworded the historical mem0 plan examples to use
+  `selected_skill_keys` / `selected_skill_keys` metadata instead of invented
+  singular run or metadata fields.
+
+### Verification
+
+- `rg -n "skill_id" backend frontend docs README.md`
+  - Result: no output
+- `node - <<'NODE' ... AgentMessage props from frontend/openapi.json ... NODE`
+  - Result: `AgentMessage` properties are `id, thread_id, role, content, run_id, workspace_paths, created_at`; `artifact_ids` absent; `workspace_paths` present
+- `node - <<'NODE' ... AgentMessage block from frontend/src/lib/api/schema.d.ts ... NODE`
+  - Result: `schema.d.ts` `AgentMessage` block has `workspace_paths: string[];` and no `artifact_ids`
+- `cd backend && npm run typecheck`
+  - Result: pass
+- `cd frontend && npm run typecheck`
+  - Result: pass
+- `cd backend && npx vitest run tests/integration/api-compat.test.ts`
+  - Result: pass (`1` file, `19` tests)

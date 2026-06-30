@@ -622,7 +622,7 @@ mutationFn: async (vars: {
     actor_user_id: context.user?.id ?? "user_1",
     scopes: buildComposerScopes(vars.permissionPolicy),
     thread_id: threadId,
-    selected_skill_keys: vars.skillId,
+    selected_skill_keys: vars.skillId ? [vars.skillId] : null,
     harness_options: harnessOptions ?? null,
     wait_for_completion: false,
     persist_goal_message: true,

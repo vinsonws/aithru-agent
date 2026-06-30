@@ -2649,13 +2649,8 @@ export interface components {
             content: string;
             /** Run Id */
             run_id?: string | null;
-            /**
-             * Artifact Ids
-             * @default []
-             */
-            artifact_ids: string[];
-            /** Attachments */
-            attachments?: components["schemas"]["AgentWorkspaceImageAttachment"][];
+            /** Workspace Paths */
+            workspace_paths: string[];
             /** Created At */
             created_at: string;
         };
@@ -4073,8 +4068,8 @@ export interface components {
             role: "user" | "assistant" | "system" | "tool";
             /** Content */
             content: string;
-            /** Attachments */
-            attachments?: components["schemas"]["AgentWorkspaceImageAttachment"][];
+            /** Run Id */
+            run_id?: string;
         };
         /** AppendRunInputRequest */
         AppendRunInputRequest: {
