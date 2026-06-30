@@ -4,7 +4,7 @@ import { ChatPanel } from "@/features/chat/ChatPanel";
 import { ChatComposer } from "@/features/chat/ChatComposer";
 import { threadsApi, runsApi } from "@/lib/api";
 import { ConversationHeader } from "./ConversationHeader";
-import { buildRunHeaderView, getRunMode } from "./runHeaderView";
+import { buildRunHeaderView, getRunMode, type RunMode } from "./runHeaderView";
 import { isActiveRunStatus } from "@/features/chat/runStatusCopy";
 import { buildRunStreamState, type RunStreamState } from "@/features/chat/useRunStream";
 import type { AgentRun } from "@/lib/api";
@@ -140,6 +140,7 @@ export function ConversationPage({
             activeRunId={activeRunId}
             cancellableRunId={cancellableRunId}
             activeRunTaskMsg={activeRun?.task_msg ?? null}
+            initialReasoningLevel={activeRun ? getRunMode(activeRun) : null}
             onRequestStatus={() => onOpenRightPanel("activity")}
             onRunCreated={(id) => {
               onRunIdChange(id);
@@ -172,10 +173,11 @@ export function ConversationPage({
   );
 }
 
-function modeLabelForRun(mode: "auto" | "plan" | "chat", t: (key: string, fallback: string) => string): string {
-  if (mode === "plan") return t("chat:modePlan", "Plan");
-  if (mode === "chat") return t("chat:modeChat", "Chat");
-  return t("chat:modeAuto", "Auto");
+function modeLabelForRun(mode: RunMode, t: (key: string, fallback: string) => string): string {
+  if (mode === "flash") return t("chat:modeFlash", "Flash");
+  if (mode === "thinking") return t("chat:modeThinking", "Thinking");
+  if (mode === "ultra") return t("chat:modeUltra", "Ultra");
+  return t("chat:modePro", "Pro");
 }
 
 function ResizableRightPanel({

@@ -5,11 +5,11 @@ export class SkillRegistry {
   private loader = new SkillLoader();
 
   register(pkg: SkillPackage): void {
-    this.skills.set(pkg.name, pkg);
+    this.skills.set(pkg.key, pkg);
   }
 
-  get(name: string): SkillPackage | undefined {
-    return this.skills.get(name);
+  get(key: string): SkillPackage | undefined {
+    return this.skills.get(key);
   }
 
   list(): SkillPackage[] {
@@ -17,8 +17,13 @@ export class SkillRegistry {
   }
 
   loadFromDir(dirPath: string): void {
-    const packages = this.loader.loadFromDir(dirPath);
-    for (const pkg of packages) {
+    for (const pkg of this.loader.loadFromDir(dirPath)) {
+      this.register(pkg);
+    }
+  }
+
+  loadBuiltinPackages(rootDir: string): void {
+    for (const pkg of this.loader.loadBuiltinPackages(rootDir)) {
       this.register(pkg);
     }
   }

@@ -20,7 +20,7 @@ test("/plan with body sends body in plan mode", async () => {
   assert.deepEqual(parseSlashCommand("/plan Fix login", { activeRunTaskMsg: null }), {
     kind: "send",
     taskMsg: "Fix login",
-    modeOverride: "plan",
+    modeOverride: "pro",
   });
 });
 
@@ -29,7 +29,7 @@ test("/plan without body sets a planning draft", async () => {
   assert.deepEqual(parseSlashCommand("/plan", { activeRunTaskMsg: null }), {
     kind: "draft",
     draft: "Plan the task before making changes.",
-    modeOverride: "plan",
+    modeOverride: "pro",
   });
 });
 

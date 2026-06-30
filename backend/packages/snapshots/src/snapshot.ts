@@ -7,7 +7,6 @@ export interface RunSnapshotResponse {
   workspace_files: Array<{ path: string; size: number }>;
   todos: Array<{ id: string; title: string; status: string }>;
   approvals: Array<{ id: string; tool_name: string; status: string }>;
-  artifacts: Array<{ id: string; title: string; status: string }>;
 }
 
 export function buildRunSnapshot(store: AgentStore, runId: string): RunSnapshotResponse | undefined {
@@ -17,7 +16,6 @@ export function buildRunSnapshot(store: AgentStore, runId: string): RunSnapshotR
   const events = store.listEvents(runId);
   const files = store.listWorkspaceFiles(run.workspace_id);
   const todos = store.listTodos(runId);
-  const artifacts = store.listArtifacts(runId);
 
   return {
     run,
@@ -25,6 +23,5 @@ export function buildRunSnapshot(store: AgentStore, runId: string): RunSnapshotR
     workspace_files: files.map((f) => ({ path: f.path, size: f.size })),
     todos: todos.map((t) => ({ id: t.id, title: t.title, status: t.status })),
     approvals: [], // populated from events
-    artifacts: artifacts.map((a) => ({ id: a.id, title: a.title, status: a.status })),
   };
 }

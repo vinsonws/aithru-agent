@@ -21,11 +21,11 @@ export function parseSlashCommand(
   const body = rest.join(" ").trim();
 
   if (command === "/plan") {
-    if (body) return { kind: "send", taskMsg: body, modeOverride: "plan" };
+    if (body) return { kind: "send", taskMsg: body, modeOverride: "pro" };
     return {
       kind: "draft",
       draft: "Plan the task before making changes.",
-      modeOverride: "plan",
+      modeOverride: "pro",
     };
   }
 

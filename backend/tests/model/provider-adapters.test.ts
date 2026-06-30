@@ -9,6 +9,7 @@ const input = {
   run: {} as any,
   messages: [],
   context: {},
+  tools: [],
   toolResults: [],
 };
 

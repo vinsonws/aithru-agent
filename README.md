@@ -11,7 +11,7 @@ backend/
   TypeBox product contracts
   Aithru-owned harness core and model turn loop
   Capability Router for every real action
-  Agent stream / trace / workspace / artifact / approval / memory / subagent model
+  Agent stream / trace / workspace file / presentation / approval / memory / subagent model
 ```
 
 There is one active backend. The previous Python backend package has been
@@ -29,7 +29,7 @@ Agent owns:
 - runtime Todos;
 - controlled Agent Tools;
 - Workspaces;
-- Artifacts;
+- Workspace files and presentations;
 - Memory entries;
 - Subagent delegation;
 - Agent-owned Approvals;
@@ -64,13 +64,13 @@ backend/
 
 Important boundaries:
 
-- model adapters normalize provider streams only;
+- model adapters normalize provider responses only;
 - model adapters never execute tools;
 - every real action crosses the `CapabilityRouter`;
 - write-risk tools require policy, scope, and approval handling;
 - external calls require explicit configuration and allowed hosts;
 - Workflow capability runs remain provider-owned;
-- stream, trace, workspace, artifact, memory, approval, and subagent contracts
+- stream, trace, workspace file, presentation, memory, approval, and subagent contracts
   are Aithru-owned.
 
 ## Run Locally

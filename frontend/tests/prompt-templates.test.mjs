@@ -32,7 +32,7 @@ test("each template has required fields", async () => {
     assert.ok(t.mode);
     assert.ok(t.descriptionKey);
     assert.ok(t.fallbackDescription);
-    assert.ok(["auto", "plan", "chat"].includes(t.mode));
+    assert.ok(["flash", "thinking", "pro", "ultra"].includes(t.mode));
   }
 });
 

@@ -4,6 +4,7 @@ import type {
   AgentRun,
   AgentStreamEvent,
 } from "@aithru-agent/contracts";
+import { FileWorkspaceStore } from "./workspace-files.js";
 
 export interface WorkspaceFile {
   workspace_id: string;
@@ -17,6 +18,7 @@ export interface WorkspaceFile {
 
 export interface AgentTodo {
   id: string;
+  thread_id?: string | null;
   run_id: string;
   title: string;
   status: string;
@@ -34,15 +36,20 @@ export interface AgentApproval {
   resolved_at?: string;
 }
 
-export interface AgentArtifact {
+export interface AgentDocument {
+  kind: string;
   id: string;
+  payload: unknown;
+}
+
+export interface AgentContextSummary {
+  id: string;
+  org_id: string;
+  thread_id: string;
   run_id: string;
-  title: string;
-  content_type: string;
-  content: string;
-  status: "draft" | "finalized";
+  summary: string;
+  source_message_count: number;
   created_at: string;
-  updated_at: string;
 }
 
 export class InMemoryStore {
@@ -50,10 +57,13 @@ export class InMemoryStore {
   private messages = new Map<string, AgentMessage>();
   private runs = new Map<string, AgentRun>();
   private events = new Map<string, AgentStreamEvent[]>();
-  private workspaceFiles = new Map<string, WorkspaceFile[]>();
+  private workspaceFiles = new FileWorkspaceStore();
   private todos = new Map<string, AgentTodo[]>();
   private approvals = new Map<string, AgentApproval[]>();
-  private artifacts = new Map<string, AgentArtifact>();
+  private documents = new Map<string, Map<string, unknown>>();
+  private secrets = new Map<string, string>();
+  private settings = new Map<string, string>();
+  private contextSummaries = new Map<string, AgentContextSummary[]>();
 
   // ── Threads ────────────────────────────────────────────────────────
 
@@ -149,59 +159,36 @@ export class InMemoryStore {
     path: string,
     content: string,
   ): WorkspaceFile {
-    const files = this.workspaceFiles.get(workspaceId) || [];
-    const existing = files.find((f) => f.path === path);
-    const now = new Date().toISOString().replace(/\.\d{3}/, "");
-    if (existing) {
-      existing.content = content;
-      existing.size = Buffer.byteLength(content, "utf8");
-      existing.version += 1;
-      existing.updated_at = now;
-      return existing;
-    }
-    const file: WorkspaceFile = {
-      workspace_id: workspaceId,
-      path,
-      content,
-      size: Buffer.byteLength(content, "utf8"),
-      version: 1,
-      created_at: now,
-      updated_at: now,
-    };
-    files.push(file);
-    this.workspaceFiles.set(workspaceId, files);
-    return file;
+    return this.workspaceFiles.writeFile(workspaceId, path, content);
   }
 
   readFile(workspaceId: string, path: string): WorkspaceFile | undefined {
-    const files = this.workspaceFiles.get(workspaceId) || [];
-    return files.find((f) => f.path === path);
+    return this.workspaceFiles.readFile(workspaceId, path);
   }
 
   listWorkspaceFiles(workspaceId: string): WorkspaceFile[] {
-    return this.workspaceFiles.get(workspaceId) || [];
+    return this.workspaceFiles.listWorkspaceFiles(workspaceId);
   }
 
   deleteFile(workspaceId: string, path: string): boolean {
-    const files = this.workspaceFiles.get(workspaceId) || [];
-    const idx = files.findIndex((f) => f.path === path);
-    if (idx === -1) return false;
-    files.splice(idx, 1);
-    this.workspaceFiles.set(workspaceId, files);
-    return true;
+    return this.workspaceFiles.deleteFile(workspaceId, path);
   }
 
   // ── Todos ─────────────────────────────────────────────────────────
 
   createTodo(todo: AgentTodo): AgentTodo {
-    const runTodos = this.todos.get(todo.run_id) || [];
-    runTodos.push(todo);
-    this.todos.set(todo.run_id, runTodos);
-    return todo;
+    const run = this.getRun(todo.run_id);
+    const threadId = todo.thread_id ?? run?.thread_id ?? null;
+    const stored = { ...todo, thread_id: threadId };
+    const key = this.todoScopeKey(todo.run_id);
+    const runTodos = this.todos.get(key) || [];
+    runTodos.push(stored);
+    this.todos.set(key, runTodos);
+    return stored;
   }
 
   updateTodo(runId: string, todoId: string, patch: Partial<AgentTodo>): AgentTodo {
-    const runTodos = this.todos.get(runId) || [];
+    const runTodos = this.todos.get(this.todoScopeKey(runId)) || [];
     const todo = runTodos.find((t) => t.id === todoId);
     if (!todo) throw new Error(`Todo ${todoId} not found`);
     Object.assign(todo, patch, { updated_at: new Date().toISOString().replace(/\.\d{3}/, "") });
@@ -209,7 +196,7 @@ export class InMemoryStore {
   }
 
   listTodos(runId: string): AgentTodo[] {
-    return this.todos.get(runId) || [];
+    return this.todos.get(this.todoScopeKey(runId)) || [];
   }
 
   // ── Approvals ────────────────────────────────────────────────────
@@ -229,6 +216,13 @@ export class InMemoryStore {
     return undefined;
   }
 
+  listApprovals(filter?: { run_id?: string; status?: string }): AgentApproval[] {
+    let approvals = [...this.approvals.values()].flat();
+    if (filter?.run_id) approvals = approvals.filter((a) => a.run_id === filter.run_id);
+    if (filter?.status) approvals = approvals.filter((a) => a.status === filter.status);
+    return approvals;
+  }
+
   resolveApproval(
     id: string,
     status: "approved" | "denied",
@@ -240,27 +234,66 @@ export class InMemoryStore {
     return approval;
   }
 
-  // ── Artifacts ────────────────────────────────────────────────────
+  // ── Generic Documents ──────────────────────────────────────────────
 
-  createArtifact(artifact: AgentArtifact): AgentArtifact {
-    this.artifacts.set(artifact.id, artifact);
-    return artifact;
+  upsertDocument(kind: string, id: string, payload: unknown): AgentDocument {
+    const docs = this.documents.get(kind) ?? new Map<string, unknown>();
+    docs.set(id, payload);
+    this.documents.set(kind, docs);
+    return { kind, id, payload };
   }
 
-  getArtifact(id: string): AgentArtifact | undefined {
-    return this.artifacts.get(id);
+  insertDocument(kind: string, id: string, payload: unknown): AgentDocument {
+    if (this.getDocument(kind, id)) throw new Error(`Document already exists: ${kind}/${id}`);
+    return this.upsertDocument(kind, id, payload);
   }
 
-  listArtifacts(runId: string): AgentArtifact[] {
-    return [...this.artifacts.values()].filter((a) => a.run_id === runId);
+  getDocument(kind: string, id: string): AgentDocument | undefined {
+    const docs = this.documents.get(kind);
+    if (!docs?.has(id)) return undefined;
+    return { kind, id, payload: docs.get(id) };
   }
 
-  finalizeArtifact(id: string): AgentArtifact {
-    const artifact = this.artifacts.get(id);
-    if (!artifact) throw new Error(`Artifact ${id} not found`);
-    artifact.status = "finalized";
-    artifact.updated_at = new Date().toISOString().replace(/\.\d{3}/, "");
-    return artifact;
+  listDocuments(kind: string): AgentDocument[] {
+    return [...(this.documents.get(kind) ?? new Map<string, unknown>()).entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([id, payload]) => ({ kind, id, payload }));
+  }
+
+  deleteDocument(kind: string, id: string): number {
+    return this.documents.get(kind)?.delete(id) ? 1 : 0;
+  }
+
+  createContextSummary(summary: AgentContextSummary): AgentContextSummary {
+    const summaries = this.contextSummaries.get(summary.thread_id) ?? [];
+    summaries.push(summary);
+    summaries.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    this.contextSummaries.set(summary.thread_id, summaries);
+    return summary;
+  }
+
+  listContextSummaries(threadId: string): AgentContextSummary[] {
+    return this.contextSummaries.get(threadId) ?? [];
+  }
+
+  getLatestContextSummary(threadId: string): AgentContextSummary | undefined {
+    return this.listContextSummaries(threadId).at(-1);
+  }
+
+  setSecret(secretRef: string, value: string): void {
+    this.secrets.set(secretRef, value);
+  }
+
+  getSecret(secretRef: string): string | undefined {
+    return this.secrets.get(secretRef);
+  }
+
+  setSetting(key: string, value: string): void {
+    this.settings.set(key, value);
+  }
+
+  getSetting(key: string): string | undefined {
+    return this.settings.get(key);
   }
 
   // ── Claims ───────────────────────────────────────────────────────────
@@ -328,7 +361,7 @@ export class InMemoryStore {
   // ── Lifecycle ───────────────────────────────────────────────────────
 
   close(): void {
-    // In-memory store has no resources to release
+    this.workspaceFiles.close();
   }
 
   // ── Raw access for testing ────────────────────────────────────────
@@ -339,10 +372,17 @@ export class InMemoryStore {
       messages: [...this.messages.values()],
       runs: [...this.runs.values()],
       events: Object.fromEntries(this.events),
-      workspaceFiles: Object.fromEntries(this.workspaceFiles),
+      workspaceFiles: [],
       todos: Object.fromEntries(this.todos),
       approvals: Object.fromEntries(this.approvals),
-      artifacts: Object.fromEntries(this.artifacts),
+      documents: Object.fromEntries(
+        [...this.documents.entries()].map(([kind, docs]) => [kind, Object.fromEntries(docs)]),
+      ),
+      contextSummaries: Object.fromEntries(this.contextSummaries),
     };
+  }
+
+  private todoScopeKey(runId: string): string {
+    return this.getRun(runId)?.thread_id ?? runId;
   }
 }

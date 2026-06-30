@@ -1,11 +1,14 @@
 import { nanoid } from "nanoid";
-import type { AgentToolCallResult } from "@aithru-agent/capabilities";
+import type { AgentToolDescriptor } from "@aithru-agent/capabilities";
 import type { CapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
-import type { AgentModelAdapter } from "@aithru-agent/model";
+import type { AgentModelAdapter, AgentModelToolResult } from "@aithru-agent/model";
 import type { AgentStore } from "@aithru-agent/persistence";
+import type { SkillResolver } from "@aithru-agent/skills";
 import { EVENT_TYPES, VISIBILITY, AgentEventWriter } from "@aithru-agent/stream";
+import { buildModelContextPacket, isPlanModeRun } from "./context-packet.js";
 import { RunLoop } from "./run-loop.js";
+import { runTerminalProcessors } from "./terminal-processors.js";
 
 export class ModelTurnLoop {
   constructor(
@@ -14,6 +17,7 @@ export class ModelTurnLoop {
       eventWriter: AgentEventWriter;
       capabilityRouter: CapabilityRouter;
       modelAdapter: AgentModelAdapter;
+      skillResolver?: SkillResolver;
       maxTurns?: number;
     },
   ) {}
@@ -27,25 +31,50 @@ export class ModelTurnLoop {
     });
     loop.emitRunStarted();
 
+    const resolvedSkill = this.resolveSkill(run);
+
     const messageId = `msg_${nanoid(12)}`;
     loop.emitMessageCreated(messageId, "");
     let content = "";
-    let toolResults: AgentToolCallResult[] = [];
+    let toolResults: AgentModelToolResult[] = [];
     const maxTurns = this.deps.maxTurns ?? 8;
 
     for (let turn = 0; turn < maxTurns; turn += 1) {
       const currentRun = this.deps.store.getRun(run.id) ?? run;
-      const messages = currentRun.thread_id
+      const fullMessages = currentRun.thread_id
         ? this.deps.store.listMessages(currentRun.thread_id)
         : [];
+      const contextPacket = buildModelContextPacket({
+        run: currentRun,
+        messages: fullMessages,
+        events: this.deps.store.listEvents(run.id),
+        latestSummary: currentRun.thread_id
+          ? this.deps.store.getLatestContextSummary(currentRun.thread_id)
+          : undefined,
+        skillInstructions: resolvedSkill
+          ? { name: resolvedSkill.name, instructions: resolvedSkill.instructions }
+          : undefined,
+        activeSkillKey: resolvedSkill?.key ?? null,
+      });
+      this.deps.eventWriter.write(
+        run.id,
+        currentRun.thread_id ?? null,
+        EVENT_TYPES.CONTEXT_PACKET_BUILT,
+        contextPacket.stats,
+        { visibility: VISIBILITY.AUDIT, source: { kind: "harness" } },
+      );
+      const planMode = isPlanModeRun(currentRun);
+      const tools = (await this.deps.capabilityRouter.listTools({ run: currentRun }))
+        .filter((tool) => planMode || !tool.name.startsWith("todo."));
       const events = this.deps.modelAdapter.createTurn({
         run: currentRun,
-        messages,
-        context: {},
+        messages: contextPacket.messages,
+        context: contextPacket.stats,
+        tools: modelTools(tools),
         toolResults,
       });
 
-      const nextToolResults: AgentToolCallResult[] = [];
+      const nextToolResults: AgentModelToolResult[] = [];
       let sawToolCall = false;
 
       for await (const event of events) {
@@ -65,7 +94,12 @@ export class ModelTurnLoop {
             run.id,
             currentRun.thread_id ?? null,
             EVENT_TYPES.MODEL_USAGE,
-            event,
+            {
+              requests: 1,
+              input_tokens: event.inputTokens,
+              output_tokens: event.outputTokens,
+              total_tokens: event.totalTokens ?? event.inputTokens + event.outputTokens,
+            },
             { visibility: VISIBILITY.AUDIT, source: { kind: "model" } },
           );
         } else if (event.type === "tool_call") {
@@ -75,8 +109,12 @@ export class ModelTurnLoop {
             name: event.name,
             input: event.input,
           });
-          if (call.result) nextToolResults.push(call.result);
+          if (call.result) nextToolResults.push({ ...call.result, input: event.input });
           if (call.approvalRequired) {
+            loop.emitMessageCompleted(messageId, content);
+            return this.deps.store.getRun(run.id)!;
+          }
+          if (call.inputRequired) {
             loop.emitMessageCompleted(messageId, content);
             return this.deps.store.getRun(run.id)!;
           }
@@ -88,8 +126,34 @@ export class ModelTurnLoop {
       }
 
       if (!sawToolCall) {
-        loop.emitMessageCompleted(messageId, content);
-        loop.emitRunCompleted({ content });
+        let threadMessageId: string | null = null;
+        if (currentRun.thread_id && content) {
+          threadMessageId = `msg_${nanoid(12)}`;
+          this.deps.store.createMessage({
+            id: threadMessageId,
+            thread_id: currentRun.thread_id,
+            role: "assistant",
+            content,
+            run_id: run.id,
+            workspace_paths: [],
+            created_at: new Date().toISOString().replace(/\.\d{3}/, ""),
+          });
+        }
+        loop.emitMessageCompleted(messageId, content, { threadMessageId });
+        await runTerminalProcessors({
+          store: this.deps.store,
+          eventWriter: this.deps.eventWriter,
+          run: { ...currentRun, status: "completed" },
+          titleModelAdapter: this.deps.modelAdapter,
+          phase: "before_completion",
+        });
+        loop.emitRunCompleted({ content, message_id: messageId, thread_message_id: threadMessageId });
+        void runTerminalProcessors({
+          store: this.deps.store,
+          eventWriter: this.deps.eventWriter,
+          run: this.deps.store.getRun(run.id)!,
+          phase: "after_completion",
+        });
         return this.deps.store.getRun(run.id)!;
       }
 
@@ -103,4 +167,26 @@ export class ModelTurnLoop {
     });
     return this.deps.store.getRun(run.id)!;
   }
+
+  private resolveSkill(run: AgentRun): { key: string; name: string; instructions: string } | null {
+    if (!this.deps.skillResolver || !run.skill_id) return null;
+    const skill = this.deps.skillResolver.resolve(run.skill_id, run.org_id, run.actor_user_id);
+    if (!skill) return null;
+    this.deps.eventWriter.write(
+      run.id,
+      run.thread_id ?? null,
+      EVENT_TYPES.SKILL_ACTIVATED,
+      { skill_id: run.skill_id, key: skill.key, name: skill.name, source: skill.source, trigger: "explicit" },
+      { visibility: VISIBILITY.AUDIT, source: { kind: "harness" } },
+    );
+    return { key: skill.key, name: skill.name, instructions: skill.instructions };
+  }
+}
+
+function modelTools(tools: AgentToolDescriptor[]) {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.input_schema,
+  }));
 }

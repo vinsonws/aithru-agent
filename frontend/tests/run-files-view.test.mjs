@@ -15,30 +15,22 @@ async function loadRunFilesView() {
   return import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0].text)}`);
 }
 
-test("artifacts are listed before modified files", async () => {
+test("workspace output files expose workspace download and preview urls", async () => {
   const { buildRunFileViews } = await loadRunFilesView();
   const views = buildRunFileViews({
-    artifacts: [{ id: "a1", name: "report.md", type: "report" }],
-    workspaceFiles: [{ path: "src/file.ts", size: 100 }],
+    workspaceId: "ws1",
+    workspaceFiles: [{ path: "reports/report.md", size: 100, media_type: "text/markdown" }],
   });
-  assert.ok(views.length >= 2);
-  assert.equal(views[0].kind, "artifact");
-  assert.equal(views[0].href, "/api/artifacts/a1/download");
-  assert.equal(views[0].previewHref, "/api/artifacts/a1/content");
-  assert.equal(views[0].artifactId, "a1");
+  assert.equal(views.length, 1);
+  assert.equal(views[0].kind, "output_file");
+  assert.equal(views[0].href, "/api/workspaces/ws1/files/reports/report.md/download");
+  assert.equal(views[0].previewHref, "/api/workspaces/ws1/files/reports/report.md/content");
+  assert.equal(views[0].canDownload, true);
 });
 
-test("modified files promoted as artifacts are not duplicated", async () => {
+test("workspace output and modified files are classified from path", async () => {
   const { buildRunFileViews } = await loadRunFilesView();
   const views = buildRunFileViews({
-    artifacts: [
-      {
-        id: "a1",
-        name: "report.md",
-        type: "report",
-        metadata: { source_path: "reports/report.md" },
-      },
-    ],
     workspaceFiles: [
       { path: "reports/report.md", size: 100 },
       { path: "notes/raw.txt", size: 50 },
@@ -48,7 +40,7 @@ test("modified files promoted as artifacts are not duplicated", async () => {
   assert.deepEqual(
     views.map((view) => [view.kind, view.path]),
     [
-      ["artifact", "reports/report.md"],
+      ["output_file", "reports/report.md"],
       ["modified_file", "notes/raw.txt"],
     ],
   );
@@ -95,7 +87,7 @@ test("preview kinds are inferred for supported output types", async () => {
   assert.equal(previewKindForFile({ name: "chart.png", mediaType: "image/png" }), "image");
   assert.equal(previewKindForFile({ name: "main.py" }), "code");
   assert.equal(previewKindForFile({ name: "notes.txt" }), "text");
-  assert.equal(previewKindForFile({ name: "final", artifactType: "report" }), "markdown");
+  assert.equal(previewKindForFile({ name: "final.md" }), "markdown");
   assert.equal(previewKindForFile({ name: "archive.zip" }), "unsupported");
   assert.equal(languageForFile("main.py"), "python");
   assert.equal(languageForFile("component.tsx"), "typescript");

@@ -46,6 +46,22 @@ test("historical assistant process state is display-only and not part of new run
   assert.doesNotMatch(requestBody, /historicalRunStates|threadMessages|streamState|reasoningSegments|toolCalls/);
 });
 
+test("creating a run from a run route navigates to the new run stream", async () => {
+  const source = await src("AppShell.tsx");
+
+  assert.match(source, /useNavigate/);
+  assert.match(source, /navigate\(`\/threads\/\$\{encodeURIComponent\(threadId\)\}\/runs\/\$\{encodeURIComponent\(id\)\}`\)/);
+});
+
+test("composer inherits the active run reasoning mode after navigation", async () => {
+  const conversation = await src("features/conversation/ConversationPage.tsx");
+  const composer = await src("features/chat/ChatComposer.tsx");
+
+  assert.match(conversation, /initialReasoningLevel=\{activeRun \? getRunMode\(activeRun\) : null\}/);
+  assert.match(composer, /initialReasoningLevel\?: ComposerReasoningLevel \| null/);
+  assert.match(composer, /if \(initialReasoningLevel\) setReasoningLevel\(normalizeReasoningLevel\(initialReasoningLevel\)\)/);
+});
+
 test("assistant process auto-expands while thinking and auto-collapses when final output starts", async () => {
   const source = await src("features/chat/ChatPanel.tsx");
 
@@ -90,7 +106,7 @@ test("assistant message text does not render a streaming cursor", async () => {
   assert.doesNotMatch(source, /animate-pulse bg-accent/);
 });
 
-test("FileCard renders artifact files in the chat timeline when present", async () => {
+test("FileCard renders workspace files in the chat timeline when present", async () => {
   const fileCardSource = await src("features/chat/FileCard.tsx");
 
   // FileCard component exports a function that accepts file and onPreview props

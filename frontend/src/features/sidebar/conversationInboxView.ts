@@ -38,22 +38,23 @@ export function buildConversationInboxGroups(
   const filtered = options.query
     ? rows.filter((row) => matchesConversationQuery(row, options.query!))
     : rows;
+  const sorted = [...filtered].sort((a, b) => timestampMillis(b.timestamp) - timestampMillis(a.timestamp));
 
   const groups: ConversationInboxGroupView[] = [];
 
-  const attentionRows = filtered.filter((r) => r.needsAttention || r.highPriorityActionCount > 0);
+  const attentionRows = sorted.filter((r) => r.needsAttention || r.highPriorityActionCount > 0);
   if (attentionRows.length > 0) {
     groups.push({ id: "attention", labelKey: "chat:inbox.groups.attention", fallback: "Attention", rows: attentionRows });
   }
 
-  const todayRows = filtered.filter(
+  const todayRows = sorted.filter(
     (r) => !attentionRows.includes(r) && isSameLocalDate(r.timestamp, options.now),
   );
   if (todayRows.length > 0) {
     groups.push({ id: "today", labelKey: "chat:inbox.groups.today", fallback: "Today", rows: todayRows });
   }
 
-  const earlierRows = filtered.filter((r) => !attentionRows.includes(r) && !todayRows.includes(r));
+  const earlierRows = sorted.filter((r) => !attentionRows.includes(r) && !todayRows.includes(r));
   if (earlierRows.length > 0) {
     groups.push({ id: "earlier", labelKey: "chat:inbox.groups.earlier", fallback: "Earlier", rows: earlierRows });
   }
@@ -170,6 +171,11 @@ function isSameLocalDate(dateStr: string | null | undefined, now: Date): boolean
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate()
   );
+}
+
+function timestampMillis(dateStr: string | null | undefined): number {
+  const millis = dateStr ? Date.parse(dateStr) : NaN;
+  return Number.isFinite(millis) ? millis : 0;
 }
 
 function isThreadPathActive(activePath: string, threadId: string): boolean {

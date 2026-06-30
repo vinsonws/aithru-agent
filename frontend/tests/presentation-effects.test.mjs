@@ -15,7 +15,7 @@ async function loadPresentationEffects() {
   return import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0].text)}`);
 }
 
-test("previewTargetForPresentationEffect resolves approved artifact preview effects", async () => {
+test("previewTargetForPresentationEffect resolves approved workspace file preview effects", async () => {
   const { previewTargetForPresentationEffect } = await loadPresentationEffects();
 
   assert.equal(
@@ -24,14 +24,14 @@ test("previewTargetForPresentationEffect resolves approved artifact preview effe
       status: "ready",
       priority: "normal",
       title: "index.html",
-      resource: { kind: "artifact", id: "artifact_1" },
+      resource: { kind: "workspace_file", path: "outputs/index.html" },
       surfaces: ["conversation", "side_panel"],
       preferredView: "html_preview",
       availableViews: ["html_preview", "source_text", "download"],
       effects: [{ kind: "open_panel", panel: "preview", mode: "soft" }],
       actions: [{ kind: "open_view", label: "Preview", view: "html_preview" }],
     }),
-    "artifact-artifact_1",
+    "ws-outputs/index.html",
   );
 });
 
@@ -44,7 +44,7 @@ test("previewTargetForPresentationEffect ignores effects without a preview panel
       status: "ready",
       priority: "normal",
       title: "index.html",
-      resource: { kind: "artifact", id: "artifact_1" },
+      resource: { kind: "workspace_file", path: "outputs/index.html" },
       surfaces: ["conversation"],
       preferredView: "html_preview",
       availableViews: ["html_preview", "source_text", "download"],
@@ -64,7 +64,7 @@ test("presentationEffectKey includes the latest sequence to avoid duplicate effe
       status: "ready",
       priority: "normal",
       title: "index.html",
-      resource: { kind: "artifact", id: "artifact_1" },
+      resource: { kind: "workspace_file", path: "outputs/index.html" },
       surfaces: ["conversation"],
       preferredView: "html_preview",
       availableViews: ["html_preview", "source_text", "download"],

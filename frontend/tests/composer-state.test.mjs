@@ -15,29 +15,41 @@ async function loadComposerState() {
   return import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0].text)}`);
 }
 
-test("auto mode without a model profile omits harness options", async () => {
+test("thinking mode sends low effort without enabling plan tools", async () => {
   const { buildComposerHarnessOptions } = await loadComposerState();
-  assert.deepEqual(buildComposerHarnessOptions("", "auto", "thinking"), {
+  assert.deepEqual(buildComposerHarnessOptions("", "thinking", "thinking"), {
+    mode: "thinking",
+    thinking_enabled: true,
+    is_plan_mode: false,
+    subagent_enabled: false,
     model_capabilities: { vision: false, thinking: true },
     model_reasoning_effort: "low",
   });
 });
 
-test("plan mode adds instructions, profile, and reasoning effort", async () => {
+test("pro mode enables plan todo behavior without prompt-only mode instructions", async () => {
   const { buildComposerHarnessOptions } = await loadComposerState();
-  const options = buildComposerHarnessOptions("MiniMax-M2.7", "plan", "pro");
+  const options = buildComposerHarnessOptions("MiniMax-M2.7", "pro", "pro");
 
   assert.equal(options.model_profile_key, "MiniMax-M2.7");
-  assert.match(options.instructions, /Aithru mode: plan/);
+  assert.equal(options.mode, "pro");
+  assert.equal(options.thinking_enabled, true);
+  assert.equal(options.is_plan_mode, true);
+  assert.equal(options.subagent_enabled, false);
+  assert.equal(options.instructions, undefined);
   assert.deepEqual(options.model_capabilities, { vision: false, thinking: true });
   assert.equal(options.model_reasoning_effort, "medium");
 });
 
-test("chat mode disables model thinking for quick reasoning", async () => {
+test("flash mode disables model thinking and plan behavior", async () => {
   const { buildComposerHarnessOptions } = await loadComposerState();
-  const options = buildComposerHarnessOptions("", "chat", "quick");
+  const options = buildComposerHarnessOptions("", "flash", "flash");
 
-  assert.match(options.instructions, /Aithru mode: chat/);
+  assert.equal(options.mode, "flash");
+  assert.equal(options.thinking_enabled, false);
+  assert.equal(options.is_plan_mode, false);
+  assert.equal(options.subagent_enabled, false);
+  assert.equal(options.instructions, undefined);
   assert.deepEqual(options.model_capabilities, { vision: false, thinking: false });
   assert.equal(options.model_reasoning_effort, "none");
 });
@@ -45,6 +57,7 @@ test("chat mode disables model thinking for quick reasoning", async () => {
 test("reasoning levels map to model reasoning effort", async () => {
   const { reasoningEffortForReasoningLevel } = await loadComposerState();
 
+  assert.equal(reasoningEffortForReasoningLevel("flash"), "none");
   assert.equal(reasoningEffortForReasoningLevel("quick"), "none");
   assert.equal(reasoningEffortForReasoningLevel("thinking"), "low");
   assert.equal(reasoningEffortForReasoningLevel("pro"), "medium");
@@ -66,7 +79,8 @@ test("ask permission policy grants common task scopes without wildcard", async (
   assert.ok(scopes.includes("agent.workspace.read"));
   assert.ok(scopes.includes("agent.workspace.write"));
   assert.ok(scopes.includes("agent.todo.write"));
-  assert.ok(scopes.includes("agent.artifact.write"));
+  assert.ok(scopes.includes("agent.presentation.write"));
+  assert.ok(!scopes.includes("agent.artifact.write"));
   assert.ok(scopes.includes("agent.input.write"));
   assert.ok(!scopes.includes("*"));
 });

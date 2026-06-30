@@ -36,7 +36,9 @@ export class SubagentRunner {
       source: "delegated_task",
       thread_id: parentRun.thread_id,
       skill_id: null,
-      workspace_id: `ws_sub_${Date.now().toString(36)}`,
+      workspace_id: parentRun.thread_id
+        ? `ws_thread_${parentRun.thread_id}`
+        : `ws_sub_${Date.now().toString(36)}`,
       task_msg: spec.task,
       scopes: spec.scopes,
       harness_options: null,

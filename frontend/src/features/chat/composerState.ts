@@ -1,8 +1,8 @@
 import type { AgentRunHarnessOptions } from "@/lib/api";
 
-export type ComposerMode = "auto" | "plan" | "chat";
+export type ComposerMode = "flash" | "thinking" | "pro" | "ultra";
 export type ComposerPermissionPolicyId = "ask" | "auto_safe" | "read_only";
-export type ComposerReasoningLevel = "quick" | "thinking" | "pro" | "ultra";
+export type ComposerReasoningLevel = ComposerMode;
 export type ComposerModelReasoningEffort = "none" | "low" | "medium" | "high";
 
 export interface ComposerPermissionPolicy {
@@ -24,10 +24,10 @@ export interface ComposerReasoningOption {
 
 export const REASONING_LEVELS: ComposerReasoningOption[] = [
   {
-    id: "quick",
-    labelKey: "chat:reasoning.quick",
-    fallback: "Quick",
-    descriptionKey: "chat:reasoning.quickDescription",
+    id: "flash",
+    labelKey: "chat:reasoning.flash",
+    fallback: "Flash",
+    descriptionKey: "chat:reasoning.flashDescription",
     fallbackDescription: "Fast responses for direct tasks.",
   },
   {
@@ -53,12 +53,6 @@ export const REASONING_LEVELS: ComposerReasoningOption[] = [
   },
 ];
 
-export const MODE_INSTRUCTIONS: Record<ComposerMode, string | null> = {
-  auto: null,
-  plan: "[Aithru mode: plan]\nWork in planning mode. Produce a clear implementation plan before making changes.",
-  chat: "[Aithru mode: chat]\nWork in chat mode. Answer directly and avoid taking tool-driven actions unless the user asks for execution.",
-};
-
 export const PERMISSION_POLICIES: ComposerPermissionPolicy[] = [
   {
     id: "ask",
@@ -70,6 +64,7 @@ export const PERMISSION_POLICIES: ComposerPermissionPolicy[] = [
       "agent.workspace.read",
       "agent.workspace.write",
       "agent.todo.write",
+      "agent.presentation.write",
       "agent.research.write",
       "agent.input.write",
       "agent.memory.read",
@@ -99,19 +94,35 @@ const REASONING_EFFORT_BY_LEVEL: Record<
   ComposerReasoningLevel,
   ComposerModelReasoningEffort
 > = {
-  quick: "none",
+  flash: "none",
   thinking: "low",
   pro: "medium",
   ultra: "high",
 };
 
+const MODE_FLAGS: Record<
+  ComposerMode,
+  { thinking_enabled: boolean; is_plan_mode: boolean; subagent_enabled: boolean }
+> = {
+  flash: { thinking_enabled: false, is_plan_mode: false, subagent_enabled: false },
+  thinking: { thinking_enabled: true, is_plan_mode: false, subagent_enabled: false },
+  pro: { thinking_enabled: true, is_plan_mode: true, subagent_enabled: false },
+  ultra: { thinking_enabled: true, is_plan_mode: true, subagent_enabled: true },
+};
+
 export function normalizeComposerMode(value: string | null | undefined): ComposerMode {
-  return value === "plan" || value === "chat" || value === "auto" ? value : "auto";
+  if (value === "quick" || value === "chat") return "flash";
+  if (value === "auto") return "thinking";
+  if (value === "plan") return "pro";
+  return REASONING_LEVEL_IDS.has(value as ComposerReasoningLevel)
+    ? (value as ComposerReasoningLevel)
+    : "pro";
 }
 
 export function normalizeReasoningLevel(
   value: string | null | undefined,
 ): ComposerReasoningLevel {
+  if (value === "quick") return "flash";
   return REASONING_LEVEL_IDS.has(value as ComposerReasoningLevel)
     ? (value as ComposerReasoningLevel)
     : "pro";
@@ -120,19 +131,13 @@ export function normalizeReasoningLevel(
 export function composerModeForReasoningLevel(
   value: string | null | undefined,
 ): ComposerMode {
-  const level = normalizeReasoningLevel(value);
-  if (level === "quick") return "chat";
-  if (level === "thinking") return "auto";
-  return "plan";
+  return normalizeReasoningLevel(value);
 }
 
 export function reasoningLevelForComposerMode(
   value: string | null | undefined,
 ): ComposerReasoningLevel {
-  const mode = normalizeComposerMode(value);
-  if (mode === "chat") return "quick";
-  if (mode === "auto") return "thinking";
-  return "pro";
+  return normalizeComposerMode(value);
 }
 
 export function reasoningEffortForReasoningLevel(
@@ -162,22 +167,30 @@ export function buildComposerHarnessOptions(
   reasoningLevel: string | null | undefined,
 ): AgentRunHarnessOptions | undefined {
   const normalizedMode = normalizeComposerMode(mode);
-  const reasoningEffort = reasoningEffortForReasoningLevel(reasoningLevel);
+  const normalizedReasoning = normalizeReasoningLevel(reasoningLevel ?? normalizedMode);
+  const selectedMode =
+    mode === "auto" || mode === "plan" || mode === "chat"
+      ? normalizedReasoning
+      : normalizedMode;
+  const modeFlags = MODE_FLAGS[selectedMode];
+  const reasoningEffort = reasoningEffortForReasoningLevel(selectedMode);
   const harnessOptions: AgentRunHarnessOptions & {
+    mode?: ComposerMode;
+    thinking_enabled?: boolean;
+    is_plan_mode?: boolean;
+    subagent_enabled?: boolean;
     model_reasoning_effort?: ComposerModelReasoningEffort;
   } = {
+    mode: selectedMode,
+    ...modeFlags,
     model_capabilities: {
       vision: false,
-      thinking: reasoningEffort !== "none",
+      thinking: modeFlags.thinking_enabled,
     },
     model_reasoning_effort: reasoningEffort,
   };
   if (profileKey) {
     harnessOptions.model_profile_key = profileKey;
-  }
-  const instructions = MODE_INSTRUCTIONS[normalizedMode];
-  if (instructions) {
-    harnessOptions.instructions = instructions;
   }
   return Object.keys(harnessOptions).length > 0 ? harnessOptions : undefined;
 }
@@ -220,9 +233,10 @@ export interface ComposerSummaryParts {
 }
 
 const MODE_LABELS: Record<ComposerMode, { labelKey: string; fallback: string }> = {
-  auto: { labelKey: "chat:modeAuto", fallback: "Auto" },
-  plan: { labelKey: "chat:modePlan", fallback: "Plan" },
-  chat: { labelKey: "chat:modeChat", fallback: "Chat" },
+  flash: { labelKey: "chat:modeFlash", fallback: "Flash" },
+  thinking: { labelKey: "chat:modeThinking", fallback: "Thinking" },
+  pro: { labelKey: "chat:modePro", fallback: "Pro" },
+  ultra: { labelKey: "chat:modeUltra", fallback: "Ultra" },
 };
 
 export function buildComposerSummaryParts(input: ComposerSummaryInput): ComposerSummaryParts {

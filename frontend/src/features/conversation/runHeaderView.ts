@@ -71,10 +71,17 @@ function getModelLabel(activeRun?: AgentRun | null): string {
   return opts?.model_profile_key ?? opts?.model ?? "";
 }
 
-export function getRunMode(activeRun?: AgentRun | null): "auto" | "plan" | "chat" {
+export type RunMode = "flash" | "thinking" | "pro" | "ultra";
+
+export function getRunMode(activeRun?: AgentRun | null): RunMode {
+  const mode = activeRun?.harness_options?.mode;
+  if (mode === "flash" || mode === "thinking" || mode === "pro" || mode === "ultra") {
+    return mode;
+  }
   const instructions = activeRun?.harness_options?.instructions ?? "";
   const match = /\[Aithru mode: (auto|plan|chat)\]/i.exec(instructions);
-  const mode = match?.[1]?.toLowerCase();
-  if (mode === "plan" || mode === "chat") return mode;
-  return "auto";
+  const legacyMode = match?.[1]?.toLowerCase();
+  if (legacyMode === "plan") return "pro";
+  if (legacyMode === "chat") return "flash";
+  return "thinking";
 }

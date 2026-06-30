@@ -14,13 +14,27 @@ export function checkScopes(
   tool: AgentToolDescriptor,
   run: AgentRun,
 ): ScopeCheckResult {
-  const userScopes = new Set(run.scopes);
+  const userScopes = expandedScopes(run.scopes);
   // "*" scope means unrestricted
   if (userScopes.has("*")) {
     return { allowed: true, missing_scopes: [] };
   }
   const missing = tool.required_scopes.filter((s) => !userScopes.has(s));
   return { allowed: missing.length === 0, missing_scopes: missing };
+}
+
+function expandedScopes(scopes: string[]): Set<string> {
+  const aliases: Record<string, string[]> = {
+    "agent.workspace.read": ["workspace:read"],
+    "agent.workspace.write": ["workspace:write"],
+    "agent.todo.write": ["todo:write"],
+    "agent.presentation.write": ["presentation"],
+  };
+  const expanded = new Set(scopes);
+  for (const scope of scopes) {
+    for (const alias of aliases[scope] ?? []) expanded.add(alias);
+  }
+  return expanded;
 }
 
 export interface SkillPolicy {

@@ -191,6 +191,28 @@ test("current-day activity is grouped under today", async () => {
   assert.equal(today.rows.length, 1);
 });
 
+test("inbox rows are sorted newest first inside groups", async () => {
+  const { buildConversationInboxGroups } = await loadInboxView();
+  const oldItem = makeDashboardItem({
+    thread: { id: "thread_old", title: "Old task" },
+    last_activity_at: "2026-06-23T09:00:00Z",
+  });
+  const newItem = makeDashboardItem({
+    thread: { id: "thread_new", title: "New task" },
+    last_activity_at: "2026-06-23T11:00:00Z",
+  });
+
+  const groups = buildConversationInboxGroups([oldItem, newItem], {
+    activePath: "/",
+    now: new Date("2026-06-23T12:00:00Z"),
+  });
+
+  assert.deepEqual(groups.find((g) => g.id === "today").rows.map((row) => row.id), [
+    "thread_new",
+    "thread_old",
+  ]);
+});
+
 test("older items are grouped under earlier", async () => {
   const { buildConversationInboxGroups } = await loadInboxView();
   const item = makeDashboardItem({

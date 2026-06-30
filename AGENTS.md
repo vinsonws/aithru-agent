@@ -13,7 +13,7 @@ Target direction:
 
 ```txt
 Aithru Agent = platform-hosted AI harness for skills, tools, workspace files,
-controlled execution, approvals, artifacts, memory, subagents, and traceable
+controlled execution, approvals, workspace files, presentations, memory, subagents, and traceable
 intelligent work.
 ```
 
@@ -24,7 +24,7 @@ backend/
   Fastify control plane
   Aithru-owned TypeScript harness core
   Aithru capability router
-  Agent stream / trace / workspace / artifact / approval / memory / subagent model
+  Agent stream / trace / workspace file / presentation / approval / memory / subagent model
 ```
 
 The tracked Python backend package has been removed. New backend behavior must
@@ -69,7 +69,7 @@ model / provider adapter
   -> Aithru Capability Router
   -> policy / scope / approval boundary
   -> concrete local tool or future Workflow Capability API
-  -> event / trace / artifact / redaction
+  -> event / trace / workspace file / presentation / redaction
 ```
 
 Do not expose unrestricted local system access, browser automation, external
@@ -144,7 +144,8 @@ Prefer these product names:
 - Subagent
 - Sandbox / Interpreter
 - Memory
-- Artifact
+- Agent Workspace File
+- Agent Presentation
 - Approval
 
 Avoid these labels unless referring to a real Aithru Core `WorkflowSpec`:

@@ -139,7 +139,38 @@ export const AgentMessageSchema = Type.Object({
 
 export const AgentRunHarnessOptionsSchema = Type.Object({
   model: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  model_profile_key: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  mode: Type.Optional(
+    Type.Union([
+      Type.Literal("flash"),
+      Type.Literal("thinking"),
+      Type.Literal("pro"),
+      Type.Literal("ultra"),
+      Type.Null(),
+    ]),
+  ),
+  thinking_enabled: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+  is_plan_mode: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+  subagent_enabled: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
   instructions: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  model_capabilities: Type.Optional(
+    Type.Union([
+      Type.Object({
+        vision: Type.Optional(Type.Boolean()),
+        thinking: Type.Optional(Type.Boolean()),
+      }),
+      Type.Null(),
+    ]),
+  ),
+  model_reasoning_effort: Type.Optional(
+    Type.Union([
+      Type.Literal("none"),
+      Type.Literal("low"),
+      Type.Literal("medium"),
+      Type.Literal("high"),
+      Type.Null(),
+    ]),
+  ),
 });
 
 export const AgentRunClaimSchema = Type.Object({
@@ -154,6 +185,7 @@ export const AgentRunResultSchema = Type.Object({
   content: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   workspace_paths: Type.Array(Type.String()),
   message_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  thread_message_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 
 export const AgentRunSchema = Type.Object({
@@ -219,9 +251,14 @@ export const CreateMessageRequestSchema = Type.Object({
 export const CreateRunRequestSchema = Type.Object({
   org_id: Type.String(),
   actor_user_id: Type.String(),
-  source: AgentRunSource,
-  thread_id: Type.Optional(Type.String()),
+  source: Type.Optional(AgentRunSource),
+  thread_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   task_msg: Type.String(),
-  scopes: Type.Optional(Type.Array(Type.String())),
-  skill_id: Type.Optional(Type.String()),
+  scopes: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Null()])),
+  skill_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  harness_options: Type.Optional(
+    Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()])
+  ),
+  wait_for_completion: Type.Optional(Type.Boolean()),
+  persist_task_msg_message: Type.Optional(Type.Boolean()),
 });

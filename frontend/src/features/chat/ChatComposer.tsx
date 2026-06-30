@@ -9,6 +9,7 @@ import {
   buildComposerHarnessOptions,
   buildComposerScopes,
   composerModeForReasoningLevel,
+  normalizeReasoningLevel,
   reasoningLevelForComposerMode,
   type ComposerPermissionPolicyId,
   type ComposerReasoningLevel,
@@ -30,6 +31,7 @@ export function ChatComposer({
   onDraftChange: externalDraftChange,
   focusKey,
   onCancelRun,
+  initialReasoningLevel,
 }: {
   threadId: string | null;
   activeRunId: string | null;
@@ -41,6 +43,7 @@ export function ChatComposer({
   onDraftChange?: (text: string) => void;
   focusKey?: number;
   onCancelRun?: () => void;
+  initialReasoningLevel?: ComposerReasoningLevel | null;
 }) {
   const { t } = useTranslation(["chat", "common"]);
   const { context } = useHost();
@@ -64,6 +67,10 @@ export function ChatComposer({
       textareaRef.current?.focus();
     }
   }, [focusKey]);
+
+  React.useEffect(() => {
+    if (initialReasoningLevel) setReasoningLevel(normalizeReasoningLevel(initialReasoningLevel));
+  }, [initialReasoningLevel]);
 
   const profilesQuery = useQuery({
     queryKey: ["model-profiles"],

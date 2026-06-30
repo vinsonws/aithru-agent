@@ -7,6 +7,10 @@ export interface MigrationExecutor {
  */
 export function runMigrations(adapter: MigrationExecutor): void {
   adapter.exec(`
+    DROP TABLE IF EXISTS agent_documents;
+    DROP TABLE IF EXISTS workspace_files;
+    DROP TABLE IF EXISTS workspace_file_versions;
+
     CREATE TABLE IF NOT EXISTS threads (
       id TEXT PRIMARY KEY, org_id TEXT NOT NULL, owner_user_id TEXT NOT NULL,
       title TEXT, status TEXT NOT NULL DEFAULT 'active',
@@ -45,16 +49,73 @@ export function runMigrations(adapter: MigrationExecutor): void {
       summary TEXT, payload TEXT NOT NULL DEFAULT '{}'
     );
 
-    CREATE TABLE IF NOT EXISTS workspace_files (
-      workspace_id TEXT NOT NULL, path TEXT NOT NULL,
-      content TEXT NOT NULL, size INTEGER NOT NULL,
-      version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-      PRIMARY KEY (workspace_id, path)
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS context_summaries (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      source_message_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS secrets (
+      secret_ref TEXT PRIMARY KEY,
+      encrypted_value TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS model_profiles (
+      id TEXT PRIMARY KEY,
+      org_id TEXT,
+      owner_user_id TEXT,
+      key TEXT,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS skill_registry_entries (
+      id TEXT PRIMARY KEY,
+      org_id TEXT,
+      owner_user_id TEXT,
+      key TEXT,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS skill_package_users (
+      id TEXT PRIMARY KEY,
+      org_id TEXT,
+      owner_user_id TEXT,
+      key TEXT,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS subagent_specs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT,
+      owner_user_id TEXT,
+      key TEXT,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS external_tool_configs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT,
+      owner_user_id TEXT,
+      key TEXT,
+      payload TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS todos (
-      id TEXT PRIMARY KEY, run_id TEXT NOT NULL, title TEXT NOT NULL,
+      id TEXT PRIMARY KEY, thread_id TEXT, run_id TEXT NOT NULL, title TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
@@ -66,16 +127,18 @@ export function runMigrations(adapter: MigrationExecutor): void {
       created_at TEXT NOT NULL, resolved_at TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS artifacts (
-      id TEXT PRIMARY KEY, run_id TEXT NOT NULL,
-      title TEXT NOT NULL, content_type TEXT NOT NULL,
-      content TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'draft',
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-    );
-
     CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id, sequence);
     CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
     CREATE INDEX IF NOT EXISTS idx_runs_thread ON runs(thread_id);
     CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+    CREATE INDEX IF NOT EXISTS idx_context_summaries_thread
+      ON context_summaries(thread_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_todos_run ON todos(run_id);
+    CREATE INDEX IF NOT EXISTS idx_model_profiles_org_key ON model_profiles(org_id, key);
+    CREATE INDEX IF NOT EXISTS idx_skill_registry_org_key ON skill_registry_entries(org_id, key);
+    CREATE INDEX IF NOT EXISTS idx_skill_package_users_org_owner_key
+      ON skill_package_users(org_id, owner_user_id, key);
+    CREATE INDEX IF NOT EXISTS idx_subagent_specs_org_key ON subagent_specs(org_id, key);
+    CREATE INDEX IF NOT EXISTS idx_external_tool_configs_org_key ON external_tool_configs(org_id, key);
   `);
 }

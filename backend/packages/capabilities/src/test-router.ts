@@ -123,8 +123,33 @@ const P0_TOOLS: AgentToolDescriptor[] = [
     },
   },
   {
+    name: "ask_clarification",
+    description: "Ask the user for clarification before proceeding.",
+    risk_level: "low",
+    requires_approval: false,
+    required_scopes: ["agent.input.write"],
+    input_schema: {
+      type: "object",
+      properties: {
+        question: { type: "string" },
+        clarification_type: {
+          type: "string",
+          enum: ["missing_info", "ambiguous_requirement", "approach_choice", "risk_confirmation", "suggestion"],
+        },
+        context: { type: "string" },
+        options: { type: "array", items: { type: "string" } },
+      },
+      required: ["question"],
+    },
+  },
+  {
     name: "presentation.present",
-    description: "Present a resource",
+    description: [
+      "Present an existing workspace file to the user only when it is a final primary output or a file needed for user decision.",
+      "Use for reports, previews, restore plans, summaries, or confirmation checklists.",
+      "Do not present temporary files, logs, chunks, manifests, raw dumps, or routine intermediate edits.",
+      "Add an open_panel preview effect only when the user asked to preview, the primary output is clearly previewable, or immediate confirmation is needed.",
+    ].join(" "),
     risk_level: "low",
     requires_approval: false,
     required_scopes: ["presentation"],
@@ -133,9 +158,42 @@ const P0_TOOLS: AgentToolDescriptor[] = [
       properties: {
         resources: {
           type: "array",
-          items: { type: "object" },
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", enum: ["workspace_file"] },
+              path: { type: "string" },
+              title: { type: "string" },
+              summary: { type: "string" },
+              reason: { type: "string" },
+              preferred_view: {
+                type: "string",
+                enum: ["html_preview", "markdown", "json", "image", "pdf", "source_text", "download"],
+              },
+              surfaces: {
+                type: "array",
+                items: {
+                  type: "string",
+                  enum: ["conversation", "side_panel", "approval_panel", "activity", "header"],
+                },
+              },
+              effects: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    kind: { type: "string", enum: ["open_panel", "focus_presentation", "scroll_to", "highlight", "none"] },
+                    panel: { type: "string", enum: ["preview", "files", "activity", "approvals", "trace"] },
+                    mode: { type: "string", enum: ["soft", "assertive"] },
+                  },
+                },
+              },
+            },
+            required: ["path"],
+          },
         },
       },
+      required: ["resources"],
     },
   },
 ];
@@ -270,6 +328,19 @@ export class TestCapabilityRouter implements CapabilityRouter {
         };
       }
 
+      case "ask_clarification": {
+        const question = requiredString(input.question, "question");
+        const context = optionalString(input.context);
+        return {
+          input_request_id: `clarify_${req.run_id}_${req.id}`,
+          tool_call_id: req.id,
+          prompt: question,
+          reason: context ?? "The agent needs more information to proceed.",
+          clarification_type: optionalString(input.clarification_type) ?? "missing_info",
+          options: Array.isArray(input.options) ? input.options.map(String) : undefined,
+        };
+      }
+
       case "presentation.present": {
         return { presented: true, resources: input.resources || [] };
       }
@@ -278,4 +349,13 @@ export class TestCapabilityRouter implements CapabilityRouter {
         throw new Error(`Tool not implemented in test router: ${req.name}`);
     }
   }
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`Missing required input field: ${field}`);
+  return value.trim();
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }

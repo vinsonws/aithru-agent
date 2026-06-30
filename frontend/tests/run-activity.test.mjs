@@ -166,7 +166,7 @@ test("waiting approval returns next action Review approval", async () => {
   assert.equal(activity.narrative.nextAction, "reviewApproval");
 });
 
-test("completed with artifacts and file tools increments file badge", async () => {
+test("completed with file tools increments file badge", async () => {
   const { buildRunActivity, buildRunCompanionBadges } = await loadRunActivity();
   const activity = buildRunActivity(
     baseState({

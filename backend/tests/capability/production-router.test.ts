@@ -18,8 +18,13 @@ describe("ProductionCapabilityRouter", () => {
 
   it("lists all production tools", async () => {
     const tools = await router.listTools({ run });
-    expect(tools.length).toBeGreaterThanOrEqual(8);
-    expect(tools.some((t) => t.name === "artifact.create")).toBe(true);
+    expect(tools.length).toBeGreaterThanOrEqual(6);
+    expect(tools.some((t) => t.name === "artifact.create")).toBe(false);
+    expect(tools.some((t) => t.name === "presentation.present")).toBe(true);
+    const presentTool = tools.find((t) => t.name === "presentation.present")!;
+    expect(presentTool.description).toContain("final primary output");
+    expect(presentTool.description).toContain("user decision");
+    expect(presentTool.description).toContain("Do not present temporary");
   });
 
   it("denies unknown tools", async () => {
@@ -55,18 +60,149 @@ describe("ProductionCapabilityRouter", () => {
     expect((result.output as any).content).toBe("content");
   });
 
-  it("executes artifact.create and artifact.finalize", async () => {
-    const createResult = await router.executeToolCall(
-      { id: "tc_art", name: "artifact.create", input: { title: "Report", content_type: "text/markdown", content: "# Hi" }, run_id: "r1" },
-      { run },
-    );
-    expect(createResult.error).toBeFalsy();
-    const artifactId = (createResult.output as any).id;
+  it("auto-presents explicitly requested written workspace files without opening preview", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter);
+    const localRun: AgentRun = {
+      ...run,
+      id: "r_write_present",
+      thread_id: "thread_write_present",
+      workspace_id: "ws_write_present",
+      task_msg: "你在本地创建一个文件 hello.txt 内容是： 第一",
+    };
+    localStore.createRun(localRun);
 
-    const finalizeResult = await router.executeToolCall(
-      { id: "tc_fin", name: "artifact.finalize", input: { artifact_id: artifactId }, run_id: "r1" },
+    const result = await localRouter.executeToolCall(
+      {
+        id: "tc_write_present",
+        name: "workspace.write_file",
+        input: { path: "hello.txt", content: "第一" },
+        run_id: localRun.id,
+      },
+      { run: localRun },
+    );
+
+    expect(result.error).toBeFalsy();
+    const event = localStore.listEvents(localRun.id).find((item) => item.type === "presentation.created");
+    expect(event?.payload).toMatchObject({
+      presentation: {
+        title: "hello.txt",
+        resource: { kind: "workspace_file", path: "/hello.txt" },
+        surfaces: ["conversation"],
+        preferred_view: "source_text",
+        effects: undefined,
+        source: {
+          created_by: "tool",
+          tool_call_id: "tc_write_present",
+          tool_name: "workspace.write_file",
+        },
+      },
+    });
+  });
+
+  it("does not auto-present unmentioned written workspace files", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter);
+    const localRun: AgentRun = {
+      ...run,
+      id: "r_write_quiet",
+      workspace_id: "ws_write_quiet",
+      task_msg: "run backup",
+    };
+    localStore.createRun(localRun);
+
+    await localRouter.executeToolCall(
+      {
+        id: "tc_write_quiet",
+        name: "workspace.write_file",
+        input: { path: "/tmp/chunk-001.json", content: "{}" },
+        run_id: localRun.id,
+      },
+      { run: localRun },
+    );
+
+    expect(localStore.listEvents(localRun.id).some((item) => item.type === "presentation.created")).toBe(false);
+  });
+
+  it("presents existing workspace files as trusted stream events", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter);
+    const localRun: AgentRun = {
+      ...run,
+      id: "r_present",
+      thread_id: "thread_1",
+      workspace_id: "ws_present",
+    };
+    localStore.createRun(localRun);
+    localStore.writeFile("ws_present", "/outputs/backup.md", "# Backup");
+
+    const result = await localRouter.executeToolCall(
+      {
+        id: "tc_present",
+        name: "presentation.present",
+        input: {
+          resources: [
+            {
+              kind: "workspace_file",
+              path: "/outputs/backup.md",
+              title: "Backup report",
+              preferred_view: "markdown",
+              surfaces: ["conversation", "side_panel"],
+              effects: [{ kind: "open_panel", panel: "preview", mode: "soft" }],
+            },
+          ],
+        },
+        run_id: localRun.id,
+      },
+      { run: localRun },
+    );
+
+    expect(result.error).toBeFalsy();
+    expect((result.output as any).presentations).toHaveLength(1);
+    const event = localStore.listEvents(localRun.id).find((item) => item.type === "presentation.created");
+    expect(event?.payload).toMatchObject({
+      presentation: {
+        run_id: localRun.id,
+        thread_id: "thread_1",
+        title: "Backup report",
+        resource: { kind: "workspace_file", path: "/outputs/backup.md" },
+        preferred_view: "markdown",
+        available_views: expect.arrayContaining(["markdown", "source_text", "download"]),
+        surfaces: ["conversation", "side_panel"],
+        effects: [{ kind: "open_panel", panel: "preview", mode: "soft" }],
+        metadata: { workspace_id: "ws_present" },
+        source: {
+          created_by: "model_request",
+          tool_call_id: "tc_present",
+          tool_name: "presentation.present",
+        },
+      },
+    });
+  });
+
+  it("rejects missing workspace file presentations", async () => {
+    const result = await router.executeToolCall(
+      {
+        id: "tc_missing",
+        name: "presentation.present",
+        input: { resources: [{ kind: "workspace_file", path: "/missing.md" }] },
+        run_id: run.id,
+      },
       { run },
     );
-    expect((finalizeResult.output as any).status).toBe("finalized");
+
+    expect(result.error).toBeTruthy();
+    expect(result.error?.message).toContain("File not found");
+  });
+
+  it("denies deleted artifact tools", async () => {
+    const result = await router.prepareToolCall(
+      { id: "tc_art", name: "artifact.create", input: {}, run_id: "r1" },
+      { run },
+    );
+    expect(result.allowed).toBe(false);
   });
 });

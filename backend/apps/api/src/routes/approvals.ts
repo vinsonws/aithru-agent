@@ -1,6 +1,24 @@
 import type { FastifyInstance } from "fastify";
 import { getRuntime } from "../runtime.js";
 import { EVENT_TYPES } from "@aithru-agent/stream";
+import type { AgentApproval } from "@aithru-agent/persistence";
+
+function approvalResponse(approval: AgentApproval) {
+  const resolved = approval.status === "approved" || approval.status === "denied";
+  return {
+    ...approval,
+    tool_input: null,
+    status: resolved ? "resolved" : approval.status,
+    decision:
+      approval.status === "approved"
+        ? "approved"
+        : approval.status === "denied"
+          ? "rejected"
+          : null,
+    comment: null,
+    metadata: null,
+  };
+}
 
 export function registerApprovalRoutes(app: FastifyInstance): void {
   // POST /api/approvals/:approval_id/resolve
@@ -9,7 +27,8 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { approval_id } = request.params as any;
       const body = (request.body as any) || {};
-      const decision: "approved" | "denied" = body.decision || "approved";
+      const decision: "approved" | "denied" =
+        body.decision === "rejected" ? "denied" : body.decision || "approved";
       const runtime = getRuntime();
 
       let approval;
@@ -39,7 +58,7 @@ export function registerApprovalRoutes(app: FastifyInstance): void {
         },
       );
 
-      return { resolved: true, approval_id: approval.id, decision };
+      return approvalResponse(approval);
     },
   );
 }

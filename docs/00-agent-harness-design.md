@@ -88,9 +88,43 @@ completed
 failed
 ```
 
-Provider SDK objects are not public API contracts. Model adapters never execute
-tools, read workspace files directly, write artifacts directly, or own approval
-state.
+OpenAI and Anthropic-family calls use provider SDKs inside this package.
+OpenAI-compatible vendor parameters live in model profile metadata, with small
+compatibility patches only for request/response shapes that cannot be expressed
+as normal SDK parameters. Provider SDK objects are not public API contracts.
+Model adapters never execute tools, read workspace files directly, write
+workspace outputs directly, or own approval state.
+
+Run `harness_options.mode` is structured harness state, not prompt text. The
+current chat surface uses `flash`, `thinking`, `pro`, and `ultra`: `flash`
+disables model thinking, `thinking` enables low-effort thinking, and
+`pro`/`ultra` set `is_plan_mode` for extra planning guidance. All four
+strengths receive the scoped provider-native tool schema; concrete execution
+still goes through the Capability Router. `ultra` may also set
+`subagent_enabled`, but subagent tool exposure remains an explicit harness
+decision.
+
+### Display History vs Model Context
+
+Agent Thread messages are the complete user-visible conversation record.
+Before each model turn, the harness builds a bounded model context packet from
+thread messages, recent tool result summaries, and the latest context summary.
+The packet is model input only and is not displayed as chat history.
+
+The model turn loop passes scoped provider-native tool definitions to the model
+adapter for every chat strength. Concrete execution still goes through the
+Capability Router.
+
+Completed tool outputs may be summarized into model-only context so later turns
+can reason over what happened without replaying large raw outputs. This summary
+does not replace provider-native tool-call transcript replay. Reasoning-capable
+providers may require exact assistant reasoning/tool-call fields and matching
+tool result messages during live tool-call chains; those provider details stay
+inside `backend/packages/model/src`.
+
+After completed model runs, terminal processors may derive a thread title and a
+context summary. Memory extraction is intentionally out of scope for this
+processor set.
 
 ## Capability Boundary
 
@@ -104,7 +138,7 @@ model/provider event
   -> Aithru Capability Router
   -> skill policy / scope / approval boundary
   -> concrete local tool or external capability adapter
-  -> event / trace / artifact / redaction
+  -> event / trace / workspace file / presentation / redaction
 ```
 
 Tool-related code must:
@@ -129,7 +163,8 @@ Agent owns these product resources:
 - Agent Todo;
 - Agent Workspace;
 - Agent Tool;
-- Artifact;
+- Agent Workspace File;
+- Agent Presentation;
 - Memory;
 - Approval;
 - Subagent;
@@ -142,13 +177,19 @@ The TypeScript backend includes controlled local tools for:
 
 - workspace list/read/write/patch/delete;
 - todo create/update;
-- artifact create/finalize;
+- model-driven clarification through `ask_clarification`;
 - presentation;
 - subagent delegation;
 - local memory operations.
 
-Workspace and artifact tools are scoped to Agent Workspace storage. They must
+Workspace tools are scoped to Agent Workspace storage. They must
 not expose unrestricted host filesystem access to model code.
+
+Workspace file contents live in temporary filesystem roots, not in SQLite. A
+threaded run uses a deterministic workspace id for that thread, so runs in the
+same Agent Thread see the same temporary directory. Runs without a thread get
+their own temporary workspace id. Workspace paths are normalized under that root
+before file operations, and path traversal is rejected.
 
 ## Approvals
 
@@ -185,10 +226,17 @@ Stores preserve:
 - messages;
 - runs;
 - events;
-- workspace files;
-- todos;
+- workspace ids and run/thread ownership, while workspace file contents stay in
+  temporary filesystem roots;
+- thread-scoped todos with run provenance;
 - approvals;
-- artifacts;
+- settings;
+- model profiles;
+- skill registry entries and user skill packages;
+- subagent specs;
+- external tool configurations;
+- context summaries;
+- encrypted secret records in a dedicated secrets table;
 - claims and leases.
 
 Snapshots, summaries, and run trees are read-only projections over stored facts.

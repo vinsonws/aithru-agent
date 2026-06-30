@@ -74,7 +74,7 @@ export interface ReferenceComposerSurfaceProps {
 }
 
 const REASONING_ICONS: Record<ComposerReasoningLevel, React.ElementType> = {
-  quick: Zap,
+  flash: Zap,
   thinking: Lightbulb,
   pro: GraduationCap,
   ultra: Rocket,

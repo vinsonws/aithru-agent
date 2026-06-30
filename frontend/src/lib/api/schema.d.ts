@@ -2718,6 +2718,10 @@ export interface components {
             model?: string | null;
             /** Model Profile Key */
             model_profile_key?: string | null;
+            mode?: "flash" | "thinking" | "pro" | "ultra" | null;
+            thinking_enabled?: boolean | null;
+            is_plan_mode?: boolean | null;
+            subagent_enabled?: boolean | null;
             /** Instructions */
             instructions?: string | null;
             model_capabilities?: components["schemas"]["AgentModelCapabilities"] | null;

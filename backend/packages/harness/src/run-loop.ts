@@ -24,6 +24,7 @@ export interface ToolCallStep {
 export interface ToolCallResult {
   completed: boolean;
   approvalRequired: boolean;
+  inputRequired?: boolean;
   approvalId?: string;
   result?: AgentToolCallResult;
 }
@@ -56,7 +57,12 @@ export class RunLoop {
     });
   }
 
-  emitRunCompleted(result?: { content?: string; workspace_paths?: string[] }): AgentStreamEvent {
+  emitRunCompleted(result?: {
+    content?: string;
+    workspace_paths?: string[];
+    message_id?: string | null;
+    thread_message_id?: string | null;
+  }): AgentStreamEvent {
     validateRunStatusTransition(this.ctx.run.status as string, "completed");
     const run = this.ctx.store.updateRun(this.runId, {
       status: "completed",
@@ -64,7 +70,8 @@ export class RunLoop {
       result: {
         content: result?.content || null,
         workspace_paths: result?.workspace_paths || [],
-        message_id: null,
+        message_id: result?.message_id ?? null,
+        thread_message_id: result?.thread_message_id ?? null,
       },
     });
     this.ctx.run = run;
@@ -107,11 +114,17 @@ export class RunLoop {
     });
   }
 
-  emitMessageCompleted(messageId: string, content: string): AgentStreamEvent {
-    return this.ctx.eventWriter.write(this.runId, this.threadId, EVENT_TYPES.MESSAGE_COMPLETED, {
+  emitMessageCompleted(
+    messageId: string,
+    content: string,
+    options: { threadMessageId?: string | null } = {},
+  ): AgentStreamEvent {
+    const payload: Record<string, unknown> = {
       message_id: messageId,
       content,
-    });
+    };
+    if (options.threadMessageId) payload.thread_message_id = options.threadMessageId;
+    return this.ctx.eventWriter.write(this.runId, this.threadId, EVENT_TYPES.MESSAGE_COMPLETED, payload);
   }
 
   // ── Tool Call ─────────────────────────────────────────────────────
@@ -234,6 +247,28 @@ export class RunLoop {
           error: result.error,
         },
       );
+    } else if (step.name === "ask_clarification") {
+      const payload = inputRequestPayload(this.runId, toolCallId, result.output);
+      validateRunStatusTransition(this.ctx.run.status as string, "waiting_input");
+      const pausedRun = this.ctx.store.updateRun(this.runId, { status: "waiting_input" });
+      this.ctx.run = pausedRun;
+      this.ctx.eventWriter.write(
+        this.runId,
+        this.threadId,
+        EVENT_TYPES.INPUT_REQUESTED,
+        payload,
+      );
+      this.ctx.eventWriter.write(
+        this.runId,
+        this.threadId,
+        EVENT_TYPES.RUN_PAUSED,
+        {
+          status: "waiting_input",
+          pause_reason: "clarification_requested",
+          ...payload,
+        },
+      );
+      return { completed: false, approvalRequired: false, inputRequired: true, result };
     } else {
       this.ctx.eventWriter.write(
         this.runId,
@@ -249,4 +284,27 @@ export class RunLoop {
 
     return { completed: true, approvalRequired: false, result };
   }
+}
+
+function inputRequestPayload(
+  runId: string,
+  toolCallId: string,
+  output: unknown,
+): Record<string, unknown> {
+  const payload = isRecord(output) ? output : {};
+  const inputRequestId = stringValue(payload.input_request_id) ?? `clarify_${runId}_${toolCallId}`;
+  return {
+    ...payload,
+    input_request_id: inputRequestId,
+    tool_call_id: stringValue(payload.tool_call_id) ?? toolCallId,
+    prompt: stringValue(payload.prompt) ?? "Input requested.",
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }

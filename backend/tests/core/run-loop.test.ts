@@ -62,6 +62,7 @@ describe("RunLoop", () => {
       content: "Done!",
       workspace_paths: [],
       message_id: null,
+      thread_message_id: null,
     });
   });
 

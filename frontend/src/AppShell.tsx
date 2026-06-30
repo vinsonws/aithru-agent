@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Sidebar } from "@/features/sidebar/Sidebar";
 import { ConversationPage } from "@/features/conversation/ConversationPage";
@@ -87,6 +87,7 @@ function RouteContent({
   onActiveFileIdChange: (id: string | null) => void;
 }) {
   const { pathname: path } = useLocation();
+  const navigate = useNavigate();
   const segments = React.useMemo(() => path.split("/").filter(Boolean), [path]);
   const threadId =
     segments[0] === "threads" && segments[1] && segments[1] !== "new"
@@ -194,7 +195,12 @@ function RouteContent({
     <ConversationRoute
       threadId={threadId}
       activeRunId={activeRunId}
-      onRunIdChange={(id) => onSelectedRunChange(id && threadId ? { threadId, runId: id } : null)}
+      onRunIdChange={(id) => {
+        onSelectedRunChange(id && threadId ? { threadId, runId: id } : null);
+        if (id && threadId && routeRunId) {
+          navigate(`/threads/${encodeURIComponent(threadId)}/runs/${encodeURIComponent(id)}`);
+        }
+      }}
       streamState={streamState}
       onOpenRightPanel={onRightPanelChange}
       onPreviewFile={handlePreviewFile}

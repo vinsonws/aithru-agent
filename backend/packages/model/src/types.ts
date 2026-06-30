@@ -3,6 +3,7 @@ import type { AgentRun, AgentMessage } from "@aithru-agent/contracts";
 export interface AgentModelToolResult {
   id: string;
   name: string;
+  input?: Record<string, unknown>;
   output: unknown;
   error?: {
     code: string;
@@ -12,10 +13,17 @@ export interface AgentModelToolResult {
   };
 }
 
+export interface AgentModelTool {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
 export interface AgentModelTurnInput {
   run: AgentRun;
   messages: AgentMessage[];
   context: Record<string, unknown>;
+  tools: AgentModelTool[];
   toolResults: AgentModelToolResult[];
 }
 

@@ -206,6 +206,29 @@ test("reduceEvent accumulates real reasoning segments without inventing content"
   );
 });
 
+test("reduceEvent handles backend model reasoning deltas", async () => {
+  const reduceEvent = await loadReduceEvent();
+  const projected = reduceEvent(
+    state(),
+    event("model.reasoning_delta", { delta: "正在比较小数。" }, 11),
+  );
+
+  assert.equal(projected.reasoningSegments.length, 1);
+  assert.equal(projected.reasoningSegments[0].content, "正在比较小数。");
+  assert.equal(projected.reasoningSegments[0].streaming, true);
+});
+
+test("reduceEvent groups backend model reasoning deltas into one segment", async () => {
+  const { buildRunStreamState } = await loadRunStreamModule();
+  const projected = buildRunStreamState([
+    { ...event("model.reasoning_delta", { delta: "用户" }, 11), id: "evt_reasoning_1" },
+    { ...event("model.reasoning_delta", { delta: "发来问候" }, 12), id: "evt_reasoning_2" },
+  ]);
+
+  assert.equal(projected.reasoningSegments.length, 1);
+  assert.equal(projected.reasoningSegments[0].content, "用户发来问候");
+});
+
 test("reduceEvent splits repeated reasoning id when a tool call happens between deltas", async () => {
   const reduceEvent = await loadReduceEvent();
   const events = [

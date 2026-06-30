@@ -8,7 +8,8 @@ import type {
   WorkspaceFile,
   AgentTodo,
   AgentApproval,
-  AgentArtifact,
+  AgentDocument,
+  AgentContextSummary,
 } from "./store.js";
 
 export interface AgentStore {
@@ -55,16 +56,31 @@ export interface AgentStore {
   // Approvals
   createApproval(approval: AgentApproval): AgentApproval;
   getApproval(id: string): AgentApproval | undefined;
+  listApprovals(filter?: { run_id?: string; status?: string }): AgentApproval[];
   resolveApproval(
     id: string,
     status: "approved" | "denied",
   ): AgentApproval;
 
-  // Artifacts
-  createArtifact(artifact: AgentArtifact): AgentArtifact;
-  getArtifact(id: string): AgentArtifact | undefined;
-  listArtifacts(runId: string): AgentArtifact[];
-  finalizeArtifact(id: string): AgentArtifact;
+  // Generic documents
+  upsertDocument(kind: string, id: string, payload: unknown): AgentDocument;
+  insertDocument(kind: string, id: string, payload: unknown): AgentDocument;
+  getDocument(kind: string, id: string): AgentDocument | undefined;
+  listDocuments(kind: string): AgentDocument[];
+  deleteDocument(kind: string, id: string): number;
+
+  // Context summaries
+  createContextSummary(summary: AgentContextSummary): AgentContextSummary;
+  listContextSummaries(threadId: string): AgentContextSummary[];
+  getLatestContextSummary(threadId: string): AgentContextSummary | undefined;
+
+  // Secrets
+  setSecret(secretRef: string, value: string): void;
+  getSecret(secretRef: string): string | undefined;
+
+  // Settings
+  setSetting(key: string, value: string): void;
+  getSetting(key: string): string | undefined;
 
   // Claims
   acquireClaim(runId: string, workerId: string, leaseSeconds?: number): boolean;

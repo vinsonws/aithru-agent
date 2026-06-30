@@ -187,6 +187,8 @@ function reasoningSegmentId(event: AgentStreamEvent, p: Record<string, unknown>)
     (p.segment_id as string | undefined);
   if (explicit) return explicit;
 
+  if (event.type === "model.reasoning_delta") return `${event.run_id}:model-reasoning`;
+
   const messageId = p.message_id as string | undefined;
   return messageId ? `${messageId}:reasoning` : event.id;
 }
@@ -614,6 +616,7 @@ export function reduceEvent(state: RunStreamState, event: AgentStreamEvent): Run
 
     case "reasoning.delta":
     case "thinking.delta":
+    case "model.reasoning_delta":
     case "message.reasoning.delta":
     case "message.thinking.delta": {
       const text = reasoningPayloadText(p, [

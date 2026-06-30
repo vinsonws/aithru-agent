@@ -49,16 +49,16 @@ test("Markdown applies resolveLinkHref to anchor hrefs", async () => {
       Markdown,
       {
         resolveLinkHref: (href) =>
-          href === "https://aithru.ai/artifact/org_1/artifact_1"
-            ? "/api/artifacts/artifact_1/content"
+          href === "https://example.com/workspace/ws1/reports/report.md"
+            ? "/api/workspaces/ws1/files/reports/report.md/content"
             : href,
       },
-      "[Starlight Wishes](https://aithru.ai/artifact/org_1/artifact_1)",
+      "[Report](https://example.com/workspace/ws1/reports/report.md)",
     ),
   );
 
-  assert.match(html, /href="\/api\/artifacts\/artifact_1\/content"/);
-  assert.doesNotMatch(html, /href="https:\/\/aithru\.ai\/artifact\/org_1\/artifact_1"/);
+  assert.match(html, /href="\/api\/workspaces\/ws1\/files\/reports\/report\.md\/content"/);
+  assert.doesNotMatch(html, /href="https:\/\/example\.com\/workspace\/ws1\/reports\/report\.md"/);
 });
 
 test("Markdown does not leak react-markdown node props onto anchors", async () => {

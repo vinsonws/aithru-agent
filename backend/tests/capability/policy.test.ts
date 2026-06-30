@@ -28,6 +28,12 @@ describe("checkScopes", () => {
     expect(result.allowed).toBe(true);
   });
 
+  it("allows frontend agent-prefixed scope aliases", () => {
+    expect(checkScopes(createTool("read", ["workspace:read"]), createRun(["agent.workspace.read"])).allowed).toBe(true);
+    expect(checkScopes(createTool("write", ["workspace:write"]), createRun(["agent.workspace.write"])).allowed).toBe(true);
+    expect(checkScopes(createTool("todo", ["todo:write"]), createRun(["agent.todo.write"])).allowed).toBe(true);
+  });
+
   it("denies missing scope", () => {
     const result = checkScopes(createTool("t", ["admin"]), createRun(["user"]));
     expect(result.allowed).toBe(false);

@@ -46,6 +46,8 @@ export const EVENT_TYPES = {
   // Approval
   APPROVAL_REQUESTED: "approval.requested",
   APPROVAL_RESOLVED: "approval.resolved",
+  INPUT_REQUESTED: "input.requested",
+  INPUT_RECEIVED: "input.received",
   // Workspace
   WORKSPACE_FILE_WRITTEN: "workspace.file_written",
   WORKSPACE_FILE_READ: "workspace.file_read",
@@ -54,9 +56,13 @@ export const EVENT_TYPES = {
   TODO_UPDATED: "todo.updated",
   // Context
   CONTEXT_PACKET_BUILT: "context.packet.built",
+  CONTEXT_SUMMARY_CREATED: "context.summary.created",
+  THREAD_TITLE_GENERATED: "thread.title.generated",
   // Model
   MODEL_REASONING_DELTA: "model.reasoning_delta",
   MODEL_USAGE: "model.usage",
+  // Skill
+  SKILL_ACTIVATED: "skill.activated",
   // External capabilities
   EXTERNAL_RUN_STARTED: "external_run.started",
   EXTERNAL_RUN_RESOLVED: "external_run.resolved",

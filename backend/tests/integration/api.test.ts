@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createApp } from "@aithru-agent/api";
+import { createApp, getRuntime } from "@aithru-agent/api";
+import type { AgentRun } from "@aithru-agent/contracts";
+import { EVENT_TYPES } from "@aithru-agent/stream";
 import type { FastifyInstance } from "fastify";
 
 let app: FastifyInstance;
@@ -12,6 +14,14 @@ beforeAll(async () => {
 afterAll(async () => {
   await app.close();
 });
+
+function testNow(): string {
+  return new Date().toISOString().replace(/\.\d{3}/, "");
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 describe("Health API", () => {
   it("GET /api/health returns ok", async () => {
@@ -109,6 +119,107 @@ describe("Runs API", () => {
     runId = body.id;
   });
 
+  it("uses one workspace id for runs in the same thread", async () => {
+    const thread = await app.inject({
+      method: "POST",
+      url: "/api/threads",
+      payload: {
+        org_id: "org_1",
+        owner_user_id: "user_1",
+        title: "Workspace sharing",
+      },
+    });
+    const threadId = JSON.parse(thread.body).id;
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        source: "chat",
+        thread_id: threadId,
+        task_msg: "First threaded run",
+      },
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        source: "chat",
+        thread_id: threadId,
+        task_msg: "Second threaded run",
+      },
+    });
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect(JSON.parse(first.body).workspace_id).toBe(JSON.parse(second.body).workspace_id);
+  });
+
+  it("generates a title for untitled completed model threads", async () => {
+    const thread = await app.inject({
+      method: "POST",
+      url: "/api/threads",
+      payload: {
+        org_id: "org_1",
+        owner_user_id: "user_1",
+      },
+    });
+    const threadId = JSON.parse(thread.body).id;
+    const run = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        source: "chat",
+        thread_id: threadId,
+        task_msg: "Plan the launch checklist",
+        harness_options: { model_profile_key: "default" },
+        persist_task_msg_message: true,
+        wait_for_completion: true,
+      },
+    });
+
+    expect(run.statusCode).toBe(201);
+    expect(JSON.parse(run.body).status).toBe("completed");
+    expect(getRuntime().store.getThread(threadId)?.title).toBe("Generated Thread Title");
+    const events = getRuntime().store.listEvents(JSON.parse(run.body).id);
+    expect(events.findIndex((event) => event.type === "thread.title.generated")).toBeLessThan(
+      events.findIndex((event) => event.type === "run.completed"),
+    );
+  });
+
+  it("does not overwrite existing thread titles after model runs", async () => {
+    const thread = await app.inject({
+      method: "POST",
+      url: "/api/threads",
+      payload: {
+        org_id: "org_1",
+        owner_user_id: "user_1",
+        title: "Manual title",
+      },
+    });
+    const threadId = JSON.parse(thread.body).id;
+    await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        source: "chat",
+        thread_id: threadId,
+        task_msg: "Replace the title",
+        harness_options: { model_profile_key: "default" },
+        persist_task_msg_message: true,
+        wait_for_completion: true,
+      },
+    });
+
+    expect(getRuntime().store.getThread(threadId)?.title).toBe("Manual title");
+  });
+
   it("GET /api/runs lists runs", async () => {
     const res = await app.inject({ method: "GET", url: "/api/runs" });
     expect(res.statusCode).toBe(200);
@@ -132,6 +243,58 @@ describe("Runs API", () => {
     expect(res.headers["content-type"]).toContain("text/event-stream");
   });
 
+  it("GET /api/runs/:id/stream?follow=true waits for new run events", async () => {
+    const runtime = getRuntime();
+    const run: AgentRun = {
+      id: "run_live_stream_test",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      skill_id: null,
+      workspace_id: "ws_live_stream_test",
+      task_msg: "stream later",
+      scopes: ["*"],
+      harness_options: null,
+      status: "running",
+      current_approval_id: null,
+      started_at: testNow(),
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    };
+    runtime.store.createRun(run);
+    runtime.eventWriter.write(run.id, null, EVENT_TYPES.RUN_STARTED, {
+      run_id: run.id,
+      status: "running",
+    });
+
+    const stream = app.inject({
+      method: "GET",
+      url: `/api/runs/${run.id}/stream?follow=true&after_sequence=1`,
+    });
+
+    await wait(30);
+    runtime.eventWriter.write(run.id, null, EVENT_TYPES.MESSAGE_DELTA, {
+      message_id: "msg_live_stream_test",
+      delta: "live token",
+    });
+    runtime.store.updateRun(run.id, {
+      status: "completed",
+      completed_at: testNow(),
+    });
+    runtime.eventWriter.write(run.id, null, EVENT_TYPES.RUN_COMPLETED, {
+      run_id: run.id,
+      status: "completed",
+    });
+
+    const res = await stream;
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("event: message.delta");
+    expect(res.body).toContain("live token");
+  });
+
   it("GET /api/runs/:id/events returns event list", async () => {
     const res = await app.inject({
       method: "GET",
@@ -151,7 +314,8 @@ describe("Runs API", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.cancelled).toBe(true);
+    expect(body.id).toBe(runId);
+    expect(body.status).toBe("cancelled");
 
     // Verify run status
     const getRes = await app.inject({

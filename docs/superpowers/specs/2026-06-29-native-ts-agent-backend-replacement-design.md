@@ -91,7 +91,7 @@ Generated frontend types: openapi-typescript
 Persistence: SQLite first, via direct sql.js statement execution with DB_PATH file persistence
 Tests: Vitest
 Streaming: native Server-Sent Events
-Model calls: provider adapters using SDKs or direct HTTP fetch
+Model calls: provider adapters using OpenAI/Anthropic SDKs; OpenAI-compatible vendors use SDK base URLs plus metadata request params
 MCP: protocol adapter only, never a tool-execution bypass
 ```
 
@@ -101,7 +101,7 @@ Allowed infrastructure libraries:
 - TypeBox, Ajv, or Zod for runtime schema validation;
 - OpenAPI generation and openapi-typescript for frontend contracts;
 - SQLite storage libraries or drivers used behind Aithru-owned store ports;
-- provider SDKs or fetch wrappers for model APIs;
+- provider SDKs for model APIs;
 - MCP SDKs for MCP protocol transport;
 - OpenTelemetry exporters for optional observability.
 
@@ -473,14 +473,17 @@ Stores should preserve the same product facts:
 - messages;
 - runs;
 - events;
-- todos;
+- thread-scoped todos with run provenance;
 - approvals;
-- workspaces and file versions;
+- workspace ids and ownership; workspace file contents are temporary
+  filesystem state, not SQLite rows or file-version records;
 - artifacts;
+- settings;
 - skill packages and registry entries;
-- memory entries and candidates;
+- memory entries and candidates once the memory design is split out;
 - subagent runs;
 - model profiles;
+- encrypted secrets in a dedicated secrets table;
 - external tool configurations.
 
 The event store is canonical for stream replay and trace projection. Derived
@@ -659,8 +662,8 @@ Acceptance:
 Deliver:
 
 - provider-neutral `AgentModelAdapter`;
-- OpenAI-compatible adapter;
-- Anthropic-compatible adapter;
+- OpenAI SDK adapter for Responses and Chat Completions, including OpenAI-compatible base URLs;
+- Anthropic SDK adapter for Messages;
 - test model adapter;
 - native model turn loop with tool-call round trips;
 - usage events and model profile governance.

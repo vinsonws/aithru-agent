@@ -4,6 +4,8 @@ import {
   buildRunSnapshot,
   buildRunSummary,
   buildRunTree,
+  buildRunTreeUsage,
+  buildRunUsageSummary,
 } from "@aithru-agent/snapshots";
 import type { AgentRun } from "@aithru-agent/contracts";
 
@@ -35,7 +37,7 @@ describe("buildRunSnapshot", () => {
     expect(buildRunSnapshot(store, "nonexistent")).toBeUndefined();
   });
 
-  it("builds snapshot with events, files, todos, artifacts", () => {
+  it("builds snapshot with events, files, and todos", () => {
     const store = new InMemoryStore();
     const run = createRun();
     store.createRun(run);
@@ -68,18 +70,6 @@ describe("buildRunSnapshot", () => {
       updated_at: "2026-01-01T00:00:00Z",
     });
 
-    // Add artifacts
-    store.createArtifact({
-      id: "art_1",
-      run_id: run.id,
-      title: "Report",
-      content_type: "text/markdown",
-      content: "# Report",
-      status: "draft",
-      created_at: "2026-01-01T00:00:00Z",
-      updated_at: "2026-01-01T00:00:00Z",
-    });
-
     const snap = buildRunSnapshot(store, run.id);
     expect(snap).toBeDefined();
     expect(snap!.run.id).toBe(run.id);
@@ -88,9 +78,7 @@ describe("buildRunSnapshot", () => {
     expect(snap!.todos).toEqual([
       { id: "todo_1", title: "Task 1", status: "pending" },
     ]);
-    expect(snap!.artifacts).toEqual([
-      { id: "art_1", title: "Report", status: "draft" },
-    ]);
+    expect("artifacts" in snap!).toBe(false);
   });
 });
 
@@ -173,5 +161,125 @@ describe("buildRunTree", () => {
     expect(tree).toBeDefined();
     expect(tree!.subagent_runs.length).toBe(1);
     expect(tree!.subagent_runs[0].run_id).toBe("child");
+  });
+});
+
+describe("run usage projections", () => {
+  it("sums own model usage events", () => {
+    const store = new InMemoryStore();
+    const run = createRun();
+    store.createRun(run);
+    store.appendEvent(run.id, {
+      id: "evt_usage_1",
+      run_id: run.id,
+      thread_id: null,
+      sequence: 1,
+      timestamp: "2026-01-01T00:00:00Z",
+      type: "model.usage",
+      source: { kind: "model" },
+      visibility: "audit" as const,
+      redaction: "none" as const,
+      summary: null,
+      payload: { requests: 1, input_tokens: 10, output_tokens: 5 },
+    });
+    store.appendEvent(run.id, {
+      id: "evt_usage_2",
+      run_id: run.id,
+      thread_id: null,
+      sequence: 2,
+      timestamp: "2026-01-01T00:00:01Z",
+      type: "model.usage",
+      source: { kind: "model" },
+      visibility: "audit" as const,
+      redaction: "none" as const,
+      summary: null,
+      payload: { requests: 2, input_tokens: 3, output_tokens: 4, total_tokens: 9 },
+    });
+
+    const usage = buildRunUsageSummary(store, run.id);
+
+    expect(usage).toMatchObject({
+      run_id: run.id,
+      own_requests: 3,
+      own_input_tokens: 13,
+      own_output_tokens: 9,
+      own_total_tokens: 24,
+      total_requests: 3,
+      total_tokens: 24,
+    });
+  });
+
+  it("ignores legacy camelCase token fields", () => {
+    const store = new InMemoryStore();
+    const run = createRun();
+    store.createRun(run);
+    store.appendEvent(run.id, {
+      id: "evt_usage_legacy",
+      run_id: run.id,
+      thread_id: null,
+      sequence: 1,
+      timestamp: "2026-01-01T00:00:00Z",
+      type: "model.usage",
+      source: { kind: "model" },
+      visibility: "audit" as const,
+      redaction: "none" as const,
+      summary: null,
+      payload: { requests: 1, inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    });
+
+    const usage = buildRunUsageSummary(store, run.id);
+
+    expect(usage).toMatchObject({
+      own_requests: 1,
+      own_input_tokens: 0,
+      own_output_tokens: 0,
+      own_total_tokens: 0,
+      total_tokens: 0,
+    });
+  });
+
+  it("rolls child run usage into tree totals", () => {
+    const store = new InMemoryStore();
+    const parent = createRun({ id: "parent" });
+    const child = createRun({ id: "child", task_msg: "Subagent task parent:parent" } as any);
+    store.createRun(parent);
+    store.createRun(child);
+    store.appendEvent(parent.id, {
+      id: "evt_parent_usage",
+      run_id: parent.id,
+      thread_id: null,
+      sequence: 1,
+      timestamp: "2026-01-01T00:00:00Z",
+      type: "model.usage",
+      source: { kind: "model" },
+      visibility: "audit" as const,
+      redaction: "none" as const,
+      summary: null,
+      payload: { requests: 1, total_tokens: 6 },
+    });
+    store.appendEvent(child.id, {
+      id: "evt_child_usage",
+      run_id: child.id,
+      thread_id: null,
+      sequence: 1,
+      timestamp: "2026-01-01T00:00:01Z",
+      type: "model.usage",
+      source: { kind: "model" },
+      visibility: "audit" as const,
+      redaction: "none" as const,
+      summary: null,
+      payload: { requests: 2, total_tokens: 14 },
+    });
+
+    const usage = buildRunTreeUsage(store, parent.id);
+
+    expect(usage?.total_requests).toBe(3);
+    expect(usage?.total_tokens).toBe(20);
+    expect(usage?.runs.map((runUsage) => runUsage.run_id)).toEqual(["parent", "child"]);
+    expect(usage?.runs[0]).toMatchObject({
+      own_requests: 1,
+      descendant_requests: 2,
+      total_tokens: 20,
+    });
   });
 });

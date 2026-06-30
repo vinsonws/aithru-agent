@@ -199,11 +199,13 @@ interface RunStreamState {
 |------|--------|---------|
 | `message.created` | ✅ | `message_id`, `role` ("user" \| "assistant"), `content` |
 | `message.delta` | ✅ | `message_id`, `delta` (incremental text) |
-| `message.completed` | ✅ | `message_id`, `content` (final) |
+| `message.completed` | ✅ | `message_id`, `content` (final), optional `thread_message_id` |
 | `message.failed` | ✅ | `message_id`, `content`, `error` |
 
 `message.delta` is the primary user-facing assistant text stream.
 `message.completed` carries the full assembled content.
+For threaded assistant runs, `message_id` remains the run-local stream message id;
+`thread_message_id` points at the persisted assistant thread message.
 The frontend accumulates `delta` chunks into a growing `ChatMessage.content`,
 then finalizes on `message.completed`.
 
