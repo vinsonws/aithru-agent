@@ -2794,8 +2794,6 @@ export interface components {
             error?: {
                 [key: string]: unknown;
             } | null;
-            /** Active Skill Keys */
-            active_skill_keys?: string[];
         };
         /** AgentRunBudgetPolicy */
         AgentRunBudgetPolicy: {
@@ -5262,8 +5260,6 @@ export interface components {
              * @default false
              */
             external_run_requeued: boolean;
-            /** Active Skill Keys */
-            active_skill_keys?: string[];
         };
         /** RestoreWorkspaceSnapshotRequest */
         RestoreWorkspaceSnapshotRequest: {
@@ -5358,8 +5354,6 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             summary: components["schemas"]["RunInspectionSummary"];
-            /** Active Skill Keys */
-            active_skill_keys?: string[];
         };
         /** RunExternalRunDiagnostic */
         RunExternalRunDiagnostic: {
@@ -5522,8 +5516,6 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             summary: components["schemas"]["RunInspectionSummary"];
-            /** Active Skill Keys */
-            active_skill_keys?: string[];
         };
         /** RunListPage */
         RunListPage: {
@@ -5871,8 +5863,6 @@ export interface components {
              * @default 0
              */
             descendant_sandbox_operator_action_count: number;
-            /** Active Skill Keys */
-            active_skill_keys?: string[];
         };
         /** RunTreeSnapshot */
         RunTreeSnapshot: {

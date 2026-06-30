@@ -78,7 +78,8 @@ loader and registry.
   registry and injected into the native harness context.
 - `name` and `description` are discovery metadata only.
 - The `SKILL.md` body is loaded only after the skill is selected or triggered by the runtime.
-- User-selected skills (via `selected_skill_keys`) are active from run start.
+- User-selected skills (via `selected_skill_keys`) are treated as active from
+  the first model turn.
 - Unselected visible skills may be progressively disclosed by Aithru-owned
   runtime policy.
 - Aithru does not add a custom `skill.activate` business tool.
@@ -106,7 +107,7 @@ When multiple skills are loaded in the same run, policies combine conservatively
 
 - All skill execution events must emit `AgentStreamEvent` for run streaming
 - Include skill start, step events, tool proposals, subagent spawn, completion
-- Emit `skill.activated` events with trigger type (`explicit` or `runtime_load`)
+- Emit `skill.activated` events with trigger type (`explicit` or `model_load`)
 
 ## Guidelines
 

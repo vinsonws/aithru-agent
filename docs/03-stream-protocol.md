@@ -180,7 +180,7 @@ interface RunStreamState {
 
 | type | status | terminal? | payload |
 |------|--------|-----------|---------|
-| `run.created` | ✅ | | `status`, `source`, `selected_skill_keys` |
+| `run.created` | ✅ | | `run_id`, `status` |
 | `run.started` | ✅ | | `status` |
 | `run.paused` | ✅ | | `status`, `reason` |
 | `run.resumed` | ✅ | | `status` |
@@ -349,7 +349,7 @@ usage and truncation state but not the full prompt text.
 
 | type | status | payload |
 |------|--------|---------|
-| `skill.activated` | ✅ | `key`, `trigger`, `source`, `version`, `policy` |
+| `skill.activated` | ✅ | `key`, `name`, `trigger`, `source`, `version`, `policy` |
 | `thread.title.generated` | ✅ | `thread_id`, `title` |
 | `external_run.created` | ✅ | external run metadata |
 | `external_run.completed` | ✅ | external run result |

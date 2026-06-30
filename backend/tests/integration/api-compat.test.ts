@@ -10,6 +10,14 @@ import type { FastifyInstance } from "fastify";
 
 type OpenApiDocument = {
   paths: Record<string, Record<string, unknown>>;
+  components?: {
+    schemas?: Record<
+      string,
+      {
+        properties?: Record<string, unknown>;
+      }
+    >;
+  };
 };
 
 const removedRunSkillField = ["skill", "id"].join("_");
@@ -41,6 +49,12 @@ function openApiOperations(): Array<{ method: string; url: string }> {
   return operations.sort((a, b) =>
     `${a.method} ${a.url}`.localeCompare(`${b.method} ${b.url}`),
   );
+}
+
+function openApiDocument(): OpenApiDocument {
+  return JSON.parse(
+    readFileSync(resolve("../frontend/openapi.json"), "utf8"),
+  ) as OpenApiDocument;
 }
 
 function runCreatedEventCount(): number {
@@ -75,6 +89,24 @@ describe("legacy OpenAPI compatibility", () => {
       .map(({ method, url }) => `${method} ${url}`);
 
     expect(missing).toEqual([]);
+  });
+
+  it("does not advertise unbacked active skill arrays on run read models", () => {
+    const document = openApiDocument();
+    const schemaNames = [
+      "AgentRun",
+      "ResolveExternalRunResponse",
+      "RunDetailResponse",
+      "RunListItem",
+      "RunTreeNode",
+    ];
+
+    for (const name of schemaNames) {
+      expect(
+        document.components?.schemas?.[name]?.properties &&
+          "active_skill_keys" in document.components.schemas[name].properties!,
+      ).toBe(false);
+    }
   });
 
   it("accepts the frontend CreateRunRequest shape", async () => {

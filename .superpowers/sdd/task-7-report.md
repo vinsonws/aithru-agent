@@ -82,3 +82,33 @@ Frontend:
 - `frontend/openapi.json` was updated with a small scripted JSON transform, then
   `frontend/src/lib/api/schema.d.ts` was regenerated from that file. That is why
   the generated `.d.ts` diff is large but mostly mechanical.
+
+## Review Fix Notes
+
+- Removed unbacked `active_skill_keys` fields from the checked-in frontend
+  OpenAPI snapshot and regenerated `frontend/src/lib/api/schema.d.ts` so
+  `AgentRun`, `RunListItem`, `RunDetailResponse`, `ResolveExternalRunResponse`,
+  and `RunTreeNode` match the actual backend responses again.
+- Corrected `docs/03-stream-protocol.md` so `run.created` documents the emitted
+  `{ run_id, status }` payload, and kept skill selection details under
+  `skill.activated`.
+- Reworded the progressive-disclosure design/history docs to refer to the
+  former single run skill selector instead of invented identifiers or run-backed
+  active-skill state.
+- Added a focused compatibility test that fails if `frontend/openapi.json`
+  reintroduces `active_skill_keys` on unbacked run read models.
+
+### Review Fix Verification
+
+- `rg -n "active_skill_keys" frontend/openapi.json frontend/src/lib/api/schema.d.ts`
+  - Result: no output
+- `rg -n "legacy_run_skill_field|run-local active skill state|selected_skill_keys|skill\\.activated|run.created" docs/03-stream-protocol.md docs/superpowers/specs/2026-06-30-agent-skill-progressive-disclosure-design.md docs/superpowers/plans/2026-06-30-agent-skill-progressive-disclosure.md docs/04-skill-spec.md`
+  - Result: remaining matches are the expected `selected_skill_keys`,
+    `skill.activated`, and `run.created` references; no
+    `legacy_run_skill_field` or `run-local active skill state`
+- `rg -n "skill_id" backend frontend docs README.md`
+  - Result: no output
+- `cd backend && npm run typecheck && npm run test && npm run check:no-python-backend && npm run examples:file-report`
+  - Result: pass (`36` files, `215` tests; no-python check passed; file report example completed)
+- `cd frontend && npm test -- tests/slash-commands.test.mjs tests/runs-api.test.mjs tests/chat-composer-options.test.mjs && npm run typecheck`
+  - Result: pass (`181` tests)

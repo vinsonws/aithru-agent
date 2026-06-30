@@ -20,16 +20,17 @@ skill on `AgentRun`. That is too narrow for Aithru Agent's target model:
 Remove the legacy run skill field outright. Do not preserve API, contract, persistence, or
 frontend compatibility for it.
 
-Replace it with run-local active skill state:
+Replace the former single run skill selector with:
 
 ```txt
-selected_skill_keys  = user/UI/slash-selected skills loaded at run start
+selected_skill_keys  = user/UI/slash-selected skills requested at run start
 visible_skill_catalog = metadata for skills visible to the actor
-loaded_skill_keys    = skills whose full instructions are loaded for this run
+loaded_skill_keys    = event-derived skills whose full instructions are loaded during the run
 ```
 
-`selected_skill_keys` and `loaded_skill_keys` are arrays. A run can have zero,
-one, or many active skills.
+`selected_skill_keys` and `loaded_skill_keys` are arrays. A request can name
+zero, one, or many skills, and loaded skills are derived from events rather
+than stored on the run record.
 
 ## Non-Goals
 
@@ -71,8 +72,9 @@ type LoadedSkill = {
 };
 ```
 
-The event stream is the durable source of activation history. Snapshot builders
-may project `loaded_skill_keys` from `skill.activated` events.
+The event stream is the durable source of activation history. Harness context
+assembly and inspectors may derive `loaded_skill_keys` from `skill.activated`
+events.
 
 ## Run Creation
 
@@ -204,7 +206,8 @@ Remove the legacy run skill field from:
 Add:
 
 - `selected_skill_keys` to `CreateRunRequest`;
-- projected `active_skill_keys` to run snapshot/read models;
+- event-derived loaded-skill projections where context assembly or inspectors
+  need them;
 - optional `skill_catalog` endpoint/read model for UI selection.
 
 No compatibility shim is required. Old persisted rows with the legacy run skill field can fail
