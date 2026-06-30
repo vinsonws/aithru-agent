@@ -1,56 +1,78 @@
-# Task 3 Report: Load Selected Skills At Run Creation
+# Task 3 Report: Draft Workspace File Projection
 
-**Status:** Complete
+## What I implemented
 
-## Files Changed
+- Added `buildDraftWorkspaceFiles()` to project `workspace.write_file` tool input drafts into draft workspace file records.
+- Added partial JSON extraction helpers so incomplete streamed tool input can still surface `path` and partial `content`.
+- Extended `RunFileView` with draft-only fields: `isDraft`, `draftContent`, `draftStatus`, and `draftRevision`.
+- Updated `buildRunFileViews()` to include draft workspace files when no real workspace file exists yet, and to suppress the draft once the real file path appears.
 
-- `backend/apps/api/src/routes/runs.ts`
-- `backend/apps/api/src/routes/compat.ts`
-- `backend/tests/integration/api.test.ts`
-- `backend/tests/integration/api-compat.test.ts`
+## What I tested and test results
 
-## What Changed
+- Focused frontend test file: `frontend/tests/run-files-view.test.mjs`
+- Result: PASS
+- Added coverage for:
+  - extracting partial `workspace.write_file` content from streamed tool input
+  - showing draft file views before the real workspace file exists
+  - preferring the real workspace file view once the file exists
 
-- Added local `selectedSkillKeys(...)` normalization in both run-creation route modules.
-- Validated every deduped selected skill key before `runtime.store.createRun(run)`.
-- Returned HTTP 400 with `{"error":"Skill not found: <key>"}` on unknown selected skills without persisting a run or writing `run.created`.
-- Emitted one `skill.activated` event per unique selected skill after `run.created` and before run scheduling/execution.
-- Kept skill state event-backed only; no `selected_skill_keys` field was added to `AgentRun`.
-- Preserved `selected_skill_keys: null` compatibility behavior in integration coverage.
+## TDD Evidence
 
-## Verification
+### RED
 
-- `cd backend && npm run test -- tests/integration/api.test.ts tests/integration/api-compat.test.ts`
-- `cd backend && npm run typecheck`
+Command:
 
-Both passed.
+```bash
+cd frontend
+npm test -- tests/run-files-view.test.mjs
+```
 
-## Notes
+Observed failing output:
 
-- Compatibility create-run endpoints now surface the same unknown-skill 400 behavior through the shared create-run path.
-- No model-driven skill loading, context injection, or tool policy composition was added here.
+```txt
+✖ buildDraftWorkspaceFiles extracts workspace write_file partial content
+  TypeError: buildDraftWorkspaceFiles is not a function
 
-## Review Fix Update
+✖ buildRunFileViews includes draft files until a real file exists
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  0 !== 1
+```
 
-**Files touched for coverage only**
+Why expected:
 
-- `backend/tests/integration/api.test.ts`
-- `backend/tests/integration/api-compat.test.ts`
+- `buildDraftWorkspaceFiles` did not exist yet.
+- `buildRunFileViews` ignored `draftWorkspaceFiles`, so the draft-only case returned no views.
 
-**Fix summary**
+### GREEN
 
-- Added a run-count and `run.created` event-count guard to the main API unknown-skill rejection test so it proves failure happens before persistence.
-- Added compat coverage for threaded create-run selected-skill activation and unknown-skill rejection.
-- Added compat coverage for unknown-skill rejection on both stream create-run paths.
-- Kept the changes in integration tests only; no runtime design changes were made.
+Command:
 
-**Verification**
+```bash
+cd frontend
+npm test -- tests/run-files-view.test.mjs
+```
 
-- `cd backend && npm run test -- tests/integration/api.test.ts tests/integration/api-compat.test.ts`
-- `cd backend && npm run typecheck`
+Observed passing output:
 
-Both passed.
+```txt
+✔ buildDraftWorkspaceFiles extracts workspace write_file partial content
+✔ buildRunFileViews includes draft files until a real file exists
+ℹ pass 185
+ℹ fail 0
+```
 
-**Concerns**
+## Files changed
 
-- None.
+- `frontend/src/features/inspection/runFilesView.ts`
+- `frontend/tests/run-files-view.test.mjs`
+- `.superpowers/sdd/task-3-report.md`
+
+## Self-review findings
+
+- Kept the change local to the projection layer and reused existing file classification helpers.
+- Used a tiny fallback parser for partial JSON instead of adding dependencies or cross-feature coupling.
+- Real-file suppression normalizes leading slashes so streamed draft paths and stored workspace paths match.
+
+## Issues or concerns
+
+- Focused test coverage is good for this task, but the draft projection is not yet exercised through the sidebar panels; that belongs to the next task.

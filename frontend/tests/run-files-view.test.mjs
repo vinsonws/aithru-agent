@@ -93,6 +93,65 @@ test("preview kinds are inferred for supported output types", async () => {
   assert.equal(languageForFile("component.tsx"), "typescript");
 });
 
+test("buildDraftWorkspaceFiles extracts workspace write_file partial content", async () => {
+  const { buildDraftWorkspaceFiles } = await loadRunFilesView();
+  const drafts = buildDraftWorkspaceFiles([
+    {
+      inputStreamId: "chat:0",
+      toolCallId: "call_1",
+      toolName: "workspace.write_file",
+      inputText: '{"path":"/outputs/live.html","content":"<h1>Hello',
+      status: "streaming",
+      lastSequence: 11,
+    },
+  ]);
+
+  assert.deepEqual(drafts, [
+    {
+      id: "ws-/outputs/live.html",
+      path: "/outputs/live.html",
+      name: "live.html",
+      content: "<h1>Hello",
+      sourceToolCallId: "call_1",
+      sourceInputStreamId: "chat:0",
+      status: "streaming",
+      lastSequence: 11,
+    },
+  ]);
+});
+
+test("buildRunFileViews includes draft files until a real file exists", async () => {
+  const { buildRunFileViews } = await loadRunFilesView();
+  const draftWorkspaceFiles = [
+    {
+      id: "ws-/outputs/live.md",
+      path: "/outputs/live.md",
+      name: "live.md",
+      content: "# Live",
+      sourceInputStreamId: "chat:0",
+      status: "streaming",
+      lastSequence: 11,
+    },
+  ];
+
+  const withDraft = buildRunFileViews({ draftWorkspaceFiles });
+  assert.equal(withDraft.length, 1);
+  assert.equal(withDraft[0].id, "ws-/outputs/live.md");
+  assert.equal(withDraft[0].isDraft, true);
+  assert.equal(withDraft[0].draftContent, "# Live");
+  assert.equal(withDraft[0].canDownload, false);
+  assert.equal(withDraft[0].previewKind, "markdown");
+
+  const withRealFile = buildRunFileViews({
+    workspaceId: "ws1",
+    workspaceFiles: [{ path: "/outputs/live.md", size: 8, media_type: "text/markdown" }],
+    draftWorkspaceFiles,
+  });
+  assert.equal(withRealFile.length, 1);
+  assert.equal(withRealFile[0].isDraft, undefined);
+  assert.equal(withRealFile[0].href, "/api/workspaces/ws1/files/outputs/live.md/download");
+});
+
 test("formatFileSize formats bytes correctly", async () => {
   const { formatFileSize } = await loadRunFilesView();
   assert.equal(formatFileSize(0), "0 B");

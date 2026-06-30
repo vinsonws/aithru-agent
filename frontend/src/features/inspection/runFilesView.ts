@@ -14,6 +14,10 @@ export interface RunFileView {
   canPreview: boolean;
   previewKind: RunFilePreviewKind;
   language?: string;
+  isDraft?: boolean;
+  draftContent?: string;
+  draftStatus?: DraftWorkspaceFileInput["status"];
+  draftRevision?: string | number;
 }
 
 export type RunFilePreviewKind = "markdown" | "json" | "code" | "text" | "image" | "pdf" | "html" | "unsupported";
@@ -25,14 +29,36 @@ interface WorkspaceFileInput {
   created_at?: string | null;
 }
 
+export interface ToolInputDraftInput {
+  inputStreamId: string;
+  toolCallId?: string;
+  toolName?: string;
+  inputText: string;
+  status: "streaming" | "proposed" | "completed" | "failed" | "denied";
+  lastSequence?: number;
+}
+
+export interface DraftWorkspaceFileInput {
+  id: string;
+  path: string;
+  name: string;
+  content: string;
+  sourceToolCallId?: string;
+  sourceInputStreamId: string;
+  status: ToolInputDraftInput["status"];
+  lastSequence?: number;
+}
+
 export function buildRunFileViews(input: {
   snapshot?: unknown;
   workspaceId?: string | null;
   workspaceFiles?: WorkspaceFileInput[];
+  draftWorkspaceFiles?: DraftWorkspaceFileInput[];
 }): RunFileView[] {
   const result: RunFileView[] = [];
 
   const workspaceFiles = (input.workspaceFiles ?? []).filter(Boolean);
+  const realPaths = new Set(workspaceFiles.map((f) => normalizeWorkspacePath(f.path)));
   for (const f of workspaceFiles) {
     const pathParts = f.path.split("/");
     const name = pathParts[pathParts.length - 1] || f.path;
@@ -54,7 +80,53 @@ export function buildRunFileViews(input: {
     });
   }
 
+  for (const draft of input.draftWorkspaceFiles ?? []) {
+    if (realPaths.has(normalizeWorkspacePath(draft.path))) continue;
+    const previewKind = previewKindForFile({ name: draft.name });
+    result.push({
+      id: draft.id,
+      kind: outputLikePath(draft.path) ? "output_file" : "modified_file",
+      name: draft.name,
+      path: draft.path,
+      typeLabel: inferFileTypeLabel({ name: draft.name }),
+      sizeLabel: formatFileSize(new TextEncoder().encode(draft.content).length),
+      canDownload: false,
+      canPreview: previewKind !== "unsupported" && !["image", "pdf"].includes(previewKind),
+      previewKind,
+      language: languageForFile(draft.name),
+      isDraft: true,
+      draftContent: draft.content,
+      draftStatus: draft.status,
+      draftRevision: draft.lastSequence ?? draft.content.length,
+    });
+  }
+
   return result;
+}
+
+export function buildDraftWorkspaceFiles(
+  toolInputDrafts: ToolInputDraftInput[] = [],
+): DraftWorkspaceFileInput[] {
+  const files: DraftWorkspaceFileInput[] = [];
+  for (const draft of toolInputDrafts) {
+    if (draft.toolName !== "workspace.write_file") continue;
+    if (draft.status === "failed" || draft.status === "denied") continue;
+    const extracted = extractWorkspaceWriteDraft(draft.inputText);
+    if (!extracted) continue;
+    const pathParts = extracted.path.split("/");
+    const name = pathParts[pathParts.length - 1] || extracted.path;
+    files.push({
+      id: `ws-${extracted.path}`,
+      path: extracted.path,
+      name,
+      content: extracted.content,
+      sourceToolCallId: draft.toolCallId,
+      sourceInputStreamId: draft.inputStreamId,
+      status: draft.status,
+      lastSequence: draft.lastSequence,
+    });
+  }
+  return files;
 }
 
 const EXTENSION_TYPE_MAP: Record<string, string> = {
@@ -172,6 +244,10 @@ function outputLikePath(path: string): boolean {
   return /^\/?(outputs|reports|exports)\//.test(path);
 }
 
+function normalizeWorkspacePath(path: string): string {
+  return path.replace(/^\/+/, "");
+}
+
 function workspaceFileUrl(workspaceId: string, path: string, suffix = ""): string {
   const encodedPath = path
     .replace(/^\/+/, "")
@@ -189,4 +265,67 @@ export function formatFileSize(bytes?: number | null): string | undefined {
   const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / Math.pow(1024, unitIndex);
   return `${Math.round(value)} ${units[unitIndex]}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function decodeJsonEscape(char: string): string {
+  if (char === "n") return "\n";
+  if (char === "r") return "\r";
+  if (char === "t") return "\t";
+  if (char === '"') return '"';
+  if (char === "\\") return "\\";
+  return char;
+}
+
+function readJsonStringProperty(
+  source: string,
+  key: string,
+  options: { allowUnclosed?: boolean } = {},
+): string | undefined {
+  const keyIndex = source.indexOf(`"${key}"`);
+  if (keyIndex < 0) return undefined;
+  const colonIndex = source.indexOf(":", keyIndex + key.length + 2);
+  if (colonIndex < 0) return undefined;
+  const quoteIndex = source.indexOf('"', colonIndex + 1);
+  if (quoteIndex < 0) return undefined;
+
+  let result = "";
+  let escaped = false;
+  for (let index = quoteIndex + 1; index < source.length; index += 1) {
+    const char = source[index];
+    if (escaped) {
+      result += decodeJsonEscape(char);
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') return result;
+    result += char;
+  }
+
+  return options.allowUnclosed ? result : undefined;
+}
+
+function extractWorkspaceWriteDraft(inputText: string): { path: string; content: string } | null {
+  try {
+    const parsed = JSON.parse(inputText);
+    if (isRecord(parsed) && typeof parsed.path === "string" && typeof parsed.content === "string") {
+      return { path: parsed.path, content: parsed.content };
+    }
+  } catch {
+    const path = readJsonStringProperty(inputText, "path");
+    if (!path) return null;
+    return {
+      path,
+      content: readJsonStringProperty(inputText, "content", { allowUnclosed: true }) ?? "",
+    };
+  }
+
+  return null;
 }
