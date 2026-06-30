@@ -413,6 +413,56 @@ test("revealRunStreamState releases streaming message text in small chunks", asy
   assert.equal(revealed.messages[0].content, "你好，这是");
 });
 
+test("revealRunStreamState hides later steps until earlier reasoning text is revealed", async () => {
+  const { revealRunStreamState } = await loadRunStreamModule();
+  const current = {
+    ...state(),
+    status: "running",
+    reasoningSegments: [
+      { id: "think_1", content: "先检", streaming: true, sequence: 11, lastSequence: 12 },
+    ],
+  };
+  const target = {
+    ...state(),
+    status: "running",
+    reasoningSegments: [
+      {
+        id: "think_1",
+        content: "先检查组件状态，然后再调用工具。",
+        streaming: false,
+        sequence: 11,
+        lastSequence: 15,
+      },
+      {
+        id: "think_2",
+        content: "工具后继续判断。",
+        streaming: true,
+        sequence: 17,
+        lastSequence: 17,
+      },
+    ],
+    toolCalls: [
+      { id: "tool_1", toolName: "workspace.read_file", status: "started", sequence: 16, lastSequence: 16 },
+    ],
+  };
+
+  const revealed = revealRunStreamState(current, target, { maxCharsPerTick: 3 });
+
+  assert.equal(revealed.reasoningSegments[0].content, "先检查组件");
+  assert.equal(revealed.reasoningSegments[0].streaming, true);
+  assert.deepEqual(revealed.reasoningSegments.map((segment) => segment.id), ["think_1"]);
+  assert.deepEqual(revealed.toolCalls, []);
+
+  const caughtUp = revealRunStreamState(
+    { ...current, reasoningSegments: [target.reasoningSegments[0]] },
+    target,
+    { maxCharsPerTick: 100 },
+  );
+
+  assert.deepEqual(caughtUp.reasoningSegments.map((segment) => segment.id), ["think_1", "think_2"]);
+  assert.deepEqual(caughtUp.toolCalls.map((tool) => tool.id), ["tool_1"]);
+});
+
 test("reduceEvent projects presentation events into stream state", async () => {
   const reduceEvent = await loadReduceEvent();
   const projected = reduceEvent(

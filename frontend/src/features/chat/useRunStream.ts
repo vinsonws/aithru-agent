@@ -1005,16 +1005,25 @@ function revealText(currentText: string, targetText: string, maxChars: number): 
   return targetText.slice(0, currentText.length + maxChars);
 }
 
+function shouldRevealText(
+  current: { content: string } | undefined,
+  target: { content: string; streaming?: boolean },
+): boolean {
+  return Boolean(target.streaming || (current && current.content !== target.content));
+}
+
 function revealMessageText(
   currentMessages: ChatMessage[],
   targetMessage: ChatMessage,
   maxChars: number,
 ): ChatMessage {
-  if (!targetMessage.streaming) return targetMessage;
   const current = currentMessages.find((message) => message.id === targetMessage.id);
+  if (!shouldRevealText(current, targetMessage)) return targetMessage;
+  const content = revealText(current?.content ?? "", targetMessage.content, maxChars);
   return {
     ...targetMessage,
-    content: revealText(current?.content ?? "", targetMessage.content, maxChars),
+    content,
+    streaming: targetMessage.streaming || content !== targetMessage.content,
   };
 }
 
@@ -1023,33 +1032,71 @@ function revealReasoningText(
   targetSegment: ReasoningSegment,
   maxChars: number,
 ): ReasoningSegment {
-  if (!targetSegment.streaming) return targetSegment;
   const current = currentSegments.find((segment) => segment.id === targetSegment.id);
+  if (!shouldRevealText(current, targetSegment)) return targetSegment;
+  const content = revealText(current?.content ?? "", targetSegment.content, maxChars);
   return {
     ...targetSegment,
-    content: revealText(current?.content ?? "", targetSegment.content, maxChars),
+    content,
+    streaming: targetSegment.streaming || content !== targetSegment.content,
   };
+}
+
+function entrySequence(entry: {
+  sequence?: number;
+  lastSequence?: number;
+  completedSequence?: number;
+}): number {
+  return entry.sequence ?? entry.completedSequence ?? entry.lastSequence ?? Number.MAX_SAFE_INTEGER;
+}
+
+function outputSegmentSourceId(id: string): string | undefined {
+  const markerIndex = id.indexOf(":output:");
+  return markerIndex > 0 ? id.slice(0, markerIndex) : undefined;
+}
+
+function assistantMessagesWithOutputSegments(state: RunStreamState): Set<string> {
+  return new Set(
+    (state.assistantOutputSegments ?? [])
+      .map((message) => outputSegmentSourceId(message.id))
+      .filter((id): id is string => Boolean(id)),
+  );
+}
+
+function visiblePrefixCutoff(display: RunStreamState, target: RunStreamState): number | undefined {
+  const hiddenAssistantMessageIds = assistantMessagesWithOutputSegments(target);
+  const pendingSequences: number[] = [];
+
+  for (const message of target.messages) {
+    if (message.role === "assistant" && hiddenAssistantMessageIds.has(message.id)) continue;
+    const current = display.messages.find((item) => item.id === message.id);
+    if ((current?.content ?? "") !== message.content) pendingSequences.push(entrySequence(message));
+  }
+
+  for (const segment of target.reasoningSegments) {
+    const current = display.reasoningSegments.find((item) => item.id === segment.id);
+    if ((current?.content ?? "") !== segment.content) pendingSequences.push(entrySequence(segment));
+  }
+
+  for (const message of target.assistantOutputSegments) {
+    const current = display.assistantOutputSegments.find((item) => item.id === message.id);
+    if ((current?.content ?? "") !== message.content) pendingSequences.push(entrySequence(message));
+  }
+
+  return pendingSequences.length > 0 ? Math.min(...pendingSequences) : undefined;
+}
+
+function filterVisiblePrefix<T extends { sequence?: number; lastSequence?: number; completedSequence?: number }>(
+  items: T[],
+  cutoff: number | undefined,
+): T[] {
+  if (cutoff == null) return items;
+  return items.filter((item) => entrySequence(item) <= cutoff);
 }
 
 function hasPendingReveal(current: RunStreamState, target: RunStreamState): boolean {
   if (isTerminalStatus(target.status)) return false;
-  return (
-    target.messages.some((message) => {
-      if (!message.streaming) return false;
-      const currentMessage = current.messages.find((item) => item.id === message.id);
-      return (currentMessage?.content ?? "") !== message.content;
-    }) ||
-    target.reasoningSegments.some((segment) => {
-      if (!segment.streaming) return false;
-      const currentSegment = current.reasoningSegments.find((item) => item.id === segment.id);
-      return (currentSegment?.content ?? "") !== segment.content;
-    }) ||
-    target.assistantOutputSegments.some((message) => {
-      if (!message.streaming) return false;
-      const currentMessage = current.assistantOutputSegments.find((item) => item.id === message.id);
-      return (currentMessage?.content ?? "") !== message.content;
-    })
-  );
+  return visiblePrefixCutoff(current, target) != null;
 }
 
 export function revealRunStreamState(
@@ -1059,7 +1106,7 @@ export function revealRunStreamState(
 ): RunStreamState {
   if (isTerminalStatus(target.status)) return target;
   const maxChars = Math.max(1, options.maxCharsPerTick ?? STREAM_REVEAL_CHARS_PER_TICK);
-  return {
+  const next = {
     ...target,
     messages: target.messages.map((message) =>
       revealMessageText(current.messages, message, maxChars),
@@ -1070,6 +1117,17 @@ export function revealRunStreamState(
     assistantOutputSegments: target.assistantOutputSegments.map((message) =>
       revealMessageText(current.assistantOutputSegments, message, maxChars),
     ),
+  };
+  const cutoff = visiblePrefixCutoff(next, target);
+  return {
+    ...next,
+    messages: filterVisiblePrefix(next.messages, cutoff),
+    toolCalls: filterVisiblePrefix(next.toolCalls, cutoff),
+    reasoningSegments: filterVisiblePrefix(next.reasoningSegments, cutoff),
+    assistantOutputSegments: filterVisiblePrefix(next.assistantOutputSegments, cutoff),
+    todos: filterVisiblePrefix(next.todos, cutoff),
+    inlineRequests: filterVisiblePrefix(next.inlineRequests, cutoff),
+    presentations: filterVisiblePrefix(next.presentations, cutoff),
   };
 }
 
