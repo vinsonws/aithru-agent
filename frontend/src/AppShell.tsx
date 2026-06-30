@@ -64,6 +64,11 @@ function clampRightPanelWidth(width: number): number {
   return Math.min(MAX_RIGHT_PANEL_WIDTH, Math.max(MIN_RIGHT_PANEL_WIDTH, width));
 }
 
+function draftAutoOpenKey(activeRunId: string | null, fileId: string): string | null {
+  if (!activeRunId) return null;
+  return `${activeRunId}:${fileId}`;
+}
+
 function RouteContent({
   selectedRun,
   onSelectedRunChange,
@@ -134,7 +139,7 @@ function RouteContent({
     () => buildDraftWorkspaceFiles(streamState.toolInputDrafts ?? []),
     [streamState.toolInputDrafts],
   );
-  const openedDraftFileIdsRef = React.useRef<Set<string>>(new Set());
+  const openedDraftAutoOpenKeysRef = React.useRef<Set<string>>(new Set());
 
   const badges = buildRunCompanionBadges(streamState);
 
@@ -151,12 +156,17 @@ function RouteContent({
 
   React.useEffect(() => {
     const draft = draftWorkspaceFiles.find(
-      (file) => file.content.length > 0 && !openedDraftFileIdsRef.current.has(file.id),
+      (file) => {
+        const key = draftAutoOpenKey(activeRunId, file.id);
+        return file.content.length > 0 && key !== null && !openedDraftAutoOpenKeysRef.current.has(key);
+      },
     );
     if (!draft) return;
-    openedDraftFileIdsRef.current.add(draft.id);
+    const key = draftAutoOpenKey(activeRunId, draft.id);
+    if (!key) return;
+    openedDraftAutoOpenKeysRef.current.add(key);
     handlePreviewFile(draft.id);
-  }, [draftWorkspaceFiles, handlePreviewFile]);
+  }, [activeRunId, draftWorkspaceFiles, handlePreviewFile]);
 
   const rightPanelContent = activeRunId && rightPanel ? (
     <>

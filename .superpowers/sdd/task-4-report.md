@@ -74,3 +74,58 @@ fail 0
 ## Issues or concerns
 
 - The focused `npm test -- ...` command still runs the repo's full `tests/*.test.mjs` glob because of the existing frontend test script, but the requested target tests are included and passing.
+
+## Fix follow-up: review findings
+
+### What I fixed
+
+- Scoped draft auto-open tracking by run in `frontend/src/AppShell.tsx` with `draftAutoOpenKey(activeRunId, fileId)`.
+- Updated the one-shot auto-open effect to store run-scoped keys instead of raw draft file ids, so the same draft path can auto-open once in each run.
+
+### Added/strengthened tests
+
+- Strengthened `frontend/tests/app-shell-actions.test.mjs` beyond source regex checks:
+  - transpiles `AppShell.tsx` with the real TypeScript compiler,
+  - extracts the real `draftAutoOpenKey(...)` helper,
+  - asserts the same draft file id produces different auto-open keys for different run ids,
+  - asserts null run ids do not produce an auto-open key.
+- Kept the existing source wiring assertions to verify the effect calls `draftAutoOpenKey(activeRunId, draft.id)`.
+
+### Fix TDD evidence
+
+#### RED
+
+Command:
+
+```bash
+cd frontend
+npm test -- tests/app-shell-actions.test.mjs tests/file-preview-drafts.test.mjs tests/run-files-view.test.mjs tests/use-run-stream.test.mjs
+```
+
+Output summary:
+
+```txt
+fail 1
+- app shell scopes one-shot draft auto-open keys per run
+Expected transpiled AppShell to include draftAutoOpenKey
+```
+
+Why expected:
+
+- The code still tracked opened drafts by raw `file.id`, so there was no run-scoped helper for the test to exercise.
+
+#### GREEN
+
+Command:
+
+```bash
+cd frontend
+npm test -- tests/app-shell-actions.test.mjs tests/file-preview-drafts.test.mjs tests/run-files-view.test.mjs tests/use-run-stream.test.mjs
+```
+
+Output summary:
+
+```txt
+pass 189
+fail 0
+```

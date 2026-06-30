@@ -1,12 +1,26 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import ts from "typescript";
 
 const appShellPath = new URL("../src/AppShell.tsx", import.meta.url);
 const conversationPagePath = new URL("../src/features/conversation/ConversationPage.tsx", import.meta.url);
 const conversationHeaderPath = new URL("../src/features/conversation/ConversationHeader.tsx", import.meta.url);
 const sidebarPath = new URL("../src/features/sidebar/Sidebar.tsx", import.meta.url);
 const rightRailPath = new URL("../src/features/sidebar/RightRail.tsx", import.meta.url);
+
+function appShellFunction(source, name) {
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ES2022,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.Preserve,
+    },
+  }).outputText;
+  const match = output.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
+  assert.ok(match, `Expected transpiled AppShell to include ${name}`);
+  return new Function(`${match[0]}; return ${name};`)();
+}
 
 test("manager dialogs wrap both sidebar and conversation routes", async () => {
   const source = await readFile(appShellPath, "utf8");
@@ -148,7 +162,27 @@ test("app shell derives draft workspace files and auto-opens them once", async (
 
   assert.match(source, /buildDraftWorkspaceFiles/);
   assert.match(source, /draftWorkspaceFiles/);
-  assert.match(source, /openedDraftFileIdsRef/);
+  assert.match(source, /openedDraftAutoOpenKeysRef/);
+  assert.match(source, /draftAutoOpenKey\(activeRunId, draft\.id\)/);
   assert.match(source, /handlePreviewFile\(draft\.id\)/);
   assert.match(source, /draftWorkspaceFiles=\{draftWorkspaceFiles\}/);
+});
+
+test("app shell scopes one-shot draft auto-open keys per run", async () => {
+  const source = await readFile(appShellPath, "utf8");
+  const draftAutoOpenKey = appShellFunction(source, "draftAutoOpenKey");
+
+  assert.equal(draftAutoOpenKey(null, "ws-outputs/report.html"), null);
+  assert.equal(
+    draftAutoOpenKey("run-1", "ws-outputs/report.html"),
+    "run-1:ws-outputs/report.html",
+  );
+  assert.equal(
+    draftAutoOpenKey("run-2", "ws-outputs/report.html"),
+    "run-2:ws-outputs/report.html",
+  );
+  assert.notEqual(
+    draftAutoOpenKey("run-1", "ws-outputs/report.html"),
+    draftAutoOpenKey("run-2", "ws-outputs/report.html"),
+  );
 });
