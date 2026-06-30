@@ -13,10 +13,14 @@ export type AgentThreadWorkbench = S["AgentThreadWorkbench"];
 
 export type AgentMessage = S["AgentMessage"];
 
-export type AgentRun = S["AgentRun"];
+export type AgentRunHarnessOptions = S["AgentRunHarnessOptions"] & {
+  mode?: "flash" | "thinking" | "pro" | "ultra" | null;
+};
+export type AgentRun = Omit<S["AgentRun"], "harness_options"> & {
+  harness_options?: AgentRunHarnessOptions | null;
+};
 export type AgentRunStatus = S["AgentRunStatus"];
 export type AgentRunSource = S["AgentRunSource"];
-export type AgentRunHarnessOptions = S["AgentRunHarnessOptions"];
 export type AgentRunResult = S["AgentRunResult"];
 
 export type AgentStreamEvent = S["AgentStreamEvent"];
@@ -76,21 +80,10 @@ export type LongTermMemoryDeleteResult = S["LongTermMemoryDeleteResult"];
 export type LongTermMemoryHealth = S["LongTermMemoryHealth"];
 export type RunInspectionSummary = S["RunInspectionSummary"];
 
-// Display cards
-export type AgentPresentation = S["AgentPresentation"];
-export type AgentPresentationAction = S["AgentPresentationAction"];
-export type AgentPresentationEffect = S["AgentPresentationEffect"];
-export type AgentPresentationResource = S["AgentPresentationResource"];
-export type AgentPresentationSource = S["AgentPresentationSource"];
-
 // Request bodies
 export type CreateThreadRequest = S["CreateThreadRequest"];
 export type UpdateThreadRequest = S["UpdateThreadRequest"];
-type GeneratedCreateRunRequest = S["CreateRunRequest"];
-
-export type CreateRunRequest = Omit<GeneratedCreateRunRequest, "skill_id"> & {
-  selected_skill_keys?: string[] | null;
-};
+export type CreateRunRequest = S["CreateRunRequest"];
 export type CreateMemoryEntryRequest = S["CreateMemoryEntryRequest"];
 export type CreateUserSkillPackageRequest = S["CreateUserSkillPackageRequest"];
 export type UpdateUserSkillPackageRequest = S["UpdateUserSkillPackageRequest"];

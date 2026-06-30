@@ -58,7 +58,7 @@ GET    /api/runs/{run_id}/usage
 GET    /api/skill-registry
 GET    /api/skill-registry/{entry_id_or_key}
 GET    /api/skills
-GET    /api/skills/{skill_id_or_key}
+GET    /api/skills/{skill_key_or_ref}
 GET    /api/subagents
 GET    /api/subagents/{key}
 GET    /api/threads

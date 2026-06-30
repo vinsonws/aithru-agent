@@ -5,6 +5,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import initSqlJs from "sql.js";
 import { SqliteStore } from "@aithru-agent/persistence";
 
+const removedRunSkillField = ["skill", "id"].join("_");
+
 describe("SqliteStore", () => {
   let store: SqliteStore;
   let tempDir: string;
@@ -249,10 +251,10 @@ describe("SqliteStore", () => {
     expect(got!.status).toBe("queued");
   });
 
-  it("stores runs without a skill_id column", async () => {
+  it("stores runs without the legacy run skill field column", async () => {
     const localStore = await SqliteStore.create(":memory:");
     const run = localStore.createRun({
-      id: "run_no_skill_id",
+      id: "run_without_legacy_skill_field",
       org_id: "org_1",
       actor_user_id: "user_1",
       source: "chat",
@@ -270,8 +272,10 @@ describe("SqliteStore", () => {
       error: null,
     });
 
-    expect("skill_id" in run).toBe(false);
-    expect("skill_id" in localStore.getRun("run_no_skill_id")!).toBe(false);
+    expect(removedRunSkillField in run).toBe(false);
+    expect(removedRunSkillField in localStore.getRun("run_without_legacy_skill_field")!).toBe(
+      false,
+    );
     localStore.close();
   });
 

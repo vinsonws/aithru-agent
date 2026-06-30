@@ -140,7 +140,7 @@ def run_fixture() -> AgentRun:
         task_msg="Remember my preference.",
         workspace_id="workspace_1",
         thread_id="thread_1",
-        skill_id="research",
+        skill_key="research",
         scopes=["agent.memory.read", "agent.memory.write"],
         status="queued",
         started_at="2026-06-25T00:00:00Z",
@@ -171,7 +171,7 @@ def test_identity_for_run_is_tenant_safe() -> None:
     assert identity.metadata["actor_user_id"] == "user_1"
     assert identity.metadata["thread_id"] == "thread_1"
     assert identity.metadata["workspace_id"] == "workspace_1"
-    assert identity.metadata["skill_id"] == "research"
+    assert identity.metadata["skill_key"] == "research"
 
 
 async def test_noop_provider_returns_empty_results() -> None:
@@ -453,12 +453,12 @@ def identity_for_run(
     }
     if run.thread_id:
         metadata["thread_id"] = run.thread_id
-    if run.skill_id:
-        metadata["skill_id"] = run.skill_id
+    if run.selected_skill_keys:
+        metadata["skill_key"] = run.selected_skill_keys
     return LongTermMemoryIdentity(
         user_id=f"{run.org_id}:{run.actor_user_id}",
         app_id=app_id,
-        agent_id=run.skill_id or default_agent_id,
+        agent_id=(run.selected_skill_keys[0] if run.selected_skill_keys else default_agent_id),
         run_id=run.id,
         metadata=metadata,
     )
@@ -588,7 +588,7 @@ def run_fixture() -> AgentRun:
         task_msg="Use my preferences.",
         workspace_id="workspace_1",
         thread_id="thread_1",
-        skill_id="research",
+        skill_key="research",
         scopes=["agent.memory.read", "agent.memory.write"],
         status="queued",
         started_at="2026-06-25T00:00:00Z",

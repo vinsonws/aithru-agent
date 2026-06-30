@@ -72,11 +72,11 @@ cross-thread recall.
 ```txt
 Mem0 user_id  = "{org_id}:{actor_user_id}"
 Mem0 app_id   = "{deployment_id}:aithru-agent" or "{org_id}:aithru-agent"
-Mem0 agent_id = skill_id when a skill-specific memory profile is useful,
+Mem0 agent_id = skill_key when a skill-specific memory profile is useful,
                 otherwise "aithru-agent"
 Mem0 run_id   = Aithru run_id for write provenance
 metadata      = org_id, actor_user_id, thread_id, workspace_id, project_id,
-                skill_id, run_id, source, retention, created_by
+                skill_key, run_id, source, retention, created_by
 ```
 
 Search filters must include the tenant/user boundary. Thread and workspace ids

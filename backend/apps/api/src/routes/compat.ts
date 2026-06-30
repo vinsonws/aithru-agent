@@ -1291,8 +1291,8 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   register(app, "GET", "/api/skills", async (request: FastifyRequest) =>
     skillRegistryEntries(requestOrgId(request)).map(skillPackageFromEntry),
   );
-  register(app, "GET", "/api/skills/:skill_id_or_key", async (request: FastifyRequest) =>
-    skillPackageFromEntry(skillRegistryEntry(requestOrgId(request), params(request).skill_id_or_key)),
+  register(app, "GET", "/api/skills/:skill_key_or_ref", async (request: FastifyRequest) =>
+    skillPackageFromEntry(skillRegistryEntry(requestOrgId(request), params(request).skill_key_or_ref)),
   );
   register(app, "GET", "/api/skill-registry", async (request: FastifyRequest) =>
     skillRegistryEntries(requestOrgId(request)),

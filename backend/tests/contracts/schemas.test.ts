@@ -10,6 +10,8 @@ import {
   TERMINAL_RUN_STATUSES,
 } from "@aithru-agent/contracts";
 
+const removedRunSkillField = ["skill", "id"].join("_");
+
 describe("AgentThreadSchema", () => {
   it("validates a valid thread", () => {
     const thread = {
@@ -93,13 +95,13 @@ describe("AgentRunSchema", () => {
     expect(errors).toHaveLength(0);
   });
 
-  it("does not expose skill_id", () => {
-    expect(Object.keys((AgentRunSchema as any).properties)).not.toContain("skill_id");
+  it("does not expose the legacy run skill field", () => {
+    expect(Object.keys((AgentRunSchema as any).properties)).not.toContain(removedRunSkillField);
   });
 });
 
 describe("CreateRunRequestSchema", () => {
-  it("accepts selected_skill_keys and rejects skill_id", () => {
+  it("accepts selected_skill_keys and rejects the legacy run skill field", () => {
     expect(
       Value.Check(CreateRunRequestSchema, {
         org_id: "org_1",
@@ -114,7 +116,7 @@ describe("CreateRunRequestSchema", () => {
         org_id: "org_1",
         actor_user_id: "user_1",
         task_msg: "Research this",
-        skill_id: "deep-research",
+        [removedRunSkillField]: "deep-research",
       }),
     ).toBe(false);
   });

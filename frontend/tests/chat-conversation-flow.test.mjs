@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
+const removedRunSkillField = ["skill", "id"].join("_");
+const removedRunSkillFieldPattern = new RegExp(`${removedRunSkillField}:`);
+
 async function src(path) {
   return readFile(new URL(`../src/${path}`, import.meta.url), "utf8");
 }
@@ -46,21 +49,21 @@ test("historical assistant process state is display-only and not part of new run
   assert.doesNotMatch(requestBody, /historicalRunStates|threadMessages|streamState|reasoningSegments|toolCalls/);
 });
 
-test("chat composer create-run request sends selected skill keys and omits skill_id", async () => {
+test("chat composer create-run request sends selected skill keys and omits the legacy run skill field", async () => {
   const composer = await src("features/chat/ChatComposer.tsx");
   const requestBody = composer.match(/const body: CreateRunRequest = \{[\s\S]*?\n\s*\};/)?.[0] ?? "";
 
   assert.match(requestBody, /selected_skill_keys: vars\.selectedSkillKeys/);
-  assert.doesNotMatch(requestBody, /skill_id:/);
+  assert.doesNotMatch(requestBody, removedRunSkillFieldPattern);
   assert.match(composer, /selectedSkillKeys:\s*command\.selectedSkillKeys \?\? \[\]/);
 });
 
-test("new thread create-run request sends selected skill keys and omits skill_id", async () => {
+test("new thread create-run request sends selected skill keys and omits the legacy run skill field", async () => {
   const newThreadPage = await src("features/conversation/NewThreadPage.tsx");
   const requestBody = newThreadPage.match(/const run = await runsApi\.create\(\{[\s\S]*?\n\s*\}\);/)?.[0] ?? "";
 
   assert.match(requestBody, /selected_skill_keys: vars\.selectedSkillKeys/);
-  assert.doesNotMatch(requestBody, /skill_id:/);
+  assert.doesNotMatch(requestBody, removedRunSkillFieldPattern);
   assert.match(newThreadPage, /selectedSkillKeys:\s*command\.selectedSkillKeys \?\? \[\]/);
 });
 

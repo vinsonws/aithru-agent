@@ -5,7 +5,7 @@ Status: draft
 
 ## Problem
 
-The native TypeScript backend currently treats `skill_id` as a single active
+The native TypeScript backend currently treats a single selected skill key as the active
 skill on `AgentRun`. That is too narrow for Aithru Agent's target model:
 
 - a user may explicitly request more than one skill;
@@ -17,7 +17,7 @@ skill on `AgentRun`. That is too narrow for Aithru Agent's target model:
 
 ## Decision
 
-Remove `skill_id` outright. Do not preserve API, contract, persistence, or
+Remove the legacy run skill field outright. Do not preserve API, contract, persistence, or
 frontend compatibility for it.
 
 Replace it with run-local active skill state:
@@ -88,7 +88,7 @@ Rules:
 - disabled or unpublished skills reject the request;
 - duplicate keys are removed while preserving order;
 - selected skills are loaded before the first model turn;
-- `skill_id` is removed from request and response schemas.
+- The legacy run skill field is removed from request and response schemas.
 
 ## Model Turn Flow
 
@@ -191,7 +191,7 @@ not private skill contents.
 
 ## API And Persistence Changes
 
-Remove `skill_id` from:
+Remove the legacy run skill field from:
 
 - `AgentRun`;
 - `CreateRunRequest`;
@@ -207,7 +207,7 @@ Add:
 - projected `active_skill_keys` to run snapshot/read models;
 - optional `skill_catalog` endpoint/read model for UI selection.
 
-No compatibility shim is required. Old persisted rows with `skill_id` can fail
+No compatibility shim is required. Old persisted rows with the legacy run skill field can fail
 fast during migration or be dropped in local development stores.
 
 ## Frontend
@@ -232,13 +232,13 @@ Required coverage:
 - multiple loaded skills compose tool policy conservatively;
 - tool listing and tool execution use the same composed policy;
 - context packet stats expose keys/counts but not skill bodies;
-- `skill_id` is absent from contracts, persistence, API responses, and
+- The legacy run skill field is absent from contracts, persistence, API responses, and
   frontend request bodies.
 
 ## Migration Order
 
 1. Add multi-skill types and policy composition helpers.
-2. Remove `skill_id` from contracts and persistence.
+2. Remove the legacy run skill field from contracts and persistence.
 3. Update run creation to accept `selected_skill_keys`.
 4. Project active skills from `skill.activated` events.
 5. Add controlled `skill.load`.

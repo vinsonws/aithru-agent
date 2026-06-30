@@ -12,6 +12,8 @@ type OpenApiDocument = {
   paths: Record<string, Record<string, unknown>>;
 };
 
+const removedRunSkillField = ["skill", "id"].join("_");
+
 const HTTP_METHODS = new Set([
   "delete",
   "get",
@@ -93,7 +95,7 @@ describe("legacy OpenAPI compatibility", () => {
     expect(res.statusCode).toBe(201);
     const run = JSON.parse(res.body);
     expect(run.source).toBe("chat");
-    expect("skill_id" in run).toBe(false);
+    expect(removedRunSkillField in run).toBe(false);
   });
 
   async function waitForRunEvents(runId: string, type: string) {

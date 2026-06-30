@@ -236,6 +236,7 @@ describe("ModelTurnLoop", () => {
       "workspace.delete_file",
       "ask_clarification",
       "presentation.present",
+      "skill.load",
     ];
 
     for (const mode of ["flash", "thinking", "pro", "ultra"]) {
@@ -271,6 +272,7 @@ describe("ModelTurnLoop", () => {
                     "todo.update",
                     "ask_clarification",
                     "presentation.present",
+                    "skill.load",
                   ]
                 : basicTools,
             );

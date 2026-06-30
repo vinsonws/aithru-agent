@@ -944,7 +944,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runs/{run_id}/export/file": {
+    "/api/runs/{run_id}/export/artifact": {
         parameters: {
             query?: never;
             header?: never;
@@ -953,8 +953,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Run Export File */
-        post: operations["create_run_export_file_api_runs__run_id__export_file_post"];
+        /** Create Run Export Artifact */
+        post: operations["create_run_export_artifact_api_runs__run_id__export_artifact_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -978,7 +978,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/threads/{thread_id}/runs/{run_id}/export/file": {
+    "/api/threads/{thread_id}/runs/{run_id}/export/artifact": {
         parameters: {
             query?: never;
             header?: never;
@@ -987,8 +987,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Thread Run Export File */
-        post: operations["create_thread_run_export_file_api_threads__thread_id__runs__run_id__export_file_post"];
+        /** Create Thread Run Export Artifact */
+        post: operations["create_thread_run_export_artifact_api_threads__thread_id__runs__run_id__export_artifact_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1424,6 +1424,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{workspace_id}/files/{path}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote Workspace File To Artifact */
+        post: operations["promote_workspace_file_to_artifact_api_workspaces__workspace_id__files__path__promote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{workspace_id}/files/{path}/patch": {
         parameters: {
             query?: never;
@@ -1435,40 +1452,6 @@ export interface paths {
         put?: never;
         /** Patch Workspace File */
         post: operations["patch_workspace_file_api_workspaces__workspace_id__files__path__patch_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/{workspace_id}/files/{path}/content": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Workspace File Content */
-        get: operations["get_workspace_file_content_api_workspaces__workspace_id__files__path__content_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/workspaces/{workspace_id}/files/{path}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Download Workspace File */
-        get: operations["download_workspace_file_api_workspaces__workspace_id__files__path__download_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1489,6 +1472,91 @@ export interface paths {
         post?: never;
         /** Delete Workspace File */
         delete: operations["delete_workspace_file_api_workspaces__workspace_id__files__path__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Artifacts */
+        get: operations["list_artifacts_api_artifacts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Artifact */
+        get: operations["get_artifact_api_artifacts__artifact_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts/{artifact_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Artifact Content */
+        get: operations["get_artifact_content_api_artifacts__artifact_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts/{artifact_id}/download-info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Artifact Download Info */
+        get: operations["get_artifact_download_info_api_artifacts__artifact_id__download_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifacts/{artifact_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Artifact */
+        get: operations["download_artifact_api_artifacts__artifact_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1607,23 +1675,6 @@ export interface paths {
         };
         /** List Skills */
         get: operations["list_skills_api_skills_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/skills/{skill_id_or_key}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Skill */
-        get: operations["get_skill_api_skills__skill_id_or_key__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1787,6 +1838,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skills/{skill_key_or_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Skill */
+        get: operations["get_skill_api_skills__skill_key_or_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1857,6 +1925,144 @@ export interface components {
          * @enum {string}
          */
         AgentApprovalStatus: "pending" | "resolved" | "expired";
+        /** AgentArtifact */
+        AgentArtifact: {
+            /** Id */
+            id: string;
+            /** Org Id */
+            org_id: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Run Id */
+            run_id?: string | null;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "text" | "markdown" | "json" | "decision" | "report" | "file" | "patch" | "workflow_draft";
+            /** Name */
+            name: string;
+            /** Media Type */
+            media_type?: string | null;
+            /** Uri */
+            uri?: string | null;
+            /** Content */
+            content?: unknown | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            retention?: components["schemas"]["AgentArtifactRetentionPolicy"] | null;
+            /** Created At */
+            created_at: string;
+            /** Finalized At */
+            finalized_at?: string | null;
+        };
+        /** AgentArtifactDownloadInfo */
+        AgentArtifactDownloadInfo: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Filename */
+            filename: string;
+            /** Media Type */
+            media_type: string;
+            /** Content Length */
+            content_length: number;
+            /**
+             * Disposition
+             * @enum {string}
+             */
+            disposition: "inline" | "attachment";
+            /** Source Path */
+            source_path?: string | null;
+        };
+        /** AgentArtifactListFilters */
+        AgentArtifactListFilters: {
+            /** Run Id */
+            run_id?: string | null;
+            /** Workspace Id */
+            workspace_id?: string | null;
+            /** Type */
+            type?: ("text" | "markdown" | "json" | "decision" | "report" | "file" | "patch" | "workflow_draft") | null;
+            /** Retention Mode */
+            retention_mode?: ("ephemeral" | "retained" | "expires_at") | null;
+            /** Finalized */
+            finalized?: boolean | null;
+        };
+        /** AgentArtifactListPage */
+        AgentArtifactListPage: {
+            /** Items */
+            items: components["schemas"]["AgentArtifact"][];
+            /** Total */
+            total: number;
+            /** Count */
+            count: number;
+            /** Limit */
+            limit?: number | null;
+            /** Offset */
+            offset: number;
+            /** Order By */
+            order_by?: ("created_at" | "finalized_at" | "name" | "type") | null;
+            /**
+             * Order Direction
+             * @enum {string}
+             */
+            order_direction: "asc" | "desc";
+            filters?: components["schemas"]["AgentArtifactListFilters"];
+        };
+        /** AgentArtifactPromotionResult */
+        AgentArtifactPromotionResult: {
+            artifact: components["schemas"]["AgentArtifact"];
+            /** Workspace Id */
+            workspace_id: string;
+            /** Path */
+            path: string;
+            /** Version */
+            version: number;
+            /** File Version */
+            file_version: number;
+            /** Content Hash */
+            content_hash?: string | null;
+        };
+        /** AgentArtifactRetentionPolicy */
+        AgentArtifactRetentionPolicy: {
+            /**
+             * Mode
+             * @default retained
+             * @enum {string}
+             */
+            mode: "ephemeral" | "retained" | "expires_at";
+            /** Expires At */
+            expires_at?: string | null;
+            /**
+             * Legal Hold
+             * @default false
+             */
+            legal_hold: boolean;
+        };
+        /** AgentArtifactSummary */
+        AgentArtifactSummary: {
+            /** Id */
+            id: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "text" | "markdown" | "json" | "decision" | "report" | "file" | "patch" | "workflow_draft";
+            /** Name */
+            name: string;
+            /** Uri */
+            uri?: string | null;
+            /** Media Type */
+            media_type?: string | null;
+            /** Summary */
+            summary?: string | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
         /** AgentAuthorizationDecision */
         AgentAuthorizationDecision: {
             /**
@@ -1917,6 +2123,92 @@ export interface components {
             /** Sequence */
             sequence: number;
             audit: components["schemas"]["AgentCapabilityAuditEvent"];
+        };
+        /** AgentDisplayCard */
+        AgentDisplayCard: {
+            /** Id */
+            id: string;
+            /** Thread Id */
+            thread_id?: string | null;
+            /** Run Id */
+            run_id: string;
+            /** Sequence */
+            sequence?: number | null;
+            /**
+             * Surface
+             * @default conversation
+             * @enum {string}
+             */
+            surface: "conversation" | "side_panel" | "both";
+            /**
+             * Type
+             * @default generic
+             * @enum {string}
+             */
+            type: "file" | "artifact" | "approval" | "todo" | "memory" | "search_result" | "generic";
+            /**
+             * Status
+             * @default ready
+             * @enum {string}
+             */
+            status: "pending" | "ready" | "failed";
+            /** Title */
+            title: string;
+            /** Summary */
+            summary?: string | null;
+            resource?: components["schemas"]["AgentDisplayCardResource"];
+            /** Actions */
+            actions?: components["schemas"]["AgentDisplayCardAction"][];
+            source: components["schemas"]["AgentDisplayCardSource"];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** AgentDisplayCardAction */
+        AgentDisplayCardAction: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "preview" | "download" | "open" | "none";
+            /** Label */
+            label?: string | null;
+            /** Target */
+            target?: string | null;
+            /**
+             * Disabled
+             * @default false
+             */
+            disabled: boolean;
+        };
+        /** AgentDisplayCardResource */
+        AgentDisplayCardResource: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "workspace_file" | "artifact" | "external_url" | "none";
+            /** Id */
+            id?: string | null;
+            /** Path */
+            path?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /** AgentDisplayCardSource */
+        AgentDisplayCardSource: {
+            /**
+             * Created By
+             * @enum {string}
+             */
+            created_by: "harness" | "tool" | "model_request";
+            /** Event Id */
+            event_id?: string | null;
+            /** Tool Call Id */
+            tool_call_id?: string | null;
+            /** Tool Name */
+            tool_name?: string | null;
         };
         /** AgentExternalApprovalRef */
         AgentExternalApprovalRef: {
@@ -2358,10 +2650,10 @@ export interface components {
             /** Run Id */
             run_id?: string | null;
             /**
-             * Workspace Paths
+             * Artifact Ids
              * @default []
              */
-            workspace_paths: string[];
+            artifact_ids: string[];
             /** Attachments */
             attachments?: components["schemas"]["AgentWorkspaceImageAttachment"][];
             /** Created At */
@@ -2464,130 +2756,6 @@ export interface components {
          * @enum {string}
          */
         AgentModelReasoningEffort: "none" | "low" | "medium" | "high";
-        /** AgentPresentation */
-        AgentPresentation: {
-            /** Id */
-            id: string;
-            /** Org Id */
-            org_id?: string | null;
-            /** Thread Id */
-            thread_id?: string | null;
-            /** Run Id */
-            run_id: string;
-            /** Sequence */
-            sequence?: number | null;
-            /**
-             * Status
-             * @default ready
-             * @enum {string}
-             */
-            status: "pending" | "ready" | "failed" | "dismissed";
-            /**
-             * Priority
-             * @default normal
-             * @enum {string}
-             */
-            priority: "low" | "normal" | "high";
-            /** Title */
-            title: string;
-            /** Summary */
-            summary?: string | null;
-            /** Reason */
-            reason?: string | null;
-            resource?: components["schemas"]["AgentPresentationResource"];
-            /** Surfaces */
-            surfaces?: ("conversation" | "side_panel" | "approval_panel" | "activity" | "header")[];
-            /**
-             * Preferred View
-             * @default none
-             * @enum {string}
-             */
-            preferred_view: "html_preview" | "source_text" | "markdown" | "json" | "image" | "pdf" | "diff" | "approval_review" | "activity_detail" | "download" | "open_external" | "none";
-            /** Available Views */
-            available_views?: ("html_preview" | "source_text" | "markdown" | "json" | "image" | "pdf" | "diff" | "approval_review" | "activity_detail" | "download" | "open_external" | "none")[];
-            /** Effects */
-            effects?: components["schemas"]["AgentPresentationEffect"][];
-            /** Actions */
-            actions?: components["schemas"]["AgentPresentationAction"][];
-            source: components["schemas"]["AgentPresentationSource"];
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
-            /** Created At */
-            created_at?: string | null;
-            /** Updated At */
-            updated_at?: string | null;
-        };
-        /** AgentPresentationAction */
-        AgentPresentationAction: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "open_view" | "download" | "approve" | "reject" | "retry" | "continue" | "open_in_workbench" | "open_external" | "copy_reference" | "none";
-            /** Label */
-            label: string;
-            /** View */
-            view?: ("html_preview" | "source_text" | "markdown" | "json" | "image" | "pdf" | "diff" | "approval_review" | "activity_detail" | "download" | "open_external" | "none") | null;
-            /** Path */
-            path?: string | null;
-            /** Method */
-            method?: ("GET" | "POST") | null;
-            /**
-             * Requires Confirmation
-             * @default false
-             */
-            requires_confirmation: boolean;
-        };
-        /** AgentPresentationEffect */
-        AgentPresentationEffect: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "open_panel" | "focus_presentation" | "scroll_to" | "highlight" | "none";
-            /** Panel */
-            panel?: string | null;
-            /** Surface */
-            surface?: ("conversation" | "side_panel" | "approval_panel" | "activity" | "header") | null;
-            /** Presentation Id */
-            presentation_id?: string | null;
-            /**
-             * Mode
-             * @default soft
-             * @enum {string}
-             */
-            mode: "soft" | "assertive";
-        };
-        /** AgentPresentationResource */
-        AgentPresentationResource: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "workspace_file" | "approval" | "todo" | "run" | "trace_span" | "external_url" | "none";
-            /** Id */
-            id?: string | null;
-            /** Path */
-            path?: string | null;
-            /** Url */
-            url?: string | null;
-        };
-        /** AgentPresentationSource */
-        AgentPresentationSource: {
-            /**
-             * Created By
-             * @enum {string}
-             */
-            created_by: "harness" | "tool" | "model_request";
-            /** Event Id */
-            event_id?: string | null;
-            /** Tool Call Id */
-            tool_call_id?: string | null;
-            /** Tool Name */
-            tool_name?: string | null;
-        };
         /** AgentRun */
         AgentRun: {
             /** Id */
@@ -2599,8 +2767,6 @@ export interface components {
             source: components["schemas"]["AgentRunSource"];
             /** Thread Id */
             thread_id?: string | null;
-            /** Skill Id */
-            skill_id?: string | null;
             /** Workspace Id */
             workspace_id: string;
             /** Task Msg */
@@ -2628,6 +2794,8 @@ export interface components {
             error?: {
                 [key: string]: unknown;
             } | null;
+            /** Active Skill Keys */
+            active_skill_keys?: string[];
         };
         /** AgentRunBudgetPolicy */
         AgentRunBudgetPolicy: {
@@ -2654,6 +2822,20 @@ export interface components {
             /** Attempt */
             attempt: number;
         };
+        /** AgentRunExportArtifactResult */
+        AgentRunExportArtifactResult: {
+            artifact: components["schemas"]["AgentArtifact"];
+            workspace_file: components["schemas"]["AgentWorkspaceFile"];
+            export_summary: components["schemas"]["AgentRunExportSummary"];
+            /**
+             * Schema Version
+             * @default run_export.v1
+             * @constant
+             */
+            schema_version: "run_export.v1";
+            /** Path */
+            path: string;
+        };
         /** AgentRunExportBundle */
         AgentRunExportBundle: {
             /**
@@ -2677,21 +2859,10 @@ export interface components {
             todos?: components["schemas"]["AgentTodo"][];
             /** Approvals */
             approvals?: components["schemas"]["AgentApproval"][];
+            /** Artifacts */
+            artifacts?: components["schemas"]["AgentArtifact"][];
             workspace_snapshot: components["schemas"]["AgentWorkspaceSnapshot"];
             summary: components["schemas"]["AgentRunExportSummary"];
-        };
-        /** AgentRunExportFileResult */
-        AgentRunExportFileResult: {
-            workspace_file: components["schemas"]["AgentWorkspaceFile"];
-            export_summary: components["schemas"]["AgentRunExportSummary"];
-            /**
-             * Schema Version
-             * @default run_export.v1
-             * @constant
-             */
-            schema_version: "run_export.v1";
-            /** Path */
-            path: string;
         };
         /** AgentRunExportSummary */
         AgentRunExportSummary: {
@@ -2709,6 +2880,8 @@ export interface components {
             todo_count: number;
             /** Approval Count */
             approval_count: number;
+            /** Artifact Count */
+            artifact_count: number;
             /** Workspace File Count */
             workspace_file_count: number;
         };
@@ -2718,10 +2891,6 @@ export interface components {
             model?: string | null;
             /** Model Profile Key */
             model_profile_key?: string | null;
-            mode?: "flash" | "thinking" | "pro" | "ultra" | null;
-            thinking_enabled?: boolean | null;
-            is_plan_mode?: boolean | null;
-            subagent_enabled?: boolean | null;
             /** Instructions */
             instructions?: string | null;
             model_capabilities?: components["schemas"]["AgentModelCapabilities"] | null;
@@ -2779,10 +2948,10 @@ export interface components {
             /** Content */
             content?: string | null;
             /**
-             * Workspace Paths
+             * Artifact Ids
              * @default []
              */
-            workspace_paths: string[];
+            artifact_ids: string[];
             /** Message Id */
             message_id?: string | null;
             /** Thread Message Id */
@@ -3179,15 +3348,15 @@ export interface components {
              * @default false
              */
             content_truncated: boolean;
-            /** Workspace Paths */
-            workspace_paths?: string[];
-            /** Workspace Files */
-            workspace_files?: components["schemas"]["AgentWorkspaceFile"][];
+            /** Artifact Ids */
+            artifact_ids?: string[];
+            /** Artifacts */
+            artifacts?: components["schemas"]["AgentArtifactSummary"][];
             /**
-             * Workspace File Count
+             * Artifact Count
              * @default 0
              */
-            workspace_file_count: number;
+            artifact_count: number;
             /**
              * Has Output
              * @default false
@@ -3321,7 +3490,7 @@ export interface components {
              */
             needs_attention: boolean;
             /** Attention Reasons */
-            attention_reasons?: ("health_degraded" | "health_failed" | "health_cancelled" | "health_waiting_approval" | "health_waiting_external_run" | "health_waiting_input" | "sandbox_failed" | "sandbox_workspace_side_effect" | "sandbox_persistence_error")[];
+            attention_reasons?: ("health_degraded" | "health_failed" | "health_cancelled" | "health_waiting_approval" | "health_waiting_external_run" | "health_waiting_input" | "sandbox_failed" | "sandbox_workspace_side_effect" | "sandbox_artifact_promotion" | "sandbox_persistence_error")[];
             /**
              * Research Status
              * @default none
@@ -3428,8 +3597,8 @@ export interface components {
             created_at: string;
             /** Run Id */
             run_id?: string | null;
-            /** Workspace Paths */
-            workspace_paths?: string[];
+            /** Artifact Ids */
+            artifact_ids?: string[];
         };
         /** AgentThreadSummaryRun */
         AgentThreadSummaryRun: {
@@ -3550,7 +3719,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "run" | "message" | "todo" | "model" | "tool" | "approval" | "subagent" | "workspace" | "external_run" | "sandbox" | "memory" | "web";
+            kind: "run" | "message" | "todo" | "model" | "tool" | "approval" | "subagent" | "workspace" | "artifact" | "external_run" | "sandbox" | "memory" | "web";
             /** Name */
             name: string;
             /**
@@ -3994,7 +4163,7 @@ export interface components {
              * Action Kind
              * @enum {string}
              */
-            action_kind: "inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "retry_sandbox_run";
+            action_kind: "inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "review_artifact_promotions" | "retry_sandbox_run";
             /** Task Msg */
             task_msg?: string | null;
             /** Instructions */
@@ -4013,12 +4182,13 @@ export interface components {
             /** Scopes */
             scopes?: string[] | null;
         };
-        /** CreateRunExportFileRequest */
-        CreateRunExportFileRequest: {
+        /** CreateRunExportArtifactRequest */
+        CreateRunExportArtifactRequest: {
             /** Path */
             path?: string | null;
             /** Name */
             name?: string | null;
+            retention?: components["schemas"]["AgentArtifactRetentionPolicy"] | null;
             /** Metadata */
             metadata?: {
                 [key: string]: unknown;
@@ -4044,8 +4214,6 @@ export interface components {
             retry_policy?: components["schemas"]["AgentRunRetryPolicy"] | null;
             /** Thread Id */
             thread_id?: string | null;
-            /** Skill Id */
-            skill_id?: string | null;
             /**
              * Wait For Completion
              * @default false
@@ -4056,6 +4224,8 @@ export interface components {
              * @default false
              */
             persist_task_msg_message: boolean;
+            /** Selected Skill Keys */
+            selected_skill_keys?: string[] | null;
         };
         /** CreateSubagentSpecRequest */
         CreateSubagentSpecRequest: {
@@ -4281,6 +4451,24 @@ export interface components {
             /** Media Type */
             media_type?: string | null;
         };
+        /** PromoteWorkspaceFileRequest */
+        PromoteWorkspaceFileRequest: {
+            /** Name */
+            name?: string | null;
+            /**
+             * Type
+             * @default file
+             * @enum {string}
+             */
+            type: "text" | "markdown" | "json" | "decision" | "report" | "file" | "patch" | "workflow_draft";
+            /** Run Id */
+            run_id?: string | null;
+            retention?: components["schemas"]["AgentArtifactRetentionPolicy"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** RegisterSkillRegistryEntryRequest */
         RegisterSkillRegistryEntryRequest: {
             skill: components["schemas"]["AgentSkill"];
@@ -4307,7 +4495,7 @@ export interface components {
             /** Reason */
             reason: string;
             /** Related Finding Codes */
-            related_finding_codes?: ("missing_report" | "missing_report_file" | "partial_report" | "insufficient_evidence_report" | "missing_evidence" | "blocked_research_steps" | "web_failures" | "research_limitations" | "low_quality_sources" | "no_high_quality_sources" | "weak_research_sections")[];
+            related_finding_codes?: ("missing_report" | "missing_report_artifact" | "partial_report" | "insufficient_evidence_report" | "missing_evidence" | "blocked_research_steps" | "web_failures" | "research_limitations" | "low_quality_sources" | "no_high_quality_sources" | "weak_research_sections")[];
             /** Target Section Ids */
             target_section_ids?: string[];
             /** Suggested Tool Names */
@@ -4497,8 +4685,8 @@ export interface components {
             sections?: components["schemas"]["ResearchEvidenceLedgerSection"][];
             /** Section Summary */
             section_summary?: components["schemas"]["ResearchEvidenceSectionSummary"][];
-            /** Report Files */
-            report_files?: components["schemas"]["ResearchEvidenceLedgerReportFile"][];
+            /** Report Artifacts */
+            report_artifacts?: components["schemas"]["ResearchEvidenceLedgerReportArtifact"][];
             counts: components["schemas"]["ResearchEvidenceLedgerCounts"];
         };
         /** ResearchEvidenceLedgerCounts */
@@ -4544,15 +4732,15 @@ export interface components {
              */
             weak_section_count: number;
             /**
-             * Report File Count
+             * Report Artifact Count
              * @default 0
              */
-            report_file_count: number;
+            report_artifact_count: number;
         };
-        /** ResearchEvidenceLedgerReportFile */
-        ResearchEvidenceLedgerReportFile: {
-            /** Path */
-            path: string;
+        /** ResearchEvidenceLedgerReportArtifact */
+        ResearchEvidenceLedgerReportArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
             /** Name */
             name: string;
             /** Uri */
@@ -4672,8 +4860,8 @@ export interface components {
             web_success_count: number;
             /** Web Failure Count */
             web_failure_count: number;
-            /** Report File Count */
-            report_file_count: number;
+            /** Report Artifact Count */
+            report_artifact_count: number;
             /** Limitation Count */
             limitation_count: number;
         };
@@ -4729,8 +4917,8 @@ export interface components {
              * @default 0
              */
             web_failure_count: number;
-            /** Report Workspace Paths */
-            report_workspace_paths?: string[];
+            /** Report Artifact Ids */
+            report_artifact_ids?: string[];
             /** Limitation Codes */
             limitation_codes?: string[];
             /**
@@ -4789,10 +4977,10 @@ export interface components {
              */
             limitation_count: number;
             /**
-             * Report File Count
+             * Report Artifact Count
              * @default 0
              */
-            report_file_count: number;
+            report_artifact_count: number;
             /**
              * Blocked Step Count
              * @default 0
@@ -4830,7 +5018,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "missing_report" | "missing_report_file" | "partial_report" | "insufficient_evidence_report" | "missing_evidence" | "blocked_research_steps" | "web_failures" | "research_limitations" | "low_quality_sources" | "no_high_quality_sources" | "weak_research_sections";
+            code: "missing_report" | "missing_report_artifact" | "partial_report" | "insufficient_evidence_report" | "missing_evidence" | "blocked_research_steps" | "web_failures" | "research_limitations" | "low_quality_sources" | "no_high_quality_sources" | "weak_research_sections";
             /**
              * Severity
              * @enum {string}
@@ -4863,16 +5051,16 @@ export interface components {
             report_status: "none" | "complete" | "partial" | "insufficient_evidence";
             /** Reviewed Event Sequence */
             reviewed_event_sequence?: number | null;
-            /** Report Workspace Paths */
-            report_workspace_paths?: string[];
+            /** Report Artifact Ids */
+            report_artifact_ids?: string[];
             counts: components["schemas"]["ResearchReviewCounts"];
             /** Findings */
             findings?: components["schemas"]["ResearchReviewFinding"][];
         };
-        /** ResearchSnapshotReportFile */
-        ResearchSnapshotReportFile: {
-            /** Path */
-            path: string;
+        /** ResearchSnapshotReportArtifact */
+        ResearchSnapshotReportArtifact: {
+            /** Artifact Id */
+            artifact_id: string;
             /** Name */
             name: string;
             /** Uri */
@@ -4915,8 +5103,8 @@ export interface components {
             web_failures?: components["schemas"]["ResearchSnapshotWebFailure"][];
             /** Blocked Todos */
             blocked_todos?: components["schemas"]["ResearchSnapshotTodo"][];
-            /** Report Files */
-            report_files?: components["schemas"]["ResearchSnapshotReportFile"][];
+            /** Report Artifacts */
+            report_artifacts?: components["schemas"]["ResearchSnapshotReportArtifact"][];
             /** Limitations */
             limitations?: components["schemas"]["ResearchLimitation"][];
         };
@@ -5024,8 +5212,6 @@ export interface components {
             source: components["schemas"]["AgentRunSource"];
             /** Thread Id */
             thread_id?: string | null;
-            /** Skill Id */
-            skill_id?: string | null;
             /** Workspace Id */
             workspace_id: string;
             /** Task Msg */
@@ -5076,6 +5262,8 @@ export interface components {
              * @default false
              */
             external_run_requeued: boolean;
+            /** Active Skill Keys */
+            active_skill_keys?: string[];
         };
         /** RestoreWorkspaceSnapshotRequest */
         RestoreWorkspaceSnapshotRequest: {
@@ -5142,8 +5330,6 @@ export interface components {
             source: components["schemas"]["AgentRunSource"];
             /** Thread Id */
             thread_id?: string | null;
-            /** Skill Id */
-            skill_id?: string | null;
             /** Workspace Id */
             workspace_id: string;
             /** Task Msg */
@@ -5172,6 +5358,8 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             summary: components["schemas"]["RunInspectionSummary"];
+            /** Active Skill Keys */
+            active_skill_keys?: string[];
         };
         /** RunExternalRunDiagnostic */
         RunExternalRunDiagnostic: {
@@ -5215,15 +5403,15 @@ export interface components {
             /** Needs Attention */
             needs_attention: boolean;
             /** Attention Reasons */
-            attention_reasons?: ("health_degraded" | "health_failed" | "health_cancelled" | "health_waiting_approval" | "health_waiting_external_run" | "health_waiting_input" | "sandbox_failed" | "sandbox_workspace_side_effect" | "sandbox_persistence_error")[];
+            attention_reasons?: ("health_degraded" | "health_failed" | "health_cancelled" | "health_waiting_approval" | "health_waiting_external_run" | "health_waiting_input" | "sandbox_failed" | "sandbox_workspace_side_effect" | "sandbox_artifact_promotion" | "sandbox_persistence_error")[];
             /** Event Count */
             event_count: number;
             /** Todo Count */
             todo_count: number;
             /** Blocked Todo Count */
             blocked_todo_count: number;
-            /** Workspace File Count */
-            workspace_file_count: number;
+            /** Artifact Count */
+            artifact_count: number;
             /** Approval Count */
             approval_count: number;
             /** Failed Trace Count */
@@ -5278,6 +5466,11 @@ export interface components {
              */
             sandbox_workspace_file_count: number;
             /**
+             * Sandbox Artifact Promotion Count
+             * @default 0
+             */
+            sandbox_artifact_promotion_count: number;
+            /**
              * Sandbox Persistence Error Count
              * @default 0
              */
@@ -5301,8 +5494,6 @@ export interface components {
             source: components["schemas"]["AgentRunSource"];
             /** Thread Id */
             thread_id?: string | null;
-            /** Skill Id */
-            skill_id?: string | null;
             /** Workspace Id */
             workspace_id: string;
             /** Task Msg */
@@ -5331,6 +5522,8 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             summary: components["schemas"]["RunInspectionSummary"];
+            /** Active Skill Keys */
+            active_skill_keys?: string[];
         };
         /** RunListPage */
         RunListPage: {
@@ -5465,7 +5658,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "retry_sandbox_run";
+            kind: "inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "review_artifact_promotions" | "retry_sandbox_run";
             /** Label */
             label: string;
             /** Reason */
@@ -5491,6 +5684,8 @@ export interface components {
             approvals?: components["schemas"]["AgentApproval"][];
             /** Workspace Files */
             workspace_files?: components["schemas"]["AgentWorkspaceFile"][];
+            /** Artifacts */
+            artifacts?: components["schemas"]["AgentArtifact"][];
             research: components["schemas"]["ResearchSnapshotSummary"];
             research_execution: components["schemas"]["ResearchExecutionSnapshot"];
             research_evidence: components["schemas"]["ResearchEvidenceLedger"];
@@ -5501,8 +5696,8 @@ export interface components {
             resume: components["schemas"]["RunResumeSnapshot"];
             /** Subagents */
             subagents?: components["schemas"]["AgentSubagentRun"][];
-            /** Presentations */
-            presentations?: components["schemas"]["AgentPresentation"][];
+            /** Display Cards */
+            display_cards?: components["schemas"]["AgentDisplayCard"][];
         };
         /** RunTreeDelegation */
         RunTreeDelegation: {
@@ -5538,8 +5733,6 @@ export interface components {
             source: string;
             /** Task Msg */
             task_msg: string;
-            /** Skill Id */
-            skill_id?: string | null;
             /** Workspace Id */
             workspace_id: string;
             /** Subagent Run Id */
@@ -5554,12 +5747,12 @@ export interface components {
              */
             child_count: number;
             /**
-             * Workspace File Count
+             * Artifact Count
              * @default 0
              */
-            workspace_file_count: number;
-            /** Result Workspace Paths */
-            result_workspace_paths?: string[];
+            artifact_count: number;
+            /** Result Artifact Ids */
+            result_artifact_ids?: string[];
             /**
              * Terminal
              * @default false
@@ -5571,7 +5764,7 @@ export interface components {
              */
             needs_attention: boolean;
             /** Attention Reasons */
-            attention_reasons?: ("self_failed" | "self_cancelled" | "self_waiting_approval" | "self_waiting_external_run" | "self_waiting_input" | "self_degraded" | "self_sandbox_failed" | "self_sandbox_workspace_side_effect" | "self_sandbox_persistence_error" | "descendant_failed" | "descendant_cancelled" | "descendant_waiting_approval" | "descendant_waiting_external_run" | "descendant_waiting_input" | "descendant_degraded" | "descendant_sandbox_failed" | "descendant_sandbox_workspace_side_effect" | "descendant_sandbox_persistence_error")[];
+            attention_reasons?: ("self_failed" | "self_cancelled" | "self_waiting_approval" | "self_waiting_external_run" | "self_waiting_input" | "self_degraded" | "self_sandbox_failed" | "self_sandbox_workspace_side_effect" | "self_sandbox_artifact_promotion" | "self_sandbox_persistence_error" | "descendant_failed" | "descendant_cancelled" | "descendant_waiting_approval" | "descendant_waiting_external_run" | "descendant_waiting_input" | "descendant_degraded" | "descendant_sandbox_failed" | "descendant_sandbox_workspace_side_effect" | "descendant_sandbox_artifact_promotion" | "descendant_sandbox_persistence_error")[];
             /**
              * Sandbox Run Count
              * @default 0
@@ -5587,6 +5780,11 @@ export interface components {
              * @default 0
              */
             sandbox_workspace_file_count: number;
+            /**
+             * Sandbox Artifact Promotion Count
+             * @default 0
+             */
+            sandbox_artifact_promotion_count: number;
             /**
              * Sandbox Persistence Error Count
              * @default 0
@@ -5659,6 +5857,11 @@ export interface components {
              */
             descendant_sandbox_workspace_file_count: number;
             /**
+             * Descendant Sandbox Artifact Promotion Count
+             * @default 0
+             */
+            descendant_sandbox_artifact_promotion_count: number;
+            /**
              * Descendant Sandbox Persistence Error Count
              * @default 0
              */
@@ -5668,6 +5871,8 @@ export interface components {
              * @default 0
              */
             descendant_sandbox_operator_action_count: number;
+            /** Active Skill Keys */
+            active_skill_keys?: string[];
         };
         /** RunTreeSnapshot */
         RunTreeSnapshot: {
@@ -5697,8 +5902,8 @@ export interface components {
             failed_runs: number;
             /** Completed Runs */
             completed_runs: number;
-            /** Workspace File Count */
-            workspace_file_count: number;
+            /** Artifact Count */
+            artifact_count: number;
             /** Attention Runs */
             attention_runs: number;
             /** Degraded Runs */
@@ -5723,6 +5928,11 @@ export interface components {
              * @default 0
              */
             sandbox_workspace_file_count: number;
+            /**
+             * Sandbox Artifact Promotion Count
+             * @default 0
+             */
+            sandbox_artifact_promotion_count: number;
             /**
              * Sandbox Persistence Error Count
              * @default 0
@@ -5793,6 +6003,11 @@ export interface components {
              * @default 0
              */
             persisted_count: number;
+            /**
+             * Promoted Count
+             * @default 0
+             */
+            promoted_count: number;
             /** Paths */
             paths?: string[];
             /** Persistence Error */
@@ -6264,17 +6479,16 @@ export interface operations {
         parameters: {
             query?: {
                 status?: components["schemas"]["AgentRunStatus"] | null;
-                skill_id?: string | null;
                 health?: ("queued" | "running" | "waiting_approval" | "waiting_subagent" | "waiting_input" | "waiting_external_run" | "completed" | "degraded" | "failed" | "cancelled") | null;
                 needs_attention?: boolean | null;
                 external_run_stale?: boolean | null;
                 sandbox_failed?: boolean | null;
                 sandbox_side_effects?: boolean | null;
                 needs_operator_action?: boolean | null;
-                sandbox_operator_action_kind?: ("inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "retry_sandbox_run") | null;
+                sandbox_operator_action_kind?: ("inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "review_artifact_promotions" | "retry_sandbox_run") | null;
                 operator_follow_up?: boolean | null;
                 operator_follow_up_source_run_id?: string | null;
-                operator_follow_up_action_kind?: ("inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "retry_sandbox_run") | null;
+                operator_follow_up_action_kind?: ("inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "review_artifact_promotions" | "retry_sandbox_run") | null;
                 include_meta?: boolean;
                 order_by?: ("started_at" | "completed_at" | "status" | "health" | "sandbox_operator_action_count") | null;
                 order_direction?: "asc" | "desc";
@@ -6344,17 +6558,16 @@ export interface operations {
         parameters: {
             query?: {
                 status?: components["schemas"]["AgentRunStatus"] | null;
-                skill_id?: string | null;
                 health?: ("queued" | "running" | "waiting_approval" | "waiting_subagent" | "waiting_input" | "waiting_external_run" | "completed" | "degraded" | "failed" | "cancelled") | null;
                 needs_attention?: boolean | null;
                 external_run_stale?: boolean | null;
                 sandbox_failed?: boolean | null;
                 sandbox_side_effects?: boolean | null;
                 needs_operator_action?: boolean | null;
-                sandbox_operator_action_kind?: ("inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "retry_sandbox_run") | null;
+                sandbox_operator_action_kind?: ("inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "review_artifact_promotions" | "retry_sandbox_run") | null;
                 operator_follow_up?: boolean | null;
                 operator_follow_up_source_run_id?: string | null;
-                operator_follow_up_action_kind?: ("inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "retry_sandbox_run") | null;
+                operator_follow_up_action_kind?: ("inspect_sandbox_error" | "inspect_workspace_file" | "review_workspace_policy" | "review_artifact_promotions" | "retry_sandbox_run") | null;
                 include_meta?: boolean;
                 order_by?: ("started_at" | "completed_at" | "status" | "health" | "sandbox_operator_action_count") | null;
                 order_direction?: "asc" | "desc";
@@ -6988,8 +7201,7 @@ export interface operations {
                 after_sequence?: number;
                 follow?: boolean;
                 poll_interval_seconds?: number;
-                timeout_seconds?: number | null;
-                keepalive_interval_seconds?: number;
+                timeout_seconds?: number;
             };
             header?: never;
             path: {
@@ -7025,8 +7237,7 @@ export interface operations {
                 after_sequence?: number;
                 follow?: boolean;
                 poll_interval_seconds?: number;
-                timeout_seconds?: number | null;
-                keepalive_interval_seconds?: number;
+                timeout_seconds?: number;
             };
             header?: never;
             path: {
@@ -7923,7 +8134,7 @@ export interface operations {
             };
         };
     };
-    create_run_export_file_api_runs__run_id__export_file_post: {
+    create_run_export_artifact_api_runs__run_id__export_artifact_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -7934,7 +8145,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRunExportFileRequest"];
+                "application/json": components["schemas"]["CreateRunExportArtifactRequest"];
             };
         };
         responses: {
@@ -7944,7 +8155,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentRunExportFileResult"];
+                    "application/json": components["schemas"]["AgentRunExportArtifactResult"];
                 };
             };
             /** @description Validation Error */
@@ -7990,7 +8201,7 @@ export interface operations {
             };
         };
     };
-    create_thread_run_export_file_api_threads__thread_id__runs__run_id__export_file_post: {
+    create_thread_run_export_artifact_api_threads__thread_id__runs__run_id__export_artifact_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -8002,7 +8213,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRunExportFileRequest"];
+                "application/json": components["schemas"]["CreateRunExportArtifactRequest"];
             };
         };
         responses: {
@@ -8012,7 +8223,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentRunExportFileResult"];
+                    "application/json": components["schemas"]["AgentRunExportArtifactResult"];
                 };
             };
             /** @description Validation Error */
@@ -8977,6 +9188,42 @@ export interface operations {
             };
         };
     };
+    promote_workspace_file_to_artifact_api_workspaces__workspace_id__files__path__promote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromoteWorkspaceFileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifactPromotionResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     patch_workspace_file_api_workspaces__workspace_id__files__path__patch_post: {
         parameters: {
             query?: never;
@@ -9000,70 +9247,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentWorkspacePatchResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_workspace_file_content_api_workspaces__workspace_id__files__path__content_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-                path: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    download_workspace_file_api_workspaces__workspace_id__files__path__download_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-                path: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -9164,6 +9347,170 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentWorkspaceFileDeleteResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_artifacts_api_artifacts_get: {
+        parameters: {
+            query?: {
+                run_id?: string | null;
+                workspace_id?: string | null;
+                type?: ("text" | "markdown" | "json" | "decision" | "report" | "file" | "patch" | "workflow_draft") | null;
+                retention_mode?: ("ephemeral" | "retained" | "expires_at") | null;
+                finalized?: boolean | null;
+                include_meta?: boolean;
+                order_by?: ("created_at" | "finalized_at" | "name" | "type") | null;
+                order_direction?: "asc" | "desc";
+                limit?: number | null;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifactListPage"] | components["schemas"]["AgentArtifact"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_artifact_api_artifacts__artifact_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifact"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_artifact_content_api_artifacts__artifact_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_artifact_download_info_api_artifacts__artifact_id__download_info_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentArtifactDownloadInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_artifact_api_artifacts__artifact_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -9463,37 +9810,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentSkill"][];
-                };
-            };
-        };
-    };
-    get_skill_api_skills__skill_id_or_key__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                skill_id_or_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentSkill"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -9829,6 +10145,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentMemoryCandidate"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_skill_api_skills__skill_key_or_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_key_or_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkill"];
                 };
             };
             /** @description Validation Error */

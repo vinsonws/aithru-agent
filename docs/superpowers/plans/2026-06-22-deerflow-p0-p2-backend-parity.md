@@ -1801,7 +1801,7 @@ Add:
 ```python
 class AgentSkillConfig(AithruBaseModel):
     org_id: str
-    skill_id: str
+    skill_key: str
     enabled: bool | None = None
     allowed_tools: list[str] | None = None
     denied_tools: list[str] | None = None
@@ -1831,9 +1831,9 @@ Add store methods `get_skill_config`, `upsert_skill_config`, and `list_skill_con
 
 Add to `api/routes/skills.py`:
 
-- `GET /api/skills/{skill_id_or_key}/versions`
-- `GET /api/skills/{skill_id_or_key}/config`
-- `PATCH /api/skills/{skill_id_or_key}/config`
+- `GET /api/skills/{skill_key_or_ref}/versions`
+- `GET /api/skills/{skill_key_or_ref}/config`
+- `PATCH /api/skills/{skill_key_or_ref}/config`
 
 Patch request:
 

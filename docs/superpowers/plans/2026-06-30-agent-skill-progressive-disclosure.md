@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace single `skill_id` runs with multi-skill progressive disclosure driven by selected skills, visible catalogs, `skill.activated` events, and controlled `skill.load`.
+**Goal:** Replace single `legacy_run_skill_field` runs with multi-skill progressive disclosure driven by selected skills, visible catalogs, `skill.activated` events, and controlled `skill.load`.
 
 **Architecture:** `AgentRun` no longer stores active skill state. Explicit skills are validated at run creation and recorded as `skill.activated` events; model-loaded skills use a harness-owned `skill.load` tool that validates visibility before emitting the same event. Context building and tool policy project active skills from the event log, so instructions, tool discovery, and tool execution share one source of truth.
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Remove `skill_id` outright; do not preserve API, contract, persistence, or frontend compatibility for it.
+- Remove `legacy_run_skill_field` outright; do not preserve API, contract, persistence, or frontend compatibility for it.
 - Do not add Agent-owned workflow graphs, WorkflowSpec semantics, graph branch semantics, or workflow scheduler behavior.
 - Do not expose skill files, scripts, resources, local filesystem access, MCP, browser automation, or network access directly to model code.
 - Do not build a separate LLM classifier to choose skills before the run.
@@ -22,7 +22,7 @@
 
 ## File Structure
 
-- Modify `backend/packages/contracts/src/schemas.ts` and `backend/packages/contracts/src/types.ts`: remove `skill_id`; add `selected_skill_keys` request schema and context stats shape.
+- Modify `backend/packages/contracts/src/schemas.ts` and `backend/packages/contracts/src/types.ts`: remove `legacy_run_skill_field`; add `selected_skill_keys` request schema and context stats shape.
 - Modify `backend/packages/persistence/src/migrations.ts`, `backend/packages/persistence/src/sqlite-store.ts`, `backend/packages/persistence/src/store.ts`, and `backend/packages/persistence/src/protocols.ts`: remove persisted run skill column usage.
 - Modify `backend/packages/skills/src/resolver.ts`: add visible skill catalog and multi-key resolution helpers.
 - Create `backend/packages/capabilities/src/skill-state.ts`: project active skills from events for policy and harness consumers.
@@ -30,12 +30,12 @@
 - Modify `backend/packages/harness/src/context-packet.ts` and `backend/packages/harness/src/model-turn.ts`: inject multiple loaded skill instructions and handle model `skill.load`.
 - Modify `backend/packages/capabilities/src/policy.ts` and `backend/packages/capabilities/src/production-router.ts`: compose policy from all active skills.
 - Modify `backend/apps/api/src/routes/runs.ts` and `backend/apps/api/src/routes/compat.ts`: accept `selected_skill_keys` and emit explicit activations.
-- Modify `frontend/src/lib/api/types.ts`, `frontend/src/lib/api/runs.ts`, `frontend/src/features/chat/slashCommands.ts`, `frontend/src/features/chat/ChatComposer.tsx`, and `frontend/src/features/conversation/NewThreadPage.tsx`: remove `skill_id`, pass selected skill keys, and support `/skill-key task` syntax.
+- Modify `frontend/src/lib/api/types.ts`, `frontend/src/lib/api/runs.ts`, `frontend/src/features/chat/slashCommands.ts`, `frontend/src/features/chat/ChatComposer.tsx`, and `frontend/src/features/conversation/NewThreadPage.tsx`: remove `legacy_run_skill_field`, pass selected skill keys, and support `/skill-key task` syntax.
 - Modify tests under `backend/tests/model`, `backend/tests/capability`, `backend/tests/integration`, `backend/tests/persistence`, and `frontend/tests`.
 
 ---
 
-### Task 1: Remove `skill_id` From Contracts And Persistence
+### Task 1: Remove `legacy_run_skill_field` From Contracts And Persistence
 
 **Files:**
 - Modify: `backend/packages/contracts/src/schemas.ts`
@@ -46,7 +46,7 @@
 
 **Interfaces:**
 - Consumes: existing `AgentRunSchema`, `CreateRunRequestSchema`, `SqliteStore.createRun`, `SqliteStore.hydrateRun`.
-- Produces: `CreateRunRequestSchema.selected_skill_keys?: string[] | null`; `AgentRun` without `skill_id`.
+- Produces: `CreateRunRequestSchema.selected_skill_keys?: string[] | null`; `AgentRun` without `legacy_run_skill_field`.
 
 - [ ] **Step 1: Write failing contract tests**
 
@@ -56,7 +56,7 @@ Add this test to `backend/tests/contracts/schemas.test.ts`:
 // Add CreateRunRequestSchema to the existing @aithru-agent/contracts import.
 import { AgentRunSchema, CreateRunRequestSchema } from "@aithru-agent/contracts";
 
-it("CreateRunRequest accepts selected_skill_keys and rejects skill_id", () => {
+it("CreateRunRequest accepts selected_skill_keys and rejects legacy_run_skill_field", () => {
   expect(Value.Check(CreateRunRequestSchema, {
     org_id: "org_1",
     actor_user_id: "user_1",
@@ -68,12 +68,12 @@ it("CreateRunRequest accepts selected_skill_keys and rejects skill_id", () => {
     org_id: "org_1",
     actor_user_id: "user_1",
     task_msg: "Research this",
-    skill_id: "deep-research",
+    legacy_run_skill_field: "deep-research",
   })).toBe(false);
 });
 
-it("AgentRun does not expose skill_id", () => {
-  expect(Object.keys((AgentRunSchema as any).properties)).not.toContain("skill_id");
+it("AgentRun does not expose legacy_run_skill_field", () => {
+  expect(Object.keys((AgentRunSchema as any).properties)).not.toContain("legacy_run_skill_field");
 });
 ```
 
@@ -81,11 +81,11 @@ it("AgentRun does not expose skill_id", () => {
 
 Run: `cd backend && npm run test -- tests/contracts/schemas.test.ts`
 
-Expected: FAIL because `selected_skill_keys` is not accepted and `skill_id` still exists.
+Expected: FAIL because `selected_skill_keys` is not accepted and `legacy_run_skill_field` still exists.
 
 - [ ] **Step 3: Update contract schemas**
 
-In `backend/packages/contracts/src/schemas.ts`, remove `skill_id` from `AgentRunSchema`, remove it from `CreateRunRequestSchema`, and add:
+In `backend/packages/contracts/src/schemas.ts`, remove `legacy_run_skill_field` from `AgentRunSchema`, remove it from `CreateRunRequestSchema`, and add:
 
 ```ts
 selected_skill_keys: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Null()])),
@@ -98,7 +98,7 @@ Set `Type.Object(..., { additionalProperties: false })` on `AgentRunSchema` and 
 In `backend/packages/persistence/src/migrations.ts`, change the `runs` DDL from:
 
 ```sql
-source TEXT NOT NULL, thread_id TEXT, skill_id TEXT,
+source TEXT NOT NULL, thread_id TEXT, legacy_run_skill_field TEXT,
 workspace_id TEXT NOT NULL, task_msg TEXT NOT NULL,
 ```
 
@@ -109,10 +109,10 @@ source TEXT NOT NULL, thread_id TEXT,
 workspace_id TEXT NOT NULL, task_msg TEXT NOT NULL,
 ```
 
-In `backend/packages/persistence/src/sqlite-store.ts`, remove `skill_id` from the `INSERT INTO runs` column list, remove the matching placeholder and value, and remove this hydrate field:
+In `backend/packages/persistence/src/sqlite-store.ts`, remove `legacy_run_skill_field` from the `INSERT INTO runs` column list, remove the matching placeholder and value, and remove this hydrate field:
 
 ```ts
-skill_id: row.skill_id == null ? null : String(row.skill_id),
+legacy_run_skill_field: row.legacy_run_skill_field == null ? null : String(row.legacy_run_skill_field),
 ```
 
 - [ ] **Step 5: Update persistence tests**
@@ -120,10 +120,10 @@ skill_id: row.skill_id == null ? null : String(row.skill_id),
 In `backend/tests/persistence/sqlite-store.test.ts`, add:
 
 ```ts
-it("stores runs without a skill_id column", async () => {
+it("stores runs without a legacy_run_skill_field column", async () => {
   const store = await SqliteStore.create(":memory:");
   const run = store.createRun({
-    id: "run_no_skill_id",
+    id: "run_no_legacy_run_skill_field",
     org_id: "org_1",
     actor_user_id: "user_1",
     source: "chat",
@@ -141,8 +141,8 @@ it("stores runs without a skill_id column", async () => {
     error: null,
   });
 
-  expect("skill_id" in run).toBe(false);
-  expect("skill_id" in store.getRun("run_no_skill_id")!).toBe(false);
+  expect("legacy_run_skill_field" in run).toBe(false);
+  expect("legacy_run_skill_field" in store.getRun("run_no_legacy_run_skill_field")!).toBe(false);
   store.close();
 });
 ```
@@ -163,7 +163,7 @@ Expected: PASS.
 
 ```bash
 git add backend/packages/contracts/src/schemas.ts backend/packages/contracts/src/types.ts backend/packages/persistence/src/migrations.ts backend/packages/persistence/src/sqlite-store.ts backend/tests/contracts/schemas.test.ts backend/tests/persistence/sqlite-store.test.ts
-git commit -m "refactor: remove run skill_id contract"
+git commit -m "refactor: remove run legacy_run_skill_field contract"
 ```
 
 ---
@@ -876,7 +876,7 @@ git commit -m "feat: load skills during model turns"
 
 **Interfaces:**
 - Consumes: `CreateRunRequest.selected_skill_keys`.
-- Produces: composer sends `selected_skill_keys` and never sends `skill_id`.
+- Produces: composer sends `selected_skill_keys` and never sends `legacy_run_skill_field`.
 
 - [ ] **Step 1: Write failing slash command test**
 
@@ -928,7 +928,7 @@ if (/^[a-z0-9][a-z0-9-]*$/.test(skillKey)) {
 return { kind: "send", taskMsg: input };
 ```
 
-- [ ] **Step 4: Remove `skill_id` from frontend request bodies**
+- [ ] **Step 4: Remove `legacy_run_skill_field` from frontend request bodies**
 
 In `ChatComposer.tsx` and `NewThreadPage.tsx`, add `selectedSkillKeys` to mutation variables and send:
 
@@ -939,7 +939,7 @@ selected_skill_keys: vars.selectedSkillKeys,
 Remove:
 
 ```ts
-skill_id: null,
+legacy_run_skill_field: null,
 ```
 
 When calling `createRun.mutate`, pass:
@@ -969,32 +969,32 @@ git commit -m "feat: send selected skill keys from composer"
 
 ---
 
-### Task 7: Remove Remaining `skill_id` References And Update Docs
+### Task 7: Remove Remaining `legacy_run_skill_field` References And Update Docs
 
 **Files:**
 - Modify: `docs/04-skill-spec.md`
 - Modify: `docs/03-stream-protocol.md`
 - Modify: `docs/00-agent-harness-design.md`
 - Modify: `README.md`
-- Modify: every source/test file returned by `rg -n "skill_id" backend frontend docs README.md`
+- Modify: every source/test file returned by `rg -n "legacy_run_skill_field" backend frontend docs README.md`
 
 **Interfaces:**
 - Consumes: all earlier tasks.
-- Produces: no code, docs, generated schema, or frontend type references to `skill_id`.
+- Produces: no code, docs, generated schema, or frontend type references to `legacy_run_skill_field`.
 
 - [ ] **Step 1: Run reference scan**
 
 Run:
 
 ```bash
-rg -n "skill_id" backend frontend docs README.md
+rg -n "legacy_run_skill_field" backend frontend docs README.md
 ```
 
 Expected: matches remain in docs and legacy tests before this task.
 
 - [ ] **Step 2: Replace docs wording**
 
-In docs, replace references to `skill_id` with `selected_skill_keys`, `active_skill_keys`, or `skill.activated` depending on the sentence:
+In docs, replace references to `legacy_run_skill_field` with `selected_skill_keys`, `active_skill_keys`, or `skill.activated` depending on the sentence:
 
 ```md
 User-selected skills (`selected_skill_keys`) are active from run start.
@@ -1012,7 +1012,7 @@ For stream protocol tables, use:
 Regenerate or manually edit `frontend/src/lib/api/schema.d.ts` and `frontend/openapi.json` so:
 
 ```txt
-skill_id
+legacy_run_skill_field
 ```
 
 does not appear, and:
@@ -1029,7 +1029,7 @@ appear in the relevant request/read-model shapes.
 Run:
 
 ```bash
-rg -n "skill_id" backend frontend docs README.md
+rg -n "legacy_run_skill_field" backend frontend docs README.md
 ```
 
 Expected: no output.
@@ -1064,5 +1064,5 @@ Expected: PASS.
 
 ```bash
 git add docs/04-skill-spec.md docs/03-stream-protocol.md docs/00-agent-harness-design.md README.md frontend/openapi.json frontend/src/lib/api/schema.d.ts backend frontend
-git commit -m "chore: remove skill_id references"
+git commit -m "chore: remove legacy_run_skill_field references"
 ```

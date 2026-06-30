@@ -51,9 +51,9 @@ Relevant existing files:
 
 Relevant backend/frontend contract facts:
 
-- `CreateRunRequest` has `goal`, `org_id`, `actor_user_id`, `scopes`, `harness_options`, `thread_id`, `skill_id`, `wait_for_completion`, and `persist_goal_message`.
+- `CreateRunRequest` has `goal`, `org_id`, `actor_user_id`, `scopes`, `harness_options`, `thread_id`, `selected_skill_keys`, `wait_for_completion`, and `persist_goal_message`.
 - `CreateRunRequest` does not currently expose a generic `metadata` field in the generated frontend schema.
-- `AgentRun` has `goal`, `scopes`, `skill_id`, `harness_options`, `status`, `error`, and workspace/run identifiers.
+- `AgentRun` has `goal`, `scopes`, `selected_skill_keys`, `harness_options`, `status`, `error`, and workspace/run identifiers.
 - `AgentRunHarnessOptions` has `model`, `model_profile_key`, `instructions`, model capability/cost/budget fields, research continuation, and operator follow-up options.
 - Local tool scopes already include values such as `agent.workspace.read`, `agent.workspace.write`, `agent.todo.write`, `agent.artifact.write`, `agent.input.write`, `agent.research.write`, and memory scopes.
 
@@ -622,7 +622,7 @@ mutationFn: async (vars: {
     actor_user_id: context.user?.id ?? "user_1",
     scopes: buildComposerScopes(vars.permissionPolicy),
     thread_id: threadId,
-    skill_id: vars.skillId,
+    selected_skill_keys: vars.skillId,
     harness_options: harnessOptions ?? null,
     wait_for_completion: false,
     persist_goal_message: true,

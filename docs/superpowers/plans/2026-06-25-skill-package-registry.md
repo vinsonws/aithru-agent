@@ -17,7 +17,7 @@
 - Do not give skills direct execution rights. Scripts, files, browser actions, network calls, workflow capabilities, and workspace writes must still pass through the Aithru Capability Router and its policies.
 - Recompute policy in both `AithruToolset.get_tools(ctx)` and `PydanticAIToolBridge.call_tool(ctx, tool_name, tool_input)`; prompt-only policy is not sufficient.
 - Combine multiple active skill policies conservatively: denied tools win, allowlists intersect, and workspace/memory/sandbox/approval/subagent restrictions never widen access.
-- Preserve existing explicit `skill_id` behavior: if the user selects a skill for a run, that skill is active from the first model request.
+- Preserve existing explicit `selected_skill_keys` behavior: if the user selects a skill for a run, that skill is active from the first model request.
 - For unselected visible skills, let the model decide through Pydantic AI `load_capability`; do not add a custom `skill.activate` business tool.
 - Keep user-private skills scoped to `org_id` plus `actor_user_id`.
 - Do not log secrets, credentials, or full sensitive skill resources in stream events.
@@ -506,9 +506,9 @@ def _skill_capabilities_for_run(deps: PydanticAgentDeps) -> list[AithruSkillCapa
 
 Worker behavior:
 
-- Resolve explicit `run.skill_id` as today; unresolved explicit skills still fail before tools execute.
+- Resolve explicit `run.selected_skill_keys` as today; unresolved explicit skills still fail before tools execute.
 - Populate `visible_skill_packages` from the package store for the current actor.
-- Set `explicit_skill_key` when `run.skill_id` is supplied.
+- Set `explicit_skill_key` when `run.selected_skill_keys` is supplied.
 - Convert the explicit package to `AgentSkill` for existing `deps.skill` compatibility until all older drivers are migrated.
 
 Tests:
@@ -698,7 +698,7 @@ emitted_skill_activation_keys: set[str] = field(default_factory=set)
 
 Tests:
 
-- Explicit `skill_id` emits one `skill.activated` event with `trigger == "explicit"`.
+- Explicit `selected_skill_keys` emits one `skill.activated` event with `trigger == "explicit"`.
 - Deferred loaded skill emits one `skill.activated` event with `trigger == "pydantic_load_capability"`.
 - Repeated model requests do not duplicate the event for the same skill.
 - Event payload does not include the full `SKILL.md` body.
@@ -720,7 +720,7 @@ Changes:
 
 - Keep parser coverage for policy sections if `parse_skill_md` remains as the package parser foundation.
 - Replace `test_agent_runtime_activates_progressive_skill_and_filters_tools` with a test that constructs a `RunContext` containing `loaded_capability_ids={"skill:report-helper"}` and asserts the toolset filters tools.
-- Add an integration test for explicit skill activation through `skill_id`.
+- Add an integration test for explicit skill activation through `selected_skill_keys`.
 - Add an integration test for Pydantic-loaded skill behavior. If `TestModel` cannot reliably exercise framework-managed `load_capability`, test the Aithru boundary directly by creating a `RunContext` with `loaded_capability_ids` and asserting the same visible tools and bridge denial behavior. Keep one smoke test around Pydantic capability construction.
 
 Example replacement test:
@@ -823,7 +823,7 @@ Documentation updates:
 
 - Replace `public/custom` language with `builtin/user`.
 - State that `name` and `description` are discovery metadata and the body is progressively loaded.
-- Document explicit `skill_id` as active from run start.
+- Document explicit `selected_skill_keys` as active from run start.
 - Document unselected skills as Pydantic AI deferred capabilities.
 - State that skills never execute tools directly and all real actions pass through the Aithru Capability Router.
 - Document conservative multi-skill policy composition.
@@ -862,7 +862,7 @@ Final acceptance:
 - User-private skills are editable and scoped to the current user.
 - Registry entries are indexes over packages, not the source of instructions.
 - Pydantic AI deferred capabilities are the model-decided skill loading path.
-- Explicit `skill_id` remains supported and active from the first request.
+- Explicit `selected_skill_keys` remains supported and active from the first request.
 - Tool exposure and tool execution both use the same effective skill policy.
 - All real tool actions still pass through the Aithru Capability Router.
 - Backend verification commands pass, or any failures are documented with the failing test names and error causes.

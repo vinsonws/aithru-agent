@@ -78,7 +78,7 @@ loader and registry.
   registry and injected into the native harness context.
 - `name` and `description` are discovery metadata only.
 - The `SKILL.md` body is loaded only after the skill is selected or triggered by the runtime.
-- User-selected skills (via `skill_id`) are active from run start.
+- User-selected skills (via `selected_skill_keys`) are active from run start.
 - Unselected visible skills may be progressively disclosed by Aithru-owned
   runtime policy.
 - Aithru does not add a custom `skill.activate` business tool.
@@ -123,7 +123,7 @@ When multiple skills are loaded in the same run, policies combine conservatively
 - Registry entries are indexes over packages
 - `builtin` and `user` as the only supported MVP sources
 - Aithru-owned progressive disclosure for unselected skills
-- Explicit `skill_id` for user-selected skills
+- Explicit `selected_skill_keys` for user-selected skills
 - Tool policy enforced before exposure and again before execution through the
   capability router
 
