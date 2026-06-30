@@ -260,7 +260,7 @@ describe("ModelTurnLoop", () => {
     const completed = await loop.execute(run);
 
     expect(completed.status).toBe("completed");
-    expect(store.listApprovals(run.id)).toEqual([]);
+    expect(store.listApprovals({ run_id: run.id })).toEqual([]);
     expect(store.listWorkspaceFiles(run.workspace_id)).toEqual([]);
     expect(store.listEvents(run.id).map((event) => event.type)).toContain("tool.input_delta");
     expect(store.listEvents(run.id).map((event) => event.type)).not.toContain("tool.proposed");
