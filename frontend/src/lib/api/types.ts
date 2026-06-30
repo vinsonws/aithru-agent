@@ -86,7 +86,11 @@ export type AgentPresentationSource = S["AgentPresentationSource"];
 // Request bodies
 export type CreateThreadRequest = S["CreateThreadRequest"];
 export type UpdateThreadRequest = S["UpdateThreadRequest"];
-export type CreateRunRequest = S["CreateRunRequest"];
+type GeneratedCreateRunRequest = S["CreateRunRequest"];
+
+export type CreateRunRequest = Omit<GeneratedCreateRunRequest, "skill_id"> & {
+  selected_skill_keys?: string[] | null;
+};
 export type CreateMemoryEntryRequest = S["CreateMemoryEntryRequest"];
 export type CreateUserSkillPackageRequest = S["CreateUserSkillPackageRequest"];
 export type UpdateUserSkillPackageRequest = S["UpdateUserSkillPackageRequest"];

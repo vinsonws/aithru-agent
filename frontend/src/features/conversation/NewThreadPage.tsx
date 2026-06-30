@@ -54,6 +54,7 @@ export function NewThreadPage() {
   const createMutation = useMutation({
     mutationFn: async (vars: {
       taskMsgText: string;
+      selectedSkillKeys: string[];
       profileKey: string | null;
       reasoningLevel: ComposerReasoningLevel;
       permissionPolicy: ComposerPermissionPolicyId;
@@ -74,7 +75,7 @@ export function NewThreadPage() {
         actor_user_id: context.user?.id ?? "user_1",
         scopes: buildComposerScopes(vars.permissionPolicy),
         thread_id: thread.id,
-        skill_id: null,
+        selected_skill_keys: vars.selectedSkillKeys,
         harness_options: harnessOptions ?? null,
         wait_for_completion: false,
         persist_task_msg_message: true,
@@ -110,6 +111,7 @@ export function NewThreadPage() {
       : reasoningLevel;
     createMutation.mutate({
       taskMsgText: command.taskMsg,
+      selectedSkillKeys: command.selectedSkillKeys ?? [],
       profileKey,
       reasoningLevel: nextReasoning,
       permissionPolicy,

@@ -93,6 +93,7 @@ export function ChatComposer({
   const createRun = useMutation({
     mutationFn: async (vars: {
       taskMsg: string;
+      selectedSkillKeys: string[];
       profileKey: string | null;
       reasoningLevel: ComposerReasoningLevel;
       permissionPolicy: ComposerPermissionPolicyId;
@@ -109,7 +110,7 @@ export function ChatComposer({
         actor_user_id: context.user?.id ?? "user_1",
         scopes: buildComposerScopes(vars.permissionPolicy),
         thread_id: threadId,
-        skill_id: null,
+        selected_skill_keys: vars.selectedSkillKeys,
         harness_options: harnessOptions ?? null,
         wait_for_completion: false,
         persist_task_msg_message: true,
@@ -154,6 +155,7 @@ export function ChatComposer({
       : reasoningLevel;
     createRun.mutate({
       taskMsg: command.taskMsg,
+      selectedSkillKeys: command.selectedSkillKeys ?? [],
       profileKey,
       reasoningLevel: nextReasoning,
       permissionPolicy,

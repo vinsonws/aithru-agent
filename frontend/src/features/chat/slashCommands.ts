@@ -1,7 +1,7 @@
 import type { ComposerMode } from "./composerState";
 
 export type SlashCommandResult =
-  | { kind: "send"; taskMsg: string; modeOverride?: ComposerMode }
+  | { kind: "send"; taskMsg: string; modeOverride?: ComposerMode; selectedSkillKeys?: string[] }
   | { kind: "draft"; draft: string; modeOverride?: ComposerMode }
   | { kind: "local"; action: "status" | "clear" };
 
@@ -44,6 +44,11 @@ export function parseSlashCommand(
 
   if (command === "/clear") {
     return { kind: "local", action: "clear" };
+  }
+
+  const skillKey = command.slice(1);
+  if (/^[a-z0-9][a-z0-9-]*$/.test(skillKey)) {
+    return { kind: "send", taskMsg: body || input, selectedSkillKeys: [skillKey] };
   }
 
   return { kind: "send", taskMsg: input };

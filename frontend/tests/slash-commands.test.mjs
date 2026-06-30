@@ -65,10 +65,20 @@ test("/clear clears composer locally", async () => {
   });
 });
 
-test("unknown slash command is normal text", async () => {
+test("unknown slash token selects a skill and sends the remaining task", async () => {
+  const { parseSlashCommand } = await loadSlashCommands();
+  assert.deepEqual(parseSlashCommand("/deep-research climate risk", { activeRunTaskMsg: null }), {
+    kind: "send",
+    taskMsg: "climate risk",
+    selectedSkillKeys: ["deep-research"],
+  });
+});
+
+test("unknown slash command selects a skill", async () => {
   const { parseSlashCommand } = await loadSlashCommands();
   assert.deepEqual(parseSlashCommand("/unknown do something", { activeRunTaskMsg: null }), {
     kind: "send",
-    taskMsg: "/unknown do something",
+    taskMsg: "do something",
+    selectedSkillKeys: ["unknown"],
   });
 });
