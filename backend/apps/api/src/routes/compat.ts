@@ -442,6 +442,133 @@ function workspaceFile(file: any) {
   };
 }
 
+const workspaceFileSuffixActions = ["content", "download", "versions", "patch", "convert", "promote"] as const;
+type WorkspaceFileSuffixAction = (typeof workspaceFileSuffixActions)[number];
+type WorkspaceFileWildcardAction = WorkspaceFileSuffixAction | "read";
+
+function isWorkspaceFileSuffixAction(value: string | undefined): value is WorkspaceFileSuffixAction {
+  return typeof value === "string" && (workspaceFileSuffixActions as readonly string[]).includes(value);
+}
+
+function decodeWorkspacePathSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function workspaceFileWildcardTarget(request: FastifyRequest): {
+  workspaceId: string;
+  path: string;
+  action: WorkspaceFileWildcardAction;
+} | undefined {
+  const raw = params(request)["*"];
+  if (!raw) return undefined;
+  const segments = raw.split("/").filter(Boolean).map(decodeWorkspacePathSegment);
+  const suffix = segments.at(-1);
+  const action: WorkspaceFileWildcardAction = isWorkspaceFileSuffixAction(suffix) ? suffix : "read";
+  const pathSegments = action === "read" ? segments : segments.slice(0, -1);
+  if (pathSegments.length === 0) return undefined;
+  return {
+    workspaceId: params(request).workspace_id,
+    path: `/${pathSegments.join("/")}`,
+    action,
+  };
+}
+
+function applyWorkspaceFilePatch(request: FastifyRequest, reply: FastifyReply, workspaceId: string, path: string) {
+  const runtime = getRuntime();
+  const file = runtime.store.readFile(workspaceId, path);
+  if (!file) return notFound(reply, "Workspace file not found");
+  const before = file.version;
+  let content = file.content;
+  let replacements = 0;
+  for (const edit of ((request.body as any)?.edits ?? [])) {
+    const search = String(edit.search ?? edit.old_text ?? "");
+    const replace = String(edit.replace ?? edit.new_text ?? "");
+    if (!search || !content.includes(search)) continue;
+    content = edit.replace_all ? content.split(search).join(replace) : content.replace(search, replace);
+    replacements += 1;
+  }
+  const updated = runtime.store.writeFile(workspaceId, path, content);
+  return {
+    workspace_id: updated.workspace_id,
+    path: updated.path,
+    version_before: before,
+    version_after: updated.version,
+    file_version_before: before,
+    file_version_after: updated.version,
+    size_before: file.size,
+    size_after: updated.size,
+    replacement_count: replacements,
+    content_hash: null,
+  };
+}
+
+function workspaceFileWildcardRequest(request: FastifyRequest, reply: FastifyReply) {
+  const target = workspaceFileWildcardTarget(request);
+  if (!target) return notFound(reply, "Workspace file not found");
+  const runtime = getRuntime();
+
+  if (request.method === "GET") {
+    const file = runtime.store.readFile(target.workspaceId, target.path);
+    if (!file) return notFound(reply, "Workspace file not found");
+    if (target.action === "content") {
+      reply.header("content-type", "text/plain");
+      return file.content;
+    }
+    if (target.action === "download") {
+      reply.header("content-type", "application/octet-stream");
+      return file.content;
+    }
+    if (target.action === "versions") {
+      return [{
+        ...workspaceFile(file),
+        operation: "write",
+        created_at: file.created_at,
+      }];
+    }
+    if (target.action === "read") return { path: file.path, content: file.content, media_type: "text/plain" };
+  }
+
+  if (request.method === "PUT" && target.action === "read") {
+    const body = (request.body ?? {}) as any;
+    const file = runtime.store.writeFile(target.workspaceId, target.path, String(body.content ?? ""));
+    return workspaceFile(file);
+  }
+
+  if (request.method === "DELETE" && target.action === "read") {
+    runtime.store.deleteFile(target.workspaceId, target.path);
+    return { path: target.path };
+  }
+
+  if (request.method === "POST") {
+    if (target.action === "patch") return applyWorkspaceFilePatch(request, reply, target.workspaceId, target.path);
+    if (target.action === "convert") {
+      const file = runtime.store.readFile(target.workspaceId, target.path);
+      if (!file) return notFound(reply, "Workspace file not found");
+      return {
+        workspace_id: file.workspace_id,
+        source_path: file.path,
+        source_media_type: "text/plain",
+        source_size: file.size,
+        output_file: null,
+        skipped: true,
+      };
+    }
+    if (target.action === "promote") {
+      return {
+        workspace_id: target.workspaceId,
+        path: target.path,
+        promoted: false,
+      };
+    }
+  }
+
+  return notFound(reply, "Workspace file not found");
+}
+
 function workspaceSnapshot(workspaceId: string) {
   const runtime = getRuntime();
   const files = runtime.store.listWorkspaceFiles(workspaceId).map(workspaceFile);
@@ -1500,32 +1627,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     return { path: params(request).path };
   });
   register(app, "POST", "/api/workspaces/:workspace_id/files/:path/patch", async (request: FastifyRequest, reply: FastifyReply) => {
-    const runtime = getRuntime();
-    const file = runtime.store.readFile(params(request).workspace_id, params(request).path);
-    if (!file) return notFound(reply, "Workspace file not found");
-    const before = file.version;
-    let content = file.content;
-    let replacements = 0;
-    for (const edit of ((request.body as any)?.edits ?? [])) {
-      const search = String(edit.search ?? edit.old_text ?? "");
-      const replace = String(edit.replace ?? edit.new_text ?? "");
-      if (!search || !content.includes(search)) continue;
-      content = edit.replace_all ? content.split(search).join(replace) : content.replace(search, replace);
-      replacements += 1;
-    }
-    const updated = runtime.store.writeFile(params(request).workspace_id, params(request).path, content);
-    return {
-      workspace_id: updated.workspace_id,
-      path: updated.path,
-      version_before: before,
-      version_after: updated.version,
-      file_version_before: before,
-      file_version_after: updated.version,
-      size_before: file.size,
-      size_after: updated.size,
-      replacement_count: replacements,
-      content_hash: null,
-    };
+    return applyWorkspaceFilePatch(request, reply, params(request).workspace_id, params(request).path);
   });
   register(app, "POST", "/api/workspaces/:workspace_id/files/:path/convert", async (request: FastifyRequest, reply: FastifyReply) => {
     const file = getRuntime().store.readFile(params(request).workspace_id, params(request).path);
@@ -1544,6 +1646,10 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     path: params(request).path,
     promoted: false,
   }));
+  register(app, "GET", "/api/workspaces/:workspace_id/files/*", workspaceFileWildcardRequest);
+  register(app, "PUT", "/api/workspaces/:workspace_id/files/*", workspaceFileWildcardRequest);
+  register(app, "DELETE", "/api/workspaces/:workspace_id/files/*", workspaceFileWildcardRequest);
+  register(app, "POST", "/api/workspaces/:workspace_id/files/*", workspaceFileWildcardRequest);
   register(app, "POST", "/api/workspaces/:workspace_id/uploads", async (request: FastifyRequest) => {
     const body = (request.body ?? {}) as any;
     const path = String(body.path ?? `upload_${nanoid(8)}.txt`);

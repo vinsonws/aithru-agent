@@ -128,6 +128,21 @@ describe("Threads API", () => {
   });
 });
 
+describe("Workspaces API", () => {
+  it("GET /api/workspaces/:id/files/*/content reads nested workspace file paths", async () => {
+    const workspaceId = "ws_nested_file_content";
+    getRuntime().store.writeFile(workspaceId, "/outputs/epoch-the-shape-of-now.html", "<html>ok</html>");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${workspaceId}/files/outputs/epoch-the-shape-of-now.html/content`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("<html>ok</html>");
+  });
+});
+
 describe("Runs API", () => {
   let runId: string;
 
