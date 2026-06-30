@@ -5,31 +5,7 @@ import { ModelTurnLoop, emitSkillActivated } from "@aithru-agent/harness";
 import { TestModelAdapter } from "@aithru-agent/model";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
-import { SkillLoader, SkillRegistry, SkillResolver } from "@aithru-agent/skills";
-import { writeFileSync, mkdirSync, rmSync } from "fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-
-function makeSkillDir(): string {
-  const dir = join(tmpdir(), `skill_ctx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function setupResolver(skillContent: string, skillKey: string) {
-  const root = makeSkillDir();
-  try {
-    mkdirSync(join(root, skillKey));
-    writeFileSync(join(root, skillKey, "SKILL.md"), skillContent);
-    const registry = new SkillRegistry();
-    registry.loadBuiltinPackages(root);
-    const store = new InMemoryStore();
-    const resolver = new SkillResolver(registry, store);
-    return { resolver, store, root };
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}
+import { SkillRegistry, SkillResolver } from "@aithru-agent/skills";
 
 function createRun(): AgentRun {
   return {
@@ -52,25 +28,38 @@ function createRun(): AgentRun {
   };
 }
 
-const SKILL_MD = [
-  "---",
-  "name: File Report",
-  "description: Read workspace files and produce a report.",
-  "allowed_tools:",
-  "  - workspace.read_file",
-  "  - workspace.list_files",
-  "  - workspace.write_file",
-  "denied_tools:",
-  "  - workspace.delete_file",
-  "---",
-  "# File Report Skill",
-  "",
-  "Read files and write a report.",
-].join("\n");
-
 describe("ModelTurnLoop skill context", () => {
-  it("injects active skill instructions from skill.activated events", async () => {
-    const { resolver, store } = setupResolver(SKILL_MD, "file-report");
+  it("includes active skill instructions and visible catalog metadata without leaking inactive instructions", async () => {
+    const store = new InMemoryStore();
+    const registry = new SkillRegistry();
+    registry.register({
+      key: "file-report",
+      path: "/skills/file-report",
+      name: "File Report",
+      description: "Read workspace files and produce a report.",
+      version: "0.0.0",
+      status: "published",
+      enabled: true,
+      allowed_tools: ["workspace.read_file", "workspace.list_files", "workspace.write_file"],
+      denied_tools: ["workspace.delete_file"],
+      instructions: "Read files and write a report.",
+      resources: { references: [], scripts: [], assets: [], examples: [] },
+    });
+    registry.register({
+      key: "note-taker",
+      path: "/skills/note-taker",
+      name: "Note Taker",
+      description: "Capture concise notes.",
+      version: "0.0.0",
+      status: "published",
+      enabled: true,
+      allowed_tools: [],
+      denied_tools: [],
+      instructions: "Do not include this body before activation.",
+      resources: { references: [], scripts: [], assets: [], examples: [] },
+    });
+
+    const resolver = new SkillResolver(registry, store);
     const eventWriter = new AgentEventWriter(store);
     const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, resolver);
     const run = createRun();
@@ -88,7 +77,8 @@ describe("ModelTurnLoop skill context", () => {
       deniedTools: ["workspace.delete_file"],
     });
 
-    let capturedMessages: any[] = [];
+    let systemMessage = "";
+    let contextStats: Record<string, unknown> = {};
     const loop = new ModelTurnLoop({
       store,
       eventWriter,
@@ -96,7 +86,8 @@ describe("ModelTurnLoop skill context", () => {
       skillResolver: resolver,
       modelAdapter: new TestModelAdapter([
         (input) => {
-          capturedMessages = input.messages;
+          systemMessage = input.messages.find((message) => message.role === "system")?.content ?? "";
+          contextStats = input.context;
           return [{ type: "text_delta", delta: "done" }, { type: "completed" }];
         },
       ]),
@@ -104,16 +95,18 @@ describe("ModelTurnLoop skill context", () => {
 
     await loop.execute(run);
 
-    const systemMsg = capturedMessages.find((m) => m.role === "system");
-    expect(systemMsg.content).toContain("Active skills:");
-    expect(systemMsg.content).toContain("## File Report");
+    expect(systemMessage).toContain("Active skills:");
+    expect(systemMessage).toContain("## File Report");
+    expect(systemMessage).toContain("Available skills:");
+    expect(systemMessage).toContain("- file-report: File Report — Read workspace files and produce a report.");
+    expect(systemMessage).toContain("- note-taker: Note Taker — Capture concise notes.");
+    expect(systemMessage).not.toContain("Do not include this body before activation.");
+    expect(contextStats.active_skill_keys).toEqual(["file-report"]);
+    expect(contextStats.visible_skill_count).toBe(2);
+    expect(JSON.stringify(contextStats)).not.toContain("Read files and write a report.");
+    expect(JSON.stringify(contextStats)).not.toContain("Do not include this body before activation.");
 
-    const ctxEvents = store.listEvents(run.id).filter((e) => e.type === EVENT_TYPES.CONTEXT_PACKET_BUILT);
+    const ctxEvents = store.listEvents(run.id).filter((event) => event.type === EVENT_TYPES.CONTEXT_PACKET_BUILT);
     expect(ctxEvents.length).toBeGreaterThanOrEqual(1);
-    for (const evt of ctxEvents) {
-      const stats = evt.payload as Record<string, unknown>;
-      expect(stats.active_skill_keys).toEqual(["file-report"]);
-      expect(JSON.stringify(stats)).not.toContain("Read files and write a report.");
-    }
   });
 });

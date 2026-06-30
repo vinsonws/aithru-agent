@@ -12,3 +12,24 @@ Implemented:
 Tests:
 - `cd backend && npm run test -- tests/model/skill-context.test.ts tests/model/skill-load-tool.test.ts`
 - `cd backend && npm run typecheck`
+
+## Review Fix: Missing Test Coverage
+
+Status: DONE
+
+Implemented:
+- Added `skill.load` coverage for already-active skills, unknown keys, and missing or blank keys.
+- Asserted failed `skill.load` results are returned to the next model turn without failing the run.
+- Kept existing catalog/context assertions for visible skill metadata, `visible_skill_count`, and no instruction-body leakage in stats.
+
+Tests:
+- `cd backend && npm run test -- tests/model/skill-context.test.ts tests/model/skill-load-tool.test.ts`
+- `cd backend && npm run typecheck`
+
+Files changed:
+- `backend/tests/model/skill-context.test.ts`
+- `backend/tests/model/skill-load-tool.test.ts`
+- `.superpowers/sdd/task-5-report.md`
+
+Concerns:
+- None.
