@@ -27,6 +27,15 @@ export class OpenAICompatibleAdapter implements AgentModelAdapter {
         yield { type: "text_delta", delta: String(event.delta ?? "") };
       } else if (event.type === "response.reasoning.delta") {
         yield { type: "reasoning_delta", delta: String(event.delta ?? "") };
+      } else if (event.type === "response.function_call_arguments.delta") {
+        yield {
+          type: "tool_input_delta",
+          inputStreamId: String(event.item_id),
+          toolCallId: undefined,
+          index: undefined,
+          name: undefined,
+          delta: String(event.delta ?? ""),
+        };
       } else if (
         event.type === "response.output_item.done" &&
         event.item?.type === "function_call"
@@ -34,6 +43,7 @@ export class OpenAICompatibleAdapter implements AgentModelAdapter {
         yield {
           type: "tool_call",
           id: String(event.item.call_id ?? event.item.id),
+          inputStreamId: String(event.item.id ?? event.item.call_id),
           name: String(event.item.name),
           input: parseToolInput(event.item.arguments),
         };

@@ -38,6 +38,7 @@ export const EVENT_TYPES = {
   MESSAGE_DELTA: "message.delta",
   MESSAGE_COMPLETED: "message.completed",
   // Tool lifecycle
+  TOOL_INPUT_DELTA: "tool.input_delta",
   TOOL_PROPOSED: "tool.proposed",
   TOOL_STARTED: "tool.started",
   TOOL_COMPLETED: "tool.completed",

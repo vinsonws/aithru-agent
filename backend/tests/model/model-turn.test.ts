@@ -227,6 +227,92 @@ describe("ModelTurnLoop", () => {
     expect(eventTypes).toContain("run.completed");
   });
 
+  it("forwards streamed tool input without executing or approving a tool", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = createRun();
+    store.createRun(run);
+
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          {
+            type: "tool_input_delta",
+            inputStreamId: "chat:0",
+            toolCallId: "call_1",
+            index: 0,
+            name: "workspace.write_file",
+            delta: '{"path":"/draft.md"',
+          },
+          { type: "completed" },
+        ],
+        (input) => {
+          expect(input.toolResults.length).toBe(1);
+          return [{ type: "text_delta", delta: "done" }, { type: "completed" }];
+        },
+      ]),
+    });
+
+    const completed = await loop.execute(run);
+
+    expect(completed.status).toBe("completed");
+    expect(store.listApprovals(run.id)).toEqual([]);
+    expect(store.listWorkspaceFiles(run.workspace_id)).toEqual([]);
+    expect(store.listEvents(run.id).map((event) => event.type)).toContain("tool.input_delta");
+    expect(store.listEvents(run.id).map((event) => event.type)).not.toContain("tool.proposed");
+    expect(store.listEvents(run.id).map((event) => event.type)).not.toContain("tool.started");
+  });
+
+  it("carries input stream ids into final tool proposal events", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = createRun();
+    store.createRun(run);
+
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          {
+            type: "tool_input_delta",
+            inputStreamId: "chat:0",
+            toolCallId: "model_tc_1",
+            index: 0,
+            name: "todo.create",
+            delta: '{"title":"From stream"}',
+          },
+          {
+            type: "tool_call",
+            id: "model_tc_1",
+            inputStreamId: "chat:0",
+            name: "todo.create",
+            input: { title: "From stream" },
+          },
+          { type: "completed" },
+        ],
+        (input) => {
+          expect(input.toolResults.length).toBe(1);
+          return [{ type: "text_delta", delta: "done" }, { type: "completed" }];
+        },
+      ]),
+    });
+
+    const completed = await loop.execute(run);
+    const proposed = store
+      .listEvents(run.id)
+      .find((event) => event.type === "tool.proposed")!;
+
+    expect(completed.status).toBe("completed");
+    expect((proposed.payload as Record<string, unknown>).input_stream_id).toBe("chat:0");
+  });
+
   it("offers basic tools in every composer strength and todo tools only in plan strengths", async () => {
     const basicTools = [
       "workspace.list_files",

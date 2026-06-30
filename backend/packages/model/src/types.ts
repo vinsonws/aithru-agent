@@ -31,8 +31,17 @@ export type ModelTurnEvent =
   | { type: "text_delta"; delta: string }
   | { type: "reasoning_delta"; delta: string }
   | {
+      type: "tool_input_delta";
+      inputStreamId: string;
+      toolCallId?: string;
+      index?: number;
+      name?: string;
+      delta: string;
+    }
+  | {
       type: "tool_call";
       id: string;
+      inputStreamId?: string;
       name: string;
       input: Record<string, unknown>;
     }

@@ -536,7 +536,7 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
     let content = "";
     const toolCalls = new Map<
       number,
-      { id: string; name: string; arguments: string }
+      { id: string; name: string; arguments: string; inputStreamId: string }
     >();
     for await (const chunk of stream as any) {
       if (chunk?.usage) {
@@ -560,12 +560,34 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
         }
         for (const toolCall of delta.tool_calls ?? []) {
           const index = Number(toolCall.index ?? 0);
-          const current = toolCalls.get(index) ?? { id: "", name: "", arguments: "" };
+          const inputStreamId = `chat:${index}`;
+          const current = toolCalls.get(index) ?? {
+            id: "",
+            name: "",
+            arguments: "",
+            inputStreamId,
+          };
+          const argumentDelta = String(toolCall.function?.arguments ?? "");
+          const nextId = String(toolCall.id ?? current.id);
+          const nextProviderName = String(toolCall.function?.name ?? current.name);
           toolCalls.set(index, {
-            id: String(toolCall.id ?? current.id),
-            name: String(toolCall.function?.name ?? current.name),
-            arguments: `${current.arguments}${toolCall.function?.arguments ?? ""}`,
+            id: nextId,
+            name: nextProviderName,
+            arguments: `${current.arguments}${argumentDelta}`,
+            inputStreamId,
           });
+          if (argumentDelta) {
+            yield {
+              type: "tool_input_delta",
+              inputStreamId,
+              toolCallId: nextId || undefined,
+              index,
+              name: nextProviderName
+                ? aithruToolName(input, nextProviderName)
+                : undefined,
+              delta: argumentDelta,
+            };
+          }
         }
       }
     }
@@ -574,6 +596,7 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
       yield {
         type: "tool_call",
         id: toolCall.id || toolCall.name,
+        inputStreamId: toolCall.inputStreamId,
         name: aithruToolName(input, toolCall.name),
         input: parseToolInput(toolCall.arguments),
       };
@@ -589,7 +612,10 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
       buildOpenAIResponsesRequest(this.options, input) as any,
     );
     let content = "";
-    const toolCalls = new Map<string, { id: string; name: string; arguments: string }>();
+    const toolCalls = new Map<
+      string,
+      { id: string; name: string; arguments: string; inputStreamId: string }
+    >();
     for await (const event of stream as any) {
       if (event.type === "response.output_text.delta") {
         content += String(event.delta ?? "");
@@ -599,20 +625,59 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
         event.type === "response.reasoning_summary_text.delta"
       ) {
         yield { type: "reasoning_delta", delta: String(event.delta ?? "") };
+      } else if (event.type === "response.function_call_arguments.delta") {
+        const inputStreamId = String(event.item_id);
+        const current = toolCalls.get(inputStreamId) ?? {
+          id: "",
+          name: "",
+          arguments: "",
+          inputStreamId,
+        };
+        const argumentDelta = String(event.delta ?? "");
+        toolCalls.set(inputStreamId, {
+          ...current,
+          arguments: `${current.arguments}${argumentDelta}`,
+        });
+        if (argumentDelta) {
+          yield {
+            type: "tool_input_delta",
+            inputStreamId,
+            toolCallId: current.id || undefined,
+            index: undefined,
+            name: current.name ? aithruToolName(input, current.name) : undefined,
+            delta: argumentDelta,
+          };
+        }
       } else if (event.type === "response.function_call_arguments.done") {
-        toolCalls.set(String(event.item_id), {
-          id: String(event.item_id),
-          name: String(event.name),
-          arguments: String(event.arguments ?? ""),
+        const inputStreamId = String(event.item_id);
+        const current = toolCalls.get(inputStreamId) ?? {
+          id: "",
+          name: "",
+          arguments: "",
+          inputStreamId,
+        };
+        toolCalls.set(inputStreamId, {
+          id: String((event as any).call_id ?? current.id ?? event.item_id),
+          name: String(event.name ?? current.name),
+          arguments: String(event.arguments ?? current.arguments),
+          inputStreamId,
         });
       } else if (
         event.type === "response.output_item.done" &&
         event.item?.type === "function_call"
       ) {
-        toolCalls.set(String(event.item.id ?? event.item.call_id), {
-          id: String(event.item.call_id ?? event.item.id),
-          name: String(event.item.name),
-          arguments: String(event.item.arguments ?? ""),
+        const inputStreamId = String(event.item.id ?? event.item.call_id);
+        const current = toolCalls.get(inputStreamId) ?? {
+          id: "",
+          name: "",
+          arguments: "",
+          inputStreamId,
+        };
+        toolCalls.set(inputStreamId, {
+          id: String(event.item.call_id ?? event.item.id ?? current.id),
+          name: String(event.item.name ?? current.name),
+          arguments: String(event.item.arguments ?? current.arguments),
+          inputStreamId,
         });
       } else if (event.type === "response.completed") {
         const usage = event.response?.usage;
@@ -642,6 +707,7 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
       yield {
         type: "tool_call",
         id: toolCall.id,
+        inputStreamId: toolCall.inputStreamId,
         name: aithruToolName(input, toolCall.name),
         input: parseToolInput(toolCall.arguments),
       };

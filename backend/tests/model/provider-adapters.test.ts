@@ -35,9 +35,67 @@ describe("provider model adapters", () => {
     const events = await collectModelEvents(adapter.createTurn(input));
     expect(events).toEqual([
       { type: "text_delta", delta: "Hello" },
-      { type: "tool_call", id: "call_1", name: "todo.create", input: { title: "x" } },
+      {
+        type: "tool_call",
+        id: "call_1",
+        inputStreamId: "call_1",
+        name: "todo.create",
+        input: { title: "x" },
+      },
       { type: "usage", inputTokens: 1, outputTokens: 2, totalTokens: 3 },
       { type: "completed", content: undefined },
+    ]);
+  });
+
+  it("normalizes OpenAI-compatible argument deltas", async () => {
+    const adapter = new OpenAICompatibleAdapter(() => [
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "item_1",
+        delta: '{"title"',
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "item_1",
+        delta: ':"x"}',
+      },
+      {
+        type: "response.output_item.done",
+        item: {
+          id: "item_1",
+          type: "function_call",
+          call_id: "call_1",
+          name: "todo.create",
+          arguments: '{"title":"x"}',
+        },
+      },
+    ]);
+
+    const events = await collectModelEvents(adapter.createTurn(input));
+    expect(events).toEqual([
+      {
+        type: "tool_input_delta",
+        inputStreamId: "item_1",
+        toolCallId: undefined,
+        index: undefined,
+        name: undefined,
+        delta: '{"title"',
+      },
+      {
+        type: "tool_input_delta",
+        inputStreamId: "item_1",
+        toolCallId: undefined,
+        index: undefined,
+        name: undefined,
+        delta: ':"x"}',
+      },
+      {
+        type: "tool_call",
+        id: "call_1",
+        inputStreamId: "item_1",
+        name: "todo.create",
+        input: { title: "x" },
+      },
     ]);
   });
 

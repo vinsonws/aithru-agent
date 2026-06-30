@@ -18,6 +18,7 @@ export interface ToolCallStep {
   id?: string;
   name: string;
   input: Record<string, unknown>;
+  inputStreamId?: string;
   requireApproval?: boolean;
   autoApprove?: boolean;
 }
@@ -156,7 +157,12 @@ export class RunLoop {
       this.runId,
       this.threadId,
       EVENT_TYPES.TOOL_PROPOSED,
-      { tool_call_id: toolCallId, name: step.name, input: step.input },
+      {
+        tool_call_id: toolCallId,
+        name: step.name,
+        input: step.input,
+        input_stream_id: step.inputStreamId ?? null,
+      },
     );
 
     // 2. Prepare (check policy)

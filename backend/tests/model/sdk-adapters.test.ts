@@ -284,9 +284,150 @@ describe("SDK model adapters", () => {
     expect(events).toContainEqual({
       type: "tool_call",
       id: "call_1",
+      inputStreamId: "chat:0",
       name: "todo.create",
       input: { title: "Ship it" },
     });
+  });
+
+  it("streams OpenAI chat tool argument deltas before the final tool call", async () => {
+    async function* chunks() {
+      yield {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_1",
+                  function: { name: "todo_create", arguments: '{"title"' },
+                },
+              ],
+            },
+          },
+        ],
+      };
+      yield {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: { arguments: ':"Ship it"}' },
+                },
+              ],
+            },
+          },
+        ],
+      };
+    }
+
+    const adapter = new OpenAISdkModelAdapter({
+      apiKey: "test",
+      provider: "openai",
+      model: "gpt-test",
+    }) as any;
+
+    const events = await collectModelEvents(
+      adapter.createChatCompletionTurn(
+        { chat: { completions: { create: () => chunks() } } },
+        inputWithTools(),
+      ),
+    );
+
+    expect(events).toEqual([
+      {
+        type: "tool_input_delta",
+        inputStreamId: "chat:0",
+        toolCallId: "call_1",
+        index: 0,
+        name: "todo.create",
+        delta: '{"title"',
+      },
+      {
+        type: "tool_input_delta",
+        inputStreamId: "chat:0",
+        toolCallId: "call_1",
+        index: 0,
+        name: "todo.create",
+        delta: ':"Ship it"}',
+      },
+      {
+        type: "tool_call",
+        id: "call_1",
+        inputStreamId: "chat:0",
+        name: "todo.create",
+        input: { title: "Ship it" },
+      },
+      { type: "completed", content: "" },
+    ]);
+  });
+
+  it("streams OpenAI Responses argument deltas with the final input stream id", async () => {
+    async function* events() {
+      yield {
+        type: "response.function_call_arguments.delta",
+        item_id: "item_1",
+        delta: '{"title"',
+      };
+      yield {
+        type: "response.function_call_arguments.delta",
+        item_id: "item_1",
+        delta: ':"Ship it"}',
+      };
+      yield {
+        type: "response.output_item.done",
+        item: {
+          id: "item_1",
+          type: "function_call",
+          call_id: "call_1",
+          name: "todo_create",
+          arguments: '{"title":"Ship it"}',
+        },
+      };
+    }
+
+    const adapter = new OpenAISdkModelAdapter({
+      apiKey: "test",
+      provider: "openai",
+      model: "gpt-test",
+      metadata: { use_responses_api: true },
+    }) as any;
+
+    const modelEvents = await collectModelEvents(
+      adapter.createResponsesTurn(
+        { responses: { create: () => events() } },
+        inputWithTools(),
+      ),
+    );
+
+    expect(modelEvents).toEqual([
+      {
+        type: "tool_input_delta",
+        inputStreamId: "item_1",
+        index: undefined,
+        name: undefined,
+        toolCallId: undefined,
+        delta: '{"title"',
+      },
+      {
+        type: "tool_input_delta",
+        inputStreamId: "item_1",
+        index: undefined,
+        name: undefined,
+        toolCallId: undefined,
+        delta: ':"Ship it"}',
+      },
+      {
+        type: "tool_call",
+        id: "call_1",
+        inputStreamId: "item_1",
+        name: "todo.create",
+        input: { title: "Ship it" },
+      },
+      { type: "completed", content: "" },
+    ]);
   });
 
   it("replays recent tool results as native OpenAI chat transcript", () => {

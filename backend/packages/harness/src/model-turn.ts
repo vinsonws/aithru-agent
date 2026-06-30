@@ -103,6 +103,20 @@ export class ModelTurnLoop {
             { delta: event.delta },
             { visibility: VISIBILITY.DEBUG, source: { kind: "model" } },
           );
+        } else if (event.type === "tool_input_delta") {
+          this.deps.eventWriter.write(
+            run.id,
+            currentRun.thread_id ?? null,
+            EVENT_TYPES.TOOL_INPUT_DELTA,
+            {
+              input_stream_id: event.inputStreamId,
+              tool_call_id: event.toolCallId ?? null,
+              index: event.index ?? null,
+              name: event.name ?? null,
+              input_delta: event.delta,
+            },
+            { visibility: VISIBILITY.USER, source: { kind: "model" } },
+          );
         } else if (event.type === "usage") {
           this.deps.eventWriter.write(
             run.id,
@@ -122,6 +136,7 @@ export class ModelTurnLoop {
             id: event.id,
             name: event.name,
             input: event.input,
+            inputStreamId: event.inputStreamId,
           });
           if (call.result) nextToolResults.push({ ...call.result, input: event.input });
           if (call.approvalRequired) {
