@@ -64,9 +64,14 @@ function clampRightPanelWidth(width: number): number {
   return Math.min(MAX_RIGHT_PANEL_WIDTH, Math.max(MIN_RIGHT_PANEL_WIDTH, width));
 }
 
-function draftAutoOpenKey(activeRunId: string | null, fileId: string): string | null {
+function nextDraftToAutoOpen(
+  activeRunId: string | null,
+  draftWorkspaceFiles: Array<{ id: string; content: string }>,
+  handledRunIds: Set<string>,
+): { id: string; content: string } | null {
   if (!activeRunId) return null;
-  return `${activeRunId}:${fileId}`;
+  if (handledRunIds.has(activeRunId)) return null;
+  return draftWorkspaceFiles.find((file) => file.content.length > 0) ?? null;
 }
 
 function RouteContent({
@@ -88,7 +93,7 @@ function RouteContent({
   rightPanelWidth: number;
   onRightPanelWidthChange: (width: number) => void;
   openFileIds: string[];
-  onOpenFileIdsChange: (ids: string[]) => void;
+  onOpenFileIdsChange: React.Dispatch<React.SetStateAction<string[]>>;
   activeFileId: string | null;
   onActiveFileIdChange: (id: string | null) => void;
 }) {
@@ -139,7 +144,7 @@ function RouteContent({
     () => buildDraftWorkspaceFiles(streamState.toolInputDrafts ?? []),
     [streamState.toolInputDrafts],
   );
-  const openedDraftAutoOpenKeysRef = React.useRef<Set<string>>(new Set());
+  const handledDraftAutoOpenRunIdsRef = React.useRef<Set<string>>(new Set());
 
   const badges = buildRunCompanionBadges(streamState);
 
@@ -147,24 +152,22 @@ function RouteContent({
   const workspaceId = (activeRun?.workspace_id as string | undefined) ?? null;
 
   const handlePreviewFile = React.useCallback((fileId: string) => {
-    onOpenFileIdsChange(
-      openFileIds.includes(fileId) ? openFileIds : [...openFileIds, fileId],
-    );
+    onOpenFileIdsChange((current) => (
+      current.includes(fileId) ? current : [...current, fileId]
+    ));
     onActiveFileIdChange(fileId);
     onRightPanelChange("preview");
-  }, [onActiveFileIdChange, onOpenFileIdsChange, onRightPanelChange, openFileIds]);
+  }, [onActiveFileIdChange, onOpenFileIdsChange, onRightPanelChange]);
 
   React.useEffect(() => {
-    const draft = draftWorkspaceFiles.find(
-      (file) => {
-        const key = draftAutoOpenKey(activeRunId, file.id);
-        return file.content.length > 0 && key !== null && !openedDraftAutoOpenKeysRef.current.has(key);
-      },
+    const draft = nextDraftToAutoOpen(
+      activeRunId,
+      draftWorkspaceFiles,
+      handledDraftAutoOpenRunIdsRef.current,
     );
     if (!draft) return;
-    const key = draftAutoOpenKey(activeRunId, draft.id);
-    if (!key) return;
-    openedDraftAutoOpenKeysRef.current.add(key);
+    if (!activeRunId) return;
+    handledDraftAutoOpenRunIdsRef.current.add(activeRunId);
     handlePreviewFile(draft.id);
   }, [activeRunId, draftWorkspaceFiles, handlePreviewFile]);
 

@@ -162,27 +162,59 @@ test("app shell derives draft workspace files and auto-opens them once", async (
 
   assert.match(source, /buildDraftWorkspaceFiles/);
   assert.match(source, /draftWorkspaceFiles/);
-  assert.match(source, /openedDraftAutoOpenKeysRef/);
-  assert.match(source, /draftAutoOpenKey\(activeRunId, draft\.id\)/);
+  assert.match(source, /handledDraftAutoOpenRunIdsRef/);
+  assert.match(source, /nextDraftToAutoOpen\(/);
+  assert.match(source, /handledDraftAutoOpenRunIdsRef\.current/);
   assert.match(source, /handlePreviewFile\(draft\.id\)/);
   assert.match(source, /draftWorkspaceFiles=\{draftWorkspaceFiles\}/);
 });
 
-test("app shell scopes one-shot draft auto-open keys per run", async () => {
+test("app shell selects only the first non-empty draft for an unhandled run", async () => {
   const source = await readFile(appShellPath, "utf8");
-  const draftAutoOpenKey = appShellFunction(source, "draftAutoOpenKey");
+  const nextDraftToAutoOpen = appShellFunction(source, "nextDraftToAutoOpen");
 
-  assert.equal(draftAutoOpenKey(null, "ws-outputs/report.html"), null);
+  assert.equal(nextDraftToAutoOpen(null, [], new Set()), null);
   assert.equal(
-    draftAutoOpenKey("run-1", "ws-outputs/report.html"),
-    "run-1:ws-outputs/report.html",
+    nextDraftToAutoOpen(
+      "run-1",
+      [
+        { id: "ws-empty", content: "" },
+        { id: "ws-first", content: "first" },
+        { id: "ws-second", content: "second" },
+      ],
+      new Set(),
+    )?.id,
+    "ws-first",
   );
+});
+
+test("app shell ignores later drafts after a run has already auto-opened one", async () => {
+  const source = await readFile(appShellPath, "utf8");
+  const nextDraftToAutoOpen = appShellFunction(source, "nextDraftToAutoOpen");
+
   assert.equal(
-    draftAutoOpenKey("run-2", "ws-outputs/report.html"),
-    "run-2:ws-outputs/report.html",
+    nextDraftToAutoOpen(
+      "run-1",
+      [
+        { id: "ws-first", content: "first" },
+        { id: "ws-second", content: "second" },
+      ],
+      new Set(["run-1"]),
+    ),
+    null,
   );
-  assert.notEqual(
-    draftAutoOpenKey("run-1", "ws-outputs/report.html"),
-    draftAutoOpenKey("run-2", "ws-outputs/report.html"),
+});
+
+test("app shell lets a different run auto-open the same draft path once", async () => {
+  const source = await readFile(appShellPath, "utf8");
+  const nextDraftToAutoOpen = appShellFunction(source, "nextDraftToAutoOpen");
+
+  assert.equal(
+    nextDraftToAutoOpen(
+      "run-2",
+      [{ id: "ws-outputs/report.html", content: "second run" }],
+      new Set(["run-1"]),
+    )?.id,
+    "ws-outputs/report.html",
   );
 });

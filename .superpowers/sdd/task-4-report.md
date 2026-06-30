@@ -129,3 +129,63 @@ Output summary:
 pass 189
 fail 0
 ```
+
+## Fix follow-up: re-review finding
+
+### What I fixed
+
+- Replaced per-draft auto-open tracking with per-run handling in `frontend/src/AppShell.tsx`.
+- Added `nextDraftToAutoOpen(...)` to encode the actual rule:
+  - if the run is already handled, return `null`;
+  - otherwise pick the first non-empty draft in that run.
+- Mark the run handled only after a non-empty draft is actually chosen for auto-open.
+- Made `handlePreviewFile` stable by using the React state-updater form for `openFileIds`, so the effect no longer churns on file-tab changes.
+
+### Added/strengthened tests
+
+- Strengthened `frontend/tests/app-shell-actions.test.mjs` again by transpiling and executing the real `nextDraftToAutoOpen(...)` helper from `AppShell.tsx`.
+- Added behavior coverage proving:
+  - among multiple drafts in one run, only the first non-empty draft is selected;
+  - once a run is handled, later drafts in the same run are ignored;
+  - a different run can still auto-open its own first draft even when the draft id/path matches a prior run.
+
+### Fix TDD evidence
+
+#### RED
+
+Command:
+
+```bash
+cd frontend
+npm test -- tests/app-shell-actions.test.mjs tests/file-preview-drafts.test.mjs tests/run-files-view.test.mjs tests/use-run-stream.test.mjs
+```
+
+Output summary:
+
+```txt
+fail 4
+- app shell derives draft workspace files and auto-opens them once
+- app shell selects only the first non-empty draft for an unhandled run
+- app shell ignores later drafts after a run has already auto-opened one
+- app shell lets a different run auto-open the same draft path once
+```
+
+Why expected:
+
+- `AppShell.tsx` still used per-file tracking and had no helper expressing “first non-empty draft once per run,” so the strengthened tests correctly failed against the old behavior.
+
+#### GREEN
+
+Command:
+
+```bash
+cd frontend
+npm test -- tests/app-shell-actions.test.mjs tests/file-preview-drafts.test.mjs tests/run-files-view.test.mjs tests/use-run-stream.test.mjs
+```
+
+Output summary:
+
+```txt
+pass 191
+fail 0
+```
