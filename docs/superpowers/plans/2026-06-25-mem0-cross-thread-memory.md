@@ -132,16 +132,26 @@ from aithru_agent.memory import (
 
 
 def run_fixture() -> AgentRun:
+    # selected_skill_keys belongs on the create-run request, not on AgentRun state.
+    run_request = {
+        "org_id": "org_1",
+        "actor_user_id": "user_1",
+        "source": "api",
+        "task_msg": "Remember my preference.",
+        "workspace_id": "workspace_1",
+        "thread_id": "thread_1",
+        "selected_skill_keys": ["research"],
+        "scopes": ["agent.memory.read", "agent.memory.write"],
+    }
     return AgentRun(
         id="run_1",
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        task_msg="Remember my preference.",
-        workspace_id="workspace_1",
-        thread_id="thread_1",
-        selected_skill_keys=["research"],
-        scopes=["agent.memory.read", "agent.memory.write"],
+        org_id=run_request["org_id"],
+        actor_user_id=run_request["actor_user_id"],
+        source=run_request["source"],
+        task_msg=run_request["task_msg"],
+        workspace_id=run_request["workspace_id"],
+        thread_id=run_request["thread_id"],
+        scopes=run_request["scopes"],
         status="queued",
         started_at="2026-06-25T00:00:00Z",
     )
@@ -442,7 +452,9 @@ def identity_for_run(
     *,
     app_id: str,
     default_agent_id: str,
+    active_skill_keys: list[str],
 ) -> LongTermMemoryIdentity:
+    # active_skill_keys are derived upstream from skill.activated events.
     metadata = {
         "org_id": run.org_id,
         "actor_user_id": run.actor_user_id,
@@ -453,12 +465,12 @@ def identity_for_run(
     }
     if run.thread_id:
         metadata["thread_id"] = run.thread_id
-    if run.selected_skill_keys:
-        metadata["selected_skill_keys"] = run.selected_skill_keys
+    if active_skill_keys:
+        metadata["active_skill_keys"] = active_skill_keys
     return LongTermMemoryIdentity(
         user_id=f"{run.org_id}:{run.actor_user_id}",
         app_id=app_id,
-        agent_id=(run.selected_skill_keys[0] if run.selected_skill_keys else default_agent_id),
+        agent_id=(active_skill_keys[0] if active_skill_keys else default_agent_id),
         run_id=run.id,
         metadata=metadata,
     )
@@ -580,16 +592,26 @@ class FakeMem0Client:
 
 
 def run_fixture() -> AgentRun:
+    # selected_skill_keys belongs on the create-run request, not on AgentRun state.
+    run_request = {
+        "org_id": "org_1",
+        "actor_user_id": "user_1",
+        "source": "api",
+        "task_msg": "Use my preferences.",
+        "workspace_id": "workspace_1",
+        "thread_id": "thread_1",
+        "selected_skill_keys": ["research"],
+        "scopes": ["agent.memory.read", "agent.memory.write"],
+    }
     return AgentRun(
         id="run_1",
-        org_id="org_1",
-        actor_user_id="user_1",
-        source="api",
-        task_msg="Use my preferences.",
-        workspace_id="workspace_1",
-        thread_id="thread_1",
-        selected_skill_keys=["research"],
-        scopes=["agent.memory.read", "agent.memory.write"],
+        org_id=run_request["org_id"],
+        actor_user_id=run_request["actor_user_id"],
+        source=run_request["source"],
+        task_msg=run_request["task_msg"],
+        workspace_id=run_request["workspace_id"],
+        thread_id=run_request["thread_id"],
+        scopes=run_request["scopes"],
         status="queued",
         started_at="2026-06-25T00:00:00Z",
     )

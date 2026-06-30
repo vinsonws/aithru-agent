@@ -17,7 +17,7 @@
 - Do not give skills direct execution rights. Scripts, files, browser actions, network calls, workflow capabilities, and workspace writes must still pass through the Aithru Capability Router and its policies.
 - Recompute policy in both `AithruToolset.get_tools(ctx)` and `PydanticAIToolBridge.call_tool(ctx, tool_name, tool_input)`; prompt-only policy is not sufficient.
 - Combine multiple active skill policies conservatively: denied tools win, allowlists intersect, and workspace/memory/sandbox/approval/subagent restrictions never widen access.
-- Preserve existing explicit `selected_skill_keys` behavior: if the user selects a skill for a run, that skill is active from the first model request.
+- Preserve existing explicit `selected_skill_keys` request input: if the user selects a skill for a run request, that skill is active from the first model request.
 - For unselected visible skills, let the model decide through Pydantic AI `load_capability`; do not add a custom `skill.activate` business tool.
 - Keep user-private skills scoped to `org_id` plus `actor_user_id`.
 - Do not log secrets, credentials, or full sensitive skill resources in stream events.
@@ -506,9 +506,9 @@ def _skill_capabilities_for_run(deps: PydanticAgentDeps) -> list[AithruSkillCapa
 
 Worker behavior:
 
-- Resolve explicit `run.selected_skill_keys` as today; unresolved explicit skills still fail before tools execute.
+- Resolve explicit activation from `skill.activated` events emitted during run startup; unresolved explicit skills still fail before tools execute.
 - Populate `visible_skill_packages` from the package store for the current actor.
-- Set `explicit_skill_key` when `run.selected_skill_keys` is supplied.
+- Set `explicit_skill_key` when the run has an explicit `skill.activated` event.
 - Convert the explicit package to `AgentSkill` for existing `deps.skill` compatibility until all older drivers are migrated.
 
 Tests:
@@ -823,7 +823,7 @@ Documentation updates:
 
 - Replace `public/custom` language with `builtin/user`.
 - State that `name` and `description` are discovery metadata and the body is progressively loaded.
-- Document explicit `selected_skill_keys` as active from run start.
+- Document explicit `selected_skill_keys` request input as active from run start.
 - Document unselected skills as Pydantic AI deferred capabilities.
 - State that skills never execute tools directly and all real actions pass through the Aithru Capability Router.
 - Document conservative multi-skill policy composition.
@@ -862,7 +862,7 @@ Final acceptance:
 - User-private skills are editable and scoped to the current user.
 - Registry entries are indexes over packages, not the source of instructions.
 - Pydantic AI deferred capabilities are the model-decided skill loading path.
-- Explicit `selected_skill_keys` remains supported and active from the first request.
+- Explicit `selected_skill_keys` request input remains supported and active from the first request.
 - Tool exposure and tool execution both use the same effective skill policy.
 - All real tool actions still pass through the Aithru Capability Router.
 - Backend verification commands pass, or any failures are documented with the failing test names and error causes.

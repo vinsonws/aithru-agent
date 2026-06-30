@@ -47,7 +47,7 @@ export class ModelTurnLoop {
       const activeKeys = activeSkillKeysFromEvents(runEvents);
       const loadedSkills = activeKeys
         .map((key) => this.deps.skillResolver?.resolve(key, currentRun.org_id, currentRun.actor_user_id))
-        .filter((skill): skill is NonNullable<typeof skill> => skill !== null);
+        .filter((skill): skill is NonNullable<typeof skill> => skill != null);
       const catalog = this.deps.skillResolver?.listVisible(currentRun.org_id, currentRun.actor_user_id) ?? [];
       const contextPacket = buildModelContextPacket({
         run: currentRun,
