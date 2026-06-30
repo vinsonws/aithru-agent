@@ -21,6 +21,19 @@ test("FilePreviewPanel renders draft previews without workspace fetches", async 
   assert.match(source, /enabled: !!activeFile && activeFile\.canPreview && activeFile\.draftContent === undefined/);
 });
 
+test("FilePreviewPanel keeps draft HTML iframes script-disabled while persisted HTML previews stay script-enabled", async () => {
+  const source = await readFile(filePreviewPanelPath, "utf8");
+
+  assert.match(
+    source,
+    /if \(preview\.kind === "html" && preview\.content !== undefined\)[\s\S]*?srcDoc=\{preview\.content\}[\s\S]*?sandbox=""/,
+  );
+  assert.match(
+    source,
+    /if \(preview\.kind === "html" && preview\.url\)[\s\S]*?src=\{preview\.url\}[\s\S]*?sandbox="allow-scripts"/,
+  );
+});
+
 test("FileListPanel passes draft workspace files into run file views", async () => {
   const source = await readFile(fileListPanelPath, "utf8");
 

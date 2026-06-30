@@ -86,6 +86,7 @@ export class ModelTurnLoop {
         context: contextPacket.stats,
         tools: modelTools(tools),
         toolResults,
+        turnIndex: turn,
       });
 
       const nextToolResults: AgentModelToolResult[] = [];

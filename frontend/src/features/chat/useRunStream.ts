@@ -1037,6 +1037,29 @@ const STREAM_REVEAL_INTERVAL_MS = 16;
 const STREAM_REVEAL_CHARS_PER_TICK = 3;
 const STREAM_RECONNECT_DELAY_MS = 250;
 
+function toolCallSequence(tool: ToolCallEntry): number {
+  return tool.lastSequence ?? tool.sequence ?? 0;
+}
+
+function latestCompletedWorkspaceWriteFileSequence(state: RunStreamState): number {
+  return state.toolCalls
+    .filter((tool) => tool.toolName === "workspace.write_file" && tool.status === "completed")
+    .reduce((latest, tool) => Math.max(latest, toolCallSequence(tool)), 0);
+}
+
+export function collectRunFileInvalidationKeys(
+  runId: string | null,
+  state: RunStreamState,
+  lastInvalidatedSequence = 0,
+): unknown[][] {
+  const latestSequence = latestCompletedWorkspaceWriteFileSequence(state);
+  if (!runId || latestSequence <= lastInvalidatedSequence) return [];
+  return [
+    ["runs", runId, "snapshot", "files"],
+    ["workspaces"],
+  ];
+}
+
 export interface RunStreamClient {
   stream: (
     runId: string,
@@ -1238,6 +1261,7 @@ export function useRunStream(runId: string | null) {
   const [backfilledRunId, setBackfilledRunId] = React.useState<string | null>(null);
   const [streaming, setStreaming] = React.useState(false);
   const rawStateRef = React.useRef<RunStreamState>(initialState);
+  const lastFileInvalidationSequenceRef = React.useRef(0);
   const qc = useQueryClient();
 
   React.useEffect(() => {
@@ -1248,6 +1272,7 @@ export function useRunStream(runId: string | null) {
   React.useEffect(() => {
     if (!runId) {
       rawStateRef.current = initialState;
+      lastFileInvalidationSequenceRef.current = 0;
       setRawState(initialState);
       setDisplayState(initialState);
       setBackfilledRunId(null);
@@ -1256,6 +1281,7 @@ export function useRunStream(runId: string | null) {
     }
     let cancelled = false;
     rawStateRef.current = initialState;
+    lastFileInvalidationSequenceRef.current = 0;
     setRawState(initialState);
     setDisplayState(initialState);
     setBackfilledRunId(null);
@@ -1331,6 +1357,21 @@ export function useRunStream(runId: string | null) {
   }, [rawState]);
 
   // Invalidate run/thread queries when a run terminates so lists refresh.
+  React.useEffect(() => {
+    const invalidationKeys = collectRunFileInvalidationKeys(
+      runId,
+      rawState,
+      lastFileInvalidationSequenceRef.current,
+    );
+    if (invalidationKeys.length === 0) return;
+
+    lastFileInvalidationSequenceRef.current =
+      latestCompletedWorkspaceWriteFileSequence(rawState);
+    for (const queryKey of invalidationKeys) {
+      void qc.invalidateQueries({ queryKey });
+    }
+  }, [runId, rawState.toolCalls, qc]);
+
   React.useEffect(() => {
     if (isTerminalStatus(rawState.status)) {
       void qc.invalidateQueries({ queryKey: ["threads"] });

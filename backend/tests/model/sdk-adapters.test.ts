@@ -284,7 +284,7 @@ describe("SDK model adapters", () => {
     expect(events).toContainEqual({
       type: "tool_call",
       id: "call_1",
-      inputStreamId: "chat:0",
+      inputStreamId: "chat:0:0",
       name: "todo.create",
       input: { title: "Ship it" },
     });
@@ -339,7 +339,7 @@ describe("SDK model adapters", () => {
     expect(events).toEqual([
       {
         type: "tool_input_delta",
-        inputStreamId: "chat:0",
+        inputStreamId: "chat:0:0",
         toolCallId: "call_1",
         index: 0,
         name: "todo.create",
@@ -347,7 +347,7 @@ describe("SDK model adapters", () => {
       },
       {
         type: "tool_input_delta",
-        inputStreamId: "chat:0",
+        inputStreamId: "chat:0:0",
         toolCallId: "call_1",
         index: 0,
         name: "todo.create",
@@ -356,9 +356,103 @@ describe("SDK model adapters", () => {
       {
         type: "tool_call",
         id: "call_1",
-        inputStreamId: "chat:0",
+        inputStreamId: "chat:0:0",
         name: "todo.create",
         input: { title: "Ship it" },
+      },
+      { type: "completed", content: "" },
+    ]);
+  });
+
+  it("scopes OpenAI chat tool input stream ids by model turn", async () => {
+    async function* firstTurnChunks() {
+      yield {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_turn_3",
+                  function: { name: "todo_create", arguments: '{"title":"Turn 3"}' },
+                },
+              ],
+            },
+          },
+        ],
+      };
+    }
+
+    async function* secondTurnChunks() {
+      yield {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "call_turn_4",
+                  function: { name: "todo_create", arguments: '{"title":"Turn 4"}' },
+                },
+              ],
+            },
+          },
+        ],
+      };
+    }
+
+    const adapter = new OpenAISdkModelAdapter({
+      apiKey: "test",
+      provider: "openai",
+      model: "gpt-test",
+    }) as any;
+
+    const firstTurnEvents = await collectModelEvents(
+      adapter.createChatCompletionTurn(
+        { chat: { completions: { create: () => firstTurnChunks() } } },
+        { ...inputWithTools(), turnIndex: 3 },
+      ),
+    );
+    const secondTurnEvents = await collectModelEvents(
+      adapter.createChatCompletionTurn(
+        { chat: { completions: { create: () => secondTurnChunks() } } },
+        { ...inputWithTools(), turnIndex: 4 },
+      ),
+    );
+
+    expect(firstTurnEvents).toEqual([
+      {
+        type: "tool_input_delta",
+        inputStreamId: "chat:3:0",
+        toolCallId: "call_turn_3",
+        index: 0,
+        name: "todo.create",
+        delta: '{"title":"Turn 3"}',
+      },
+      {
+        type: "tool_call",
+        id: "call_turn_3",
+        inputStreamId: "chat:3:0",
+        name: "todo.create",
+        input: { title: "Turn 3" },
+      },
+      { type: "completed", content: "" },
+    ]);
+    expect(secondTurnEvents).toEqual([
+      {
+        type: "tool_input_delta",
+        inputStreamId: "chat:4:0",
+        toolCallId: "call_turn_4",
+        index: 0,
+        name: "todo.create",
+        delta: '{"title":"Turn 4"}',
+      },
+      {
+        type: "tool_call",
+        id: "call_turn_4",
+        inputStreamId: "chat:4:0",
+        name: "todo.create",
+        input: { title: "Turn 4" },
       },
       { type: "completed", content: "" },
     ]);

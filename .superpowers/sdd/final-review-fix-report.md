@@ -1,57 +1,95 @@
 # Final Review Fix Report
 
-## What changed
+## What I fixed
 
-### 1. Route `skill.load` through the capability boundary and shared tool lifecycle
+1. Draft HTML previews no longer execute scripts before approval/persistence.
+   - Changed `frontend/src/features/sidebar/panels/FilePreviewPanel.tsx` so `srcDoc` HTML drafts render in an iframe with `sandbox=""`.
+   - Kept the existing persisted-HTML URL iframe path script-enabled (`sandbox="allow-scripts"`).
 
-- Moved `skill.load` onto the production capability surface in `backend/packages/capabilities/src/production-router.ts`.
-- Added low-risk descriptor metadata so `skill.load` is listed by `CapabilityRouter.listTools()` like other tools.
-- Implemented `skill.load` execution inside `ProductionCapabilityRouter.executeToolCall()`:
-  - validates `key`,
-  - resolves only visible skills through `SkillResolver`,
-  - reuses active-skill event state to avoid duplicate activation,
-  - emits `skill.activated` during capability execution with a policy snapshot,
-  - returns structured tool success/error results.
-- Removed the `ModelTurnLoop` interception in `backend/packages/harness/src/model-turn.ts`, so model-requested `skill.load` now flows through `RunLoop.executeToolCall()` and emits the normal `tool.proposed` / `tool.started` / `tool.completed` or `tool.failed` events.
-- Removed the now-dead harness-local `skill.load` descriptor stub from `backend/packages/harness/src/skills.ts`.
+2. OpenAI Chat Completions tool input stream ids are now unique per model turn.
+   - Added optional `turnIndex?: number` to `AgentModelTurnInput`.
+   - Passed `turnIndex: turn` from `ModelTurnLoop`.
+   - Changed chat stream ids from `chat:${index}` to `chat:${input.turnIndex ?? 0}:${index}` so deltas and final tool calls stay bound within one turn.
 
-### 2. Derive effective skill policy from activation event snapshots
+3. File-bearing queries now refresh when `workspace.write_file` completes, even before terminal run state.
+   - Added a focused helper in `frontend/src/features/chat/useRunStream.ts` to detect newly completed `workspace.write_file` calls.
+   - Invalidates `["runs", runId, "snapshot", "files"]` and `["workspaces"]` once per newly completed write-file tool call.
+   - Kept the existing terminal run invalidation for `["threads"]` and `["runs"]`.
 
-- Added `skillPolicySnapshotsFromEvents()` in `backend/packages/capabilities/src/skill-state.ts`.
-- Changed `ProductionCapabilityRouter.skillPolicyForRun()` to build policy from `skill.activated` payload snapshots instead of re-resolving current registry state.
-- Malformed `skill.activated` policy payloads now fail closed by returning a deny-all effective policy.
-- Added focused tests proving policy remains enforced from the activation snapshot even when resolver state is unavailable.
+## TDD evidence
 
-### 3. Add retry fields to pure contracts `AgentRunSchema`
+### RED
 
-- Added `AgentRunRetryPolicySchema` and `AgentRunRetryStateSchema` to `backend/packages/contracts/src/schemas.ts`.
-- Added `retry_policy` and `retry_state` to `AgentRunSchema`.
-- Exported `AgentRunRetryPolicy` and `AgentRunRetryState` types from `backend/packages/contracts/src/types.ts`.
-- Added contract coverage proving retry fields validate under `AgentRunSchema`.
+- Backend:
+  - Command: `cd backend && npm run test -- tests/model/sdk-adapters.test.ts`
+  - Result: failed as expected with 3 failures.
+  - Why expected:
+    - chat stream ids were still `chat:0` instead of turn-scoped ids,
+    - delta/final tool-call ids were not turn-qualified,
+    - two model turns with tool index `0` still collided.
 
-### 4. Historical doc wording cleanup
+- Frontend:
+  - Command: `cd frontend && npm test -- tests/file-preview-drafts.test.mjs tests/use-run-stream.test.mjs`
+  - Result: failed as expected with 2 failures.
+  - Why expected:
+    - draft HTML preview still used `sandbox="allow-scripts"`,
+    - `collectRunFileInvalidationKeys` did not exist yet, so pre-terminal file refresh behavior was missing.
 
-- Updated `docs/superpowers/plans/2026-06-24-agent-chat-workbench-p0.md` so:
-  - `selected_skill_keys` is described as request input only,
-  - active/loaded skills are described as derived from `skill.activated` events.
+### GREEN
 
-## Commands run and outcomes
+- Backend:
+  - Command: `cd backend && npm run test -- tests/model/sdk-adapters.test.ts`
+  - Result: passed (`14` tests).
 
-- `rg -n "skill_id" backend frontend docs README.md`
-  - no output, exit 1 as expected
+- Frontend:
+  - Command: `cd frontend && npm test -- tests/file-preview-drafts.test.mjs tests/use-run-stream.test.mjs`
+  - Result: passed (`193` tests via the frontend test script).
+
+## Verification commands and results
+
+### Required focused verification
+
 - `cd backend && npm run typecheck`
-  - passed
-- `cd backend && npx vitest run tests/model/skill-load-tool.test.ts tests/capability/skill-policy.test.ts tests/contracts/schemas.test.ts`
-  - passed
-- `cd backend && npx vitest run tests/model/model-turn.test.ts tests/model/skill-context.test.ts`
-  - passed
+  - Passed.
+- `cd backend && npm run test -- tests/model/sdk-adapters.test.ts`
+  - Passed (`14` tests).
+- `cd frontend && npm run typecheck`
+  - Passed.
+- `cd frontend && npm test -- tests/file-preview-drafts.test.mjs tests/use-run-stream.test.mjs`
+  - Passed (`193` tests via the frontend test script).
+
+### Additional verification run
+
 - `cd backend && npm run test`
-  - passed (`36` files, `217` tests)
+  - Passed (`36` files, `228` tests).
 - `cd backend && npm run check:no-python-backend`
-  - passed
+  - Passed.
 - `cd backend && npm run examples:file-report`
-  - passed
+  - Passed.
+- `cd frontend && npm test`
+  - Passed (`193` tests).
+
+## Files changed
+
+- `backend/packages/model/src/types.ts`
+- `backend/packages/harness/src/model-turn.ts`
+- `backend/packages/model/src/sdk-adapters.ts`
+- `backend/tests/model/sdk-adapters.test.ts`
+- `frontend/src/features/sidebar/panels/FilePreviewPanel.tsx`
+- `frontend/src/features/chat/useRunStream.ts`
+- `frontend/tests/file-preview-drafts.test.mjs`
+- `frontend/tests/use-run-stream.test.mjs`
+- `.superpowers/sdd/final-review-fix-report.md`
+
+## Self-review findings
+
+- No blocking follow-up found in the allowed edit scope.
+- The file refresh invalidation is intentionally narrow:
+  - it only reacts to newly completed `workspace.write_file` tool calls,
+  - it runs once per new completion sequence,
+  - it leaves the existing terminal run refresh behavior unchanged.
+- The HTML preview fix is limited to unapproved draft `srcDoc` rendering; persisted file previews keep their prior behavior.
 
 ## Concerns
 
-- Malformed historical `skill.activated` events now intentionally fail closed for skill-policy enforcement. That matches the requested safety direction, but older malformed events would need repair or replay if they exist in persisted data.
+- `useRunStream` does not have `workspaceId`, so the refresh target uses the `["workspaces"]` prefix rather than a narrower workspace-specific key. That matches the requested fallback and keeps the diff inside the allowed file scope.

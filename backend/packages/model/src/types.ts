@@ -25,6 +25,7 @@ export interface AgentModelTurnInput {
   context: Record<string, unknown>;
   tools: AgentModelTool[];
   toolResults: AgentModelToolResult[];
+  turnIndex?: number;
 }
 
 export type ModelTurnEvent =

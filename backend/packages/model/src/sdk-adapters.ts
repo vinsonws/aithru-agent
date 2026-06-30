@@ -560,7 +560,7 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
         }
         for (const toolCall of delta.tool_calls ?? []) {
           const index = Number(toolCall.index ?? 0);
-          const inputStreamId = `chat:${index}`;
+          const inputStreamId = `chat:${input.turnIndex ?? 0}:${index}`;
           const current = toolCalls.get(index) ?? {
             id: "",
             name: "",

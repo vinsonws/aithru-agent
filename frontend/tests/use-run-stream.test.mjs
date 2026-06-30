@@ -180,6 +180,27 @@ test("reduceEvent accumulates and binds streamed tool input drafts", async () =>
   ]);
 });
 
+test("completed workspace.write_file drafts trigger file query invalidation before terminal run state", async () => {
+  const { buildRunStreamState, collectRunFileInvalidationKeys } = await loadRunStreamModule();
+  const projected = buildRunStreamState([
+    event(
+      "tool.completed",
+      {
+        tool_call_id: "call_1",
+        tool_name: "workspace.write_file",
+        output: { path: "/outputs/live.md", version: 1 },
+      },
+      13,
+    ),
+    event("run.paused", { status: "paused" }, 14),
+  ]);
+
+  assert.deepEqual(collectRunFileInvalidationKeys("run_1", projected), [
+    ["runs", "run_1", "snapshot", "files"],
+    ["workspaces"],
+  ]);
+});
+
 test("buildRunStreamState records the latest replayed event sequence", async () => {
   const { buildRunStreamState } = await loadRunStreamModule();
   const projected = buildRunStreamState([

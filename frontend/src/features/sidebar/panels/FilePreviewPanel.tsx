@@ -241,7 +241,7 @@ function PreviewBody({ file, preview }: { file: RunFileView; preview: FilePrevie
       <iframe
         title={file.name}
         srcDoc={preview.content}
-        sandbox="allow-scripts"
+        sandbox=""
         className="h-full min-h-[520px] w-full rounded-md border bg-background"
       />
     );
