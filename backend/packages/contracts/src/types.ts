@@ -13,6 +13,8 @@ import type {
   AgentStreamSourceSchema,
   AgentRunHarnessOptionsSchema,
   AgentRunClaimSchema,
+  AgentRunRetryPolicySchema,
+  AgentRunRetryStateSchema,
   AgentRunResultSchema,
   HealthResponseSchema,
   CreateThreadRequestSchema,
@@ -34,6 +36,8 @@ export type AgentStreamRedactionType = Static<typeof AgentStreamRedaction>;
 export type AgentStreamSource = Static<typeof AgentStreamSourceSchema>;
 export type AgentRunHarnessOptions = Static<typeof AgentRunHarnessOptionsSchema>;
 export type AgentRunClaim = Static<typeof AgentRunClaimSchema>;
+export type AgentRunRetryPolicy = Static<typeof AgentRunRetryPolicySchema>;
+export type AgentRunRetryState = Static<typeof AgentRunRetryStateSchema>;
 export type AgentRunResult = Static<typeof AgentRunResultSchema>;
 export type HealthResponse = Static<typeof HealthResponseSchema>;
 export type CreateThreadRequest = Static<typeof CreateThreadRequestSchema>;

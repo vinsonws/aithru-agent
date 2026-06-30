@@ -33,14 +33,21 @@ function setupSkillRouter(skills: Record<string, string>) {
 function activateSkills(
   eventWriter: AgentEventWriter,
   run: AgentRun,
-  keys: string[],
+  skills: Array<{ key: string; allowed_tools?: string[]; denied_tools?: string[] }>,
 ): void {
-  for (const key of keys) {
+  for (const skill of skills) {
     eventWriter.write(
       run.id,
       run.thread_id ?? null,
       EVENT_TYPES.SKILL_ACTIVATED,
-      { key, trigger: "explicit" },
+      {
+        key: skill.key,
+        trigger: "explicit",
+        policy: {
+          allowed_tools: skill.allowed_tools ?? [],
+          denied_tools: skill.denied_tools ?? [],
+        },
+      },
       { visibility: VISIBILITY.AUDIT },
     );
   }
@@ -283,7 +290,18 @@ describe("ProductionCapabilityRouter", () => {
       workspace_id: "ws_skill_composed",
     };
     skillStore.createRun(skillRun);
-    activateSkills(skillWriter, skillRun, ["read-guard", "write-guard"]);
+    activateSkills(skillWriter, skillRun, [
+      {
+        key: "read-guard",
+        allowed_tools: ["workspace.list_files", "workspace.read_file"],
+        denied_tools: ["workspace.delete_file"],
+      },
+      {
+        key: "write-guard",
+        allowed_tools: ["workspace.read_file", "workspace.write_file"],
+        denied_tools: ["workspace.write_file"],
+      },
+    ]);
 
     const tools = await skillRouter.listTools({ run: skillRun });
     expect(tools.map((tool) => tool.name)).toEqual(["workspace.read_file"]);

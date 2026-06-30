@@ -89,13 +89,21 @@ async function executeSkillLoad(input: Record<string, unknown>, preactivate = fa
 }
 
 describe("skill.load", () => {
-  it("loads a visible skill once and includes it on the next model turn", async () => {
+  it("loads a visible skill once through the shared tool lifecycle and includes it on the next model turn", async () => {
     const { secondTurnSystem, store, toolResults, run } = await executeSkillLoad({ key: "deep-research" });
 
     expect(toolResults[0]?.output).toEqual({ loaded: true, key: "deep-research" });
     expect(secondTurnSystem).toContain("Deep Research");
     expect(secondTurnSystem).toContain("Use evidence and cite sources.");
     expect(store.listEvents(run.id).filter((event) => event.type === EVENT_TYPES.SKILL_ACTIVATED)).toHaveLength(1);
+    expect(store.listEvents(run.id).map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        EVENT_TYPES.TOOL_PROPOSED,
+        EVENT_TYPES.TOOL_STARTED,
+        EVENT_TYPES.SKILL_ACTIVATED,
+        EVENT_TYPES.TOOL_COMPLETED,
+      ]),
+    );
   });
 
   it("does not emit a duplicate activation for an already active skill", async () => {
@@ -105,25 +113,45 @@ describe("skill.load", () => {
     expect(store.listEvents(run.id).filter((event) => event.type === EVENT_TYPES.SKILL_ACTIVATED)).toHaveLength(1);
   });
 
-  it("returns a structured error for an unknown skill without failing the run", async () => {
+  it("returns a structured tool error for an unknown skill without failing the run", async () => {
     const { completedRun, store, toolResults, run } = await executeSkillLoad({ key: "missing-skill" });
 
-    expect(toolResults[0]?.output).toEqual({
-      loaded: false,
-      key: "missing-skill",
-      error: "Skill not found: missing-skill",
+    expect(toolResults[0]?.output).toBeNull();
+    expect(toolResults[0]?.error).toMatchObject({
+      code: "TOOL_EXECUTION_ERROR",
+      message: "Skill not found: missing-skill",
+      retryable: false,
     });
     expect(completedRun.status).toBe("completed");
     expect(store.listEvents(run.id).filter((event) => event.type === EVENT_TYPES.RUN_FAILED)).toHaveLength(0);
     expect(store.listEvents(run.id).filter((event) => event.type === EVENT_TYPES.SKILL_ACTIVATED)).toHaveLength(0);
+    expect(store.listEvents(run.id).map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        EVENT_TYPES.TOOL_PROPOSED,
+        EVENT_TYPES.TOOL_STARTED,
+        EVENT_TYPES.TOOL_FAILED,
+      ]),
+    );
   });
 
   it.each([{}, { key: "   " }])("requires a non-empty key for %j without failing the run", async (input) => {
     const { completedRun, store, toolResults, run } = await executeSkillLoad(input);
 
-    expect(toolResults[0]?.output).toEqual({ loaded: false, error: "key is required" });
+    expect(toolResults[0]?.output).toBeNull();
+    expect(toolResults[0]?.error).toMatchObject({
+      code: "TOOL_EXECUTION_ERROR",
+      message: "key is required",
+      retryable: false,
+    });
     expect(completedRun.status).toBe("completed");
     expect(store.listEvents(run.id).filter((event) => event.type === EVENT_TYPES.RUN_FAILED)).toHaveLength(0);
     expect(store.listEvents(run.id).filter((event) => event.type === EVENT_TYPES.SKILL_ACTIVATED)).toHaveLength(0);
+    expect(store.listEvents(run.id).map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        EVENT_TYPES.TOOL_PROPOSED,
+        EVENT_TYPES.TOOL_STARTED,
+        EVENT_TYPES.TOOL_FAILED,
+      ]),
+    );
   });
 });

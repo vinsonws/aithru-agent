@@ -3,16 +3,6 @@ import { EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 
 export type SkillActivationTrigger = "explicit" | "slash" | "model_load";
 
-export const skillLoadToolDescriptor = {
-  name: "skill.load",
-  description: "Load an available Agent Skill by key for this run.",
-  input_schema: {
-    type: "object",
-    properties: { key: { type: "string" } },
-    required: ["key"],
-  },
-};
-
 export function emitSkillActivated(args: {
   eventWriter: AgentEventWriter;
   runId: string;

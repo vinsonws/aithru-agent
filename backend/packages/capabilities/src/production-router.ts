@@ -3,7 +3,7 @@ import type { AgentToolDescriptor, AgentToolCallRequest, AgentToolCallResult } f
 import type { RunContext, SkillPolicy } from "./policy.js";
 import type { AgentStreamEvent } from "@aithru-agent/contracts";
 import { PolicyEngine, resolveSkillPolicy } from "./policy.js";
-import { activeSkillKeysFromEvents } from "./skill-state.js";
+import { activeSkillKeysFromEvents, skillPolicySnapshotsFromEvents } from "./skill-state.js";
 import type { SkillResolver } from "@aithru-agent/skills";
 import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 
@@ -186,6 +186,18 @@ const PRODUCTION_TOOLS: AgentToolDescriptor[] = [
       required: ["resources"],
     },
   },
+  {
+    name: "skill.load",
+    description: "Load an available Agent Skill by key for this run.",
+    risk_level: "low",
+    requires_approval: false,
+    required_scopes: [],
+    input_schema: {
+      type: "object",
+      properties: { key: { type: "string" } },
+      required: ["key"],
+    },
+  },
 ];
 
 export class ProductionCapabilityRouter implements CapabilityRouter {
@@ -346,6 +358,32 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
           options: Array.isArray(input.options) ? input.options.map(String) : undefined,
         };
       }
+      case "skill.load": {
+        const key = optionalString(input.key);
+        if (!key) throw new Error("key is required");
+        const active = activeSkillKeysFromEvents(this.store.listEvents(run.id));
+        if (active.includes(key)) return { loaded: true, key };
+        const skill = this.skillResolver?.resolve(key, run.org_id, run.actor_user_id);
+        if (!skill) throw new Error(`Skill not found: ${key}`);
+        this.eventWriter.write(
+          req.run_id,
+          run.thread_id ?? null,
+          EVENT_TYPES.SKILL_ACTIVATED,
+          {
+            key: skill.key,
+            name: skill.name,
+            source: skill.source,
+            version: skill.version,
+            trigger: "model_load",
+            policy: {
+              allowed_tools: skill.allowed_tools,
+              denied_tools: skill.denied_tools,
+            },
+          },
+          { visibility: VISIBILITY.AUDIT, source: { kind: "tool", id: req.id, name: req.name } },
+        );
+        return { loaded: true, key: skill.key };
+      }
       case "presentation.present": {
         const presentations = presentationRequests(input).map((resource, index) =>
           this.presentWorkspaceFile(req, run, resource, index),
@@ -410,17 +448,20 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
   private skillPolicyForRun(
     run: { id: string; org_id: string; actor_user_id: string },
   ): SkillPolicy | null {
-    if (!this.skillResolver) return null;
-    const keys = activeSkillKeysFromEvents(this.store.listEvents(run.id));
-    const configs = keys
-      .map((key) => this.skillResolver!.resolve(key, run.org_id, run.actor_user_id))
-      .filter((skill): skill is NonNullable<typeof skill> => skill !== null)
-      .map((skill) => ({
-        allowed_tools: skill.allowed_tools,
-        denied_tools: skill.denied_tools,
-      }));
-    return configs.length ? resolveSkillPolicy(configs) : null;
+    const events = this.store.listEvents(run.id);
+    const keys = activeSkillKeysFromEvents(events);
+    if (!keys.length) return null;
+    const snapshots = skillPolicySnapshotsFromEvents(events);
+    return snapshots ? resolveSkillPolicy(snapshots) : denyAllSkillPolicy();
   }
+}
+
+function denyAllSkillPolicy(): SkillPolicy {
+  return {
+    // ponytail: fail closed on malformed skill activation payloads; widen only with a migration story.
+    allowedTools: new Set(["__invalid_skill_policy__"]),
+    deniedTools: new Set<string>(),
+  };
 }
 
 const PRESENTATION_SURFACES = ["conversation", "side_panel", "approval_panel", "activity", "header"];

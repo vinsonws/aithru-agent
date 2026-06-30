@@ -98,6 +98,40 @@ describe("AgentRunSchema", () => {
   it("does not expose the legacy run skill field", () => {
     expect(Object.keys((AgentRunSchema as any).properties)).not.toContain(removedRunSkillField);
   });
+
+  it("accepts retry policy and retry state on runs", () => {
+    const run = {
+      id: "run_retry",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_1",
+      task_msg: "Retry me",
+      scopes: ["*"],
+      harness_options: null,
+      status: "queued",
+      current_approval_id: null,
+      started_at: "2026-06-29T00:00:00Z",
+      completed_at: null,
+      claim: null,
+      retry_policy: {
+        max_attempts: 3,
+        initial_delay_seconds: 0,
+        max_delay_seconds: 300,
+        backoff_multiplier: 2,
+      },
+      retry_state: {
+        attempt: 1,
+        next_retry_at: "2026-06-29T00:05:00Z",
+        last_error: { code: "ERR", message: "boom" },
+      },
+      result: null,
+      error: null,
+    };
+    const errors = [...Value.Errors(AgentRunSchema, run)];
+    expect(errors).toHaveLength(0);
+  });
 });
 
 describe("CreateRunRequestSchema", () => {

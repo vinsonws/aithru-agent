@@ -9,7 +9,6 @@ import type { SkillResolver } from "@aithru-agent/skills";
 import { EVENT_TYPES, VISIBILITY, AgentEventWriter } from "@aithru-agent/stream";
 import { buildModelContextPacket, isPlanModeRun } from "./context-packet.js";
 import { RunLoop } from "./run-loop.js";
-import { emitSkillActivated, skillLoadToolDescriptor } from "./skills.js";
 import { runTerminalProcessors } from "./terminal-processors.js";
 
 export class ModelTurnLoop {
@@ -78,12 +77,11 @@ export class ModelTurnLoop {
       const planMode = isPlanModeRun(currentRun);
       const tools = (await this.deps.capabilityRouter.listTools({ run: currentRun }))
         .filter((tool) => planMode || !tool.name.startsWith("todo."));
-      const toolCatalog = [...tools, skillLoadToolDescriptor];
       const events = this.deps.modelAdapter.createTurn({
         run: currentRun,
         messages: contextPacket.messages,
         context: contextPacket.stats,
-        tools: modelTools(toolCatalog),
+        tools: modelTools(tools),
         toolResults,
       });
 
@@ -117,11 +115,6 @@ export class ModelTurnLoop {
           );
         } else if (event.type === "tool_call") {
           sawToolCall = true;
-          if (event.name === "skill.load") {
-            const result = this.loadSkillForRun(currentRun, event.input);
-            nextToolResults.push({ id: event.id, name: event.name, input: event.input, output: result });
-            continue;
-          }
           const call = await loop.executeToolCall({
             id: event.id,
             name: event.name,
@@ -184,34 +177,6 @@ export class ModelTurnLoop {
       message: "Model turn loop exceeded the configured turn limit",
     });
     return this.deps.store.getRun(run.id)!;
-  }
-
-  private loadSkillForRun(
-    run: AgentRun,
-    input: Record<string, unknown>,
-  ): { loaded: boolean; key?: string; error?: string } {
-    const key = typeof input.key === "string" ? input.key.trim() : "";
-    if (!key) return { loaded: false, error: "key is required" };
-
-    const active = activeSkillKeysFromEvents(this.deps.store.listEvents(run.id));
-    if (active.includes(key)) return { loaded: true, key };
-
-    const skill = this.deps.skillResolver?.resolve(key, run.org_id, run.actor_user_id);
-    if (!skill) return { loaded: false, key, error: `Skill not found: ${key}` };
-
-    emitSkillActivated({
-      eventWriter: this.deps.eventWriter,
-      runId: run.id,
-      threadId: run.thread_id ?? null,
-      key: skill.key,
-      name: skill.name,
-      source: skill.source,
-      version: skill.version,
-      trigger: "model_load",
-      allowedTools: skill.allowed_tools,
-      deniedTools: skill.denied_tools,
-    });
-    return { loaded: true, key: skill.key };
   }
 }
 

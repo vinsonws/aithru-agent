@@ -188,6 +188,22 @@ export const AgentRunResultSchema = Type.Object({
   thread_message_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 
+export const AgentRunRetryPolicySchema = Type.Object({
+  max_attempts: Type.Number(),
+  initial_delay_seconds: Type.Number(),
+  max_delay_seconds: Type.Number(),
+  backoff_multiplier: Type.Number(),
+});
+
+export const AgentRunRetryStateSchema = Type.Object({
+  attempt: Type.Number(),
+  next_retry_at: Type.Union([Type.String(), Type.Null()]),
+  last_error: Type.Optional(Type.Object({
+    code: Type.String(),
+    message: Type.String(),
+  })),
+});
+
 export const AgentRunSchema = Type.Object({
   id: Type.String(),
   org_id: Type.String(),
@@ -205,6 +221,8 @@ export const AgentRunSchema = Type.Object({
   started_at: Type.String(),
   completed_at: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   claim: Type.Optional(Type.Union([AgentRunClaimSchema, Type.Null()])),
+  retry_policy: Type.Optional(Type.Union([AgentRunRetryPolicySchema, Type.Null()])),
+  retry_state: Type.Optional(Type.Union([AgentRunRetryStateSchema, Type.Null()])),
   result: Type.Optional(Type.Union([AgentRunResultSchema, Type.Null()])),
   error: Type.Optional(Type.Unknown()),
 }, { additionalProperties: false });

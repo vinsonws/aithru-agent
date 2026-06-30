@@ -52,14 +52,21 @@ function createRun(): AgentRun {
 function activateSkills(
   eventWriter: AgentEventWriter,
   run: AgentRun,
-  keys: string[],
+  skills: Array<{ key: string; allowed_tools?: string[]; denied_tools?: string[] }>,
 ): void {
-  for (const key of keys) {
+  for (const skill of skills) {
     eventWriter.write(
       run.id,
       run.thread_id ?? null,
       EVENT_TYPES.SKILL_ACTIVATED,
-      { key, trigger: "explicit" },
+      {
+        key: skill.key,
+        trigger: "explicit",
+        policy: {
+          allowed_tools: skill.allowed_tools ?? [],
+          denied_tools: skill.denied_tools ?? [],
+        },
+      },
       { visibility: VISIBILITY.AUDIT },
     );
   }
@@ -99,7 +106,7 @@ describe("ProductionCapabilityRouter skill policy", () => {
     const { router, eventWriter, store } = setupRouter(ALLOWED_SKILL, "read-only");
     const run = createRun();
     store.createRun(run);
-    activateSkills(eventWriter, run, ["read-only"]);
+    activateSkills(eventWriter, run, [{ key: "read-only", allowed_tools: ["workspace.read_file", "workspace.list_files"] }]);
     const tools = await router.listTools({ run });
     expect(tools.map((tool) => tool.name)).toEqual([
       "workspace.list_files",
@@ -118,7 +125,7 @@ describe("ProductionCapabilityRouter skill policy", () => {
     const { router, store, eventWriter } = setupRouter(ALLOWED_SKILL, "read-only");
     const run = { ...createRun(), id: "run_active_skill_policy" };
     store.createRun(run);
-    activateSkills(eventWriter, run, ["read-only"]);
+    activateSkills(eventWriter, run, [{ key: "read-only", allowed_tools: ["workspace.read_file", "workspace.list_files"] }]);
     const result = await router.prepareToolCall(
       { id: "tc", name: "workspace.write_file", input: { path: "/x", content: "y" }, run_id: run.id },
       { run },
@@ -135,12 +142,38 @@ describe("ProductionCapabilityRouter skill policy", () => {
       scopes: ["workspace:read"],
     };
     store.createRun(run);
-    activateSkills(eventWriter, run, ["write-only"]);
+    activateSkills(eventWriter, run, [{ key: "write-only", allowed_tools: ["workspace.write_file"] }]);
     const result = await router.prepareToolCall(
       { id: "tc", name: "workspace.write_file", input: { path: "/x", content: "y" }, run_id: run.id },
       { run },
     );
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("Missing scopes");
+  });
+
+  it("keeps enforcing the activation snapshot after resolver state disappears", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const router = new ProductionCapabilityRouter(store, eventWriter);
+    const run = { ...createRun(), id: "run_event_snapshot_policy" };
+    store.createRun(run);
+    activateSkills(eventWriter, run, [{
+      key: "read-only",
+      allowed_tools: ["workspace.read_file", "workspace.list_files"],
+      denied_tools: ["workspace.delete_file"],
+    }]);
+
+    const tools = await router.listTools({ run });
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "workspace.list_files",
+      "workspace.read_file",
+    ]);
+
+    const denied = await router.prepareToolCall(
+      { id: "tc", name: "workspace.write_file", input: { path: "/x", content: "y" }, run_id: run.id },
+      { run },
+    );
+    expect(denied.allowed).toBe(false);
+    expect(denied.reason).toContain('not in skill allow list');
   });
 });
