@@ -23,6 +23,18 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function runCreatedEventCount(): number {
+  const runtime = getRuntime();
+  return runtime.store
+    .listRuns({})
+    .reduce(
+      (count, run) =>
+        count +
+        runtime.store.listEvents(run.id).filter((event) => event.type === "run.created").length,
+      0,
+    );
+}
+
 describe("Health API", () => {
   it("GET /api/health returns ok", async () => {
     const res = await app.inject({ method: "GET", url: "/api/health" });
@@ -249,6 +261,8 @@ describe("Runs API", () => {
   });
 
   it("POST /api/runs rejects unknown selected skills", async () => {
+    const beforeRuns = getRuntime().store.listRuns({}).length;
+    const beforeRunCreatedEvents = runCreatedEventCount();
     const res = await app.inject({
       method: "POST",
       url: "/api/runs",
@@ -262,6 +276,8 @@ describe("Runs API", () => {
 
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: "Skill not found: missing-skill" });
+    expect(getRuntime().store.listRuns({}).length).toBe(beforeRuns);
+    expect(runCreatedEventCount()).toBe(beforeRunCreatedEvents);
   });
 
   it("GET /api/runs lists runs", async () => {

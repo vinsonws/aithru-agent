@@ -41,6 +41,18 @@ function openApiOperations(): Array<{ method: string; url: string }> {
   );
 }
 
+function runCreatedEventCount(): number {
+  const runtime = getRuntime();
+  return runtime.store
+    .listRuns({})
+    .reduce(
+      (count, run) =>
+        count +
+        runtime.store.listEvents(run.id).filter((event) => event.type === "run.created").length,
+      0,
+    );
+}
+
 describe("legacy OpenAPI compatibility", () => {
   let app: FastifyInstance;
 
@@ -228,8 +240,36 @@ describe("legacy OpenAPI compatibility", () => {
     );
   });
 
+  it("activates selected skills on threaded compatibility create-run endpoints", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/threads/thread_selected_skill_create/runs",
+      payload: {
+        task_msg: "Surprise me",
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        selected_skill_keys: ["surprise-me", "surprise-me"],
+        harness_options: { model_profile_key: "default" },
+        wait_for_completion: true,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const run = JSON.parse(res.body);
+    const events = getRuntime().store.listEvents(run.id);
+    expect(
+      events
+        .filter((event) => event.type === "skill.activated")
+        .map((event) => (event.payload as any).key),
+    ).toEqual(["surprise-me"]);
+    expect(events.find((event) => event.type === "skill.activated")?.sequence).toBeLessThan(
+      events.find((event) => event.type === "run.started")!.sequence,
+    );
+  });
+
   it("rejects unknown selected skills on compatibility create-run endpoints", async () => {
     const beforeRuns = getRuntime().store.listRuns({}).length;
+    const beforeRunCreatedEvents = runCreatedEventCount();
     const res = await app.inject({
       method: "POST",
       url: "/api/runs/wait",
@@ -244,6 +284,64 @@ describe("legacy OpenAPI compatibility", () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: "Skill not found: missing-skill" });
     expect(getRuntime().store.listRuns({}).length).toBe(beforeRuns);
+    expect(runCreatedEventCount()).toBe(beforeRunCreatedEvents);
+  });
+
+  it("rejects unknown selected skills on threaded compatibility create-run endpoints", async () => {
+    const beforeRuns = getRuntime().store.listRuns({}).length;
+    const beforeRunCreatedEvents = runCreatedEventCount();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/threads/thread_missing_skill_create/runs",
+      payload: {
+        task_msg: "Use a missing skill",
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        selected_skill_keys: ["missing-skill"],
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "Skill not found: missing-skill" });
+    expect(getRuntime().store.listRuns({}).length).toBe(beforeRuns);
+    expect(runCreatedEventCount()).toBe(beforeRunCreatedEvents);
+  });
+
+  it("rejects unknown selected skills on compatibility stream create-run endpoints", async () => {
+    const beforeRuns = getRuntime().store.listRuns({}).length;
+    const beforeRunCreatedEvents = runCreatedEventCount();
+
+    const root = await app.inject({
+      method: "POST",
+      url: "/api/runs/stream",
+      payload: {
+        task_msg: "Use a missing skill",
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        selected_skill_keys: ["missing-skill"],
+      },
+    });
+
+    expect(root.statusCode).toBe(400);
+    expect(JSON.parse(root.body)).toEqual({ error: "Skill not found: missing-skill" });
+    expect(getRuntime().store.listRuns({}).length).toBe(beforeRuns);
+    expect(runCreatedEventCount()).toBe(beforeRunCreatedEvents);
+
+    const threaded = await app.inject({
+      method: "POST",
+      url: "/api/threads/thread_missing_skill_stream/runs/stream",
+      payload: {
+        task_msg: "Use a missing skill",
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        selected_skill_keys: ["missing-skill"],
+      },
+    });
+
+    expect(threaded.statusCode).toBe(400);
+    expect(JSON.parse(threaded.body)).toEqual({ error: "Skill not found: missing-skill" });
+    expect(getRuntime().store.listRuns({}).length).toBe(beforeRuns);
+    expect(runCreatedEventCount()).toBe(beforeRunCreatedEvents);
   });
 
   it("wakes up an existing queued frontend chat run when its stream is opened", async () => {
