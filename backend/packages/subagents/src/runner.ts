@@ -35,7 +35,6 @@ export class SubagentRunner {
       actor_user_id: parentRun.actor_user_id,
       source: "delegated_task",
       thread_id: parentRun.thread_id,
-      skill_id: null,
       workspace_id: parentRun.thread_id
         ? `ws_thread_${parentRun.thread_id}`
         : `ws_sub_${Date.now().toString(36)}`,

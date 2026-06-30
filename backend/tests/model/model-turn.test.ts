@@ -13,7 +13,6 @@ function createRun(): AgentRun {
     actor_user_id: "user_1",
     source: "api",
     thread_id: null,
-    skill_id: null,
     workspace_id: "ws_model",
     task_msg: "Create a todo",
     scopes: ["*"],

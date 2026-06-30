@@ -194,7 +194,6 @@ export const AgentRunSchema = Type.Object({
   actor_user_id: Type.String(),
   source: AgentRunSource,
   thread_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  skill_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   workspace_id: Type.String(),
   task_msg: Type.String(),
   scopes: Type.Array(Type.String()),
@@ -208,7 +207,7 @@ export const AgentRunSchema = Type.Object({
   claim: Type.Optional(Type.Union([AgentRunClaimSchema, Type.Null()])),
   result: Type.Optional(Type.Union([AgentRunResultSchema, Type.Null()])),
   error: Type.Optional(Type.Unknown()),
-});
+}, { additionalProperties: false });
 
 export const AgentStreamEventSchema = Type.Object({
   id: Type.String(),
@@ -255,10 +254,10 @@ export const CreateRunRequestSchema = Type.Object({
   thread_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   task_msg: Type.String(),
   scopes: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Null()])),
-  skill_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  selected_skill_keys: Type.Optional(Type.Union([Type.Array(Type.String()), Type.Null()])),
   harness_options: Type.Optional(
     Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()])
   ),
   wait_for_completion: Type.Optional(Type.Boolean()),
   persist_task_msg_message: Type.Optional(Type.Boolean()),
-});
+}, { additionalProperties: false });

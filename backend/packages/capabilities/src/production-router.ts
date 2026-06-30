@@ -404,9 +404,13 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     return presentation;
   }
 
-  private skillPolicyForRun(run: { skill_id?: string | null; org_id: string; actor_user_id: string }): SkillPolicy | null {
-    if (!this.skillResolver || !run.skill_id) return null;
-    const skill = this.skillResolver.resolve(run.skill_id, run.org_id, run.actor_user_id);
+  private skillPolicyForRun(
+    run: { selected_skill_keys?: string[] | null; org_id: string; actor_user_id: string },
+  ): SkillPolicy | null {
+    if (!this.skillResolver) return null;
+    const selected = run.selected_skill_keys?.[0] ?? null;
+    if (!selected) return null;
+    const skill = this.skillResolver.resolve(selected, run.org_id, run.actor_user_id);
     if (!skill) return null;
     return resolveSkillPolicy([{ allowed_tools: skill.allowed_tools, denied_tools: skill.denied_tools }]);
   }

@@ -249,6 +249,32 @@ describe("SqliteStore", () => {
     expect(got!.status).toBe("queued");
   });
 
+  it("stores runs without a skill_id column", async () => {
+    const localStore = await SqliteStore.create(":memory:");
+    const run = localStore.createRun({
+      id: "run_no_skill_id",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_1",
+      task_msg: "hello",
+      scopes: ["*"],
+      harness_options: null,
+      status: "queued",
+      current_approval_id: null,
+      started_at: "2026-01-01T00:00:00Z",
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    });
+
+    expect("skill_id" in run).toBe(false);
+    expect("skill_id" in localStore.getRun("run_no_skill_id")!).toBe(false);
+    localStore.close();
+  });
+
   it("writes and reads workspace files", () => {
     const file = store.writeFile("ws1", "/test.txt", "hello");
     expect(file.path).toBe("/test.txt");

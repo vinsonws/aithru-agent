@@ -26,7 +26,7 @@ export function runMigrations(adapter: MigrationExecutor): void {
 
     CREATE TABLE IF NOT EXISTS runs (
       id TEXT PRIMARY KEY, org_id TEXT NOT NULL, actor_user_id TEXT NOT NULL,
-      source TEXT NOT NULL, thread_id TEXT, skill_id TEXT,
+      source TEXT NOT NULL, thread_id TEXT,
       workspace_id TEXT NOT NULL, task_msg TEXT NOT NULL,
       scopes TEXT NOT NULL DEFAULT '[]',
       harness_options TEXT, status TEXT NOT NULL DEFAULT 'queued',

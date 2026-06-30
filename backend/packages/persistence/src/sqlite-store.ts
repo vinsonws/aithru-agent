@@ -27,7 +27,6 @@ const RUN_COLUMNS = [
   "actor_user_id",
   "source",
   "thread_id",
-  "skill_id",
   "workspace_id",
   "task_msg",
   "scopes",
@@ -213,19 +212,18 @@ export class SqliteStore implements AgentStore {
   createRun(run: AgentRun): AgentRun {
     this.runStatement(
       `INSERT INTO runs
-        (id, org_id, actor_user_id, source, thread_id, skill_id, workspace_id,
+        (id, org_id, actor_user_id, source, thread_id, workspace_id,
          task_msg, scopes, harness_options, status, started_at, completed_at,
          current_approval_id, claim_worker_id, claim_claimed_at,
          claim_heartbeat_at, claim_lease_expires_at, claim_attempt,
          retry_policy, retry_state, result, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         run.id,
         run.org_id,
         run.actor_user_id,
         String(run.source),
         run.thread_id ?? null,
-        run.skill_id ?? null,
         run.workspace_id,
         run.task_msg,
         JSON.stringify(run.scopes),
@@ -776,7 +774,6 @@ export class SqliteStore implements AgentStore {
       actor_user_id: String(row.actor_user_id),
       source: row.source as AgentRun["source"],
       thread_id: row.thread_id == null ? null : String(row.thread_id),
-      skill_id: row.skill_id == null ? null : String(row.skill_id),
       workspace_id: String(row.workspace_id),
       task_msg: String(row.task_msg),
       scopes: parseJson<string[]>(row.scopes, []),

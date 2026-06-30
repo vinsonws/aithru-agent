@@ -4,6 +4,7 @@ import {
   AgentThreadSchema,
   AgentMessageSchema,
   AgentRunSchema,
+  CreateRunRequestSchema,
   AgentStreamEventSchema,
   validateRunStatusTransition,
   TERMINAL_RUN_STATUSES,
@@ -90,6 +91,32 @@ describe("AgentRunSchema", () => {
     };
     const errors = [...Value.Errors(AgentRunSchema, run)];
     expect(errors).toHaveLength(0);
+  });
+
+  it("does not expose skill_id", () => {
+    expect(Object.keys((AgentRunSchema as any).properties)).not.toContain("skill_id");
+  });
+});
+
+describe("CreateRunRequestSchema", () => {
+  it("accepts selected_skill_keys and rejects skill_id", () => {
+    expect(
+      Value.Check(CreateRunRequestSchema, {
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        task_msg: "Research this",
+        selected_skill_keys: ["deep-research", "file-report"],
+      }),
+    ).toBe(true);
+
+    expect(
+      Value.Check(CreateRunRequestSchema, {
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        task_msg: "Research this",
+        skill_id: "deep-research",
+      }),
+    ).toBe(false);
   });
 });
 

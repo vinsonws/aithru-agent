@@ -72,7 +72,7 @@ describe("legacy OpenAPI compatibility", () => {
         org_id: "org_1",
         actor_user_id: "user_1",
         scopes: ["workspace:read"],
-        skill_id: null,
+        selected_skill_keys: null,
         wait_for_completion: false,
         persist_task_msg_message: true,
       },
@@ -81,7 +81,7 @@ describe("legacy OpenAPI compatibility", () => {
     expect(res.statusCode).toBe(201);
     const run = JSON.parse(res.body);
     expect(run.source).toBe("chat");
-    expect(run.skill_id).toBeNull();
+    expect("skill_id" in run).toBe(false);
   });
 
   async function waitForRunEvents(runId: string, type: string) {
@@ -119,7 +119,7 @@ describe("legacy OpenAPI compatibility", () => {
         org_id: "org_1",
         actor_user_id: "user_1",
         scopes: ["agent.workspace.read"],
-        skill_id: null,
+        selected_skill_keys: null,
         harness_options: { model_profile_key: "test-chat" },
         wait_for_completion: false,
         persist_task_msg_message: true,
@@ -210,7 +210,6 @@ describe("legacy OpenAPI compatibility", () => {
       actor_user_id: "user_1",
       source: "chat",
       thread_id: null,
-      skill_id: null,
       workspace_id: "ws_stream_wakeup",
       task_msg: "wake me",
       scopes: ["agent.workspace.read"],
@@ -257,7 +256,6 @@ describe("legacy OpenAPI compatibility", () => {
       actor_user_id: "user_1",
       source: "chat",
       thread_id: "thread_input_resume",
-      skill_id: null,
       workspace_id: "ws_input_resume",
       task_msg: "clarify",
       scopes: ["agent.input.write"],
@@ -295,7 +293,6 @@ describe("legacy OpenAPI compatibility", () => {
       actor_user_id: "user_1",
       source: "api",
       thread_id: null,
-      skill_id: null,
       workspace_id: "ws_usage_api",
       task_msg: "usage",
       scopes: ["*"],

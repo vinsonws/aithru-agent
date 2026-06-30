@@ -31,14 +31,13 @@ function setupResolver(skillContent: string, skillKey: string) {
   }
 }
 
-function createRun(skillId: string | null): AgentRun {
+function createRun(skillKey: string | null): AgentRun & { selected_skill_keys?: string[] | null } {
   return {
     id: `run_skill_${Date.now().toString(36)}`,
     org_id: "org_1",
     actor_user_id: "user_1",
     source: "api",
     thread_id: null,
-    skill_id: skillId,
     workspace_id: "ws_skill",
     task_msg: "Do the thing",
     scopes: ["*"],
@@ -50,6 +49,7 @@ function createRun(skillId: string | null): AgentRun {
     claim: null,
     result: null,
     error: null,
+    selected_skill_keys: skillKey ? [skillKey] : null,
   };
 }
 
@@ -154,7 +154,7 @@ describe("ModelTurnLoop skill context", () => {
     expect(activated.length).toBe(1);
     const payload = activated[0].payload as Record<string, unknown>;
     expect(payload).toMatchObject({
-      skill_id: "file-report",
+      selected_skill_keys: ["file-report"],
       key: "file-report",
       name: "File Report",
       source: "builtin",
@@ -163,7 +163,7 @@ describe("ModelTurnLoop skill context", () => {
     expect(JSON.stringify(payload)).not.toContain("Read files and write a report.");
   });
 
-  it("does not emit skill.activated when no skill_id is set", async () => {
+  it("does not emit skill.activated when no selected_skill_keys is set", async () => {
     const { resolver, store } = setupResolver(SKILL_MD, "file-report");
     const eventWriter = new AgentEventWriter(store);
     const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, resolver);

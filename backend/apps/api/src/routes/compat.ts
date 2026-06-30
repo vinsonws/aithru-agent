@@ -21,6 +21,14 @@ function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
 }
 
+function selectedSkillKeys(body: any): string[] | null {
+  if (!Array.isArray(body.selected_skill_keys)) return null;
+  const keys = body.selected_skill_keys.filter(
+    (key: unknown): key is string => typeof key === "string" && key.length > 0,
+  );
+  return keys.length > 0 ? keys : null;
+}
+
 function params(request: FastifyRequest): Record<string, string> {
   return request.params as Record<string, string>;
 }
@@ -48,13 +56,13 @@ async function createRun(body: any, threadId?: string): Promise<AgentRun> {
   const runtime = getRuntime();
   const runThreadId =
     threadId ?? (typeof body.thread_id === "string" && body.thread_id.length > 0 ? body.thread_id : null);
-  const run: AgentRun = {
+  const run: AgentRun & { selected_skill_keys?: string[] | null } = {
     id: `run_${nanoid(12)}`,
     org_id: body.org_id ?? "org_1",
     actor_user_id: body.actor_user_id ?? "user_1",
     source: body.source ?? "chat",
     thread_id: runThreadId,
-    skill_id: typeof body.skill_id === "string" && body.skill_id.length > 0 ? body.skill_id : null,
+    selected_skill_keys: selectedSkillKeys(body),
     workspace_id: workspaceIdForThread(runThreadId),
     task_msg: body.task_msg ?? "",
     scopes: Array.isArray(body.scopes) && body.scopes.length > 0 ? body.scopes : ["*"],
@@ -696,13 +704,13 @@ function toolCatalogEntry(tool: AgentToolDescriptor) {
 }
 
 async function localToolCatalog() {
-  const run: AgentRun = {
+  const run: AgentRun & { selected_skill_keys?: string[] | null } = {
     id: "run_tool_catalog",
     org_id: "org_1",
     actor_user_id: "system",
     source: "api",
     thread_id: null,
-    skill_id: null,
+    selected_skill_keys: null,
     workspace_id: "ws_tool_catalog",
     task_msg: "List tools",
     scopes: ["*"],

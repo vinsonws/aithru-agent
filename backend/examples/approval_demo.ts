@@ -18,7 +18,6 @@ async function main() {
     actor_user_id: "user_1",
     source: "api",
     thread_id: null,
-    skill_id: null,
     workspace_id: `ws_approval_${Date.now().toString(36)}`,
     task_msg: "Write a file that requires approval.",
     scopes: ["workspace:read", "workspace:write"],

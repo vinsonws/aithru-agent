@@ -28,14 +28,13 @@ function setupRouter(skillMd: string, skillKey: string) {
   return { router, store };
 }
 
-function createRun(skillId: string | null): AgentRun {
+function createRun(skillKey: string | null): AgentRun & { selected_skill_keys?: string[] | null } {
   return {
     id: "run_cap_skill",
     org_id: "org_1",
     actor_user_id: "user_1",
     source: "api",
     thread_id: null,
-    skill_id: skillId,
     workspace_id: "ws_cap",
     task_msg: "test",
     scopes: ["*"],
@@ -47,6 +46,7 @@ function createRun(skillId: string | null): AgentRun {
     claim: null,
     result: null,
     error: null,
+    selected_skill_keys: skillKey ? [skillKey] : null,
   };
 }
 
@@ -82,7 +82,7 @@ describe("ProductionCapabilityRouter skill policy", () => {
     expect(names).toEqual(["workspace.list_files", "workspace.read_file"]);
   });
 
-  it("returns all tools when no skill_id is set", async () => {
+  it("returns all tools when no selected_skill_keys is set", async () => {
     const { router } = setupRouter(ALLOWED_SKILL, "read-only");
     const run = createRun(null);
     const tools = await router.listTools({ run });

@@ -251,7 +251,6 @@ describe("Runs API", () => {
       actor_user_id: "user_1",
       source: "chat",
       thread_id: null,
-      skill_id: null,
       workspace_id: "ws_live_stream_test",
       task_msg: "stream later",
       scopes: ["*"],

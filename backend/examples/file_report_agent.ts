@@ -17,7 +17,6 @@ async function main() {
     actor_user_id: "user_1",
     source: "api",
     thread_id: null,
-    skill_id: null,
     workspace_id: `ws_fr_${Date.now().toString(36)}`,
     task_msg: "Analyze workspace files and create a report.",
     scopes: ["*"],
