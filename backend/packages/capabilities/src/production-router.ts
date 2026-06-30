@@ -1,7 +1,7 @@
 import type { CapabilityRouter, ToolPrepareResult } from "./router.js";
 import type { AgentToolDescriptor, AgentToolCallRequest, AgentToolCallResult } from "./descriptors.js";
 import type { RunContext, SkillPolicy } from "./policy.js";
-import { PolicyEngine, resolveSkillPolicy } from "./policy.js";
+import { PolicyEngine } from "./policy.js";
 import type { SkillResolver } from "@aithru-agent/skills";
 import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 
@@ -405,14 +405,9 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
   }
 
   private skillPolicyForRun(
-    run: { selected_skill_keys?: string[] | null; org_id: string; actor_user_id: string },
+    _run: { org_id: string; actor_user_id: string },
   ): SkillPolicy | null {
-    if (!this.skillResolver) return null;
-    const selected = run.selected_skill_keys?.[0] ?? null;
-    if (!selected) return null;
-    const skill = this.skillResolver.resolve(selected, run.org_id, run.actor_user_id);
-    if (!skill) return null;
-    return resolveSkillPolicy([{ allowed_tools: skill.allowed_tools, denied_tools: skill.denied_tools }]);
+    return null;
   }
 }
 

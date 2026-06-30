@@ -70,7 +70,7 @@ const SKILL_MD = [
 ].join("\n");
 
 describe("ModelTurnLoop skill context", () => {
-  it("injects skill instructions into model input messages", async () => {
+  it("does not inject skill instructions from run.selected_skill_keys", async () => {
     const { resolver, store } = setupResolver(SKILL_MD, "file-report");
     const eventWriter = new AgentEventWriter(store);
     const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, resolver);
@@ -94,12 +94,10 @@ describe("ModelTurnLoop skill context", () => {
     await loop.execute(run);
 
     const systemMsg = capturedMessages.find((m) => m.role === "system");
-    expect(systemMsg).toBeDefined();
-    expect(systemMsg.content).toContain("Active skill: File Report");
-    expect(systemMsg.content).toContain("Read files and write a report.");
+    expect(systemMsg).toBeUndefined();
   });
 
-  it("context.packet.built contains active_skill_key but not full instructions", async () => {
+  it("context.packet.built keeps active_skill_key null even when selected_skill_keys is set", async () => {
     const { resolver, store } = setupResolver(SKILL_MD, "file-report");
     const eventWriter = new AgentEventWriter(store);
     const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, resolver);
@@ -122,12 +120,12 @@ describe("ModelTurnLoop skill context", () => {
     expect(ctxEvents.length).toBeGreaterThanOrEqual(1);
     for (const evt of ctxEvents) {
       const stats = evt.payload as Record<string, unknown>;
-      expect(stats.active_skill_key).toBe("file-report");
+      expect(stats.active_skill_key).toBeNull();
       expect(JSON.stringify(stats)).not.toContain("Read files and write a report.");
     }
   });
 
-  it("emits skill.activated exactly once per run", async () => {
+  it("does not emit skill.activated from run.selected_skill_keys", async () => {
     const { resolver, store } = setupResolver(SKILL_MD, "file-report");
     const eventWriter = new AgentEventWriter(store);
     const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, resolver);
@@ -144,38 +142,6 @@ describe("ModelTurnLoop skill context", () => {
           { type: "tool_call", id: "tc1", name: "workspace.read_file", input: { path: "/a" } },
           { type: "completed" },
         ],
-        [{ type: "text_delta", delta: "done" }, { type: "completed" }],
-      ]),
-    });
-
-    await loop.execute(run);
-
-    const activated = store.listEvents(run.id).filter((e) => e.type === EVENT_TYPES.SKILL_ACTIVATED);
-    expect(activated.length).toBe(1);
-    const payload = activated[0].payload as Record<string, unknown>;
-    expect(payload).toMatchObject({
-      selected_skill_keys: ["file-report"],
-      key: "file-report",
-      name: "File Report",
-      source: "builtin",
-      trigger: "explicit",
-    });
-    expect(JSON.stringify(payload)).not.toContain("Read files and write a report.");
-  });
-
-  it("does not emit skill.activated when no selected_skill_keys is set", async () => {
-    const { resolver, store } = setupResolver(SKILL_MD, "file-report");
-    const eventWriter = new AgentEventWriter(store);
-    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, resolver);
-    const run = createRun(null);
-    store.createRun(run);
-
-    const loop = new ModelTurnLoop({
-      store,
-      eventWriter,
-      capabilityRouter,
-      skillResolver: resolver,
-      modelAdapter: new TestModelAdapter([
         [{ type: "text_delta", delta: "done" }, { type: "completed" }],
       ]),
     });

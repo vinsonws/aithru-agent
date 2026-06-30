@@ -10,8 +10,6 @@ import { buildModelContextPacket, isPlanModeRun } from "./context-packet.js";
 import { RunLoop } from "./run-loop.js";
 import { runTerminalProcessors } from "./terminal-processors.js";
 
-type SkillSelectableRun = AgentRun & { selected_skill_keys?: string[] | null };
-
 export class ModelTurnLoop {
   constructor(
     private deps: {
@@ -33,8 +31,6 @@ export class ModelTurnLoop {
     });
     loop.emitRunStarted();
 
-    const resolvedSkill = this.resolveSkill(run);
-
     const messageId = `msg_${nanoid(12)}`;
     loop.emitMessageCreated(messageId, "");
     let content = "";
@@ -42,10 +38,7 @@ export class ModelTurnLoop {
     const maxTurns = this.deps.maxTurns ?? 8;
 
     for (let turn = 0; turn < maxTurns; turn += 1) {
-      const currentRun = {
-        ...(this.deps.store.getRun(run.id) ?? run),
-        ...(run as SkillSelectableRun),
-      } as SkillSelectableRun;
+      const currentRun = this.deps.store.getRun(run.id) ?? run;
       const fullMessages = currentRun.thread_id
         ? this.deps.store.listMessages(currentRun.thread_id)
         : [];
@@ -56,10 +49,7 @@ export class ModelTurnLoop {
         latestSummary: currentRun.thread_id
           ? this.deps.store.getLatestContextSummary(currentRun.thread_id)
           : undefined,
-        skillInstructions: resolvedSkill
-          ? { name: resolvedSkill.name, instructions: resolvedSkill.instructions }
-          : undefined,
-        activeSkillKey: resolvedSkill?.key ?? null,
+        activeSkillKey: null,
       });
       this.deps.eventWriter.write(
         run.id,
@@ -171,22 +161,6 @@ export class ModelTurnLoop {
       message: "Model turn loop exceeded the configured turn limit",
     });
     return this.deps.store.getRun(run.id)!;
-  }
-
-  private resolveSkill(run: AgentRun): { key: string; name: string; instructions: string } | null {
-    if (!this.deps.skillResolver) return null;
-    const selected = (run as SkillSelectableRun).selected_skill_keys?.[0] ?? null;
-    if (!selected) return null;
-    const skill = this.deps.skillResolver.resolve(selected, run.org_id, run.actor_user_id);
-    if (!skill) return null;
-    this.deps.eventWriter.write(
-      run.id,
-      run.thread_id ?? null,
-      EVENT_TYPES.SKILL_ACTIVATED,
-      { selected_skill_keys: (run as SkillSelectableRun).selected_skill_keys ?? null, key: skill.key, name: skill.name, source: skill.source, trigger: "explicit" },
-      { visibility: VISIBILITY.AUDIT, source: { kind: "harness" } },
-    );
-    return { key: skill.key, name: skill.name, instructions: skill.instructions };
   }
 }
 

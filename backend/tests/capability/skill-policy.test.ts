@@ -60,71 +60,46 @@ const ALLOWED_SKILL = [
   "# Read Only",
 ].join("\n");
 
-const DENY_OVERRIDE_SKILL = [
-  "---",
-  "name: No Delete",
-  "allowed_tools:",
-  "  - workspace.read_file",
-  "  - workspace.list_files",
-  "  - workspace.delete_file",
-  "denied_tools:",
-  "  - workspace.delete_file",
-  "---",
-  "# No Delete",
-].join("\n");
-
 describe("ProductionCapabilityRouter skill policy", () => {
-  it("filters listTools by skill allowed_tools", async () => {
+  it("does not filter listTools from run.selected_skill_keys", async () => {
     const { router } = setupRouter(ALLOWED_SKILL, "read-only");
     const run = createRun("read-only");
     const tools = await router.listTools({ run });
-    const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(["workspace.list_files", "workspace.read_file"]);
+    expect(tools.length).toBeGreaterThanOrEqual(8);
   });
 
-  it("returns all tools when no selected_skill_keys is set", async () => {
+  it("still returns all tools when no selected_skill_keys is set", async () => {
     const { router } = setupRouter(ALLOWED_SKILL, "read-only");
     const run = createRun(null);
     const tools = await router.listTools({ run });
     expect(tools.length).toBeGreaterThanOrEqual(8);
   });
 
-  it("denies tool calls outside the skill allowlist", async () => {
+  it("does not deny tool calls from run.selected_skill_keys", async () => {
     const { router, store } = setupRouter(ALLOWED_SKILL, "read-only");
-    const run = { ...createRun("read-only"), id: "run_deny_outside" };
+    const run = { ...createRun("read-only"), id: "run_no_skill_policy" };
+    store.createRun(run);
+    const result = await router.prepareToolCall(
+      { id: "tc", name: "workspace.write_file", input: { path: "/x", content: "y" }, run_id: run.id },
+      { run },
+    );
+    expect(result.allowed).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it("still enforces ordinary scope checks", async () => {
+    const { router, store } = setupRouter(ALLOWED_SKILL, "read-only");
+    const run = {
+      ...createRun("read-only"),
+      id: "run_scope_denied",
+      scopes: ["workspace:read"],
+    };
     store.createRun(run);
     const result = await router.prepareToolCall(
       { id: "tc", name: "workspace.write_file", input: { path: "/x", content: "y" }, run_id: run.id },
       { run },
     );
     expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("not in skill allow list");
-  });
-
-  it("allows tool calls inside the skill allowlist", async () => {
-    const { router, store } = setupRouter(ALLOWED_SKILL, "read-only");
-    const run = { ...createRun("read-only"), id: "run_allow_inside" };
-    store.createRun(run);
-    const result = await router.prepareToolCall(
-      { id: "tc", name: "workspace.read_file", input: { path: "/x" }, run_id: run.id },
-      { run },
-    );
-    expect(result.allowed).toBe(true);
-  });
-
-  it("denied_tools overrides allowed_tools", async () => {
-    const { router, store } = setupRouter(DENY_OVERRIDE_SKILL, "no-delete");
-    const run = { ...createRun("no-delete"), id: "run_deny_override" };
-    store.createRun(run);
-
-    const tools = await router.listTools({ run });
-    expect(tools.map((t) => t.name)).not.toContain("workspace.delete_file");
-
-    const result = await router.prepareToolCall(
-      { id: "tc", name: "workspace.delete_file", input: { path: "/x" }, run_id: run.id },
-      { run },
-    );
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("denied by skill policy");
+    expect(result.reason).toContain("Missing scopes");
   });
 });

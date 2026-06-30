@@ -17,14 +17,6 @@ function workspaceIdForThread(threadId: string | null): string {
   return threadId ? `ws_thread_${threadId}` : `ws_${nanoid(12)}`;
 }
 
-function selectedSkillKeys(body: any): string[] | null {
-  if (!Array.isArray(body.selected_skill_keys)) return null;
-  const keys = body.selected_skill_keys.filter(
-    (key: unknown): key is string => typeof key === "string" && key.length > 0,
-  );
-  return keys.length > 0 ? keys : null;
-}
-
 function afterSequence(query: unknown): number {
   const raw = (query as any)?.after_sequence;
   const value = typeof raw === "string" ? Number(raw) : 0;
@@ -44,13 +36,12 @@ export function registerRunRoutes(app: FastifyInstance): void {
       const body = request.body as any;
       const runtime = getRuntime();
       const threadId = typeof body.thread_id === "string" && body.thread_id.length > 0 ? body.thread_id : null;
-      const run: AgentRun & { selected_skill_keys?: string[] | null } = {
+      const run: AgentRun = {
         id: `run_${nanoid(12)}`,
         org_id: body.org_id,
         actor_user_id: body.actor_user_id,
         source: body.source || "chat",
         thread_id: threadId,
-        selected_skill_keys: selectedSkillKeys(body),
         workspace_id: workspaceIdForThread(threadId),
         task_msg: body.task_msg,
         scopes: Array.isArray(body.scopes) && body.scopes.length > 0 ? body.scopes : ["*"],
