@@ -280,9 +280,10 @@ describe("Runs API", () => {
     expect(runCreatedEventCount()).toBe(beforeRunCreatedEvents);
   });
 
-  it("POST /api/approvals/:id/resolve resumes a waiting model run", async () => {
+  it("POST /api/approvals/:id/resolve executes the approved pending tool before continuing", async () => {
     const runtime = getRuntime();
     const approvalId = "aprv_api_resume";
+    const toolCallId = "tc_api_resume";
     const run: AgentRun = {
       id: "run_api_approval_resume",
       org_id: "org_1",
@@ -302,10 +303,15 @@ describe("Runs API", () => {
       error: null,
     };
     runtime.store.createRun(run);
+    runtime.eventWriter.write(run.id, null, EVENT_TYPES.TOOL_PROPOSED, {
+      tool_call_id: toolCallId,
+      name: "workspace.write_file",
+      input: { path: "/approved.txt", content: "approved content" },
+    });
     runtime.store.createApproval({
       id: approvalId,
       run_id: run.id,
-      tool_call_id: "tc_api_resume",
+      tool_call_id: toolCallId,
       tool_name: "workspace.write_file",
       status: "pending",
       created_at: testNow(),
@@ -321,10 +327,17 @@ describe("Runs API", () => {
     }
 
     expect(res.statusCode).toBe(200);
+    expect(runtime.store.readFile(run.workspace_id, "/approved.txt")?.content).toBe("approved content");
     expect(runtime.store.getRun(run.id)?.status).toBe("completed");
     expect(runtime.store.getRun(run.id)?.current_approval_id).toBeNull();
     expect(runtime.store.listEvents(run.id).map((event) => event.type)).toEqual(
-      expect.arrayContaining([EVENT_TYPES.APPROVAL_RESOLVED, EVENT_TYPES.RUN_RESUMED, EVENT_TYPES.RUN_COMPLETED]),
+      expect.arrayContaining([
+        EVENT_TYPES.APPROVAL_RESOLVED,
+        EVENT_TYPES.RUN_RESUMED,
+        EVENT_TYPES.TOOL_STARTED,
+        EVENT_TYPES.TOOL_COMPLETED,
+        EVENT_TYPES.RUN_COMPLETED,
+      ]),
     );
   });
 
