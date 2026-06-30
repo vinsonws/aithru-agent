@@ -1,12 +1,15 @@
 import type { CapabilityRouter, ToolPrepareResult } from "./router.js";
 import type { AgentToolDescriptor, AgentToolCallRequest, AgentToolCallResult } from "./descriptors.js";
 import type { RunContext, SkillPolicy } from "./policy.js";
-import { PolicyEngine } from "./policy.js";
+import type { AgentStreamEvent } from "@aithru-agent/contracts";
+import { PolicyEngine, resolveSkillPolicy } from "./policy.js";
+import { activeSkillKeysFromEvents } from "./skill-state.js";
 import type { SkillResolver } from "@aithru-agent/skills";
 import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 
 interface CapabilityStore {
   listWorkspaceFiles(workspaceId: string): Array<{ path: string; size: number }>;
+  listEvents(runId: string): AgentStreamEvent[];
   readFile(workspaceId: string, path: string): { path: string; content: string } | undefined;
   writeFile(workspaceId: string, path: string, content: string): { path: string; version: number };
   deleteFile(workspaceId: string, path: string): boolean;
@@ -405,9 +408,18 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
   }
 
   private skillPolicyForRun(
-    _run: { org_id: string; actor_user_id: string },
+    run: { id: string; org_id: string; actor_user_id: string },
   ): SkillPolicy | null {
-    return null;
+    if (!this.skillResolver) return null;
+    const keys = activeSkillKeysFromEvents(this.store.listEvents(run.id));
+    const configs = keys
+      .map((key) => this.skillResolver!.resolve(key, run.org_id, run.actor_user_id))
+      .filter((skill): skill is NonNullable<typeof skill> => skill !== null)
+      .map((skill) => ({
+        allowed_tools: skill.allowed_tools,
+        denied_tools: skill.denied_tools,
+      }));
+    return configs.length ? resolveSkillPolicy(configs) : null;
   }
 }
 

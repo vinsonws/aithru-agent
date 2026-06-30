@@ -1,8 +1,74 @@
 import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "@aithru-agent/persistence";
-import { AgentEventWriter } from "@aithru-agent/stream";
+import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
+import { SkillRegistry, SkillResolver } from "@aithru-agent/skills";
+import { writeFileSync, mkdirSync, rmSync } from "fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+function makeSkillDir(): string {
+  const dir = join(tmpdir(), `prod_cap_skill_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function setupSkillRouter(skills: Record<string, string>) {
+  const root = makeSkillDir();
+  for (const [key, skillMd] of Object.entries(skills)) {
+    mkdirSync(join(root, key));
+    writeFileSync(join(root, key, "SKILL.md"), skillMd);
+  }
+  const registry = new SkillRegistry();
+  registry.loadBuiltinPackages(root);
+  rmSync(root, { recursive: true, force: true });
+  const store = new InMemoryStore();
+  const eventWriter = new AgentEventWriter(store);
+  const resolver = new SkillResolver(registry, store);
+  const router = new ProductionCapabilityRouter(store, eventWriter, resolver);
+  return { router, store, eventWriter };
+}
+
+function activateSkills(
+  eventWriter: AgentEventWriter,
+  run: AgentRun,
+  keys: string[],
+): void {
+  for (const key of keys) {
+    eventWriter.write(
+      run.id,
+      run.thread_id ?? null,
+      EVENT_TYPES.SKILL_ACTIVATED,
+      { key, trigger: "explicit" },
+      { visibility: VISIBILITY.AUDIT },
+    );
+  }
+}
+
+const READ_SKILL = [
+  "---",
+  "name: Read Guard",
+  "allowed_tools:",
+  "  - workspace.list_files",
+  "  - workspace.read_file",
+  "denied_tools:",
+  "  - workspace.delete_file",
+  "---",
+  "# Read Guard",
+].join("\n");
+
+const WRITE_SKILL = [
+  "---",
+  "name: Write Guard",
+  "allowed_tools:",
+  "  - workspace.read_file",
+  "  - workspace.write_file",
+  "denied_tools:",
+  "  - workspace.write_file",
+  "---",
+  "# Write Guard",
+].join("\n");
 
 describe("ProductionCapabilityRouter", () => {
   const store = new InMemoryStore();
@@ -204,5 +270,46 @@ describe("ProductionCapabilityRouter", () => {
       { run },
     );
     expect(result.allowed).toBe(false);
+  });
+
+  it("composes active skill policies from activation events", async () => {
+    const { router: skillRouter, store: skillStore, eventWriter: skillWriter } = setupSkillRouter({
+      "read-guard": READ_SKILL,
+      "write-guard": WRITE_SKILL,
+    });
+    const skillRun: AgentRun = {
+      ...run,
+      id: "r_skill_composed",
+      workspace_id: "ws_skill_composed",
+    };
+    skillStore.createRun(skillRun);
+    activateSkills(skillWriter, skillRun, ["read-guard", "write-guard"]);
+
+    const tools = await skillRouter.listTools({ run: skillRun });
+    expect(tools.map((tool) => tool.name)).toEqual(["workspace.read_file"]);
+
+    const deniedWrite = await skillRouter.prepareToolCall(
+      {
+        id: "tc_skill_write",
+        name: "workspace.write_file",
+        input: { path: "/x", content: "y" },
+        run_id: skillRun.id,
+      },
+      { run: skillRun },
+    );
+    expect(deniedWrite.allowed).toBe(false);
+    expect(deniedWrite.reason).toContain('denied by skill policy');
+
+    const deniedList = await skillRouter.prepareToolCall(
+      {
+        id: "tc_skill_list",
+        name: "workspace.list_files",
+        input: {},
+        run_id: skillRun.id,
+      },
+      { run: skillRun },
+    );
+    expect(deniedList.allowed).toBe(false);
+    expect(deniedList.reason).toContain('not in skill allow list');
   });
 });

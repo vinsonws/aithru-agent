@@ -45,12 +45,25 @@ export interface SkillPolicy {
 export function resolveSkillPolicy(
   skillConfigs: Array<{ allowed_tools?: string[]; denied_tools?: string[] }>,
 ): SkillPolicy {
-  const allowedTools = new Set<string>();
   const deniedTools = new Set<string>();
+  const allowSets = skillConfigs
+    .map((config) => new Set(config.allowed_tools ?? []))
+    .filter((set) => set.size > 0);
+
   for (const config of skillConfigs) {
-    for (const tool of config.allowed_tools || []) allowedTools.add(tool);
     for (const tool of config.denied_tools || []) deniedTools.add(tool);
   }
+
+  const allowedTools = new Set<string>();
+  if (allowSets.length > 0) {
+    const [first, ...rest] = allowSets;
+    for (const tool of first) {
+      if (rest.every((set) => set.has(tool)) && !deniedTools.has(tool)) {
+        allowedTools.add(tool);
+      }
+    }
+  }
+
   return { allowedTools, deniedTools };
 }
 
