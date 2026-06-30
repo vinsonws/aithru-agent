@@ -25,7 +25,8 @@
 - Modify `backend/packages/contracts/src/schemas.ts` and `backend/packages/contracts/src/types.ts`: remove `skill_id`; add `selected_skill_keys` request schema and context stats shape.
 - Modify `backend/packages/persistence/src/migrations.ts`, `backend/packages/persistence/src/sqlite-store.ts`, `backend/packages/persistence/src/store.ts`, and `backend/packages/persistence/src/protocols.ts`: remove persisted run skill column usage.
 - Modify `backend/packages/skills/src/resolver.ts`: add visible skill catalog and multi-key resolution helpers.
-- Create `backend/packages/harness/src/skills.ts`: project active skills from events, emit activation events, and expose the `skill.load` tool descriptor.
+- Create `backend/packages/capabilities/src/skill-state.ts`: project active skills from events for policy and harness consumers.
+- Create `backend/packages/harness/src/skills.ts`: emit activation events and expose the `skill.load` tool descriptor.
 - Modify `backend/packages/harness/src/context-packet.ts` and `backend/packages/harness/src/model-turn.ts`: inject multiple loaded skill instructions and handle model `skill.load`.
 - Modify `backend/packages/capabilities/src/policy.ts` and `backend/packages/capabilities/src/production-router.ts`: compose policy from all active skills.
 - Modify `backend/apps/api/src/routes/runs.ts` and `backend/apps/api/src/routes/compat.ts`: accept `selected_skill_keys` and emit explicit activations.
@@ -171,14 +172,16 @@ git commit -m "refactor: remove run skill_id contract"
 
 **Files:**
 - Modify: `backend/packages/skills/src/resolver.ts`
+- Create: `backend/packages/capabilities/src/skill-state.ts`
 - Create: `backend/packages/harness/src/skills.ts`
+- Modify: `backend/packages/capabilities/src/index.ts`
 - Modify: `backend/packages/harness/src/index.ts`
 - Modify: `backend/tests/skills/loader.test.ts`
 - Create: `backend/tests/model/skill-activation-state.test.ts`
 
 **Interfaces:**
 - Consumes: `SkillResolver.resolve(key, orgId, actorUserId)` and `AgentStreamEvent`.
-- Produces: `SkillResolver.listVisible(orgId, actorUserId): SkillCatalogEntry[]`; `activeSkillKeysFromEvents(events): string[]`; `skillLoadToolDescriptor`; `emitSkillActivated(args): void`.
+- Produces: `SkillResolver.listVisible(orgId, actorUserId): SkillCatalogEntry[]`; `activeSkillKeysFromEvents(events): string[]` exported from capabilities; `skillLoadToolDescriptor`; `emitSkillActivated(args): void`.
 
 - [ ] **Step 1: Write failing activation state tests**
 
@@ -187,7 +190,7 @@ Create `backend/tests/model/skill-activation-state.test.ts`:
 ```ts
 import { describe, expect, it } from "vitest";
 import type { AgentStreamEvent } from "@aithru-agent/contracts";
-import { activeSkillKeysFromEvents } from "@aithru-agent/harness";
+import { activeSkillKeysFromEvents } from "@aithru-agent/capabilities";
 
 function event(sequence: number, key: string): AgentStreamEvent {
   return {
@@ -222,12 +225,28 @@ Run: `cd backend && npm run test -- tests/model/skill-activation-state.test.ts`
 
 Expected: FAIL because `activeSkillKeysFromEvents` does not exist.
 
-- [ ] **Step 3: Implement harness skill helpers**
+- [ ] **Step 3: Implement active skill projection and harness skill helpers**
 
-Create `backend/packages/harness/src/skills.ts`:
+Create `backend/packages/capabilities/src/skill-state.ts` and export it from `backend/packages/capabilities/src/index.ts`:
 
 ```ts
 import type { AgentStreamEvent } from "@aithru-agent/contracts";
+import { EVENT_TYPES } from "@aithru-agent/stream";
+
+export function activeSkillKeysFromEvents(events: AgentStreamEvent[]): string[] {
+  const keys: string[] = [];
+  for (const event of events) {
+    if (event.type !== EVENT_TYPES.SKILL_ACTIVATED) continue;
+    const key = (event.payload as any)?.key;
+    if (typeof key === "string" && key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+```
+
+Then create `backend/packages/harness/src/skills.ts`:
+
+```ts
 import type { AgentEventWriter } from "@aithru-agent/stream";
 import { EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 
@@ -242,16 +261,6 @@ export const skillLoadToolDescriptor = {
     required: ["key"],
   },
 };
-
-export function activeSkillKeysFromEvents(events: AgentStreamEvent[]): string[] {
-  const keys: string[] = [];
-  for (const event of events) {
-    if (event.type !== EVENT_TYPES.SKILL_ACTIVATED) continue;
-    const key = (event.payload as any)?.key;
-    if (typeof key === "string" && key && !keys.includes(key)) keys.push(key);
-  }
-  return keys;
-}
 
 export function emitSkillActivated(args: {
   eventWriter: AgentEventWriter;
@@ -389,7 +398,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add backend/packages/skills/src/resolver.ts backend/packages/harness/src/skills.ts backend/packages/harness/src/index.ts backend/tests/skills/loader.test.ts backend/tests/model/skill-activation-state.test.ts
+git add backend/packages/skills/src/resolver.ts backend/packages/capabilities/src/skill-state.ts backend/packages/capabilities/src/index.ts backend/packages/harness/src/skills.ts backend/packages/harness/src/index.ts backend/tests/skills/loader.test.ts backend/tests/model/skill-activation-state.test.ts
 git commit -m "feat: add skill catalog activation state"
 ```
 
@@ -405,7 +414,7 @@ git commit -m "feat: add skill catalog activation state"
 
 **Interfaces:**
 - Consumes: `CreateRunRequest.selected_skill_keys`; `SkillResolver.resolve`; `emitSkillActivated`.
-- Produces: explicit selected skills recorded as `skill.activated` before run execution.
+- Produces: selected skills validated before run persistence and recorded as `skill.activated` before run execution.
 
 - [ ] **Step 1: Write failing API integration tests**
 
@@ -470,17 +479,26 @@ function selectedSkillKeys(body: any): string[] {
 }
 ```
 
-- [ ] **Step 4: Validate and emit selected skill activations**
+- [ ] **Step 4: Validate before creating the run and emit selected skill activations**
 
-In both create-run paths, after `runtime.store.createRun(run)` and after `run.created`, add:
+In both create-run paths, resolve all selected skills before `runtime.store.createRun(run)`. If any key is unknown, return 400 before persisting the run or writing `run.created`:
 
 ```ts
+const selectedSkills = [];
 for (const key of selectedSkillKeys(body)) {
-  const skill = runtime.skillResolver.resolve(key, run.org_id, run.actor_user_id);
+  const skill = runtime.skillResolver.resolve(key, orgId, actorUserId);
   if (!skill) {
     reply.code(400);
     return { error: `Skill not found: ${key}` };
   }
+  selectedSkills.push(skill);
+}
+```
+
+After `runtime.store.createRun(run)` and after `run.created`, emit one activation for each resolved selected skill:
+
+```ts
+for (const skill of selectedSkills) {
   emitSkillActivated({
     eventWriter: runtime.eventWriter,
     runId: run.id,
@@ -528,7 +546,7 @@ git commit -m "feat: activate selected run skills"
 - Modify: `backend/tests/capability/production-router.test.ts`
 
 **Interfaces:**
-- Consumes: `activeSkillKeysFromEvents(events)` and `SkillResolver.resolve`.
+- Consumes: `activeSkillKeysFromEvents(events)` from capabilities and `SkillResolver.resolve`.
 - Produces: `resolveSkillPolicy` where denied tools are unioned and allowed tools are intersected across active skills.
 
 - [ ] **Step 1: Write failing policy composition tests**
@@ -587,7 +605,7 @@ export function resolveSkillPolicy(
 
 - [ ] **Step 4: Use active skill events in ProductionCapabilityRouter**
 
-In `backend/packages/capabilities/src/production-router.ts`, import `activeSkillKeysFromEvents` from `@aithru-agent/harness`. Replace `skillPolicyForRun` with a version that resolves every active key:
+In `backend/packages/capabilities/src/production-router.ts`, import `activeSkillKeysFromEvents` from local `./skill-state.js`. Replace `skillPolicyForRun` with a version that resolves every active key:
 
 ```ts
 private skillPolicyForRun(run: { id: string; org_id: string; actor_user_id: string }): SkillPolicy | null {
@@ -631,7 +649,7 @@ git commit -m "feat: compose active skill tool policy"
 - Create: `backend/tests/model/skill-load-tool.test.ts`
 
 **Interfaces:**
-- Consumes: `activeSkillKeysFromEvents`, `emitSkillActivated`, `skillLoadToolDescriptor`, `SkillResolver.listVisible`, `SkillResolver.resolve`.
+- Consumes: `activeSkillKeysFromEvents` from capabilities, `emitSkillActivated`, `skillLoadToolDescriptor`, `SkillResolver.listVisible`, `SkillResolver.resolve`.
 - Produces: model context stats `active_skill_keys: string[]`; visible catalog metadata; `skill.load` tool result.
 
 - [ ] **Step 1: Write failing context test**
@@ -771,7 +789,7 @@ visible_skill_count: args.skillCatalog?.length ?? 0,
 
 - [ ] **Step 5: Handle `skill.load` inside ModelTurnLoop**
 
-In `backend/packages/harness/src/model-turn.ts`, delete `resolveSkill`. In each turn:
+In `backend/packages/harness/src/model-turn.ts`, import `activeSkillKeysFromEvents` from `@aithru-agent/capabilities`, then delete `resolveSkill`. In each turn:
 
 ```ts
 const activeKeys = activeSkillKeysFromEvents(this.deps.store.listEvents(run.id));
