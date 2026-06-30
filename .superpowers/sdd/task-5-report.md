@@ -1,35 +1,71 @@
-# Task 5 Report
+# Task 5 Report: Full Verification
 
 Status: DONE
 
-Implemented:
-- Inject active skill instructions into model context from `skill.activated` events.
-- Expose visible skill catalog metadata without leaking instructions for inactive skills.
-- Add harness-owned `skill.load` pseudo-tool to the model tool list.
-- Intercept `skill.load` inside `ModelTurnLoop` and emit `skill.activated` only once per skill key.
-- Keep context stats event-backed with `active_skill_keys` and `visible_skill_count`.
+## What I verified
 
-Tests:
-- `cd backend && npm run test -- tests/model/skill-context.test.ts tests/model/skill-load-tool.test.ts`
-- `cd backend && npm run typecheck`
+- Backend typecheck, full test suite, no-Python-backend guard, and file-report example.
+- Frontend typecheck and full source-test suite.
+- Final git history includes the expected tool input streaming and draft-preview commits.
 
-## Review Fix: Missing Test Coverage
+## Backend verification
 
-Status: DONE
+```bash
+cd backend
+npm run typecheck
+```
 
-Implemented:
-- Added `skill.load` coverage for already-active skills, unknown keys, and missing or blank keys.
-- Asserted failed `skill.load` results are returned to the next model turn without failing the run.
-- Kept existing catalog/context assertions for visible skill metadata, `visible_skill_count`, and no instruction-body leakage in stats.
+Result: passed.
 
-Tests:
-- `cd backend && npm run test -- tests/model/skill-context.test.ts tests/model/skill-load-tool.test.ts`
-- `cd backend && npm run typecheck`
+```bash
+cd backend
+npm run test
+```
 
-Files changed:
-- `backend/tests/model/skill-context.test.ts`
-- `backend/tests/model/skill-load-tool.test.ts`
-- `.superpowers/sdd/task-5-report.md`
+Result: passed, `36` test files and `227` tests.
 
-Concerns:
-- None.
+```bash
+cd backend
+npm run check:no-python-backend
+```
+
+Result: passed, `check:no-python-backend PASSED`.
+
+```bash
+cd backend
+npm run examples:file-report
+```
+
+Result: passed. Example run status was `completed`, wrote `/reports/report.md`, and all required events were present.
+
+## Frontend verification
+
+```bash
+cd frontend
+npm run typecheck
+```
+
+Result: passed.
+
+```bash
+cd frontend
+npm test
+```
+
+Result: passed, `191` tests.
+
+## Fix made during verification
+
+- Fixed one stale backend test assertion in `backend/tests/model/model-turn.test.ts` to call `store.listApprovals({ run_id: run.id })`, matching the current store API.
+
+## Final status check
+
+Recent commits include:
+
+- `d4d63455 Add tool input delta backend events`
+- `e2f195e8 feat: track streamed tool input drafts`
+- `a73fe024 feat: derive draft workspace file views`
+- `bb974d98 feat: preview streamed write_file drafts`
+- `91d9557b fix: align approval test filter`
+
+Concerns: none.

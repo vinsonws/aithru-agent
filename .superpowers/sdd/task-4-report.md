@@ -189,3 +189,37 @@ Output summary:
 pass 191
 fail 0
 ```
+
+## Controller verification follow-up
+
+Backend verification was run after review requested evidence for the repository-wide backend commands.
+
+Commands and results:
+
+```bash
+cd backend
+npm run typecheck
+```
+
+Result: passed after fixing one stale test call to `store.listApprovals(...)` so it uses the current filter-object API.
+
+```bash
+cd backend
+npm run test
+```
+
+Result: passed, `36` test files and `227` tests.
+
+```bash
+cd backend
+npm run check:no-python-backend
+```
+
+Result: passed, `check:no-python-backend PASSED`.
+
+```bash
+cd backend
+npm run examples:file-report
+```
+
+Result: passed. Example run completed, wrote `/reports/report.md`, and all required events were present.
