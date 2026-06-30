@@ -35,6 +35,18 @@ export interface ToolCallEntry {
   updatedAt?: string;
 }
 
+export interface ToolInputDraft {
+  inputStreamId: string;
+  toolCallId?: string;
+  toolName?: string;
+  inputText: string;
+  status: "streaming" | "proposed" | "completed" | "failed" | "denied";
+  sequence?: number;
+  lastSequence?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface ReasoningSegment {
   id: string;
   content: string;
@@ -107,6 +119,7 @@ export interface RunStreamState {
   status: AgentRunStatus | "idle";
   messages: ChatMessage[];
   toolCalls: ToolCallEntry[];
+  toolInputDrafts: ToolInputDraft[];
   reasoningSegments: ReasoningSegment[];
   assistantOutputSegments: ChatMessage[];
   todos: TodoEntry[];
@@ -129,6 +142,7 @@ const initialState: RunStreamState = {
   status: "idle",
   messages: [],
   toolCalls: [],
+  toolInputDrafts: [],
   reasoningSegments: [],
   assistantOutputSegments: [],
   todos: [],
@@ -167,8 +181,71 @@ function messageFromPayloadValue(value: unknown): string | undefined {
   return summary || undefined;
 }
 
+function stringPayload(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberPayload(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function sequenceOf(event: AgentStreamEvent): number {
   return typeof event.sequence === "number" ? event.sequence : Number.MAX_SAFE_INTEGER;
+}
+
+function applyToolInputDelta(
+  drafts: ToolInputDraft[],
+  event: AgentStreamEvent,
+): ToolInputDraft[] {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const index = numberPayload(payload.index);
+  const inputStreamId = stringPayload(payload.input_stream_id);
+  const delta = stringPayload(payload.input_delta);
+  if (payload.index !== undefined && index === undefined) return drafts;
+  if (!inputStreamId || !delta) return drafts;
+
+  const existing = drafts.find((draft) => draft.inputStreamId === inputStreamId);
+  const patch: ToolInputDraft = {
+    inputStreamId,
+    toolCallId: stringPayload(payload.tool_call_id) ?? existing?.toolCallId,
+    toolName: stringPayload(payload.name) ?? existing?.toolName,
+    inputText: `${existing?.inputText ?? ""}${delta}`,
+    status: existing?.status ?? "streaming",
+    sequence: existing?.sequence ?? sequenceOf(event),
+    lastSequence: sequenceOf(event),
+    createdAt: existing?.createdAt ?? event.timestamp,
+    updatedAt: event.timestamp,
+  };
+
+  return existing
+    ? drafts.map((draft) => (draft.inputStreamId === inputStreamId ? patch : draft))
+    : [...drafts, patch];
+}
+
+function bindToolInputDraft(
+  drafts: ToolInputDraft[],
+  event: AgentStreamEvent,
+  status: ToolInputDraft["status"],
+): ToolInputDraft[] {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const inputStreamId = stringPayload(payload.input_stream_id);
+  const toolCallId = stringPayload(payload.tool_call_id);
+  if (!inputStreamId && !toolCallId) return drafts;
+
+  return drafts.map((draft) => {
+    const matches =
+      (inputStreamId && draft.inputStreamId === inputStreamId) ||
+      (toolCallId && draft.toolCallId === toolCallId);
+    if (!matches) return draft;
+    return {
+      ...draft,
+      toolCallId: toolCallId ?? draft.toolCallId,
+      toolName: stringPayload(payload.name) ?? stringPayload(payload.tool_name) ?? draft.toolName,
+      status,
+      lastSequence: sequenceOf(event),
+      updatedAt: event.timestamp,
+    };
+  });
 }
 
 function withEventSequence(state: RunStreamState, event: AgentStreamEvent): RunStreamState {
@@ -695,6 +772,13 @@ export function reduceEvent(state: RunStreamState, event: AgentStreamEvent): Run
         : nextState;
     }
 
+    case "tool.input_delta": {
+      return {
+        ...state,
+        toolInputDrafts: applyToolInputDelta(state.toolInputDrafts ?? [], event),
+      };
+    }
+
     case "tool.proposed":
     case "tool.prepare":
     case "tool.execute":
@@ -733,14 +817,26 @@ export function reduceEvent(state: RunStreamState, event: AgentStreamEvent): Run
         createdAt: existing?.createdAt ?? event.timestamp,
         updatedAt: event.timestamp,
       };
+      const nextToolInputDrafts =
+        type === "tool.proposed"
+          ? bindToolInputDraft(state.toolInputDrafts ?? [], event, "proposed")
+          : type === "tool.completed"
+            ? bindToolInputDraft(state.toolInputDrafts ?? [], event, "completed")
+            : type === "tool.failed"
+              ? bindToolInputDraft(state.toolInputDrafts ?? [], event, "failed")
+              : type === "tool.denied"
+                ? bindToolInputDraft(state.toolInputDrafts ?? [], event, "denied")
+                : state.toolInputDrafts ?? [];
       if (existing) {
         return {
           ...state,
+          toolInputDrafts: nextToolInputDrafts,
           toolCalls: state.toolCalls.map((t) => (t.id === id ? { ...t, ...patch } : t)),
         };
       }
       return {
         ...state,
+        toolInputDrafts: nextToolInputDrafts,
         toolCalls: [...state.toolCalls, { id, ...patch } as ToolCallEntry],
       };
     }

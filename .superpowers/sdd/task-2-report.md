@@ -1,56 +1,62 @@
-# Task 2 Report: Add Skill Catalog And Activation Projection
+# Task 2 Report: Frontend Tool Input Draft State
 
 ## Result
 
-Implemented the task-2 primitives only:
+Implemented Task 2 only in the frontend reducer/state layer:
 
-- `SkillResolver.listVisible(orgId, actorUserId)` returns visible catalog metadata without instructions.
-- `activeSkillKeysFromEvents(events)` projects ordered unique active skill keys from `skill.activated` events.
-- `skillLoadToolDescriptor` and `emitSkillActivated(...)` are available from the harness.
-- `skill_id` was not reintroduced anywhere.
+- Added exported `ToolInputDraft`.
+- Added `RunStreamState.toolInputDrafts` and initialized it to `[]`.
+- Added reducer projection for `tool.input_delta`.
+- Bound streamed draft entries to `tool.proposed` and terminal tool lifecycle events by `input_stream_id` / `tool_call_id`.
+
+No backend files were changed. No draft file projection or preview panel wiring was added.
 
 ## TDD Evidence
 
 ### RED
 
-Focused tests failed before implementation for the exact missing APIs:
+Wrote the failing reducer test first in `frontend/tests/use-run-stream.test.mjs`:
 
-- `backend/tests/model/skill-activation-state.test.ts`
-  - Failed with: `(0 , activeSkillKeysFromEvents) is not a function`
-- `backend/tests/skills/loader.test.ts`
-  - Failed with: `resolver.listVisible is not a function`
+- Added `toolInputDrafts: []` to the local `state()` helper.
+- Added `reduceEvent accumulates and binds streamed tool input drafts`.
+
+Focused test command from the brief failed before implementation:
+
+- Command: `cd frontend && npm test -- tests/use-run-stream.test.mjs`
+- Failure:
+  - `✖ reduceEvent accumulates and binds streamed tool input drafts`
+  - `AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal`
+  - `+ actual - expected`
+  - `+ undefined`
+  - expected projected `toolInputDrafts` entry
 
 ### GREEN
 
-After implementation, the focused tests passed:
+After the reducer/state changes, the same focused command passed:
 
-- `npm run test -- tests/model/skill-activation-state.test.ts tests/skills/loader.test.ts`
+- Command: `cd frontend && npm test -- tests/use-run-stream.test.mjs`
+- Result:
+  - `✔ reduceEvent accumulates and binds streamed tool input drafts`
+  - `ℹ pass 183`
+  - `ℹ fail 0`
 
 ## Files Changed
 
-- `backend/packages/skills/src/resolver.ts`
-- `backend/packages/capabilities/src/skill-state.ts`
-- `backend/packages/capabilities/src/index.ts`
-- `backend/packages/harness/src/skills.ts`
-- `backend/packages/harness/src/index.ts`
-- `backend/tests/skills/loader.test.ts`
-- `backend/tests/model/skill-activation-state.test.ts`
+- `frontend/src/features/chat/useRunStream.ts`
+- `frontend/tests/use-run-stream.test.mjs`
 
 ## Verification
 
 Passed:
 
-- `cd backend && npm run test -- tests/model/skill-activation-state.test.ts tests/skills/loader.test.ts`
-- `cd backend && npm run typecheck`
-- `cd backend && npm run test`
-- `cd backend && npm run check:no-python-backend`
-- `cd backend && npm run examples:file-report`
+- `cd frontend && npm test -- tests/use-run-stream.test.mjs`
 
 ## Self-Review
 
-- Catalog projection stays metadata-only and does not expose instructions.
-- Capability code remains independent; `activeSkillKeysFromEvents` lives in `capabilities`.
-- No model-turn runtime behavior, API run creation, or capability policy changes were added.
+- The implementation follows the brief’s reducer-only scope and leaves preview/file projection for later tasks.
+- I used the existing local reducer/tool lifecycle pattern in `useRunStream.ts`; no helper renames were needed.
+- `bindToolInputDraft(...)` only mutates existing draft entries, so non-streamed tool calls remain unchanged.
+- `applyToolInputDelta(...)` ignores malformed `index` payloads without widening behavior beyond the brief.
 
 ## Concerns
 

@@ -48,6 +48,7 @@ function state() {
     status: "idle",
     messages: [],
     toolCalls: [],
+    toolInputDrafts: [],
     reasoningSegments: [],
     assistantOutputSegments: [],
     todos: [],
@@ -116,6 +117,67 @@ test("reduceEvent keeps event sequence metadata for chat ordering", async () => 
   assert.equal(projected.toolCalls[0].sequence, 36);
   assert.equal(projected.toolCalls[0].lastSequence, 38);
   assert.equal(projected.runCompletedSequence, 84);
+});
+
+test("reduceEvent accumulates and binds streamed tool input drafts", async () => {
+  const { buildRunStreamState } = await loadRunStreamModule();
+  const projected = buildRunStreamState([
+    event(
+      "tool.input_delta",
+      {
+        input_stream_id: "chat:0",
+        tool_call_id: "call_1",
+        index: 0,
+        name: "workspace.write_file",
+        input_delta: '{"path":"/outputs/live.md"',
+      },
+      10,
+    ),
+    event(
+      "tool.input_delta",
+      {
+        input_stream_id: "chat:0",
+        tool_call_id: "call_1",
+        index: 0,
+        name: "workspace.write_file",
+        input_delta: ',"content":"Hello',
+      },
+      11,
+    ),
+    event(
+      "tool.proposed",
+      {
+        input_stream_id: "chat:0",
+        tool_call_id: "call_1",
+        name: "workspace.write_file",
+        input: { path: "/outputs/live.md", content: "Hello" },
+      },
+      12,
+    ),
+    event(
+      "tool.completed",
+      {
+        tool_call_id: "call_1",
+        name: "workspace.write_file",
+        output: { path: "/outputs/live.md", version: 1 },
+      },
+      13,
+    ),
+  ]);
+
+  assert.deepEqual(projected.toolInputDrafts, [
+    {
+      inputStreamId: "chat:0",
+      toolCallId: "call_1",
+      toolName: "workspace.write_file",
+      inputText: '{"path":"/outputs/live.md","content":"Hello',
+      status: "completed",
+      sequence: 10,
+      lastSequence: 13,
+      createdAt: "2026-06-23T00:00:00.000Z",
+      updatedAt: "2026-06-23T00:00:00.000Z",
+    },
+  ]);
 });
 
 test("buildRunStreamState records the latest replayed event sequence", async () => {
