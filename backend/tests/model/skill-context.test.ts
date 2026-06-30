@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
-import { ModelTurnLoop } from "@aithru-agent/harness";
+import { ModelTurnLoop, emitSkillActivated } from "@aithru-agent/harness";
 import { TestModelAdapter } from "@aithru-agent/model";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
@@ -31,7 +31,7 @@ function setupResolver(skillContent: string, skillKey: string) {
   }
 }
 
-function createRun(skillKey: string | null): AgentRun & { selected_skill_keys?: string[] | null } {
+function createRun(): AgentRun {
   return {
     id: `run_skill_${Date.now().toString(36)}`,
     org_id: "org_1",
@@ -49,7 +49,6 @@ function createRun(skillKey: string | null): AgentRun & { selected_skill_keys?: 
     claim: null,
     result: null,
     error: null,
-    selected_skill_keys: skillKey ? [skillKey] : null,
   };
 }
 
@@ -70,12 +69,24 @@ const SKILL_MD = [
 ].join("\n");
 
 describe("ModelTurnLoop skill context", () => {
-  it("does not inject skill instructions from run.selected_skill_keys", async () => {
+  it("injects active skill instructions from skill.activated events", async () => {
     const { resolver, store } = setupResolver(SKILL_MD, "file-report");
     const eventWriter = new AgentEventWriter(store);
     const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, resolver);
-    const run = createRun("file-report");
+    const run = createRun();
     store.createRun(run);
+    emitSkillActivated({
+      eventWriter,
+      runId: run.id,
+      threadId: run.thread_id ?? null,
+      key: "file-report",
+      name: "File Report",
+      source: "builtin",
+      version: "0.0.0",
+      trigger: "explicit",
+      allowedTools: ["workspace.read_file", "workspace.list_files", "workspace.write_file"],
+      deniedTools: ["workspace.delete_file"],
+    });
 
     let capturedMessages: any[] = [];
     const loop = new ModelTurnLoop({
@@ -94,61 +105,15 @@ describe("ModelTurnLoop skill context", () => {
     await loop.execute(run);
 
     const systemMsg = capturedMessages.find((m) => m.role === "system");
-    expect(systemMsg).toBeUndefined();
-  });
-
-  it("context.packet.built keeps active_skill_key null even when selected_skill_keys is set", async () => {
-    const { resolver, store } = setupResolver(SKILL_MD, "file-report");
-    const eventWriter = new AgentEventWriter(store);
-    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, resolver);
-    const run = createRun("file-report");
-    store.createRun(run);
-
-    const loop = new ModelTurnLoop({
-      store,
-      eventWriter,
-      capabilityRouter,
-      skillResolver: resolver,
-      modelAdapter: new TestModelAdapter([
-        [{ type: "text_delta", delta: "done" }, { type: "completed" }],
-      ]),
-    });
-
-    await loop.execute(run);
+    expect(systemMsg.content).toContain("Active skills:");
+    expect(systemMsg.content).toContain("## File Report");
 
     const ctxEvents = store.listEvents(run.id).filter((e) => e.type === EVENT_TYPES.CONTEXT_PACKET_BUILT);
     expect(ctxEvents.length).toBeGreaterThanOrEqual(1);
     for (const evt of ctxEvents) {
       const stats = evt.payload as Record<string, unknown>;
-      expect(stats.active_skill_key).toBeNull();
+      expect(stats.active_skill_keys).toEqual(["file-report"]);
       expect(JSON.stringify(stats)).not.toContain("Read files and write a report.");
     }
-  });
-
-  it("does not emit skill.activated from run.selected_skill_keys", async () => {
-    const { resolver, store } = setupResolver(SKILL_MD, "file-report");
-    const eventWriter = new AgentEventWriter(store);
-    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, resolver);
-    const run = createRun("file-report");
-    store.createRun(run);
-
-    const loop = new ModelTurnLoop({
-      store,
-      eventWriter,
-      capabilityRouter,
-      skillResolver: resolver,
-      modelAdapter: new TestModelAdapter([
-        [
-          { type: "tool_call", id: "tc1", name: "workspace.read_file", input: { path: "/a" } },
-          { type: "completed" },
-        ],
-        [{ type: "text_delta", delta: "done" }, { type: "completed" }],
-      ]),
-    });
-
-    await loop.execute(run);
-
-    const activated = store.listEvents(run.id).filter((e) => e.type === EVENT_TYPES.SKILL_ACTIVATED);
-    expect(activated.length).toBe(0);
   });
 });

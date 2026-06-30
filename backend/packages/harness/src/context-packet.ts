@@ -24,7 +24,8 @@ export interface ModelContextPacket {
     truncated_tool_results: number;
     included_summary: boolean;
     plan_mode: boolean;
-    active_skill_key: string | null;
+    active_skill_keys: string[];
+    visible_skill_count: number;
   };
 }
 
@@ -33,8 +34,9 @@ export function buildModelContextPacket(args: {
   messages: AgentMessage[];
   events: AgentStreamEvent[];
   latestSummary?: AgentContextSummary;
-  skillInstructions?: { name: string; instructions: string };
-  activeSkillKey?: string | null;
+  skillInstructions?: Array<{ name: string; instructions: string }>;
+  skillCatalog?: Array<{ key: string; name: string; description: string | null }>;
+  activeSkillKeys?: string[];
 }): ModelContextPacket {
   const included = args.messages.slice(-MODEL_CONTEXT_MESSAGE_LIMIT);
   let truncatedMessages = 0;
@@ -57,9 +59,23 @@ export function buildModelContextPacket(args: {
     });
 
   const contextParts: string[] = [];
-  if (args.skillInstructions) {
+  if (args.skillInstructions?.length) {
     contextParts.push(
-      `Active skill: ${args.skillInstructions.name}\nSkill instructions:\n${args.skillInstructions.instructions}`,
+      [
+        "Active skills:",
+        ...args.skillInstructions.map((skill) => `## ${skill.name}\n${skill.instructions}`),
+      ].join("\n\n"),
+    );
+  }
+  if (args.skillCatalog?.length) {
+    contextParts.push(
+      [
+        "Available skills:",
+        ...args.skillCatalog.map((skill) =>
+          `- ${skill.key}: ${skill.name}${skill.description ? ` — ${skill.description}` : ""}`,
+        ),
+        "Use skill.load with a skill key when a skill's full instructions are needed.",
+      ].join("\n"),
     );
   }
   const planMode = isPlanModeRun(args.run);
@@ -92,7 +108,8 @@ export function buildModelContextPacket(args: {
       truncated_tool_results: truncatedToolResults,
       included_summary: Boolean(args.latestSummary?.summary),
       plan_mode: planMode,
-      active_skill_key: args.activeSkillKey ?? null,
+      active_skill_keys: args.activeSkillKeys ?? [],
+      visible_skill_count: args.skillCatalog?.length ?? 0,
     },
   };
 }

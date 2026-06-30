@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import type { AgentToolDescriptor } from "@aithru-agent/capabilities";
 import type { CapabilityRouter } from "@aithru-agent/capabilities";
+import { activeSkillKeysFromEvents } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 import type { AgentModelAdapter, AgentModelToolResult } from "@aithru-agent/model";
 import type { AgentStore } from "@aithru-agent/persistence";
@@ -8,6 +9,7 @@ import type { SkillResolver } from "@aithru-agent/skills";
 import { EVENT_TYPES, VISIBILITY, AgentEventWriter } from "@aithru-agent/stream";
 import { buildModelContextPacket, isPlanModeRun } from "./context-packet.js";
 import { RunLoop } from "./run-loop.js";
+import { emitSkillActivated, skillLoadToolDescriptor } from "./skills.js";
 import { runTerminalProcessors } from "./terminal-processors.js";
 
 export class ModelTurnLoop {
@@ -39,17 +41,32 @@ export class ModelTurnLoop {
 
     for (let turn = 0; turn < maxTurns; turn += 1) {
       const currentRun = this.deps.store.getRun(run.id) ?? run;
+      const runEvents = this.deps.store.listEvents(run.id);
       const fullMessages = currentRun.thread_id
         ? this.deps.store.listMessages(currentRun.thread_id)
         : [];
+      const activeKeys = activeSkillKeysFromEvents(runEvents);
+      const loadedSkills = activeKeys
+        .map((key) => this.deps.skillResolver?.resolve(key, currentRun.org_id, currentRun.actor_user_id))
+        .filter((skill): skill is NonNullable<typeof skill> => skill !== null);
+      const catalog = this.deps.skillResolver?.listVisible(currentRun.org_id, currentRun.actor_user_id) ?? [];
       const contextPacket = buildModelContextPacket({
         run: currentRun,
         messages: fullMessages,
-        events: this.deps.store.listEvents(run.id),
+        events: runEvents,
         latestSummary: currentRun.thread_id
           ? this.deps.store.getLatestContextSummary(currentRun.thread_id)
           : undefined,
-        activeSkillKey: null,
+        skillInstructions: loadedSkills.map((skill) => ({
+          name: skill.name,
+          instructions: skill.instructions,
+        })),
+        skillCatalog: catalog.map((skill) => ({
+          key: skill.key,
+          name: skill.name,
+          description: skill.description,
+        })),
+        activeSkillKeys: activeKeys,
       });
       this.deps.eventWriter.write(
         run.id,
@@ -61,11 +78,12 @@ export class ModelTurnLoop {
       const planMode = isPlanModeRun(currentRun);
       const tools = (await this.deps.capabilityRouter.listTools({ run: currentRun }))
         .filter((tool) => planMode || !tool.name.startsWith("todo."));
+      const toolCatalog = [...tools, skillLoadToolDescriptor];
       const events = this.deps.modelAdapter.createTurn({
         run: currentRun,
         messages: contextPacket.messages,
         context: contextPacket.stats,
-        tools: modelTools(tools),
+        tools: modelTools(toolCatalog),
         toolResults,
       });
 
@@ -99,6 +117,11 @@ export class ModelTurnLoop {
           );
         } else if (event.type === "tool_call") {
           sawToolCall = true;
+          if (event.name === "skill.load") {
+            const result = this.loadSkillForRun(currentRun, event.input);
+            nextToolResults.push({ id: event.id, name: event.name, input: event.input, output: result });
+            continue;
+          }
           const call = await loop.executeToolCall({
             id: event.id,
             name: event.name,
@@ -162,9 +185,39 @@ export class ModelTurnLoop {
     });
     return this.deps.store.getRun(run.id)!;
   }
+
+  private loadSkillForRun(
+    run: AgentRun,
+    input: Record<string, unknown>,
+  ): { loaded: boolean; key?: string; error?: string } {
+    const key = typeof input.key === "string" ? input.key.trim() : "";
+    if (!key) return { loaded: false, error: "key is required" };
+
+    const active = activeSkillKeysFromEvents(this.deps.store.listEvents(run.id));
+    if (active.includes(key)) return { loaded: true, key };
+
+    const skill = this.deps.skillResolver?.resolve(key, run.org_id, run.actor_user_id);
+    if (!skill) return { loaded: false, key, error: `Skill not found: ${key}` };
+
+    emitSkillActivated({
+      eventWriter: this.deps.eventWriter,
+      runId: run.id,
+      threadId: run.thread_id ?? null,
+      key: skill.key,
+      name: skill.name,
+      source: skill.source,
+      version: skill.version,
+      trigger: "model_load",
+      allowedTools: skill.allowed_tools,
+      deniedTools: skill.denied_tools,
+    });
+    return { loaded: true, key: skill.key };
+  }
 }
 
-function modelTools(tools: AgentToolDescriptor[]) {
+function modelTools(
+  tools: Array<Pick<AgentToolDescriptor, "name" | "description" | "input_schema">>,
+) {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
