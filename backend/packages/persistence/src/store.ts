@@ -148,6 +148,10 @@ export class InMemoryStore {
     this.events.set(runId, events);
   }
 
+  nextEventSequence(runId: string): number {
+    return (this.events.get(runId)?.length ?? 0) + 1;
+  }
+
   listEvents(runId: string): AgentStreamEvent[] {
     return this.events.get(runId) || [];
   }

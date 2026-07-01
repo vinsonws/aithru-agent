@@ -32,6 +32,7 @@ export interface AgentStore {
 
   // Events
   appendEvent(runId: string, event: AgentStreamEvent): void;
+  nextEventSequence(runId: string): number;
   listEvents(runId: string): AgentStreamEvent[];
 
   // Workspace

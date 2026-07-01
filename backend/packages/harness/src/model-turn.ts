@@ -3,7 +3,7 @@ import type { AgentToolDescriptor } from "@aithru-agent/capabilities";
 import type { CapabilityRouter } from "@aithru-agent/capabilities";
 import { activeSkillKeysFromEvents } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
-import type { AgentModelAdapter, AgentModelToolResult } from "@aithru-agent/model";
+import type { AgentModelAdapter, AgentModelToolResult, ModelTurnEvent } from "@aithru-agent/model";
 import type { AgentStore } from "@aithru-agent/persistence";
 import type { SkillResolver } from "@aithru-agent/skills";
 import { EVENT_TYPES, VISIBILITY, AgentEventWriter } from "@aithru-agent/stream";
@@ -91,12 +91,55 @@ export class ModelTurnLoop {
 
       const nextToolResults: AgentModelToolResult[] = [];
       let sawToolCall = false;
+      let pendingToolInputDelta: PendingToolInputDelta | null = null;
+      const flushToolInputDelta = () => {
+        if (!pendingToolInputDelta) return;
+        const pending = pendingToolInputDelta;
+        pendingToolInputDelta = null;
+        this.deps.eventWriter.write(
+          run.id,
+          currentRun.thread_id ?? null,
+          EVENT_TYPES.TOOL_INPUT_DELTA,
+          {
+            input_stream_id: pending.inputStreamId,
+            tool_call_id: pending.toolCallId ?? null,
+            index: pending.index ?? null,
+            name: pending.name ?? null,
+            input_delta: pending.delta,
+          },
+          { visibility: VISIBILITY.USER, source: { kind: "model" } },
+        );
+      };
+      const bufferToolInputDelta = (event: ToolInputDeltaEvent) => {
+        if (
+          pendingToolInputDelta &&
+          sameToolInputDeltaTarget(pendingToolInputDelta, event) &&
+          pendingToolInputDelta.delta.length + event.delta.length <= TOOL_INPUT_DELTA_FLUSH_CHARS
+        ) {
+          pendingToolInputDelta.delta += event.delta;
+        } else {
+          flushToolInputDelta();
+          pendingToolInputDelta = {
+            inputStreamId: event.inputStreamId,
+            toolCallId: event.toolCallId,
+            index: event.index,
+            name: event.name,
+            delta: event.delta,
+          };
+        }
+
+        if (pendingToolInputDelta.delta.length >= TOOL_INPUT_DELTA_FLUSH_CHARS) {
+          flushToolInputDelta();
+        }
+      };
 
       for await (const event of events) {
         if (event.type === "text_delta") {
+          flushToolInputDelta();
           content += event.delta;
           loop.emitMessageDelta(messageId, event.delta, content);
         } else if (event.type === "reasoning_delta") {
+          flushToolInputDelta();
           this.deps.eventWriter.write(
             run.id,
             currentRun.thread_id ?? null,
@@ -105,20 +148,9 @@ export class ModelTurnLoop {
             { visibility: VISIBILITY.DEBUG, source: { kind: "model" } },
           );
         } else if (event.type === "tool_input_delta") {
-          this.deps.eventWriter.write(
-            run.id,
-            currentRun.thread_id ?? null,
-            EVENT_TYPES.TOOL_INPUT_DELTA,
-            {
-              input_stream_id: event.inputStreamId,
-              tool_call_id: event.toolCallId ?? null,
-              index: event.index ?? null,
-              name: event.name ?? null,
-              input_delta: event.delta,
-            },
-            { visibility: VISIBILITY.USER, source: { kind: "model" } },
-          );
+          bufferToolInputDelta(event);
         } else if (event.type === "usage") {
+          flushToolInputDelta();
           this.deps.eventWriter.write(
             run.id,
             currentRun.thread_id ?? null,
@@ -132,6 +164,7 @@ export class ModelTurnLoop {
             { visibility: VISIBILITY.AUDIT, source: { kind: "model" } },
           );
         } else if (event.type === "tool_call") {
+          flushToolInputDelta();
           sawToolCall = true;
           const call = await loop.executeToolCall({
             id: event.id,
@@ -149,11 +182,13 @@ export class ModelTurnLoop {
             return this.deps.store.getRun(run.id)!;
           }
         } else if (event.type === "failed") {
+          flushToolInputDelta();
           loop.emitMessageCompleted(messageId, content);
           loop.emitRunFailed(event.error);
           return this.deps.store.getRun(run.id)!;
         }
       }
+      flushToolInputDelta();
 
       if (!sawToolCall) {
         let threadMessageId: string | null = null;
@@ -207,4 +242,26 @@ function modelTools(
     description: tool.description,
     input_schema: tool.input_schema,
   }));
+}
+
+const TOOL_INPUT_DELTA_FLUSH_CHARS = 1024;
+
+type ToolInputDeltaEvent = Extract<ModelTurnEvent, { type: "tool_input_delta" }>;
+
+interface PendingToolInputDelta {
+  inputStreamId: string;
+  toolCallId?: string;
+  index?: number;
+  name?: string;
+  delta: string;
+}
+
+function sameToolInputDeltaTarget(
+  pending: PendingToolInputDelta,
+  event: ToolInputDeltaEvent,
+): boolean {
+  return pending.inputStreamId === event.inputStreamId
+    && (pending.toolCallId ?? null) === (event.toolCallId ?? null)
+    && (pending.index ?? null) === (event.index ?? null)
+    && (pending.name ?? null) === (event.name ?? null);
 }

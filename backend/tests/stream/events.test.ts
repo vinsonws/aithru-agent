@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { AgentStreamEvent } from "@aithru-agent/contracts";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
 
@@ -47,6 +48,31 @@ describe("AgentEventWriter", () => {
 
     expect(store.listEvents("run_1")).toHaveLength(1);
     expect(store.listEvents("run_2")).toHaveLength(1);
+  });
+
+  it("uses a store-provided next sequence without scanning events", () => {
+    const events: AgentStreamEvent[] = [];
+    let sequence = 0;
+    const store = {
+      appendEvent(_runId: string, event: AgentStreamEvent): void {
+        events.push(event);
+      },
+      listEvents(): AgentStreamEvent[] {
+        throw new Error("listEvents should not be used to assign event sequences");
+      },
+      nextEventSequence(): number {
+        sequence += 1;
+        return sequence;
+      },
+    };
+    const writer = new AgentEventWriter(store);
+
+    const e1 = writer.write("run_1", null, EVENT_TYPES.RUN_CREATED, {});
+    const e2 = writer.write("run_1", null, EVENT_TYPES.RUN_STARTED, {});
+
+    expect(e1.sequence).toBe(1);
+    expect(e2.sequence).toBe(2);
+    expect(events).toHaveLength(2);
   });
 });
 

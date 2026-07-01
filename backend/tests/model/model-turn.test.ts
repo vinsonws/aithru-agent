@@ -267,6 +267,100 @@ describe("ModelTurnLoop", () => {
     expect(store.listEvents(run.id).map((event) => event.type)).not.toContain("tool.started");
   });
 
+  it("coalesces small streamed tool input deltas for the same stream", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = createRun();
+    store.createRun(run);
+
+    const streamEvent = {
+      type: "tool_input_delta" as const,
+      inputStreamId: "chat:0",
+      toolCallId: "call_1",
+      index: 0,
+      name: "workspace.write_file",
+    };
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          { ...streamEvent, delta: '{"path":' },
+          { ...streamEvent, delta: '"/draft.html"' },
+          { ...streamEvent, delta: ',"content":' },
+          { ...streamEvent, delta: '"hello"}' },
+          { type: "completed" },
+        ],
+      ]),
+    });
+
+    await loop.execute(run);
+
+    const inputEvents = store.listEvents(run.id).filter((event) => event.type === "tool.input_delta");
+    const payload = inputEvents[0]?.payload as Record<string, unknown>;
+
+    expect(inputEvents).toHaveLength(1);
+    expect(payload).toMatchObject({
+      input_stream_id: "chat:0",
+      tool_call_id: "call_1",
+      index: 0,
+      name: "workspace.write_file",
+      input_delta: '{"path":"/draft.html","content":"hello"}',
+    });
+  });
+
+  it("flushes coalesced streamed tool input before the final tool proposal", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = createRun();
+    store.createRun(run);
+
+    const streamEvent = {
+      type: "tool_input_delta" as const,
+      inputStreamId: "chat:0",
+      toolCallId: "model_tc_1",
+      index: 0,
+      name: "todo.create",
+    };
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          { ...streamEvent, delta: '{"title":' },
+          { ...streamEvent, delta: '"From ' },
+          { ...streamEvent, delta: 'stream"}' },
+          {
+            type: "tool_call",
+            id: "model_tc_1",
+            inputStreamId: "chat:0",
+            name: "todo.create",
+            input: { title: "From stream" },
+          },
+          { type: "completed" },
+        ],
+        [{ type: "text_delta", delta: "done" }, { type: "completed" }],
+      ]),
+    });
+
+    await loop.execute(run);
+
+    const events = store.listEvents(run.id);
+    const inputEvents = events.filter((event) => event.type === "tool.input_delta");
+    const inputIndex = events.findIndex((event) => event.type === "tool.input_delta");
+    const proposedIndex = events.findIndex((event) => event.type === "tool.proposed");
+    const payload = inputEvents[0]?.payload as Record<string, unknown>;
+
+    expect(inputEvents).toHaveLength(1);
+    expect(inputIndex).toBeGreaterThan(-1);
+    expect(inputIndex).toBeLessThan(proposedIndex);
+    expect(payload.input_delta).toBe('{"title":"From stream"}');
+  });
+
   it("carries input stream ids into final tool proposal events", async () => {
     const store = new InMemoryStore();
     const eventWriter = new AgentEventWriter(store);

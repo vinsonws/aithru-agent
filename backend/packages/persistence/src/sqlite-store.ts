@@ -325,6 +325,14 @@ export class SqliteStore implements AgentStore {
     );
   }
 
+  nextEventSequence(runId: string): number {
+    const row = this.selectOne<{ sequence: number | null }>(
+      "SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM events WHERE run_id = ?",
+      [runId],
+    );
+    return Number(row?.sequence ?? 1);
+  }
+
   listEvents(runId: string): AgentStreamEvent[] {
     return this.selectAll<SqliteRow>(
       "SELECT * FROM events WHERE run_id = ? ORDER BY sequence ASC",

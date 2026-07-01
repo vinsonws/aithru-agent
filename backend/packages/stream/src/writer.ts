@@ -6,6 +6,7 @@ import { redactPayload } from "./redaction.js";
 export interface AgentEventStore {
   appendEvent(runId: string, event: AgentStreamEvent): void;
   listEvents(runId: string): AgentStreamEvent[];
+  nextEventSequence?(runId: string): number;
 }
 
 function generateEventId(): string {
@@ -27,11 +28,12 @@ export class AgentEventWriter {
       summary?: string;
     },
   ): AgentStreamEvent {
+    const sequence = this.store.nextEventSequence?.(runId) ?? this.store.listEvents(runId).length + 1;
     const event: AgentStreamEvent = {
       id: generateEventId(),
       run_id: runId,
       thread_id: threadId,
-      sequence: this.store.listEvents(runId).length + 1,
+      sequence,
       timestamp: new Date().toISOString().replace(/\.\d{3}/, ""),
       type,
       source: opts?.source || { kind: "system" },
