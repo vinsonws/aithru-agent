@@ -433,13 +433,37 @@ function workspaceFile(file: any) {
     workspace_id: file.workspace_id,
     path: file.path,
     size: file.size,
-    media_type: "text/plain",
+    media_type: workspaceMediaTypeForPath(file.path),
     version: file.version,
     file_version: file.version,
     content_hash: null,
     created_at: file.created_at,
     updated_at: file.updated_at,
   };
+}
+
+function workspaceMediaTypeForPath(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase();
+  if (ext === "html" || ext === "htm") return "text/html";
+  if (ext === "md" || ext === "markdown") return "text/markdown";
+  if (ext === "json") return "application/json";
+  if (ext === "css") return "text/css";
+  if (ext === "js" || ext === "mjs") return "text/javascript";
+  if (ext === "csv") return "text/csv";
+  if (ext === "svg") return "image/svg+xml";
+  if (ext === "png") return "image/png";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "gif") return "image/gif";
+  if (ext === "webp") return "image/webp";
+  if (ext === "pdf") return "application/pdf";
+  return "text/plain";
+}
+
+function workspaceContentTypeForPath(path: string): string {
+  const mediaType = workspaceMediaTypeForPath(path);
+  return mediaType.startsWith("text/") || mediaType === "application/json"
+    ? `${mediaType}; charset=utf-8`
+    : mediaType;
 }
 
 const workspaceFileSuffixActions = ["content", "download", "versions", "patch", "convert", "promote"] as const;
@@ -515,7 +539,7 @@ function workspaceFileWildcardRequest(request: FastifyRequest, reply: FastifyRep
     const file = runtime.store.readFile(target.workspaceId, target.path);
     if (!file) return notFound(reply, "Workspace file not found");
     if (target.action === "content") {
-      reply.header("content-type", "text/plain");
+      reply.header("content-type", workspaceContentTypeForPath(file.path));
       return file.content;
     }
     if (target.action === "download") {
@@ -529,7 +553,7 @@ function workspaceFileWildcardRequest(request: FastifyRequest, reply: FastifyRep
         created_at: file.created_at,
       }];
     }
-    if (target.action === "read") return { path: file.path, content: file.content, media_type: "text/plain" };
+    if (target.action === "read") return { path: file.path, content: file.content, media_type: workspaceMediaTypeForPath(file.path) };
   }
 
   if (request.method === "PUT" && target.action === "read") {
@@ -551,7 +575,7 @@ function workspaceFileWildcardRequest(request: FastifyRequest, reply: FastifyRep
       return {
         workspace_id: file.workspace_id,
         source_path: file.path,
-        source_media_type: "text/plain",
+        source_media_type: workspaceMediaTypeForPath(file.path),
         source_size: file.size,
         output_file: null,
         skipped: true,
@@ -1589,13 +1613,13 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   register(app, "GET", "/api/workspaces/:workspace_id/files/:path", async (request: FastifyRequest, reply: FastifyReply) => {
     const file = getRuntime().store.readFile(params(request).workspace_id, params(request).path);
     return file
-      ? { path: file.path, content: file.content, media_type: "text/plain" }
+      ? { path: file.path, content: file.content, media_type: workspaceMediaTypeForPath(file.path) }
       : notFound(reply, "Workspace file not found");
   });
   register(app, "GET", "/api/workspaces/:workspace_id/files/:path/content", async (request: FastifyRequest, reply: FastifyReply) => {
     const file = getRuntime().store.readFile(params(request).workspace_id, params(request).path);
     if (!file) return notFound(reply, "Workspace file not found");
-    reply.header("content-type", "text/plain");
+    reply.header("content-type", workspaceContentTypeForPath(file.path));
     return file.content;
   });
   register(app, "GET", "/api/workspaces/:workspace_id/files/:path/download", async (request: FastifyRequest, reply: FastifyReply) => {
@@ -1635,7 +1659,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     return {
       workspace_id: file.workspace_id,
       source_path: file.path,
-      source_media_type: "text/plain",
+      source_media_type: workspaceMediaTypeForPath(file.path),
       source_size: file.size,
       output_file: null,
       skipped: true,
@@ -1691,7 +1715,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     return {
       workspace_id: file.workspace_id,
       path: file.path,
-      media_type: "text/plain",
+      media_type: workspaceMediaTypeForPath(file.path),
       size: file.size,
       content_hash: null,
       content_encoding: "base64",

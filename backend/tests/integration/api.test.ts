@@ -140,6 +140,42 @@ describe("Workspaces API", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toBe("<html>ok</html>");
+    expect(res.headers["content-type"]).toContain("text/html");
+  });
+
+  it("sets inferred content types for workspace file content", async () => {
+    const workspaceId = "ws_file_content_types";
+    getRuntime().store.writeFile(workspaceId, "/data.json", "{}");
+    getRuntime().store.writeFile(workspaceId, "/notes.unknown", "plain");
+
+    const json = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${workspaceId}/files/data.json/content`,
+    });
+    const unknown = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${workspaceId}/files/notes.unknown/content`,
+    });
+
+    expect(json.statusCode).toBe(200);
+    expect(json.headers["content-type"]).toContain("application/json; charset=utf-8");
+    expect(unknown.statusCode).toBe(200);
+    expect(unknown.headers["content-type"]).toContain("text/plain; charset=utf-8");
+  });
+
+  it("GET /api/workspaces/:id/images/:path/view returns inferred image media type", async () => {
+    const workspaceId = "ws_image_view_media_type";
+    getRuntime().store.writeFile(workspaceId, "/chart.png", "png-bytes");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${workspaceId}/images/chart.png/view`,
+    });
+    const body = JSON.parse(res.body);
+
+    expect(res.statusCode).toBe(200);
+    expect(body.media_type).toBe("image/png");
+    expect(body.content_base64).toBe(Buffer.from("png-bytes", "utf8").toString("base64"));
   });
 });
 

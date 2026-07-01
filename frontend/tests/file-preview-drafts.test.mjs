@@ -17,27 +17,42 @@ test("FilePreviewPanel renders draft previews without workspace fetches", async 
   assert.match(source, /draftWorkspaceFiles/);
   assert.match(source, /activeFile\.draftContent !== undefined/);
   assert.match(source, /previewFromDraftFile/);
-  assert.match(source, /srcDoc=/);
+  assert.match(source, /resolveFileViewer/);
+  assert.doesNotMatch(source, /srcDoc=/);
   assert.match(source, /enabled: !!activeFile && activeFile\.canPreview && activeFile\.draftContent === undefined/);
 });
 
-test("FilePreviewPanel keeps draft HTML iframes script-disabled while persisted HTML previews stay script-enabled", async () => {
+test("FilePreviewPanel keeps draft HTML source-only while persisted HTML previews stay script-enabled", async () => {
   const source = await readFile(filePreviewPanelPath, "utf8");
 
+  assert.match(source, /if \(preview\.viewer === "source_text"\)/);
   assert.match(
     source,
-    /if \(preview\.kind === "html" && preview\.content !== undefined\)[\s\S]*?srcDoc=\{preview\.content\}[\s\S]*?sandbox=""/,
-  );
-  assert.match(
-    source,
-    /if \(preview\.kind === "html" && preview\.url\)[\s\S]*?src=\{preview\.url\}[\s\S]*?sandbox="allow-scripts"/,
+    /if \(preview\.viewer === "html_preview" && preview\.url\)[\s\S]*?src=\{preview\.url\}[\s\S]*?sandbox="allow-scripts"/,
   );
 });
 
-test("FileListPanel passes draft workspace files into run file views", async () => {
+test("FileListPanel passes draft workspace files and presentation hints into run file views", async () => {
   const source = await readFile(fileListPanelPath, "utf8");
 
   assert.match(source, /draftWorkspaceFiles/);
+  assert.match(source, /presentationHints/);
   assert.match(source, /buildRunFileViews\(\{/);
   assert.match(source, /draftWorkspaceFiles,/);
+  assert.match(source, /presentationHints,/);
+});
+
+test("FilePreviewPanel passes presentation hints into run file views", async () => {
+  const source = await readFile(filePreviewPanelPath, "utf8");
+
+  assert.match(source, /presentationHints/);
+  assert.match(source, /buildRunFileViews\(\{/);
+  assert.match(source, /presentationHints,/);
+});
+
+test("FilePreviewPanel includes resolved viewer in preview query key", async () => {
+  const source = await readFile(filePreviewPanelPath, "utf8");
+
+  assert.match(source, /const activeViewer =\s*activeFile \? resolveFileViewer\(\{ file: activeFile \}\)\.view : null;/);
+  assert.match(source, /queryKey: \["outputs", "preview", workspaceId, activeFile\?\.id, activeFile\?\.previewKind, activeViewer\]/);
 });

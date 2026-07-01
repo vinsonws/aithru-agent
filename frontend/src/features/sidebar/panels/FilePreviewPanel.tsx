@@ -8,15 +8,18 @@ import { Markdown, CodeBlock } from "@/components/Markdown";
 import { LoadingState, EmptyState, ErrorState } from "@/components/shared/states";
 import {
   buildRunFileViews,
+  resolveFileViewer,
   type DraftWorkspaceFileInput,
+  type PreferredFileView,
   type RunFileView,
-  type RunFilePreviewKind,
+  type WorkspaceFilePresentationHint,
 } from "@/features/inspection/runFilesView";
 
 interface FilePreviewPanelProps {
   runId: string | null;
   workspaceId: string | null;
   draftWorkspaceFiles?: DraftWorkspaceFileInput[];
+  presentationHints?: WorkspaceFilePresentationHint[];
   openFileIds: string[];
   activeFileId: string | null;
   onSelectFile: (fileId: string) => void;
@@ -29,6 +32,7 @@ export function FilePreviewPanel({
   runId,
   workspaceId,
   draftWorkspaceFiles = [],
+  presentationHints = [],
   openFileIds,
   activeFileId,
 
@@ -58,13 +62,15 @@ export function FilePreviewPanel({
     workspaceId,
     workspaceFiles: workspaceFiles as Array<{ path: string; size?: number; media_type?: string | null }>,
     draftWorkspaceFiles,
+    presentationHints,
   });
 
   const openFiles = views.filter((v) => openFileIds.includes(v.id));
   const activeFile = views.find((v) => v.id === activeFileId) ?? null;
+  const activeViewer = activeFile ? resolveFileViewer({ file: activeFile }).view : null;
 
   const previewQuery = useQuery({
-    queryKey: ["outputs", "preview", workspaceId, activeFile?.id, activeFile?.previewKind],
+    queryKey: ["outputs", "preview", workspaceId, activeFile?.id, activeFile?.previewKind, activeViewer],
     queryFn: () => readFilePreview(activeFile!, workspaceId),
     enabled: !!activeFile && activeFile.canPreview && activeFile.draftContent === undefined,
   });
@@ -190,7 +196,7 @@ export function FilePreviewPanel({
 // ---- Preview helpers ----
 
 interface FilePreviewData {
-  kind: RunFilePreviewKind;
+  viewer: PreferredFileView;
   content?: string;
   mediaType?: string | null;
   dataUrl?: string;
@@ -200,7 +206,7 @@ interface FilePreviewData {
 function previewFromDraftFile(file: RunFileView): FilePreviewData | null {
   if (file.draftContent === undefined) return null;
   return {
-    kind: file.previewKind,
+    viewer: resolveFileViewer({ file }).view,
     mediaType: null,
     content: file.draftContent,
   };
@@ -208,45 +214,37 @@ function previewFromDraftFile(file: RunFileView): FilePreviewData | null {
 
 async function readFilePreview(file: RunFileView, workspaceId: string | null): Promise<FilePreviewData> {
   if (!workspaceId || !file.path) throw new Error("No workspace file is available to preview.");
-  if (file.previewKind === "html" || file.previewKind === "pdf") {
+  const viewer = resolveFileViewer({ file }).view;
+  if (viewer === "html_preview" || viewer === "pdf") {
     return {
-      kind: file.previewKind,
+      viewer,
       mediaType: null,
       url: workspacesApi.contentUrl(workspaceId, file.path),
     };
   }
-  if (file.previewKind === "image") {
+  if (viewer === "image") {
     const image = await workspacesApi.viewImage(workspaceId, file.path);
-    return { kind: "image", mediaType: image.media_type, dataUrl: `data:${image.media_type};base64,${image.content_base64}` };
+    return { viewer, mediaType: image.media_type, dataUrl: `data:${image.media_type};base64,${image.content_base64}` };
   }
+  if (viewer === "download") return { viewer, mediaType: null };
   const result = await workspacesApi.readFile(workspaceId, file.path);
-  return { kind: file.previewKind, mediaType: result.media_type, content: String(result.content) };
+  return { viewer, mediaType: result.media_type, content: String(result.content) };
 }
 
 function PreviewBody({ file, preview }: { file: RunFileView; preview: FilePreviewData }) {
   const { t } = useTranslation("chat");
 
-  if (preview.kind === "image" && preview.dataUrl) {
+  if (preview.viewer === "image" && preview.dataUrl) {
     return (
       <div className="flex min-h-full items-start justify-center">
         <img src={preview.dataUrl} alt={file.name} className="max-h-full max-w-full rounded-md border bg-background object-contain" />
       </div>
     );
   }
-  if (preview.kind === "pdf" && preview.url) {
+  if (preview.viewer === "pdf" && preview.url) {
     return <iframe title={file.name} src={preview.url} className="h-full min-h-[520px] w-full rounded-md border bg-background" />;
   }
-  if (preview.kind === "html" && preview.content !== undefined) {
-    return (
-      <iframe
-        title={file.name}
-        srcDoc={preview.content}
-        sandbox=""
-        className="h-full min-h-[520px] w-full rounded-md border bg-background"
-      />
-    );
-  }
-  if (preview.kind === "html" && preview.url) {
+  if (preview.viewer === "html_preview" && preview.url) {
     return (
       <iframe
         title={file.name}
@@ -257,16 +255,13 @@ function PreviewBody({ file, preview }: { file: RunFileView; preview: FilePrevie
     );
   }
   const content = preview.content ?? "";
-  if (preview.kind === "html") {
-    return <CodeBlock language="html">{content}</CodeBlock>;
-  }
-  if (preview.kind === "markdown") {
+  if (preview.viewer === "markdown") {
     return <Markdown variant="chat">{content}</Markdown>;
   }
-  if (preview.kind === "json") {
+  if (preview.viewer === "json") {
     return <CodeBlock language="json">{formatJsonContent(content)}</CodeBlock>;
   }
-  if (preview.kind === "code" || preview.kind === "text") {
+  if (preview.viewer === "source_text") {
     return <CodeBlock language={file.language}>{content}</CodeBlock>;
   }
   return (

@@ -1,4 +1,7 @@
 export type RunFileKind = "output_file" | "modified_file";
+export type PreferredFileView = "html_preview" | "markdown" | "json" | "image" | "pdf" | "source_text" | "download";
+export type FileLifecycle = "draft" | "persisted";
+export type ResolvedFileViewer = { view: PreferredFileView; reason: "user" | "safety" | "preferred_view" | "file_type" };
 
 export interface RunFileView {
   id: string;
@@ -18,9 +21,15 @@ export interface RunFileView {
   draftContent?: string;
   draftStatus?: DraftWorkspaceFileInput["status"];
   draftRevision?: string | number;
+  preferredView?: PreferredFileView;
 }
 
 export type RunFilePreviewKind = "markdown" | "json" | "code" | "text" | "image" | "pdf" | "html" | "unsupported";
+
+export interface WorkspaceFilePresentationHint {
+  path: string;
+  preferredView?: PreferredFileView;
+}
 
 interface WorkspaceFileInput {
   path: string;
@@ -47,6 +56,7 @@ export interface DraftWorkspaceFileInput {
   sourceInputStreamId: string;
   status: ToolInputDraftInput["status"];
   lastSequence?: number;
+  preferredView?: PreferredFileView;
 }
 
 export function buildRunFileViews(input: {
@@ -54,11 +64,19 @@ export function buildRunFileViews(input: {
   workspaceId?: string | null;
   workspaceFiles?: WorkspaceFileInput[];
   draftWorkspaceFiles?: DraftWorkspaceFileInput[];
+  presentationHints?: WorkspaceFilePresentationHint[];
 }): RunFileView[] {
   const result: RunFileView[] = [];
 
   const workspaceFiles = (input.workspaceFiles ?? []).filter(Boolean);
   const realPaths = new Set(workspaceFiles.map((f) => normalizeWorkspacePath(f.path)));
+  const hints = new Map(
+    (input.presentationHints ?? [])
+      .flatMap((hint) => {
+        const preferredView = normalizePreferredFileView(hint.preferredView);
+        return preferredView ? [[normalizeWorkspacePath(hint.path), preferredView]] : [];
+      }),
+  );
   for (const f of workspaceFiles) {
     const pathParts = f.path.split("/");
     const name = pathParts[pathParts.length - 1] || f.path;
@@ -77,6 +95,7 @@ export function buildRunFileViews(input: {
       canPreview: previewKind !== "unsupported",
       previewKind,
       language: languageForFile(name),
+      preferredView: hints.get(normalizeWorkspacePath(f.path)),
     });
   }
 
@@ -98,6 +117,7 @@ export function buildRunFileViews(input: {
       draftContent: draft.content,
       draftStatus: draft.status,
       draftRevision: draft.lastSequence ?? draft.content.length,
+      preferredView: draft.preferredView,
     });
   }
 
@@ -115,7 +135,7 @@ export function buildDraftWorkspaceFiles(
     if (!extracted) continue;
     const pathParts = extracted.path.split("/");
     const name = pathParts[pathParts.length - 1] || extracted.path;
-    files.push({
+    const file: DraftWorkspaceFileInput = {
       id: `ws-${extracted.path}`,
       path: extracted.path,
       name,
@@ -124,10 +144,60 @@ export function buildDraftWorkspaceFiles(
       sourceInputStreamId: draft.inputStreamId,
       status: draft.status,
       lastSequence: draft.lastSequence,
-    });
+    };
+    if (extracted.preferredView) file.preferredView = extracted.preferredView;
+    files.push(file);
   }
   return files;
 }
+
+export function normalizePreferredFileView(value: unknown): PreferredFileView | undefined {
+  return typeof value === "string" && PREFERRED_FILE_VIEWS.has(value as PreferredFileView)
+    ? (value as PreferredFileView)
+    : undefined;
+}
+
+export function resolveFileViewer(input: {
+  file: Pick<RunFileView, "previewKind" | "isDraft" | "preferredView">;
+  preferredView?: PreferredFileView;
+  userView?: PreferredFileView;
+}): ResolvedFileViewer {
+  const { file } = input;
+  const preferredView = input.preferredView ?? file.preferredView;
+  const isDraftHtml = file.isDraft && file.previewKind === "html";
+  if (isDraftHtml) return { view: "source_text", reason: "safety" };
+  if (input.userView && isPreferredViewAllowed(file.previewKind, input.userView)) {
+    return { view: input.userView, reason: "user" };
+  }
+  if (preferredView && isPreferredViewAllowed(file.previewKind, preferredView)) {
+    return { view: preferredView, reason: "preferred_view" };
+  }
+  if (file.previewKind === "html") return { view: file.isDraft ? "source_text" : "html_preview", reason: file.isDraft ? "safety" : "file_type" };
+  if (["markdown", "json", "image", "pdf"].includes(file.previewKind)) {
+    return { view: file.previewKind as PreferredFileView, reason: "file_type" };
+  }
+  return { view: file.previewKind === "unsupported" ? "download" : "source_text", reason: "file_type" };
+}
+
+function isPreferredViewAllowed(previewKind: RunFilePreviewKind, view: PreferredFileView): boolean {
+  if (previewKind === "html") return view === "html_preview" || view === "source_text" || view === "download";
+  if (previewKind === "markdown") return view === "markdown" || view === "source_text" || view === "download";
+  if (previewKind === "json") return view === "json" || view === "source_text" || view === "download";
+  if (previewKind === "image") return view === "image" || view === "download";
+  if (previewKind === "pdf") return view === "pdf" || view === "download";
+  if (previewKind === "code" || previewKind === "text") return view === "source_text" || view === "download";
+  return view === "download";
+}
+
+const PREFERRED_FILE_VIEWS = new Set<PreferredFileView>([
+  "html_preview",
+  "markdown",
+  "json",
+  "image",
+  "pdf",
+  "source_text",
+  "download",
+]);
 
 const EXTENSION_TYPE_MAP: Record<string, string> = {
   md: "Markdown",
@@ -312,11 +382,15 @@ function readJsonStringProperty(
   return options.allowUnclosed ? result : undefined;
 }
 
-function extractWorkspaceWriteDraft(inputText: string): { path: string; content: string } | null {
+function extractWorkspaceWriteDraft(inputText: string): { path: string; content: string; preferredView?: PreferredFileView } | null {
   try {
     const parsed = JSON.parse(inputText);
     if (isRecord(parsed) && typeof parsed.path === "string" && typeof parsed.content === "string") {
-      return { path: parsed.path, content: parsed.content };
+      return {
+        path: parsed.path,
+        content: parsed.content,
+        preferredView: normalizePreferredFileView(parsed.preferred_view),
+      };
     }
   } catch {
     const path = readJsonStringProperty(inputText, "path");
@@ -324,6 +398,7 @@ function extractWorkspaceWriteDraft(inputText: string): { path: string; content:
     return {
       path,
       content: readJsonStringProperty(inputText, "content", { allowUnclosed: true }) ?? "",
+      preferredView: normalizePreferredFileView(readJsonStringProperty(inputText, "preferred_view")),
     };
   }
 

@@ -120,6 +120,37 @@ test("buildDraftWorkspaceFiles extracts workspace write_file partial content", a
   ]);
 });
 
+test("buildDraftWorkspaceFiles preserves valid preferred_view from complete and partial input", async () => {
+  const { buildDraftWorkspaceFiles } = await loadRunFilesView();
+  const drafts = buildDraftWorkspaceFiles([
+    {
+      inputStreamId: "chat:0",
+      toolCallId: "call_1",
+      toolName: "workspace.write_file",
+      inputText: '{"path":"/outputs/live.html","content":"<h1>Hello</h1>","preferred_view":"html_preview"}',
+      status: "completed",
+    },
+    {
+      inputStreamId: "chat:1",
+      toolCallId: "call_2",
+      toolName: "workspace.write_file",
+      inputText: '{"path":"/outputs/raw.txt","content":"hello","preferred_view":"bogus"}',
+      status: "completed",
+    },
+    {
+      inputStreamId: "chat:2",
+      toolCallId: "call_3",
+      toolName: "workspace.write_file",
+      inputText: '{"path":"/outputs/live.md","preferred_view":"markdown","content":"# He',
+      status: "streaming",
+    },
+  ]);
+
+  assert.equal(drafts[0].preferredView, "html_preview");
+  assert.equal(drafts[1].preferredView, undefined);
+  assert.equal(drafts[2].preferredView, "markdown");
+});
+
 test("buildRunFileViews includes draft files until a real file exists", async () => {
   const { buildRunFileViews } = await loadRunFilesView();
   const draftWorkspaceFiles = [
@@ -150,6 +181,104 @@ test("buildRunFileViews includes draft files until a real file exists", async ()
   assert.equal(withRealFile.length, 1);
   assert.equal(withRealFile[0].isDraft, undefined);
   assert.equal(withRealFile[0].href, "/api/workspaces/ws1/files/outputs/live.md/download");
+});
+
+test("buildRunFileViews applies latest path-normalized presentation hint to persisted files", async () => {
+  const { buildRunFileViews } = await loadRunFilesView();
+  const views = buildRunFileViews({
+    workspaceFiles: [{ path: "/outputs/live.html", size: 8, media_type: "text/html" }],
+    presentationHints: [
+      { path: "outputs/live.html", preferredView: "source_text" },
+      { path: "outputs/live.html", preferredView: "html_preview" },
+      { path: "/outputs/other.html", preferredView: "download" },
+    ],
+  });
+
+  assert.equal(views[0].preferredView, "html_preview");
+});
+
+test("resolveFileViewer keeps draft HTML source-only even when HTML preview is preferred", async () => {
+  const { resolveFileViewer } = await loadRunFilesView();
+  assert.deepEqual(
+    resolveFileViewer({
+      file: { name: "live.html", previewKind: "html", isDraft: true },
+      preferredView: "html_preview",
+    }),
+    { view: "source_text", reason: "safety" },
+  );
+});
+
+test("resolveFileViewer keeps draft HTML source-only for any requested viewer", async () => {
+  const { resolveFileViewer } = await loadRunFilesView();
+  assert.deepEqual(
+    resolveFileViewer({
+      file: { name: "live.html", previewKind: "html", isDraft: true },
+      preferredView: "markdown",
+    }),
+    { view: "source_text", reason: "safety" },
+  );
+  assert.deepEqual(
+    resolveFileViewer({
+      file: { name: "live.html", previewKind: "html", isDraft: true },
+      userView: "download",
+    }),
+    { view: "source_text", reason: "safety" },
+  );
+});
+
+test("resolveFileViewer defaults persisted HTML to HTML preview", async () => {
+  const { resolveFileViewer } = await loadRunFilesView();
+  assert.deepEqual(
+    resolveFileViewer({ file: { name: "live.html", previewKind: "html" } }),
+    { view: "html_preview", reason: "file_type" },
+  );
+});
+
+test("resolveFileViewer lets user source_text override persisted HTML hint", async () => {
+  const { resolveFileViewer } = await loadRunFilesView();
+  assert.deepEqual(
+    resolveFileViewer({
+      file: { name: "live.html", previewKind: "html", preferredView: "html_preview" },
+      userView: "source_text",
+    }),
+    { view: "source_text", reason: "user" },
+  );
+});
+
+test("resolveFileViewer ignores preferred views that do not match the file type", async () => {
+  const { resolveFileViewer } = await loadRunFilesView();
+  assert.deepEqual(
+    resolveFileViewer({
+      file: { name: "live.html", previewKind: "html" },
+      preferredView: "pdf",
+    }),
+    { view: "html_preview", reason: "file_type" },
+  );
+  assert.deepEqual(
+    resolveFileViewer({
+      file: { name: "readme.md", previewKind: "markdown" },
+      preferredView: "source_text",
+    }),
+    { view: "source_text", reason: "preferred_view" },
+  );
+});
+
+test("resolveFileViewer ignores user views that do not match the file type", async () => {
+  const { resolveFileViewer } = await loadRunFilesView();
+  assert.deepEqual(
+    resolveFileViewer({
+      file: { name: "data.json", previewKind: "json" },
+      userView: "html_preview",
+    }),
+    { view: "json", reason: "file_type" },
+  );
+  assert.deepEqual(
+    resolveFileViewer({
+      file: { name: "live.html", previewKind: "html" },
+      userView: "image",
+    }),
+    { view: "html_preview", reason: "file_type" },
+  );
 });
 
 test("formatFileSize formats bytes correctly", async () => {

@@ -18,7 +18,11 @@ import { ActivityPanel } from "@/features/sidebar/panels/ActivityPanel";
 import { ApprovalsPanel } from "@/features/sidebar/panels/ApprovalsPanel";
 import { TracePanel } from "@/features/sidebar/panels/TracePanel";
 import { buildRunCompanionBadges } from "@/features/chat/runActivity";
-import { buildDraftWorkspaceFiles } from "@/features/inspection/runFilesView";
+import {
+  buildDraftWorkspaceFiles,
+  normalizePreferredFileView,
+  type WorkspaceFilePresentationHint,
+} from "@/features/inspection/runFilesView";
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 340;
 const MIN_RIGHT_PANEL_WIDTH = 240;
@@ -144,6 +148,15 @@ function RouteContent({
     () => buildDraftWorkspaceFiles(streamState.toolInputDrafts ?? []),
     [streamState.toolInputDrafts],
   );
+  const presentationHints = React.useMemo<WorkspaceFilePresentationHint[]>(
+    () =>
+      (streamState.presentations ?? []).flatMap((presentation) => {
+        const resource = presentation.resource;
+        if (resource.kind !== "workspace_file" || !resource.path) return [];
+        return [{ path: resource.path, preferredView: normalizePreferredFileView(presentation.preferredView) }];
+      }),
+    [streamState.presentations],
+  );
   const handledDraftAutoOpenRunIdsRef = React.useRef<Set<string>>(new Set());
 
   const badges = buildRunCompanionBadges(streamState);
@@ -178,6 +191,7 @@ function RouteContent({
           runId={activeRunId}
           workspaceId={workspaceId}
           draftWorkspaceFiles={draftWorkspaceFiles}
+          presentationHints={presentationHints}
           openFileIds={openFileIds}
           activeFileId={activeFileId}
           onSelectFile={handlePreviewFile}
@@ -197,6 +211,7 @@ function RouteContent({
           runId={activeRunId}
           workspaceId={workspaceId}
           draftWorkspaceFiles={draftWorkspaceFiles}
+          presentationHints={presentationHints}
           onSelectFile={handlePreviewFile}
           onClose={() => onRightPanelChange(null)}
         />

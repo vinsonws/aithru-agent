@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
-import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
+import { ProductionCapabilityRouter, TestCapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { SkillRegistry, SkillResolver } from "@aithru-agent/skills";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
@@ -121,6 +121,36 @@ describe("ProductionCapabilityRouter", () => {
     );
     expect(result.allowed).toBe(true);
     expect(result.requires_approval).toBe(true);
+  });
+
+  it("accepts and returns valid preferred_view for workspace.write_file", async () => {
+    const tools = await router.listTools({ run });
+    const writeTool = tools.find((t) => t.name === "workspace.write_file")!;
+    expect((writeTool.input_schema as any).properties.preferred_view.enum).toContain("html_preview");
+
+    const productionResult = await router.executeToolCall(
+      {
+        id: "tc_write_preferred",
+        name: "workspace.write_file",
+        input: { path: "/preview.html", content: "<html></html>", preferred_view: "html_preview" },
+        run_id: run.id,
+      },
+      { run },
+    );
+    expect(productionResult.error).toBeFalsy();
+    expect((productionResult.output as any).preferred_view).toBe("html_preview");
+
+    const testStore = new InMemoryStore();
+    const testRun: AgentRun = { ...run, id: "r_test_router_preferred", workspace_id: "ws_test_router_preferred" };
+    testStore.createRun(testRun);
+    const testResult = await new TestCapabilityRouter(testStore).executeToolCall({
+      id: "tc_test_write_preferred",
+      name: "workspace.write_file",
+      input: { path: "/preview.html", content: "<html></html>", preferred_view: "bogus" },
+      run_id: testRun.id,
+    });
+    expect(testResult.error).toBeFalsy();
+    expect((testResult.output as any).preferred_view).toBeUndefined();
   });
 
   it("executes workspace.read_file", async () => {

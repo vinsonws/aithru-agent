@@ -6,6 +6,8 @@ import type {
 } from "./descriptors.js";
 import type { RunContext } from "./policy.js";
 
+const PREFERRED_VIEWS = ["html_preview", "markdown", "json", "image", "pdf", "source_text", "download"];
+
 interface TestCapabilityStore {
   getRun(id: string): { workspace_id: string } | undefined;
   listWorkspaceFiles(workspaceId: string): Array<{ path: string; size: number }>;
@@ -59,6 +61,7 @@ const P0_TOOLS: AgentToolDescriptor[] = [
       properties: {
         path: { type: "string" },
         content: { type: "string" },
+        preferred_view: { type: "string", enum: PREFERRED_VIEWS },
       },
       required: ["path", "content"],
     },
@@ -281,7 +284,8 @@ export class TestCapabilityRouter implements CapabilityRouter {
           input.path,
           input.content,
         );
-        return { path: file.path, version: file.version };
+        const preferredView = optionalPreferredView(input.preferred_view);
+        return { path: file.path, version: file.version, ...(preferredView ? { preferred_view: preferredView } : {}) };
       }
 
       case "workspace.patch_file": {
@@ -358,4 +362,9 @@ function requiredString(value: unknown, field: string): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function optionalPreferredView(value: unknown): string | undefined {
+  const view = optionalString(value);
+  return view && PREFERRED_VIEWS.includes(view) ? view : undefined;
 }

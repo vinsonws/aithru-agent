@@ -9,12 +9,14 @@ import {
   buildRunFileViews,
   type DraftWorkspaceFileInput,
   type RunFileView,
+  type WorkspaceFilePresentationHint,
 } from "@/features/inspection/runFilesView";
 
 interface FileListPanelProps {
   runId: string | null;
   workspaceId: string | null;
   draftWorkspaceFiles?: DraftWorkspaceFileInput[];
+  presentationHints?: WorkspaceFilePresentationHint[];
   onSelectFile: (fileId: string) => void;
   onClose: () => void;
 }
@@ -32,6 +34,7 @@ export function FileListPanel({
   runId,
   workspaceId,
   draftWorkspaceFiles = [],
+  presentationHints = [],
   onSelectFile,
   onClose,
 }: FileListPanelProps) {
@@ -60,6 +63,7 @@ export function FileListPanel({
     workspaceId,
     workspaceFiles: workspaceFiles as Array<{ path: string; size?: number; media_type?: string | null }>,
     draftWorkspaceFiles,
+    presentationHints,
   });
 
   const handleRefresh = () => {

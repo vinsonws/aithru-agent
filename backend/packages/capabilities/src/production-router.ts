@@ -7,6 +7,8 @@ import { activeSkillKeysFromEvents, skillPolicySnapshotsFromEvents } from "./ski
 import type { SkillResolver } from "@aithru-agent/skills";
 import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 
+const PREFERRED_VIEWS = ["html_preview", "markdown", "json", "image", "pdf", "source_text", "download"];
+
 interface CapabilityStore {
   listWorkspaceFiles(workspaceId: string): Array<{ path: string; size: number }>;
   listEvents(runId: string): AgentStreamEvent[];
@@ -58,7 +60,11 @@ const PRODUCTION_TOOLS: AgentToolDescriptor[] = [
     required_scopes: ["workspace:write"],
     input_schema: {
       type: "object",
-      properties: { path: { type: "string" }, content: { type: "string" } },
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+        preferred_view: { type: "string", enum: PREFERRED_VIEWS },
+      },
       required: ["path", "content"],
     },
   },
@@ -315,7 +321,8 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
             "tool",
           );
         }
-        return { path: file.path, version: file.version };
+        const preferredView = optionalPreferredView(input.preferred_view);
+        return { path: file.path, version: file.version, ...(preferredView ? { preferred_view: preferredView } : {}) };
       }
       case "workspace.patch_file": {
         const file = this.store.readFile(run.workspace_id, input.path);
@@ -562,4 +569,9 @@ function requiredString(value: unknown, field: string): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function optionalPreferredView(value: unknown): string | undefined {
+  const view = optionalString(value);
+  return view && PREFERRED_VIEWS.includes(view) ? view : undefined;
 }
