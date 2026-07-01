@@ -9,6 +9,7 @@ import { projectTraceSpans } from "@aithru-agent/trace";
 import { buildRunSnapshot } from "@aithru-agent/snapshots";
 import { projectCapabilityAudit } from "@aithru-agent/capabilities";
 import { shouldFollowRunStream, writeRunStream } from "./run-stream.js";
+import { bodyWithPlatformActor, platformActorFromRequest } from "../platform-auth.js";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
@@ -46,7 +47,7 @@ export function registerRunRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const body = request.body as any;
+      const body = bodyWithPlatformActor(request.body as any, platformActorFromRequest(request));
       const runtime = getRuntime();
       const threadId = typeof body.thread_id === "string" && body.thread_id.length > 0 ? body.thread_id : null;
       const selectedSkills = [];
@@ -129,9 +130,10 @@ export function registerRunRoutes(app: FastifyInstance): void {
   app.get(
     "/api/runs",
     async (request) => {
+      const actor = platformActorFromRequest(request);
       const { org_id, thread_id } = (request.query as any) || {};
       const runtime = getRuntime();
-      return runtime.store.listRuns({ org_id, thread_id });
+      return runtime.store.listRuns({ org_id: actor?.orgId ?? org_id, thread_id });
     },
   );
 

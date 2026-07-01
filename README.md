@@ -100,6 +100,32 @@ http://localhost:8000
 GET /api/health
 ```
 
+## Platform Mock Host
+
+For hosted iframe development, run the local Platform mock host plus Agent
+frontend/backend:
+
+```bash
+./scripts/run-mock.sh
+```
+
+On Windows:
+
+```powershell
+.\scripts\run-mock.ps1
+```
+
+Open:
+
+```txt
+http://localhost:19000/apps/agent
+```
+
+Production subsystem configuration uses the standard Platform SDK variables:
+`AITHRU_PLATFORM_URL`, `AITHRU_APP_KEY`, `AITHRU_CLIENT_SECRET`, and
+`AITHRU_PUBLIC_BASE_URL`. The Agent manifest lives in
+`aithru-platform-app.yml`.
+
 ## Verification
 
 Before finishing backend work, run:

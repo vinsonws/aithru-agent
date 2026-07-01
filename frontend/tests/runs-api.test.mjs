@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import esbuild from "esbuild";
 
 async function loadRunsApiWithCapturedStreamPath(afterSequence) {
   let capturedPath = null;
   const result = await esbuild.build({
-    absWorkingDir: new URL("..", import.meta.url).pathname,
+    absWorkingDir: fileURLToPath(new URL("..", import.meta.url)),
     bundle: true,
     format: "esm",
     platform: "node",
@@ -47,7 +48,7 @@ async function loadRunsApiWithCapturedStreamPath(afterSequence) {
 
 async function loadApiClientModule() {
   const result = await esbuild.build({
-    absWorkingDir: new URL("..", import.meta.url).pathname,
+    absWorkingDir: fileURLToPath(new URL("..", import.meta.url)),
     bundle: true,
     format: "esm",
     platform: "node",

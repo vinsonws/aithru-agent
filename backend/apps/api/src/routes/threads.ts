@@ -9,6 +9,10 @@ import {
   AgentThreadSchema,
   AgentMessageSchema,
 } from "@aithru-agent/contracts";
+import {
+  bodyWithPlatformActor,
+  platformActorFromRequest,
+} from "../platform-auth.js";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
@@ -27,7 +31,7 @@ export function registerThreadRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const body = request.body as any;
+      const body = bodyWithPlatformActor(request.body as any, platformActorFromRequest(request));
       const runtime = getRuntime();
       const thread: AgentThread = {
         id: `thread_${nanoid(12)}`,
@@ -64,7 +68,8 @@ export function registerThreadRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const { org_id } = (request.query as any) || {};
+      const actor = platformActorFromRequest(request);
+      const org_id = actor?.orgId ?? (request.query as any)?.org_id;
       const runtime = getRuntime();
       return runtime.store.listThreads(org_id);
     },

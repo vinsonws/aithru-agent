@@ -20,6 +20,7 @@
     "start": "node --loader ts-node/esm apps/api/src/cli.ts"
   },
   "dependencies": {
+    "@aithru/subsystem-sdk-node": "0.21.0",
     "@anthropic-ai/sdk": "^0.107.0",
     "@fastify/swagger": "^9.4.0",
     "@sinclair/typebox": "^0.34.0",

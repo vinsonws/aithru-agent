@@ -57,6 +57,34 @@ The repository has one active backend. The previous Python backend package has
 been removed from tracked source. The TypeScript backend must not import, shell
 out to, or start a Python backend process.
 
+## Platform Subsystem Integration
+
+Aithru Agent is integrated as an Aithru Platform hosted iframe subsystem. The
+platform remains the control plane for app records, grants, hosted tokens, and
+audit. Agent owns its frontend, Fastify backend APIs, harness state, workspace
+files, tool policy, and local resource authorization.
+
+The integration files live at the repository root:
+
+```txt
+aithru-platform-app.yml  manifest source for Agent permissions and roles
+aithru.mock.yml          local mock host scenarios
+scripts/run-mock.sh      mock host + backend + frontend local launcher
+```
+
+The backend uses `@aithru/subsystem-sdk-node` only at the HTTP boundary. When
+platform auth is enabled, Fastify verifies Platform-issued JWTs through the SDK,
+requires the route's manifest scope, and derives `org_id` / actor identity from
+the verified token rather than browser-supplied headers or request bodies.
+Health checks remain public. Model/tool execution still crosses the Agent
+Capability Router after the HTTP request is accepted.
+
+The frontend uses `@aithru/front-hosted-app-sdk` for the iframe postMessage
+bridge, runtime theme/locale context, and short-lived hosted-token `fetch`.
+Normal backend API traffic goes directly from the browser to the Agent backend
+or the subsystem's own frontend gateway; the Platform backend is not an API
+proxy.
+
 ## Harness Model
 
 The harness owns explicit phases:

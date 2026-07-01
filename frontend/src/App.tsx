@@ -10,6 +10,11 @@ import { AppShell } from "./AppShell";
 
 const appI18n = initI18n("en-US");
 
+function routerBaseName(basePath?: string): string | undefined {
+  if (!basePath || basePath === "/") return undefined;
+  return basePath.replace(/\/+$/, "");
+}
+
 function BootstrappedApp() {
   const { context, ready } = useHost();
   useRuntimeSync();
@@ -28,7 +33,7 @@ function BootstrappedApp() {
 
   return (
     <TooltipProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={routerBaseName(context.route?.basePath)}>
         <AppShell />
       </BrowserRouter>
     </TooltipProvider>

@@ -1,7 +1,8 @@
 import * as React from "react";
-import { setRequestContext } from "@/lib/api/client";
+import { AithruHostedApp, type HostedAppApi, type HostedAppRuntimeContext } from "@aithru/front-hosted-app-sdk";
+import { setHostedApiFetch, setRequestContext } from "@/lib/api/client";
 import { isHosted, loadMockContext, saveMockContext } from "./mock-host";
-import type { HostInboundMessage, HostOutboundRequest, HostRuntimeContext } from "./types";
+import type { HostOutboundRequest, HostRuntimeContext, ResolvedTheme, ThemeMode } from "./types";
 
 interface HostState {
   context: HostRuntimeContext;
@@ -28,23 +29,67 @@ function resolveTheme(mode: HostRuntimeContext["theme"]["mode"]): "light" | "dar
   return mode;
 }
 
+const appKey = import.meta.env?.VITE_AITHRU_APP_KEY ?? "agent";
+
+function routeBasePath(): string {
+  const base = import.meta.env?.BASE_URL ?? "/";
+  return base === "/" ? "" : base.replace(/\/+$/, "");
+}
+
+function themeMode(value: unknown): ThemeMode {
+  return value === "dark" || value === "light" || value === "system" ? value : "light";
+}
+
+function resolvedTheme(value: unknown, mode: ThemeMode): ResolvedTheme {
+  return value === "dark" || value === "light" ? value : resolveTheme(mode);
+}
+
+function contextFromHostedApi(api: HostedAppApi, runtime?: HostedAppRuntimeContext | null): HostRuntimeContext {
+  const hostRuntime = runtime ?? api.host.runtimeContext ?? {};
+  const mode = themeMode(hostRuntime.theme?.mode);
+  const authContext = api.host.authContext;
+  const hostUser = api.host.user;
+  const authUser = authContext?.user;
+  return {
+    theme: {
+      mode,
+      resolved: resolvedTheme(hostRuntime.theme?.resolved, mode),
+    },
+    locale: {
+      language: hostRuntime.locale?.language ?? "en-US",
+      timeZone: hostRuntime.locale?.timeZone,
+    },
+    org: authContext?.org
+      ? { id: authContext.org.id, name: authContext.org.name }
+      : api.host.orgId
+        ? { id: api.host.orgId }
+        : undefined,
+    user: hostUser || authUser
+      ? {
+          id: hostUser?.id ?? authUser?.id ?? "",
+          name: hostUser?.displayName ?? hostUser?.name ?? authUser?.name,
+        }
+      : undefined,
+    route: { basePath: routeBasePath() },
+    permissions: authContext?.app?.permissions ?? [],
+  };
+}
+
 export function HostProvider({ children }: { children: React.ReactNode }) {
   const hosted = isHosted();
-  const tokenRef = React.useRef<string | null>(null);
+  const hostedApiRef = React.useRef<HostedAppApi | null>(null);
   const [context, setContext] = React.useState<HostRuntimeContext>(() => {
     const initial = loadMockContext();
     return { ...initial, theme: { ...initial.theme, resolved: resolveTheme(initial.theme.mode) } };
   });
   const [ready, setReady] = React.useState(false);
 
-  // Wire the typed API client with identity headers + in-memory token.
+  // Keep local UI context available; hosted API auth is handled by SDK fetch.
   React.useEffect(() => {
     setRequestContext({
       orgId: context.org?.id ?? null,
       userId: context.user?.id ?? null,
-      // In hosted mode the token arrives via AITHRU_HOST_INIT. In dev mock we
-      // fall back to a configured backend token from env (kept in memory only).
-      token: tokenRef.current,
+      token: null,
     });
   }, [context.org?.id, context.user?.id]);
 
@@ -54,9 +99,10 @@ export function HostProvider({ children }: { children: React.ReactNode }) {
     root.classList.toggle("dark", context.theme.resolved === "dark");
   }, [context.theme.resolved]);
 
-  // Listen for host postMessage (validated origin) in hosted mode.
+  // Connect to the platform host in hosted mode; local dev keeps the lightweight mock context.
   React.useEffect(() => {
     if (!hosted) {
+      setHostedApiFetch(null);
       setReady(true);
       // Dev: keep system theme preference reactive.
       const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
@@ -71,47 +117,50 @@ export function HostProvider({ children }: { children: React.ReactNode }) {
       return () => mq?.removeEventListener("change", handler);
     }
 
-    const allowedOrigin = window.location.ancestorOrigins?.[0] ?? "*";
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    const hostedApp = new AithruHostedApp();
+    const platformOrigin = new URLSearchParams(window.location.search).get("aithruHostOrigin") ?? undefined;
 
-    const onMessage = (event: MessageEvent) => {
-      // Validate origin against registered app origin (constraint §Security).
-      if (allowedOrigin !== "*" && event.origin !== allowedOrigin) return;
-      const msg = event.data as HostInboundMessage;
-      if (!msg || typeof msg.type !== "string") return;
-      if (msg.type === "AITHRU_HOST_INIT") {
-        tokenRef.current = msg.token ?? null;
-        setContext({ ...msg.runtimeContext, theme: { ...msg.runtimeContext.theme } });
-        setRequestContext({ token: tokenRef.current });
-        setReady(true);
-      } else if (msg.type === "AITHRU_HOST_CONTEXT_CHANGED") {
-        setContext((c) => {
-          const merged = { ...c, ...msg.changed };
-          if (msg.changed.theme) {
-            merged.theme = {
-              mode: msg.changed.theme.mode ?? c.theme.mode,
-              resolved: msg.changed.theme.resolved ?? resolveTheme(msg.changed.theme.mode ?? c.theme.mode),
-            };
-          }
-          return merged;
+    hostedApp.connect({ appKey, platformOrigin })
+      .then((api) => {
+        if (cancelled) return;
+        hostedApiRef.current = api;
+        setHostedApiFetch(api.fetch);
+        setContext(contextFromHostedApi(api));
+        unsubscribe = api.onContextChange((runtimeContext) => {
+          setContext(contextFromHostedApi(api, runtimeContext));
         });
-      }
+        setReady(true);
+      })
+      .catch((error: unknown) => {
+        console.error("Aithru host connection failed", error);
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+      hostedApiRef.current = null;
+      setHostedApiFetch(null);
     };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
   }, [hosted]);
 
   const send = React.useCallback(
     (req: HostOutboundRequest) => {
-      if (hosted && window.parent !== window.self) {
-        window.parent.postMessage(req, "*");
+      const api = hostedApiRef.current;
+      if (!hosted || !api) return;
+      if (req.type === "AITHRU_NAVIGATE" && req.path) {
+        api.navigate(req.path);
       }
     },
     [hosted],
   );
 
   const requestToken = React.useCallback(
-    (scopes?: string[]) => send({ type: "AITHRU_REQUEST_TOKEN", scopes }),
-    [send],
+    (scopes?: string[]) => {
+      void hostedApiRef.current?.auth.getToken(scopes);
+    },
+    [],
   );
 
   const updateLocal = React.useCallback(

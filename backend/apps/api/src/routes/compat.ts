@@ -17,6 +17,12 @@ import { SkillLoader, findBuiltinSkillsRoot, type SkillPackage } from "@aithru-a
 import { getRuntime } from "../runtime.js";
 import type { AgentToolDescriptor } from "@aithru-agent/capabilities";
 import { shouldFollowRunStream, writeRunStream } from "./run-stream.js";
+import {
+  bodyWithPlatformActor,
+  platformActorFromRequest,
+  requestActorUserId,
+  requestOrgId as platformRequestOrgId,
+} from "../platform-auth.js";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
@@ -63,7 +69,12 @@ function selectedSkillKeys(body: any): string[] {
   return keys;
 }
 
-async function createRun(body: any, threadId?: string): Promise<AgentRun> {
+async function createRun(
+  inputBody: any,
+  threadId?: string,
+  actor: ReturnType<typeof platformActorFromRequest> = null,
+): Promise<AgentRun> {
+  const body = bodyWithPlatformActor(inputBody, actor);
   const runtime = getRuntime();
   const orgId = body.org_id ?? "org_1";
   const actorUserId = body.actor_user_id ?? "user_1";
@@ -308,7 +319,7 @@ async function createRunStream(
 ) {
   let run: AgentRun;
   try {
-    run = await createRun(body, threadId);
+    run = await createRun(body, threadId, platformActorFromRequest(request));
   } catch (error) {
     if (error instanceof SelectedSkillNotFoundError) {
       reply.code(400);
@@ -326,9 +337,14 @@ async function createRunStream(
   });
 }
 
-async function createRunResponse(body: any, reply: FastifyReply, threadId?: string) {
+async function createRunResponse(
+  body: any,
+  reply: FastifyReply,
+  threadId?: string,
+  request?: FastifyRequest,
+) {
   try {
-    return await createRun(body, threadId);
+    return await createRun(body, threadId, request ? platformActorFromRequest(request) : null);
   } catch (error) {
     if (error instanceof SelectedSkillNotFoundError) {
       reply.code(400);
@@ -674,8 +690,7 @@ function defaultModelProfile(key = "default") {
 }
 
 function requestOrgId(request: FastifyRequest, body?: any): string {
-  const header = request.headers["x-aithru-org-id"];
-  return String(header ?? body?.org_id ?? query(request).org_id ?? "org_1");
+  return platformRequestOrgId(platformActorFromRequest(request), body, query(request));
 }
 
 function documentPayload<T>(kind: string, id: string): T | null {
@@ -1183,7 +1198,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     return getRuntime().store.listRuns({ thread_id: threadId });
   });
   register(app, "POST", "/api/threads/:thread_id/runs", async (request: FastifyRequest, reply: FastifyReply) =>
-    createRunResponse(request.body ?? {}, reply, params(request).thread_id),
+    createRunResponse(request.body ?? {}, reply, params(request).thread_id, request),
   );
   register(app, "POST", "/api/threads/:thread_id/runs/stream", async (request: FastifyRequest, reply: FastifyReply) =>
     createRunStream(request.body ?? {}, request, reply, params(request).thread_id),
@@ -1193,7 +1208,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     createRunStream(request.body ?? {}, request, reply),
   );
   register(app, "POST", "/api/runs/wait", async (request: FastifyRequest, reply: FastifyReply) =>
-    createRunResponse({ ...(request.body as any), wait_for_completion: true }, reply),
+    createRunResponse({ ...(request.body as any), wait_for_completion: true }, reply, undefined, request),
   );
 
   const runDetail = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -1508,7 +1523,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   });
   register(app, "POST", "/api/skill-registry/user", async (request: FastifyRequest, reply: FastifyReply) => {
     const body = (request.body ?? {}) as any;
-    const actor = String(request.headers["x-aithru-user-id"] ?? body.owner_user_id ?? "user_1");
+    const actor = requestActorUserId(platformActorFromRequest(request), body);
     const key = body.key ?? "user";
     const entry = {
       ...skillEntry(key),
@@ -1532,7 +1547,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   );
   register(app, "PATCH", "/api/skill-registry/user/:skill_key", async (request: FastifyRequest) => {
     const orgId = requestOrgId(request);
-    const actor = String(request.headers["x-aithru-user-id"] ?? "user_1");
+    const actor = requestActorUserId(platformActorFromRequest(request));
     const key = params(request).skill_key;
     const id = `${orgId}:${actor}:${key}`;
     const existing = documentPayload<any>("skill_package_user", id) ?? {

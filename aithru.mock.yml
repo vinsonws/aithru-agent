@@ -1,0 +1,66 @@
+app:
+  key: agent
+  name: Aithru Agent
+  url: http://localhost:5173
+  origin: http://localhost:5173
+  defaultPath: /
+  manifest: ./aithru-platform-app.yml
+
+mockPlatform:
+  port: 19000
+  publicUrl: http://localhost:19000
+  defaultTheme: light
+  defaultLocale: zh-CN
+
+user:
+  id: dev-user-001
+  email: dev@example.com
+  displayName: Dev User
+
+org:
+  id: dev-org-001
+  name: Dev Org
+
+grants:
+  app:
+    permissions:
+      - agent.app.view
+      - agent.app.threads.read
+      - agent.app.threads.write
+      - agent.app.runs.read
+      - agent.app.runs.execute
+      - agent.app.runs.cancel
+      - agent.app.approvals.read
+      - agent.app.approvals.resolve
+      - agent.app.workspaces.read
+      - agent.app.workspaces.write
+      - agent.app.memory.manage
+      - agent.app.settings.read
+      - agent.app.settings.manage
+  personal:
+    permissions: []
+  groups: []
+
+scenarios:
+  - key: viewer
+    name: Viewer only
+    grants:
+      app:
+        permissions:
+          - agent.app.view
+          - agent.app.threads.read
+          - agent.app.runs.read
+          - agent.app.approvals.read
+          - agent.app.workspaces.read
+          - agent.app.settings.read
+      personal:
+        permissions: []
+      groups: []
+  - key: no-permissions
+    name: No permissions
+    grants:
+      app:
+        permissions: []
+      personal:
+        permissions: []
+      groups: []

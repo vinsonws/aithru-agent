@@ -45,7 +45,7 @@ test("sidebar brand uses an unframed robot avatar", async () => {
   const source = await readFile(sidebarPath, "utf8");
   const avatarMatch = source.match(/data-testid="sidebar-brand-avatar"[^>]+className="([^"]+)"/);
 
-  assert.match(source, /\bBot,\n/);
+  assert.match(source, /\bBot,\r?\n/);
   assert.match(source, /<Bot className="h-4 w-4"/);
   assert.ok(avatarMatch, "Sidebar brand avatar should be easy to target");
   assert.doesNotMatch(avatarMatch?.[1] ?? "", /\bborder\b/);

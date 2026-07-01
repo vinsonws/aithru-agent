@@ -1,0 +1,109 @@
+app:
+  version: 0.1.0
+  integrationMode: iframe
+  defaultPath: /
+
+version: 0.1.0
+
+permissions:
+  - key: agent.app.basic
+    name: Basic Access
+    description: Baseline access for users who can open Aithru Agent
+    category: app
+  - key: agent.app.view
+    name: View Agent
+    description: View the Agent harness application shell
+    category: app
+  - key: agent.app.threads.read
+    name: Read Threads
+    description: List and inspect Agent threads
+    category: app
+  - key: agent.app.threads.write
+    name: Manage Threads
+    description: Create and update Agent threads and messages
+    category: app
+  - key: agent.app.runs.read
+    name: Read Runs
+    description: Inspect Agent runs, events, traces, and snapshots
+    category: app
+  - key: agent.app.runs.execute
+    name: Execute Runs
+    description: Start, resume, and continue Agent runs
+    category: app
+  - key: agent.app.runs.cancel
+    name: Cancel Runs
+    description: Cancel active Agent runs
+    category: app
+  - key: agent.app.approvals.read
+    name: Read Approvals
+    description: Inspect pending Agent approvals
+    category: app
+  - key: agent.app.approvals.resolve
+    name: Resolve Approvals
+    description: Approve or reject Agent tool approvals
+    category: app
+  - key: agent.app.workspaces.read
+    name: Read Workspace Files
+    description: Inspect Agent workspace files and previews
+    category: app
+  - key: agent.app.workspaces.write
+    name: Manage Workspace Files
+    description: Upload, edit, patch, or delete Agent workspace files
+    category: app
+  - key: agent.app.memory.manage
+    name: Manage Memory
+    description: Review and manage Agent memory entries
+    category: app
+  - key: agent.app.settings.read
+    name: Read Settings
+    description: View model profiles, skills, subagents, and external tools
+    category: app
+  - key: agent.app.settings.manage
+    name: Manage Settings
+    description: Manage model profiles, skills, subagents, and external tools
+    category: app
+
+roles:
+  - key: agent.app.viewer
+    name: Agent Viewer
+    description: Can open Agent and inspect existing work
+    permissions:
+      - agent.app.view
+      - agent.app.threads.read
+      - agent.app.runs.read
+      - agent.app.approvals.read
+      - agent.app.workspaces.read
+      - agent.app.settings.read
+  - key: agent.app.operator
+    name: Agent Operator
+    description: Can run Agent tasks and resolve approvals
+    permissions:
+      - agent.app.view
+      - agent.app.threads.read
+      - agent.app.threads.write
+      - agent.app.runs.read
+      - agent.app.runs.execute
+      - agent.app.runs.cancel
+      - agent.app.approvals.read
+      - agent.app.approvals.resolve
+      - agent.app.workspaces.read
+      - agent.app.workspaces.write
+      - agent.app.memory.manage
+      - agent.app.settings.read
+  - key: agent.app.admin
+    name: Agent Admin
+    description: Can manage Agent runtime settings and tools
+    permissions:
+      - agent.app.view
+      - agent.app.threads.read
+      - agent.app.threads.write
+      - agent.app.runs.read
+      - agent.app.runs.execute
+      - agent.app.runs.cancel
+      - agent.app.approvals.read
+      - agent.app.approvals.resolve
+      - agent.app.workspaces.read
+      - agent.app.workspaces.write
+      - agent.app.memory.manage
+      - agent.app.settings.read
+      - agent.app.settings.manage

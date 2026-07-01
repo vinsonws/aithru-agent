@@ -5,6 +5,11 @@ import { registerHealthRoutes } from "./routes/health.js";
 import { registerCompatRoutes } from "./routes/compat.js";
 import { registerRunRoutes } from "./routes/runs.js";
 import { registerThreadRoutes } from "./routes/threads.js";
+import {
+  createAgentPlatform,
+  registerPlatformAuth,
+  shouldEnablePlatformAuth,
+} from "./platform-auth.js";
 
 export interface CreateAppOptions {
   dbPath?: string;
@@ -14,6 +19,14 @@ export async function createApp(options: CreateAppOptions = {}) {
   const app = Fastify({ logger: true });
 
   await createRuntime(options.dbPath);
+  if (shouldEnablePlatformAuth()) {
+    const platform = createAgentPlatform();
+    await platform.start();
+    registerPlatformAuth(app, platform);
+    app.addHook("onClose", async () => {
+      await platform.stop();
+    });
+  }
 
   registerHealthRoutes(app);
   registerThreadRoutes(app);

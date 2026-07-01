@@ -15,7 +15,7 @@ const DEFAULT: HostRuntimeContext = {
   locale: { language: "en-US", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
   org: { id: "org_1", name: "Aithru Org" },
   user: { id: "user_1", name: "Local Developer" },
-  route: { basePath: "" },
+  route: { basePath: import.meta.env.BASE_URL === "/" ? "" : import.meta.env.BASE_URL.replace(/\/+$/, "") },
   permissions: ["*"],
 };
 

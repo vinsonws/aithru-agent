@@ -3,11 +3,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import esbuild from "esbuild";
 
 async function renderInbox(items, overrides = {}) {
-  const resolveDir = new URL("..", import.meta.url).pathname;
+  const resolveDir = fileURLToPath(new URL("..", import.meta.url));
   const fixture = `
     import React from "react";
     import { renderToStaticMarkup } from "react-dom/server";
@@ -79,7 +80,7 @@ async function renderInbox(items, overrides = {}) {
             namespace: "mock",
           }));
           build.onResolve({ filter: /^@\// }, (args) => ({
-            path: new URL(`../src/${args.path.slice(2)}`, import.meta.url).pathname,
+            path: fileURLToPath(new URL(`../src/${args.path.slice(2)}`, import.meta.url)),
           }));
           build.onLoad({ filter: /^mock-router$/, namespace: "mock" }, () => ({
             contents: `

@@ -3,8 +3,7 @@
 // Security rules (aithru-docs 03-frontend-constraints):
 //   - Access token stays in memory only (held by the host bridge / auth provider).
 //   - The browser is never the security authority; the backend enforces identity.
-//   - Identity (org/user) is supplied via trusted X-Aithru-* headers bound by the
-//     backend to the active hosted token context.
+//   - Identity comes from verified Aithru JWTs, never browser-supplied user/org headers.
 
 export interface AgentRequestContext {
   /** Bearer access token held in memory by the host bridge. */
@@ -20,6 +19,16 @@ let currentContext: AgentRequestContext = {
   orgId: null,
   userId: null,
 };
+
+const APP_KEY = import.meta.env?.VITE_AITHRU_APP_KEY ?? "agent";
+
+type HostedApiFetch = (input: RequestInfo | URL, init?: RequestInit, scopes?: string[]) => Promise<Response>;
+
+let hostedApiFetch: HostedApiFetch | null = null;
+
+export function setHostedApiFetch(fetcher: HostedApiFetch | null): void {
+  hostedApiFetch = fetcher;
+}
 
 export function setRequestContext(ctx: Partial<AgentRequestContext>): void {
   currentContext = { ...currentContext, ...ctx };
@@ -43,10 +52,8 @@ export class ApiError extends Error {
 
 function buildHeaders(extra?: HeadersInit): Headers {
   const headers = new Headers(extra);
-  const { token, orgId, userId } = currentContext;
+  const { token } = currentContext;
   if (token) headers.set("authorization", `Bearer ${token}`);
-  if (orgId) headers.set("x-aithru-org-id", orgId);
-  if (userId) headers.set("x-aithru-user-id", userId);
   return headers;
 }
 
@@ -55,8 +62,8 @@ async function parseError(res: Response): Promise<ApiError> {
   let message = res.statusText || `Request failed (${res.status})`;
   try {
     const body = await res.json();
-    code = body?.code ?? body?.error_code;
-    message = body?.detail ?? body?.message ?? message;
+    code = body?.error?.code ?? body?.code ?? body?.error_code;
+    message = body?.error?.message ?? body?.detail ?? body?.message ?? message;
   } catch {
     // non-JSON error body
   }
@@ -68,6 +75,7 @@ export interface RequestOptions {
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined | null>;
   signal?: AbortSignal;
+  scopes?: string[];
   /** Override Accept/Content-Type when needed. */
   headers?: HeadersInit;
   /** Return raw Response (e.g. for file downloads). */
@@ -99,16 +107,58 @@ function withQuery(path: string, query?: RequestOptions["query"]): string {
   return qs ? `${path}?${qs}` : path;
 }
 
+function pathName(path: string): string {
+  try {
+    return new URL(path, "http://aithru.local").pathname;
+  } catch {
+    return path.split("?")[0] || "/";
+  }
+}
+
+export function scopesForApiRequest(method: string, path: string): string[] {
+  const verb = method.toUpperCase();
+  const pathname = pathName(path);
+  if (pathname.startsWith("/api/threads")) {
+    return [verb === "GET" ? `${APP_KEY}.app.threads.read` : `${APP_KEY}.app.threads.write`];
+  }
+  if (pathname.startsWith("/api/runs")) {
+    if (verb === "GET" || verb === "HEAD") return [`${APP_KEY}.app.runs.read`];
+    if (pathname.endsWith("/cancel")) return [`${APP_KEY}.app.runs.cancel`];
+    return [`${APP_KEY}.app.runs.execute`];
+  }
+  if (pathname.startsWith("/api/approvals")) {
+    return [verb === "GET" ? `${APP_KEY}.app.approvals.read` : `${APP_KEY}.app.approvals.resolve`];
+  }
+  if (pathname.startsWith("/api/workspaces")) {
+    return [verb === "GET" || verb === "HEAD" ? `${APP_KEY}.app.workspaces.read` : `${APP_KEY}.app.workspaces.write`];
+  }
+  if (pathname.startsWith("/api/memory") || pathname.startsWith("/api/long-term-memory")) {
+    return [`${APP_KEY}.app.memory.manage`];
+  }
+  if (
+    ["/api/model-profiles", "/api/skills", "/api/skill-registry", "/api/subagents", "/api/external-tools"]
+      .some((prefix) => pathname.startsWith(prefix))
+  ) {
+    return [verb === "GET" || verb === "HEAD" ? `${APP_KEY}.app.settings.read` : `${APP_KEY}.app.settings.manage`];
+  }
+  return verb === "GET" || verb === "HEAD" ? [`${APP_KEY}.app.view`] : [`${APP_KEY}.app.settings.manage`];
+}
+
 export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const headers = buildHeaders(opts.headers);
-  const init: RequestInit = { method: opts.method ?? "GET", signal: opts.signal };
+  const method = opts.method ?? "GET";
+  const init: RequestInit = { method, signal: opts.signal };
   if (opts.body !== undefined) {
     headers.set("content-type", "application/json");
     init.body = JSON.stringify(opts.body);
   }
   init.headers = headers;
 
-  const res = await fetch(withQuery(path, opts.query), init);
+  const requestPath = withQuery(path, opts.query);
+  const scopes = opts.scopes ?? scopesForApiRequest(method, requestPath);
+  const res = hostedApiFetch
+    ? await hostedApiFetch(requestPath, init, scopes)
+    : await fetch(requestPath, init);
   if (!res.ok) throw await parseError(res);
   if (opts.raw) return res as unknown as T;
   if (res.status === 204) return undefined as unknown as T;
@@ -154,7 +204,11 @@ export function openEventStream(
   resetIdleTimer();
 
   // fetch-based SSE: read the streaming body and parse `data:` frames.
-  return fetch(path, { method: "GET", headers, signal: controller.signal })
+  const fetchStream = hostedApiFetch
+    ? hostedApiFetch(path, { method: "GET", headers, signal: controller.signal }, scopesForApiRequest("GET", path))
+    : fetch(path, { method: "GET", headers, signal: controller.signal });
+
+  return fetchStream
     .then(async (res) => {
       resetIdleTimer();
       if (!res.ok || !res.body) throw await parseError(res);

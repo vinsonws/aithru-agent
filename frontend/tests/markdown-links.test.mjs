@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import esbuild from "esbuild";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 async function loadMarkdown() {
-  const root = new URL("..", import.meta.url).pathname;
+  const root = fileURLToPath(new URL("..", import.meta.url));
   const result = await esbuild.build({
     absWorkingDir: root,
     bundle: true,
