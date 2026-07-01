@@ -115,6 +115,7 @@ function resolveLimitContinuationApproval(
   if (decision === "denied") {
     const failed = deps.store.updateRun(run.id, {
       status: "failed",
+      current_approval_id: null,
       completed_at: new Date().toISOString().replace(/\.\d{3}/, ""),
       error: { code: "LIMIT_CONTINUATION_DENIED", message: "Limit continuation denied by user" },
     });

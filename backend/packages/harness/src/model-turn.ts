@@ -199,35 +199,38 @@ export class ModelTurnLoop {
         } else if (event.type === "tool_call") {
           flushToolInputDelta();
 
-          const toolExecCount = countToolExecutions(runEvents);
-          if (toolExecCount >= limits.maxToolExecutions) {
+          const latestRun = this.deps.store.getRun(run.id) ?? currentRun;
+          const latestEvents = this.deps.store.listEvents(run.id);
+          const latestLimits = resolveRunLimits(latestRun, latestEvents);
+          const toolExecCount = countToolExecutions(latestEvents);
+          if (toolExecCount >= latestLimits.maxToolExecutions) {
             loop.emitMessageCompleted(messageId, content);
             return pauseForLimitContinuation({
               store: this.deps.store,
               eventWriter: this.deps.eventWriter,
-              run: currentRun,
+              run: latestRun,
               kind: "tool_executions",
               current: toolExecCount,
-              limit: limits.maxToolExecutions,
-              message: `Tool execution limit reached (${toolExecCount}/${limits.maxToolExecutions})`,
+              limit: latestLimits.maxToolExecutions,
+              message: `Tool execution limit reached (${toolExecCount}/${latestLimits.maxToolExecutions})`,
             });
           }
-          if (shouldWarnAtLimit("tool_executions", toolExecCount, limits.maxToolExecutions, runEvents)) {
+          if (shouldWarnAtLimit("tool_executions", toolExecCount, latestLimits.maxToolExecutions, latestEvents)) {
             writeLimitWarning({
               eventWriter: this.deps.eventWriter,
-              run: currentRun,
+              run: latestRun,
               kind: "tool_executions",
               current: toolExecCount,
-              limit: limits.maxToolExecutions,
-              message: `Approaching tool execution limit (${toolExecCount}/${limits.maxToolExecutions})`,
+              limit: latestLimits.maxToolExecutions,
+              message: `Approaching tool execution limit (${toolExecCount}/${latestLimits.maxToolExecutions})`,
             });
           }
 
-          const repeatState = repeatToolCallState(runEvents, event.name, event.input);
+          const repeatState = repeatToolCallState(latestEvents, event.name, event.input);
           if (repeatState === "warn" || repeatState === "pause") {
             writeLimitWarning({
               eventWriter: this.deps.eventWriter,
-              run: currentRun,
+              run: latestRun,
               kind: "repeat_tool_call",
               current: 0,
               limit: 0,
@@ -239,7 +242,7 @@ export class ModelTurnLoop {
             return pauseForLimitContinuation({
               store: this.deps.store,
               eventWriter: this.deps.eventWriter,
-              run: currentRun,
+              run: latestRun,
               kind: "repeat_tool_call",
               current: 0,
               limit: 0,

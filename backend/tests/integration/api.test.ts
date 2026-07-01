@@ -717,6 +717,7 @@ describe("Runs API", () => {
     expect(res.statusCode).toBe(200);
     const finalRun = runtime.store.getRun(run.id);
     expect(finalRun?.status).toBe("failed");
+    expect(finalRun?.current_approval_id).toBeNull();
     const err = finalRun?.error as Record<string, unknown> | null;
     expect(err?.code).toBe("LIMIT_CONTINUATION_DENIED");
 

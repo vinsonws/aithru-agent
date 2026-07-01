@@ -3,7 +3,7 @@ import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { ModelTurnLoop, runTerminalProcessors } from "@aithru-agent/harness";
 import { TestModelAdapter } from "@aithru-agent/model";
-import { InMemoryStore } from "@aithru-agent/persistence";
+import { InMemoryStore, SqliteStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
 
 function createRun(): AgentRun {
@@ -812,6 +812,39 @@ describe("ModelTurnLoop", () => {
     const events = store.listEvents(run.id);
     const newProposed = events.filter((e) => e.type === EVENT_TYPES.TOOL_PROPOSED && (e.payload as Record<string, unknown>).tool_call_id === "new_tc");
     expect(newProposed).toHaveLength(0);
+    expect(events.some((e) => e.type === EVENT_TYPES.APPROVAL_REQUESTED)).toBe(true);
+  });
+
+  it("refreshes SQLite event counts between tool calls in the same model turn", async () => {
+    const store = await SqliteStore.create(":memory:");
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = { ...createRun(), id: "run_sqlite_tool_limit_pause" };
+    store.createRun(run);
+
+    for (let i = 0; i < 99; i += 1) {
+      eventWriter.write(run.id, null, EVENT_TYPES.TOOL_STARTED, {
+        tool_call_id: `prior_tc_${i}`, name: "workspace.list_files",
+      });
+    }
+
+    const loop = new ModelTurnLoop({
+      store, eventWriter, capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          { type: "tool_call", id: "tc_100", name: "workspace.list_files", input: {} },
+          { type: "tool_call", id: "tc_101", name: "workspace.list_files", input: {} },
+          { type: "completed" },
+        ],
+      ]),
+    });
+
+    const paused = await loop.execute(run);
+    const events = store.listEvents(run.id);
+
+    expect(paused.status).toBe("waiting_approval");
+    expect(events.filter((e) => e.type === EVENT_TYPES.TOOL_STARTED)).toHaveLength(100);
+    expect(events.filter((e) => e.type === EVENT_TYPES.TOOL_PROPOSED)).toHaveLength(1);
     expect(events.some((e) => e.type === EVENT_TYPES.APPROVAL_REQUESTED)).toBe(true);
   });
 });
