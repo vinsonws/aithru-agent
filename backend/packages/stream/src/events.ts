@@ -62,6 +62,8 @@ export const EVENT_TYPES = {
   // Model
   MODEL_REASONING_DELTA: "model.reasoning_delta",
   MODEL_USAGE: "model.usage",
+  // Limit
+  LIMIT_WARNING: "limit.warning",
   // Skill
   SKILL_ACTIVATED: "skill.activated",
   // External capabilities
