@@ -4,6 +4,9 @@ import {
   ensureToolCallRecordForApproval,
   toolResultFromRecord,
   updateToolCallRecord,
+  LIMIT_CONTINUATION_INCREMENT,
+  isLimitContinuationApproval,
+  limitKindFromToolCallId,
 } from "@aithru-agent/harness";
 import type { AgentModelToolResult } from "@aithru-agent/model";
 import type { AgentApproval, AgentStore } from "@aithru-agent/persistence";
@@ -37,31 +40,46 @@ export function createApprovalResolver(deps: {
     const run = deps.store.getRun(pendingApproval.run_id);
     if (!run) throw new ApprovalResolutionError("RUN_NOT_FOUND");
 
+    const isLimitApproval = isLimitContinuationApproval(pendingApproval);
     const shouldResume = run.status === "waiting_approval" && run.current_approval_id === pendingApproval.id;
-    const toolCall = shouldResume
-      ? ensureToolCallRecordForApproval(deps.store, pendingApproval)
-      : null;
-    if (shouldResume && !toolCall) throw new ApprovalResolutionError("PENDING_TOOL_CALL_NOT_FOUND");
+
+    let toolCall = null;
+    if (!isLimitApproval && shouldResume) {
+      toolCall = ensureToolCallRecordForApproval(deps.store, pendingApproval);
+    }
+    if (shouldResume && !isLimitApproval && !toolCall) {
+      throw new ApprovalResolutionError("PENDING_TOOL_CALL_NOT_FOUND");
+    }
 
     const wasPending = pendingApproval.status === "pending";
     const approval = wasPending
       ? deps.store.resolveApproval(approvalId, decision)
       : pendingApproval;
     if (wasPending) {
+      const resolvedPayload: Record<string, unknown> = {
+        approval_id: approval.id,
+        tool_call_id: approval.tool_call_id,
+        name: approval.tool_name,
+        decision,
+      };
+      if (isLimitApproval) {
+        const kind = limitKindFromToolCallId(approval.tool_call_id) ?? "model_requests";
+        resolvedPayload.limit_kind = kind;
+        resolvedPayload.limit_increment = { ...LIMIT_CONTINUATION_INCREMENT };
+      }
       deps.eventWriter.write(
         approval.run_id,
         run.thread_id ?? null,
         EVENT_TYPES.APPROVAL_RESOLVED,
-        {
-          approval_id: approval.id,
-          tool_call_id: approval.tool_call_id,
-          name: approval.tool_name,
-          decision,
-        },
+        resolvedPayload,
       );
     }
 
-    if (!shouldResume || !toolCall || !wasPending) return approval;
+    if (!shouldResume || !wasPending) return approval;
+    if (isLimitApproval) {
+      return resolveLimitContinuationApproval(deps, run, approval, decision);
+    }
+    if (!toolCall) return approval;
 
     const resumed = deps.store.updateRun(run.id, {
       status: "running",
@@ -82,6 +100,47 @@ export function createApprovalResolver(deps: {
     });
     return approval;
   };
+}
+
+function resolveLimitContinuationApproval(
+  deps: {
+    store: AgentStore;
+    eventWriter: AgentEventWriter;
+    scheduleRunExecution: ScheduleRunExecution;
+  },
+  run: AgentRun,
+  approval: AgentApproval,
+  decision: "approved" | "denied",
+): AgentApproval {
+  if (decision === "denied") {
+    const failed = deps.store.updateRun(run.id, {
+      status: "failed",
+      completed_at: new Date().toISOString().replace(/\.\d{3}/, ""),
+      error: { code: "LIMIT_CONTINUATION_DENIED", message: "Limit continuation denied by user" },
+    });
+    deps.eventWriter.write(
+      run.id,
+      run.thread_id ?? null,
+      EVENT_TYPES.RUN_FAILED,
+      { error: failed.error },
+    );
+    return approval;
+  }
+
+  deps.store.updateRun(run.id, {
+    status: "running",
+    current_approval_id: null,
+  });
+  deps.eventWriter.write(
+    run.id,
+    run.thread_id ?? null,
+    EVENT_TYPES.RUN_RESUMED,
+    { status: "running", resume_reason: "limit_continuation_approved", approval_id: approval.id },
+  );
+  void deps.scheduleRunExecution(deps.store.updateRun(run.id, { status: "queued" }), {
+    toolResults: [],
+  });
+  return approval;
 }
 
 async function executeApprovedToolCall(

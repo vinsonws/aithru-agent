@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createApp, getRuntime } from "@aithru-agent/api";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { EVENT_TYPES } from "@aithru-agent/stream";
+import { LIMIT_CONTINUATION_TOOL } from "@aithru-agent/harness";
 import type { FastifyInstance } from "fastify";
 
 let app: FastifyInstance;
@@ -618,5 +619,109 @@ describe("Runs API", () => {
     });
     const run = JSON.parse(getRes.body);
     expect(run.status).toBe("cancelled");
+  });
+
+  it("POST /api/approvals/:id/resolve approved limit continuation resumes and completes the run", async () => {
+    const runtime = getRuntime();
+    const approvalId = "aprv_limit_approved";
+    const toolCallId = "limit:model_requests:1";
+    const run: AgentRun = {
+      id: "run_limit_approved",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_limit_approved",
+      task_msg: "Continue after limit approval",
+      scopes: ["*"],
+      harness_options: { model_profile_key: "default" },
+      status: "waiting_approval",
+      current_approval_id: approvalId,
+      started_at: testNow(),
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    };
+    runtime.store.createRun(run);
+    runtime.store.createApproval({
+      id: approvalId,
+      run_id: run.id,
+      tool_call_id: toolCallId,
+      tool_name: LIMIT_CONTINUATION_TOOL,
+      status: "pending",
+      created_at: testNow(),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/approvals/${approvalId}/resolve`,
+      payload: { decision: "approved" },
+    });
+    for (let attempt = 0; attempt < 20 && runtime.store.getRun(run.id)?.status !== "completed"; attempt += 1) {
+      await wait(10);
+    }
+
+    expect(res.statusCode).toBe(200);
+    const finalRun = runtime.store.getRun(run.id);
+    expect(finalRun?.status).toBe("completed");
+    expect(finalRun?.current_approval_id).toBeNull();
+
+    const events = runtime.store.listEvents(run.id);
+    const approvalResolved = events.find((e) => e.type === EVENT_TYPES.APPROVAL_RESOLVED);
+    const apPayload = approvalResolved?.payload as Record<string, unknown>;
+    expect(apPayload.limit_kind).toBe("model_requests");
+    expect(apPayload.limit_increment).toEqual({ maxModelRequests: 25, maxToolExecutions: 50 });
+    expect(events.some((e) => e.type === EVENT_TYPES.RUN_RESUMED)).toBe(true);
+    expect(events.some((e) => e.type === EVENT_TYPES.RUN_COMPLETED)).toBe(true);
+  });
+
+  it("POST /api/approvals/:id/resolve denied limit continuation fails the run with LIMIT_CONTINUATION_DENIED", async () => {
+    const runtime = getRuntime();
+    const approvalId = "aprv_limit_denied";
+    const toolCallId = "limit:model_requests:2";
+    const run: AgentRun = {
+      id: "run_limit_denied",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_limit_denied",
+      task_msg: "Deny limit continuation",
+      scopes: ["*"],
+      harness_options: null,
+      status: "waiting_approval",
+      current_approval_id: approvalId,
+      started_at: testNow(),
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    };
+    runtime.store.createRun(run);
+    runtime.store.createApproval({
+      id: approvalId,
+      run_id: run.id,
+      tool_call_id: toolCallId,
+      tool_name: LIMIT_CONTINUATION_TOOL,
+      status: "pending",
+      created_at: testNow(),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/approvals/${approvalId}/resolve`,
+      payload: { decision: "rejected" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const finalRun = runtime.store.getRun(run.id);
+    expect(finalRun?.status).toBe("failed");
+    const err = finalRun?.error as Record<string, unknown> | null;
+    expect(err?.code).toBe("LIMIT_CONTINUATION_DENIED");
+
+    const events = runtime.store.listEvents(run.id);
+    expect(events.some((e) => e.type === EVENT_TYPES.APPROVAL_RESOLVED)).toBe(true);
+    expect(events.some((e) => e.type === EVENT_TYPES.RUN_FAILED)).toBe(true);
   });
 });
