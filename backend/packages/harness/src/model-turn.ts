@@ -8,6 +8,13 @@ import type { AgentStore } from "@aithru-agent/persistence";
 import type { SkillResolver } from "@aithru-agent/skills";
 import { EVENT_TYPES, VISIBILITY, AgentEventWriter } from "@aithru-agent/stream";
 import { buildModelContextPacket, isPlanModeRun } from "./context-packet.js";
+import {
+  resolveRunLimits,
+  countModelRequests,
+  shouldWarnAtLimit,
+  writeLimitWarning,
+  pauseForLimitContinuation,
+} from "./run-limits.js";
 import { RunLoop } from "./run-loop.js";
 import { runTerminalProcessors } from "./terminal-processors.js";
 
@@ -19,7 +26,6 @@ export class ModelTurnLoop {
       capabilityRouter: CapabilityRouter;
       modelAdapter: AgentModelAdapter;
       skillResolver?: SkillResolver;
-      maxTurns?: number;
     },
   ) {}
 
@@ -39,11 +45,36 @@ export class ModelTurnLoop {
     loop.emitMessageCreated(messageId, "");
     let content = "";
     let toolResults: AgentModelToolResult[] = options.toolResults ?? [];
-    const maxTurns = this.deps.maxTurns ?? DEFAULT_MAX_MODEL_TURNS;
 
-    for (let turn = 0; turn < maxTurns; turn += 1) {
+    for (let turn = 0; ; turn += 1) {
       const currentRun = this.deps.store.getRun(run.id) ?? run;
       const runEvents = this.deps.store.listEvents(run.id);
+
+      const limits = resolveRunLimits(currentRun, runEvents);
+      const modelRequestCount = countModelRequests(runEvents);
+      if (modelRequestCount >= limits.maxModelRequests) {
+        loop.emitMessageCompleted(messageId, content);
+        return pauseForLimitContinuation({
+          store: this.deps.store,
+          eventWriter: this.deps.eventWriter,
+          run: currentRun,
+          kind: "model_requests",
+          current: modelRequestCount,
+          limit: limits.maxModelRequests,
+          message: `Model request limit reached (${modelRequestCount}/${limits.maxModelRequests})`,
+        });
+      }
+      if (shouldWarnAtLimit("model_requests", modelRequestCount, limits.maxModelRequests, runEvents)) {
+        writeLimitWarning({
+          eventWriter: this.deps.eventWriter,
+          run: currentRun,
+          kind: "model_requests",
+          current: modelRequestCount,
+          limit: limits.maxModelRequests,
+          message: `Approaching model request limit (${modelRequestCount}/${limits.maxModelRequests})`,
+        });
+      }
+
       const fullMessages = currentRun.thread_id
         ? this.deps.store.listMessages(currentRun.thread_id)
         : [];
@@ -86,7 +117,7 @@ export class ModelTurnLoop {
         context: contextPacket.stats,
         tools: modelTools(tools),
         toolResults,
-        turnIndex: turn,
+        turnIndex: modelRequestCount,
       });
 
       const nextToolResults: AgentModelToolResult[] = [];
@@ -225,12 +256,6 @@ export class ModelTurnLoop {
       toolResults = nextToolResults;
     }
 
-    loop.emitMessageCompleted(messageId, content);
-    loop.emitRunFailed({
-      code: "MODEL_TURN_LIMIT_EXCEEDED",
-      message: "Model turn loop exceeded the configured turn limit",
-    });
-    return this.deps.store.getRun(run.id)!;
   }
 }
 
@@ -245,8 +270,6 @@ function modelTools(
 }
 
 const TOOL_INPUT_DELTA_FLUSH_CHARS = 1024;
-// ponytail: fixed ceiling; make this policy-driven only when real runs outgrow it.
-const DEFAULT_MAX_MODEL_TURNS = 16;
 
 type ToolInputDeltaEvent = Extract<ModelTurnEvent, { type: "tool_input_delta" }>;
 

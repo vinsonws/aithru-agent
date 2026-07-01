@@ -83,6 +83,15 @@ export function buildModelContextPacket(args: {
   if (args.latestSummary?.summary) contextParts.push(`Context summary:\n${args.latestSummary.summary}`);
   if (toolLines.length) contextParts.push(`Recent tool results:\n${toolLines.join("\n")}`);
 
+  const warningEvents = args.events.filter((event) => event.type === "limit.warning").slice(-3);
+  if (warningEvents.length) {
+    const warningLines = warningEvents.map((event) => {
+      const p = event.payload as Record<string, unknown>;
+      return `- ${String(p.kind)}: ${String(p.message)}`;
+    });
+    contextParts.push(`Run warnings:\n${warningLines.join("\n")}`);
+  }
+
   const contextMessages = contextParts.length
     ? [
         {

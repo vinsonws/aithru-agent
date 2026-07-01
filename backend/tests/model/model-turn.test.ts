@@ -4,7 +4,7 @@ import type { AgentRun } from "@aithru-agent/contracts";
 import { ModelTurnLoop, runTerminalProcessors } from "@aithru-agent/harness";
 import { TestModelAdapter } from "@aithru-agent/model";
 import { InMemoryStore } from "@aithru-agent/persistence";
-import { AgentEventWriter } from "@aithru-agent/stream";
+import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
 
 function createRun(): AgentRun {
   return {
@@ -673,5 +673,81 @@ describe("ModelTurnLoop", () => {
     await runTerminalProcessors({ store, eventWriter, run: storedRun });
 
     expect(store.getLatestContextSummary(threadId)?.summary).toContain("Message 0");
+  });
+
+  it("completes 20-tool-turn runs with pro mode beyond old fixed ceiling", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = { ...createRun(), harness_options: { mode: "pro" } as unknown as Record<string, unknown> };
+    store.createRun(run);
+
+    const toolTurns = Array.from({ length: 20 }, (_, index) => [
+      { type: "tool_call" as const, id: `model_tc_${index}`, name: "workspace.list_files", input: {} },
+      { type: "completed" as const },
+    ]);
+    const loop = new ModelTurnLoop({
+      store, eventWriter, capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        ...toolTurns,
+        [{ type: "text_delta", delta: "done" }, { type: "completed" }],
+      ]),
+    });
+
+    const completed = await loop.execute(run);
+    expect(completed.status).toBe("completed");
+  });
+
+  it("pauses at 50 model requests with approval, not run.failed", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = { ...createRun(), id: "run_limits_pause_test", harness_options: { mode: "pro" } as unknown as Record<string, unknown> };
+    store.createRun(run);
+
+    for (let i = 0; i < 50; i += 1) {
+      eventWriter.write(run.id, null, EVENT_TYPES.CONTEXT_PACKET_BUILT, { total_messages: i });
+    }
+
+    const loop = new ModelTurnLoop({
+      store, eventWriter, capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [{ type: "text_delta", delta: "should not be reached" }, { type: "completed" }],
+      ]),
+    });
+
+    const paused = await loop.execute(run);
+    expect(paused.status).toBe("waiting_approval");
+    expect(paused.current_approval_id).toBeTruthy();
+    const events = store.listEvents(run.id);
+    expect(events.some((e) => e.type === EVENT_TYPES.APPROVAL_REQUESTED)).toBe(true);
+    expect(events.some((e) => e.type === EVENT_TYPES.RUN_PAUSED)).toBe(true);
+    expect(events.some((e) => e.type === EVENT_TYPES.RUN_FAILED)).toBe(false);
+  });
+
+  it("includes Run warnings in model context when limit.warning events exist", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = { ...createRun(), id: "run_warnings_test" };
+    store.createRun(run);
+
+    eventWriter.write(run.id, null, EVENT_TYPES.LIMIT_WARNING, {
+      kind: "model_requests", current: 40, limit: 50,
+      message: "Approaching model request limit (40/50)",
+    });
+
+    const loop = new ModelTurnLoop({
+      store, eventWriter, capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        (input) => {
+          expect(input.messages[0].content).toContain("Run warnings:");
+          expect(input.messages[0].content).toContain("model_requests");
+          return [{ type: "text_delta", delta: "ok" }, { type: "completed" }];
+        },
+      ]),
+    });
+
+    await loop.execute(run);
   });
 });
