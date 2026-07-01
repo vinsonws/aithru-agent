@@ -305,11 +305,13 @@ function toolResultOutput(result: AgentModelToolResult): unknown {
 
 function openAIChatToolTranscript(input: AgentModelTurnInput) {
   if (!input.toolResults.length || !replayableToolResults(input)) return [];
-  return [
-    {
+  const messages: unknown[] = [];
+  for (const results of groupedToolResults(input.toolResults)) {
+    const reasoning = results.find((result) => typeof result.reasoning_content === "string")?.reasoning_content;
+    const assistant: Record<string, unknown> = {
       role: "assistant" as const,
       content: null,
-      tool_calls: input.toolResults.map((result) => ({
+      tool_calls: results.map((result) => ({
         id: result.id,
         type: "function" as const,
         function: {
@@ -317,13 +319,29 @@ function openAIChatToolTranscript(input: AgentModelTurnInput) {
           arguments: jsonText(result.input),
         },
       })),
-    },
-    ...input.toolResults.map((result) => ({
+    };
+    if (typeof reasoning === "string") assistant.reasoning_content = reasoning;
+    messages.push(assistant);
+    messages.push(...results.map((result) => ({
       role: "tool" as const,
       tool_call_id: result.id,
       content: jsonText(toolResultOutput(result)),
-    })),
-  ];
+    })));
+  }
+  return messages;
+}
+
+function groupedToolResults(results: AgentModelToolResult[]): AgentModelToolResult[][] {
+  const groups: AgentModelToolResult[][] = [];
+  for (const result of results) {
+    const last = groups.at(-1);
+    if (last && last[0].reasoning_content === result.reasoning_content) {
+      last.push(result);
+    } else {
+      groups.push([result]);
+    }
+  }
+  return groups;
 }
 
 function openAIResponsesToolTranscript(input: AgentModelTurnInput) {

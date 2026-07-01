@@ -109,6 +109,44 @@ describe("SDK model adapters", () => {
     });
   });
 
+  it("does not pass normal assistant reasoning_content back to OpenAI-compatible chat models", () => {
+    const request = buildOpenAIChatCompletionRequest(
+      { apiKey: "test", provider: "custom", model: "custom:deepseek-v4-flash" },
+      {
+        ...input("high"),
+        messages: [
+          {
+            id: "msg_user_1",
+            thread_id: "thread_sdk",
+            role: "user",
+            content: "Use a tool",
+            run_id: "run_sdk",
+            workspace_paths: [],
+            created_at: "2026-01-01T00:00:00Z",
+          },
+          {
+            id: "msg_assistant_1",
+            thread_id: "thread_sdk",
+            role: "assistant",
+            content: "Done",
+            reasoning_content: "Need the tool result first.",
+            run_id: "run_sdk",
+            workspace_paths: [],
+            created_at: "2026-01-01T00:00:01Z",
+          } as any,
+        ],
+      },
+    );
+
+    expect(request.messages).toContainEqual({
+      role: "assistant",
+      content: "Done",
+    });
+    expect(request.messages).not.toContainEqual(expect.objectContaining({
+      reasoning_content: "Need the tool result first.",
+    }));
+  });
+
   it("rewrites Qwen thinking flags for local OpenAI-compatible gateways", () => {
     const request = buildOpenAIChatCompletionRequest(
       {
@@ -562,6 +600,38 @@ describe("SDK model adapters", () => {
         content: JSON.stringify({ id: "todo_1", title: "Ship it" }),
       },
     ]);
+  });
+
+  it("replays tool-call reasoning_content in native OpenAI chat transcript", () => {
+    const request = buildOpenAIChatCompletionRequest(
+      { apiKey: "test", provider: "custom", model: "custom:deepseek-v4-flash" },
+      {
+        ...inputWithTools(),
+        toolResults: [
+          {
+            id: "call_1",
+            name: "todo.create",
+            input: { title: "Ship it" },
+            output: { id: "todo_1", title: "Ship it" },
+            reasoning_content: "I need to create the todo.",
+          } as any,
+        ],
+      },
+    );
+
+    expect((request.messages as any[]).at(-2)).toMatchObject({
+      role: "assistant",
+      reasoning_content: "I need to create the todo.",
+      tool_calls: [
+        {
+          id: "call_1",
+          function: {
+            name: "todo_create",
+            arguments: JSON.stringify({ title: "Ship it" }),
+          },
+        },
+      ],
+    });
   });
 
   it("replays recent tool results as native OpenAI Responses input", () => {

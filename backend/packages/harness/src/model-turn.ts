@@ -129,7 +129,9 @@ export class ModelTurnLoop {
       });
 
       const nextToolResults: AgentModelToolResult[] = [];
+      const pendingToolCalls: ToolCallEvent[] = [];
       let sawToolCall = false;
+      let turnReasoningContent = "";
       let pendingToolInputDelta: PendingToolInputDelta | null = null;
       const flushToolInputDelta = () => {
         if (!pendingToolInputDelta) return;
@@ -181,6 +183,7 @@ export class ModelTurnLoop {
           loop.emitMessageDelta(messageId, event.delta, content);
         } else if (event.type === "reasoning_delta") {
           flushToolInputDelta();
+          turnReasoningContent += event.delta;
           this.deps.eventWriter.write(
             run.id,
             currentRun.thread_id ?? null,
@@ -206,76 +209,8 @@ export class ModelTurnLoop {
           );
         } else if (event.type === "tool_call") {
           flushToolInputDelta();
-          const cancelled = this.observeCancellation(run.id, options.signal);
-          if (cancelled) return cancelled;
-
-          const latestRun = this.deps.store.getRun(run.id) ?? currentRun;
-          const latestEvents = this.deps.store.listEvents(run.id);
-          const latestLimits = resolveRunLimits(latestRun, latestEvents);
-          const toolExecCount = countToolExecutions(latestEvents);
-          if (toolExecCount >= latestLimits.maxToolExecutions) {
-            loop.emitMessageCompleted(messageId, content);
-            return pauseForLimitContinuation({
-              store: this.deps.store,
-              eventWriter: this.deps.eventWriter,
-              run: latestRun,
-              kind: "tool_executions",
-              current: toolExecCount,
-              limit: latestLimits.maxToolExecutions,
-              message: `Tool execution limit reached (${toolExecCount}/${latestLimits.maxToolExecutions})`,
-            });
-          }
-          if (shouldWarnAtLimit("tool_executions", toolExecCount, latestLimits.maxToolExecutions, latestEvents)) {
-            writeLimitWarning({
-              eventWriter: this.deps.eventWriter,
-              run: latestRun,
-              kind: "tool_executions",
-              current: toolExecCount,
-              limit: latestLimits.maxToolExecutions,
-              message: `Approaching tool execution limit (${toolExecCount}/${latestLimits.maxToolExecutions})`,
-            });
-          }
-
-          const repeatState = repeatToolCallState(latestEvents, event.name, event.input);
-          if (repeatState === "warn" || repeatState === "pause") {
-            writeLimitWarning({
-              eventWriter: this.deps.eventWriter,
-              run: latestRun,
-              kind: "repeat_tool_call",
-              current: 0,
-              limit: 0,
-              message: `Repeated tool call: ${event.name}`,
-            });
-          }
-          if (repeatState === "pause") {
-            loop.emitMessageCompleted(messageId, content);
-            return pauseForLimitContinuation({
-              store: this.deps.store,
-              eventWriter: this.deps.eventWriter,
-              run: latestRun,
-              kind: "repeat_tool_call",
-              current: 0,
-              limit: 0,
-              message: `Repeated tool call paused: ${event.name}`,
-            });
-          }
-
           sawToolCall = true;
-          const call = await loop.executeToolCall({
-            id: event.id,
-            name: event.name,
-            input: event.input,
-            inputStreamId: event.inputStreamId,
-          });
-          if (call.result) nextToolResults.push({ ...call.result, input: event.input });
-          if (call.approvalRequired) {
-            loop.emitMessageCompleted(messageId, content);
-            return this.deps.store.getRun(run.id)!;
-          }
-          if (call.inputRequired) {
-            loop.emitMessageCompleted(messageId, content);
-            return this.deps.store.getRun(run.id)!;
-          }
+          pendingToolCalls.push(event);
         } else if (event.type === "failed") {
           flushToolInputDelta();
           loop.emitMessageCompleted(messageId, content);
@@ -284,6 +219,85 @@ export class ModelTurnLoop {
         }
       }
       flushToolInputDelta();
+
+      for (const event of pendingToolCalls) {
+        const cancelled = this.observeCancellation(run.id, options.signal);
+        if (cancelled) return cancelled;
+
+        const latestRun = this.deps.store.getRun(run.id) ?? currentRun;
+        const latestEvents = this.deps.store.listEvents(run.id);
+        const latestLimits = resolveRunLimits(latestRun, latestEvents);
+        const toolExecCount = countToolExecutions(latestEvents);
+        if (toolExecCount >= latestLimits.maxToolExecutions) {
+          loop.emitMessageCompleted(messageId, content);
+          return pauseForLimitContinuation({
+            store: this.deps.store,
+            eventWriter: this.deps.eventWriter,
+            run: latestRun,
+            kind: "tool_executions",
+            current: toolExecCount,
+            limit: latestLimits.maxToolExecutions,
+            message: `Tool execution limit reached (${toolExecCount}/${latestLimits.maxToolExecutions})`,
+          });
+        }
+        if (shouldWarnAtLimit("tool_executions", toolExecCount, latestLimits.maxToolExecutions, latestEvents)) {
+          writeLimitWarning({
+            eventWriter: this.deps.eventWriter,
+            run: latestRun,
+            kind: "tool_executions",
+            current: toolExecCount,
+            limit: latestLimits.maxToolExecutions,
+            message: `Approaching tool execution limit (${toolExecCount}/${latestLimits.maxToolExecutions})`,
+          });
+        }
+
+        const repeatState = repeatToolCallState(latestEvents, event.name, event.input);
+        if (repeatState === "warn" || repeatState === "pause") {
+          writeLimitWarning({
+            eventWriter: this.deps.eventWriter,
+            run: latestRun,
+            kind: "repeat_tool_call",
+            current: 0,
+            limit: 0,
+            message: `Repeated tool call: ${event.name}`,
+          });
+        }
+        if (repeatState === "pause") {
+          loop.emitMessageCompleted(messageId, content);
+          return pauseForLimitContinuation({
+            store: this.deps.store,
+            eventWriter: this.deps.eventWriter,
+            run: latestRun,
+            kind: "repeat_tool_call",
+            current: 0,
+            limit: 0,
+            message: `Repeated tool call paused: ${event.name}`,
+          });
+        }
+
+        const call = await loop.executeToolCall({
+          id: event.id,
+          name: event.name,
+          input: event.input,
+          inputStreamId: event.inputStreamId,
+          reasoningContent: turnReasoningContent,
+        });
+        if (call.result) {
+          nextToolResults.push({
+            ...call.result,
+            input: event.input,
+            reasoning_content: turnReasoningContent,
+          });
+        }
+        if (call.approvalRequired) {
+          loop.emitMessageCompleted(messageId, content);
+          return this.deps.store.getRun(run.id)!;
+        }
+        if (call.inputRequired) {
+          loop.emitMessageCompleted(messageId, content);
+          return this.deps.store.getRun(run.id)!;
+        }
+      }
 
       if (!sawToolCall) {
         const cancelled = this.observeCancellation(run.id, options.signal);
@@ -411,6 +425,7 @@ function modelTools(
 const TOOL_INPUT_DELTA_FLUSH_CHARS = 1024;
 
 type ToolInputDeltaEvent = Extract<ModelTurnEvent, { type: "tool_input_delta" }>;
+type ToolCallEvent = Extract<ModelTurnEvent, { type: "tool_call" }>;
 
 interface PendingToolInputDelta {
   inputStreamId: string;

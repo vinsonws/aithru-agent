@@ -60,6 +60,7 @@ describe("ModelTurnLoop", () => {
       capabilityRouter,
       modelAdapter: new TestModelAdapter([
         [
+          { type: "reasoning_delta", delta: "Thread reasoning." },
           { type: "text_delta", delta: "Thread answer." },
           { type: "completed" },
         ],
@@ -78,6 +79,7 @@ describe("ModelTurnLoop", () => {
     const completedPayload = messageCompleted.payload as Record<string, unknown>;
 
     expect(assistantMessage).toBeDefined();
+    expect(assistantMessage).not.toHaveProperty("reasoning_content");
     expect(completedPayload.message_id).toBe(createdPayload.message_id);
     expect(completedPayload.thread_message_id).toBe(assistantMessage!.id);
     expect(assistantMessage!.id).not.toBe(createdPayload.message_id);
@@ -225,6 +227,73 @@ describe("ModelTurnLoop", () => {
     expect(eventTypes).toContain("tool.proposed");
     expect(eventTypes).toContain("tool.completed");
     expect(eventTypes).toContain("run.completed");
+  });
+
+  it("passes tool-call reasoning content into the next model turn", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = createRun();
+    store.createRun(run);
+
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          { type: "reasoning_delta", delta: "Need to inspect files." },
+          {
+            type: "tool_call",
+            id: "tc_list",
+            name: "workspace.list_files",
+            input: {},
+          },
+          { type: "completed" },
+        ],
+        (input) => {
+          expect((input.toolResults[0] as any).reasoning_content).toBe("Need to inspect files.");
+          return [{ type: "text_delta", delta: "Done" }, { type: "completed" }];
+        },
+      ]),
+    });
+
+    await loop.execute(run);
+  });
+
+  it("passes complete interleaved tool-call reasoning into the next model turn", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = createRun();
+    store.createRun(run);
+
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          { type: "reasoning_delta", delta: "Need files. " },
+          {
+            type: "tool_call",
+            id: "tc_list",
+            name: "workspace.list_files",
+            input: {},
+          },
+          { type: "reasoning_delta", delta: "Then inspect the result." },
+          { type: "completed" },
+        ],
+        (input) => {
+          expect((input.toolResults[0] as any).reasoning_content).toBe(
+            "Need files. Then inspect the result.",
+          );
+          return [{ type: "text_delta", delta: "Done" }, { type: "completed" }];
+        },
+      ]),
+    });
+
+    await loop.execute(run);
   });
 
   it("replays all completed tool results on later model turns", async () => {

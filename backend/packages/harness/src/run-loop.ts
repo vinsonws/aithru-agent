@@ -19,6 +19,7 @@ export interface ToolCallStep {
   name: string;
   input: Record<string, unknown>;
   inputStreamId?: string;
+  reasoningContent?: string;
   requireApproval?: boolean;
   autoApprove?: boolean;
 }
@@ -148,6 +149,7 @@ export class RunLoop {
       tool_name: step.name,
       input: step.input,
       status: "proposed",
+      reasoning_content: step.reasoningContent,
       created_at: nowIso(),
       updated_at: nowIso(),
     });

@@ -19,6 +19,7 @@ export interface ToolCallRecord {
   input: Record<string, unknown>;
   status: ToolCallRecordStatus;
   approval_id?: string | null;
+  reasoning_content?: string;
   output?: unknown;
   error?: AgentModelToolResult["error"] | null;
   created_at: string;
@@ -83,6 +84,7 @@ export function toolResultFromRecord(record: ToolCallRecord): AgentModelToolResu
       name: record.tool_name,
       input: record.input,
       output: record.output ?? null,
+      ...(typeof record.reasoning_content === "string" ? { reasoning_content: record.reasoning_content } : {}),
     };
   }
   if (record.status === "failed" || record.status === "denied") {
@@ -91,6 +93,7 @@ export function toolResultFromRecord(record: ToolCallRecord): AgentModelToolResu
       name: record.tool_name,
       input: record.input,
       output: null,
+      ...(typeof record.reasoning_content === "string" ? { reasoning_content: record.reasoning_content } : {}),
       error: record.error ?? {
         code: record.status === "denied" ? "TOOL_DENIED" : "TOOL_FAILED",
         message: record.status === "denied" ? "Tool call denied by user approval decision" : "Tool call failed",

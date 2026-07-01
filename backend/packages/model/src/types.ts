@@ -5,6 +5,7 @@ export interface AgentModelToolResult {
   name: string;
   input?: Record<string, unknown>;
   output: unknown;
+  reasoning_content?: string;
   error?: {
     code: string;
     message: string;

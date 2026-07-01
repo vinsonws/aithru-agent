@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -33,7 +33,7 @@ describe("SandboxExecutor", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe(absoluteCwd);
+    expect(result.stdout.trim()).toBe(realpathSync(absoluteCwd));
     expect(result.stderr).toBe("");
     expect(result.timedOut).toBe(false);
     expect(result.truncated).toBe(false);
