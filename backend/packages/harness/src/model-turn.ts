@@ -39,7 +39,7 @@ export class ModelTurnLoop {
     loop.emitMessageCreated(messageId, "");
     let content = "";
     let toolResults: AgentModelToolResult[] = options.toolResults ?? [];
-    const maxTurns = this.deps.maxTurns ?? 8;
+    const maxTurns = this.deps.maxTurns ?? DEFAULT_MAX_MODEL_TURNS;
 
     for (let turn = 0; turn < maxTurns; turn += 1) {
       const currentRun = this.deps.store.getRun(run.id) ?? run;
@@ -245,6 +245,8 @@ function modelTools(
 }
 
 const TOOL_INPUT_DELTA_FLUSH_CHARS = 1024;
+// ponytail: fixed ceiling; make this policy-driven only when real runs outgrow it.
+const DEFAULT_MAX_MODEL_TURNS = 16;
 
 type ToolInputDeltaEvent = Extract<ModelTurnEvent, { type: "tool_input_delta" }>;
 

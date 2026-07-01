@@ -227,6 +227,39 @@ describe("ModelTurnLoop", () => {
     expect(eventTypes).toContain("run.completed");
   });
 
+  it("allows multi-step skill runs beyond eight model turns by default", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = createRun();
+    store.createRun(run);
+
+    const toolTurns = Array.from({ length: 12 }, (_, index) => [
+      {
+        type: "tool_call" as const,
+        id: `model_tc_${index}`,
+        name: "workspace.list_files",
+        input: {},
+      },
+      { type: "completed" as const },
+    ]);
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        ...toolTurns,
+        [{ type: "text_delta", delta: "done" }, { type: "completed" }],
+      ]),
+    });
+
+    const completed = await loop.execute(run);
+
+    expect(completed.status).toBe("completed");
+    expect(store.listEvents(run.id).filter((event) => event.type === "context.packet.built")).toHaveLength(13);
+    expect(store.listEvents(run.id).filter((event) => event.type === "tool.completed")).toHaveLength(12);
+  });
+
   it("forwards streamed tool input without executing or approving a tool", async () => {
     const store = new InMemoryStore();
     const eventWriter = new AgentEventWriter(store);
