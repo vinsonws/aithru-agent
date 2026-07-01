@@ -3,11 +3,13 @@ import type { AgentToolDescriptor } from "@aithru-agent/capabilities";
 import type { CapabilityRouter } from "@aithru-agent/capabilities";
 import { activeSkillKeysFromEvents } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
+import { TERMINAL_RUN_STATUSES } from "@aithru-agent/contracts";
 import type { AgentModelAdapter, AgentModelToolResult, ModelTurnEvent } from "@aithru-agent/model";
 import type { AgentStore } from "@aithru-agent/persistence";
 import type { SkillResolver } from "@aithru-agent/skills";
 import { EVENT_TYPES, VISIBILITY, AgentEventWriter } from "@aithru-agent/stream";
 import { buildModelContextPacket, isPlanModeRun } from "./context-packet.js";
+import { createDefaultRetryPolicy, delaySecondsForAttempt } from "./retry.js";
 import {
   resolveRunLimits,
   countModelRequests,
@@ -19,6 +21,7 @@ import {
 } from "./run-limits.js";
 import { RunLoop } from "./run-loop.js";
 import { runTerminalProcessors } from "./terminal-processors.js";
+import { getToolCallRecord, toolResultFromRecord } from "./tool-call-records.js";
 
 export class ModelTurnLoop {
   constructor(
@@ -33,7 +36,7 @@ export class ModelTurnLoop {
 
   async execute(
     run: AgentRun,
-    options: { toolResults?: AgentModelToolResult[] } = {},
+    options: { toolResults?: AgentModelToolResult[]; signal?: AbortSignal } = {},
   ): Promise<AgentRun> {
     const loop = new RunLoop({
       run,
@@ -49,6 +52,8 @@ export class ModelTurnLoop {
     let toolResults: AgentModelToolResult[] = options.toolResults ?? [];
 
     for (let turn = 0; ; turn += 1) {
+      const cancelled = this.observeCancellation(run.id, options.signal);
+      if (cancelled) return cancelled;
       const currentRun = this.deps.store.getRun(run.id) ?? run;
       const runEvents = this.deps.store.listEvents(run.id);
 
@@ -113,13 +118,14 @@ export class ModelTurnLoop {
       const planMode = isPlanModeRun(currentRun);
       const tools = (await this.deps.capabilityRouter.listTools({ run: currentRun }))
         .filter((tool) => planMode || !tool.name.startsWith("todo."));
-      const events = this.deps.modelAdapter.createTurn({
+      const events = this.createTurnWithRetry({
         run: currentRun,
         messages: contextPacket.messages,
         context: contextPacket.stats,
         tools: modelTools(tools),
-        toolResults,
+        toolResults: mergeToolResults(toolResultsFromRunEvents(this.deps.store, run.id, runEvents), toolResults),
         turnIndex: modelRequestCount,
+        signal: options.signal,
       });
 
       const nextToolResults: AgentModelToolResult[] = [];
@@ -167,6 +173,8 @@ export class ModelTurnLoop {
       };
 
       for await (const event of events) {
+        const cancelled = this.observeCancellation(run.id, options.signal);
+        if (cancelled) return cancelled;
         if (event.type === "text_delta") {
           flushToolInputDelta();
           content += event.delta;
@@ -198,6 +206,8 @@ export class ModelTurnLoop {
           );
         } else if (event.type === "tool_call") {
           flushToolInputDelta();
+          const cancelled = this.observeCancellation(run.id, options.signal);
+          if (cancelled) return cancelled;
 
           const latestRun = this.deps.store.getRun(run.id) ?? currentRun;
           const latestEvents = this.deps.store.listEvents(run.id);
@@ -276,6 +286,8 @@ export class ModelTurnLoop {
       flushToolInputDelta();
 
       if (!sawToolCall) {
+        const cancelled = this.observeCancellation(run.id, options.signal);
+        if (cancelled) return cancelled;
         let threadMessageId: string | null = null;
         if (currentRun.thread_id && content) {
           threadMessageId = `msg_${nanoid(12)}`;
@@ -311,6 +323,78 @@ export class ModelTurnLoop {
     }
 
   }
+
+  private async *createTurnWithRetry(input: Parameters<AgentModelAdapter["createTurn"]>[0]): AsyncIterable<ModelTurnEvent> {
+    const policy = (input.run as any).retry_policy ?? createDefaultRetryPolicy();
+    const maxAttempts = Math.max(1, Number(policy.max_attempts ?? 1));
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      let emitted = false;
+      for await (const event of this.deps.modelAdapter.createTurn(input)) {
+        if (input.signal?.aborted) return;
+        const retry =
+          event.type === "failed" &&
+          event.error.retryable === true &&
+          !emitted &&
+          attempt < maxAttempts;
+        if (retry) {
+          const delaySeconds = delaySecondsForAttempt(policy, attempt);
+          const nextRetryAt = new Date(Date.now() + delaySeconds * 1000)
+            .toISOString()
+            .replace(/\.\d{3}/, "");
+          this.deps.store.updateRun(input.run.id, {
+            retry_state: {
+              attempt,
+              next_retry_at: nextRetryAt,
+              last_error: {
+                code: event.error.code,
+                message: event.error.message,
+              },
+            },
+          } as Partial<AgentRun>);
+          this.deps.eventWriter.write(
+            input.run.id,
+            input.run.thread_id ?? null,
+            "model.retry",
+            {
+              attempt,
+              next_attempt: attempt + 1,
+              max_attempts: maxAttempts,
+              delay_seconds: delaySeconds,
+              error: event.error,
+            },
+            { visibility: VISIBILITY.AUDIT, source: { kind: "model" } },
+          );
+          await waitForRetry(delaySeconds, input.signal);
+          if (input.signal?.aborted) return;
+          break;
+        }
+
+        emitted = true;
+        yield event;
+      }
+      if (!emitted) continue;
+      return;
+    }
+  }
+
+  private observeCancellation(runId: string, signal?: AbortSignal): AgentRun | null {
+    const latest = this.deps.store.getRun(runId);
+    if (!latest) return null;
+    if (latest.status === "cancelled") return latest;
+    if (!signal?.aborted || TERMINAL_RUN_STATUSES.has(latest.status as any)) return null;
+    const cancelled = this.deps.store.updateRun(runId, {
+      status: "cancelled",
+      completed_at: new Date().toISOString().replace(/\.\d{3}/, ""),
+    });
+    this.deps.eventWriter.write(
+      runId,
+      cancelled.thread_id ?? null,
+      EVENT_TYPES.RUN_CANCELLED,
+      { run_id: runId },
+    );
+    return cancelled;
+  }
 }
 
 function modelTools(
@@ -343,4 +427,50 @@ function sameToolInputDeltaTarget(
     && (pending.toolCallId ?? null) === (event.toolCallId ?? null)
     && (pending.index ?? null) === (event.index ?? null)
     && (pending.name ?? null) === (event.name ?? null);
+}
+
+function toolResultsFromRunEvents(
+  store: AgentStore,
+  runId: string,
+  events: Array<{ type: string; payload: unknown }>,
+): AgentModelToolResult[] {
+  const results: AgentModelToolResult[] = [];
+  for (const event of events) {
+    if (
+      event.type !== EVENT_TYPES.TOOL_COMPLETED &&
+      event.type !== EVENT_TYPES.TOOL_FAILED &&
+      event.type !== EVENT_TYPES.TOOL_DENIED
+    ) {
+      continue;
+    }
+    const payload = isRecord(event.payload) ? event.payload : {};
+    const id = typeof payload.tool_call_id === "string" ? payload.tool_call_id : null;
+    if (!id) continue;
+    const record = getToolCallRecord(store, id);
+    if (!record || record.run_id !== runId) continue;
+    const result = toolResultFromRecord(record);
+    if (result) results.push(result);
+  }
+  return results;
+}
+
+function mergeToolResults(...lists: AgentModelToolResult[][]): AgentModelToolResult[] {
+  const byId = new Map<string, AgentModelToolResult>();
+  for (const result of lists.flat()) byId.set(result.id, result);
+  return [...byId.values()];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function waitForRetry(seconds: number, signal?: AbortSignal): Promise<void> {
+  if (seconds <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timeout = setTimeout(resolve, seconds * 1000);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timeout);
+      resolve();
+    }, { once: true });
+  });
 }

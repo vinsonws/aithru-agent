@@ -25,6 +25,7 @@ export interface AgentRuntime {
     run: AgentRun | string,
     options?: ScheduleRunExecutionOptions,
   ) => Promise<AgentRun | undefined>;
+  cancelRun: (runId: string) => AgentRun | undefined;
   resolveApproval: (approvalId: string, decision: "approved" | "denied") => Promise<AgentApproval>;
 }
 
@@ -146,7 +147,7 @@ function createRunScheduler(deps: {
   capabilityRouter: ProductionCapabilityRouter;
   skillResolver: SkillResolver;
 }) {
-  const activeRuns = new Map<string, Promise<AgentRun | undefined>>();
+  const activeRuns = new Map<string, { promise: Promise<AgentRun | undefined>; abortController: AbortController }>();
 
   const failRun = (run: AgentRun, err: unknown): AgentRun | undefined => {
     const current = deps.store.getRun(run.id);
@@ -166,6 +167,7 @@ function createRunScheduler(deps: {
   const execute = async (
     runId: string,
     toolResults: AgentModelToolResult[] = [],
+    signal?: AbortSignal,
   ): Promise<AgentRun | undefined> => {
     const run = deps.store.getRun(runId);
     if (!run) return undefined;
@@ -180,25 +182,44 @@ function createRunScheduler(deps: {
         modelAdapter: adapterForRun(deps.store, run),
         skillResolver: deps.skillResolver,
       });
-      return await loop.execute(run, { toolResults });
+      return await loop.execute(run, { toolResults, signal });
     } catch (err) {
       return failRun(run, err);
     }
   };
 
-  return (runOrId: AgentRun | string, options: ScheduleRunExecutionOptions = {}) => {
+  const schedule = (runOrId: AgentRun | string, options: ScheduleRunExecutionOptions = {}) => {
     const runId = typeof runOrId === "string" ? runOrId : runOrId.id;
     const run = typeof runOrId === "string" ? deps.store.getRun(runOrId) : runOrId;
     if (!run || !modelProfileKey(run)) return Promise.resolve(run);
     if (run.status !== "queued") return Promise.resolve(run);
 
     const existing = activeRuns.get(runId);
-    if (existing) return options.wait ? existing : Promise.resolve(deps.store.getRun(runId));
+    if (existing) return options.wait ? existing.promise : Promise.resolve(deps.store.getRun(runId));
 
-    const task = execute(runId, options.toolResults ?? []).finally(() => activeRuns.delete(runId));
-    activeRuns.set(runId, task);
+    const abortController = new AbortController();
+    const task = execute(runId, options.toolResults ?? [], abortController.signal).finally(() => activeRuns.delete(runId));
+    activeRuns.set(runId, { promise: task, abortController });
     return options.wait ? task : Promise.resolve(deps.store.getRun(runId));
   };
+
+  const cancel = (runId: string): AgentRun | undefined => {
+    const run = deps.store.getRun(runId);
+    if (!run) return undefined;
+    activeRuns.get(runId)?.abortController.abort();
+    if (TERMINAL_RUN_STATUSES.has(run.status as any)) return run;
+    const cancelled = deps.store.updateRun(runId, {
+      status: "cancelled",
+      current_approval_id: null,
+      completed_at: new Date().toISOString().replace(/\.\d{3}/, ""),
+    });
+    if (!deps.store.listEvents(runId).some((event) => event.type === EVENT_TYPES.RUN_CANCELLED)) {
+      deps.eventWriter.write(runId, run.thread_id ?? null, EVENT_TYPES.RUN_CANCELLED, { run_id: runId });
+    }
+    return cancelled;
+  };
+
+  return { schedule, cancel };
 }
 
 export async function createRuntime(dbPath?: string): Promise<AgentRuntime> {
@@ -225,7 +246,7 @@ export async function createRuntime(dbPath?: string): Promise<AgentRuntime> {
     eventWriter,
     capabilityRouter,
   });
-  const scheduleRunExecution = createRunScheduler({
+  const runScheduler = createRunScheduler({
     store,
     eventWriter,
     capabilityRouter,
@@ -235,7 +256,7 @@ export async function createRuntime(dbPath?: string): Promise<AgentRuntime> {
     store,
     eventWriter,
     capabilityRouter,
-    scheduleRunExecution,
+    scheduleRunExecution: runScheduler.schedule,
   });
 
   _runtime = {
@@ -245,7 +266,8 @@ export async function createRuntime(dbPath?: string): Promise<AgentRuntime> {
     harness,
     worker,
     skillResolver,
-    scheduleRunExecution,
+    scheduleRunExecution: runScheduler.schedule,
+    cancelRun: runScheduler.cancel,
     resolveApproval,
   };
   return _runtime;

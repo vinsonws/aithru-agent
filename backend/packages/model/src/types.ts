@@ -26,6 +26,7 @@ export interface AgentModelTurnInput {
   tools: AgentModelTool[];
   toolResults: AgentModelToolResult[];
   turnIndex?: number;
+  signal?: AbortSignal;
 }
 
 export type ModelTurnEvent =

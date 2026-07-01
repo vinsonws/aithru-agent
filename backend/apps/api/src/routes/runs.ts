@@ -198,28 +198,18 @@ export function registerRunRoutes(app: FastifyInstance): void {
     },
   );
 
-  // POST /api/runs/:run_id/cancel (stub for P0)
+  // POST /api/runs/:run_id/cancel
   app.post(
     "/api/runs/:run_id/cancel",
     async (request, reply) => {
       const { run_id } = request.params as any;
       const runtime = getRuntime();
-      const run = runtime.store.getRun(run_id);
-      if (!run) {
+      const cancelled = runtime.cancelRun(run_id);
+      if (!cancelled) {
         reply.code(404);
         return { error: "Run not found" };
       }
-      runtime.store.updateRun(run_id, {
-        status: "cancelled",
-        completed_at: now(),
-      });
-      runtime.eventWriter.write(
-        run_id,
-        run.thread_id ?? null,
-        EVENT_TYPES.RUN_CANCELLED,
-        { run_id },
-      );
-      return runtime.store.getRun(run_id);
+      return cancelled;
     },
   );
 

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
 import type { AgentMessage, AgentRun } from "@aithru-agent/contracts";
-import { emitSkillActivated, ensureToolCallRecordForApproval } from "@aithru-agent/harness";
+import { emitSkillActivated, ensureToolCallRecordForApproval, getToolCallRecord } from "@aithru-agent/harness";
 import { EVENT_TYPES } from "@aithru-agent/stream";
 import { projectTraceSpans } from "@aithru-agent/trace";
 import { projectCapabilityAudit } from "@aithru-agent/capabilities";
@@ -139,19 +139,7 @@ async function createRun(body: any, threadId?: string): Promise<AgentRun> {
 
 function cancelRun(runId: string, reply: FastifyReply) {
   const runtime = getRuntime();
-  const run = runtime.store.getRun(runId);
-  if (!run) return notFound(reply, "Run not found");
-  const updated = runtime.store.updateRun(runId, {
-    status: "cancelled",
-    completed_at: now(),
-  });
-  runtime.eventWriter.write(
-    runId,
-    run.thread_id ?? null,
-    EVENT_TYPES.RUN_CANCELLED,
-    { run_id: runId },
-  );
-  return updated;
+  return runtime.cancelRun(runId) ?? notFound(reply, "Run not found");
 }
 
 async function submitRunInput(
@@ -171,11 +159,64 @@ async function submitRunInput(
     return { error: "Run has no thread" };
   }
 
-  const body = (request.body ?? {}) as { content?: unknown };
-  const content = typeof body.content === "string" ? body.content.trim() : "";
+  const body = (request.body ?? {}) as {
+    content?: unknown;
+    response?: unknown;
+    input_request_id?: unknown;
+  };
+  const content =
+    typeof body.response === "string"
+      ? body.response.trim()
+      : typeof body.content === "string"
+        ? body.content.trim()
+        : "";
   if (!content) {
     reply.code(400);
-    return { error: "content is required" };
+    return { error: "response is required" };
+  }
+  const providedInputRequestId =
+    typeof body.input_request_id === "string" && body.input_request_id.trim()
+      ? body.input_request_id.trim()
+      : null;
+
+  let inputRequestId: string | null = null;
+  let toolCallId: string | null = null;
+  let toolRecord: ReturnType<typeof getToolCallRecord> | null = null;
+  if (run.status === "waiting_input") {
+    const events = runtime.store.listEvents(run.id);
+    const inputRequest = [...events]
+      .reverse()
+      .find((event) => event.type === EVENT_TYPES.INPUT_REQUESTED);
+    inputRequestId =
+      inputRequest && typeof (inputRequest.payload as any)?.input_request_id === "string"
+        ? (inputRequest.payload as any).input_request_id
+        : null;
+    toolCallId =
+      inputRequest && typeof (inputRequest.payload as any)?.tool_call_id === "string"
+        ? (inputRequest.payload as any).tool_call_id
+        : null;
+    if (providedInputRequestId && providedInputRequestId !== inputRequestId) {
+      reply.code(400);
+      return { error: "input_request_id does not match the active request" };
+    }
+    if (
+      inputRequestId &&
+      events.some((event) =>
+        event.type === EVENT_TYPES.INPUT_RECEIVED &&
+        (event.payload as any)?.input_request_id === inputRequestId,
+      )
+    ) {
+      reply.code(400);
+      return { error: "input_request_id was already submitted" };
+    }
+    toolRecord = toolCallId ? getToolCallRecord(runtime.store, toolCallId) : null;
+    if (providedInputRequestId && !toolRecord) {
+      reply.code(400);
+      return { error: "input_request_id has no matching tool call" };
+    }
+  } else if (providedInputRequestId) {
+    reply.code(400);
+    return { error: "input_request_id is not active" };
   }
 
   const message: AgentMessage = {
@@ -206,13 +247,6 @@ async function submitRunInput(
 
   if (run.status !== "waiting_input") return run;
 
-  const inputRequest = [...runtime.store.listEvents(run.id)]
-    .reverse()
-    .find((event) => event.type === EVENT_TYPES.INPUT_REQUESTED);
-  const inputRequestId =
-    inputRequest && typeof (inputRequest.payload as any)?.input_request_id === "string"
-      ? (inputRequest.payload as any).input_request_id
-      : null;
   runtime.eventWriter.write(
     run.id,
     run.thread_id,
@@ -221,6 +255,8 @@ async function submitRunInput(
       input_request_id: inputRequestId,
       message_id: message.id,
       content,
+      response: content,
+      tool_call_id: toolCallId,
     },
     { source: { kind: "user", id: run.actor_user_id } },
   );
@@ -231,7 +267,16 @@ async function submitRunInput(
     EVENT_TYPES.RUN_RESUMED,
     { status: "queued", resume_reason: "input_received" },
   );
-  void runtime.scheduleRunExecution(updated);
+  void runtime.scheduleRunExecution(updated, {
+    toolResults: toolRecord
+      ? [{
+          id: toolRecord.id,
+          name: toolRecord.tool_name,
+          input: toolRecord.input,
+          output: { input_request_id: inputRequestId, response: content },
+        }]
+      : [],
+  });
   return updated;
 }
 

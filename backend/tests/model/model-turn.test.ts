@@ -227,6 +227,114 @@ describe("ModelTurnLoop", () => {
     expect(eventTypes).toContain("run.completed");
   });
 
+  it("replays all completed tool results on later model turns", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = createRun();
+    store.createRun(run);
+
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          { type: "tool_call", id: "tc_1", name: "todo.create", input: { title: "One" } },
+          { type: "completed" },
+        ],
+        (input) => {
+          expect(input.toolResults.map((result) => result.id)).toEqual(["tc_1"]);
+          return [
+            { type: "tool_call", id: "tc_2", name: "todo.create", input: { title: "Two" } },
+            { type: "completed" },
+          ];
+        },
+        (input) => {
+          expect(input.toolResults.map((result) => result.id)).toEqual(["tc_1", "tc_2"]);
+          return [{ type: "text_delta", delta: "done" }, { type: "completed" }];
+        },
+      ]),
+    });
+
+    const completed = await loop.execute(run);
+
+    expect(completed.status).toBe("completed");
+  });
+
+  it("retries retryable model failures before failing the run", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = {
+      ...createRun(),
+      id: "run_model_retry",
+      retry_policy: {
+        max_attempts: 2,
+        initial_delay_seconds: 0,
+        max_delay_seconds: 0,
+        backoff_multiplier: 1,
+      },
+    } as AgentRun;
+    store.createRun(run);
+
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [{ type: "failed", error: { code: "rate_limit_exceeded", message: "slow down", retryable: true } }],
+        [{ type: "text_delta", delta: "recovered" }, { type: "completed" }],
+      ]),
+    });
+
+    const completed = await loop.execute(run);
+    const events = store.listEvents(run.id);
+
+    expect(completed.status).toBe("completed");
+    expect(events.some((event) => event.type === "model.retry")).toBe(true);
+    expect(events.some((event) => event.type === EVENT_TYPES.RUN_FAILED)).toBe(false);
+  });
+
+  it("does not complete a run after cancellation is observed", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = { ...createRun(), id: "run_cancel_observed" };
+    store.createRun(run);
+    const controller = new AbortController();
+    let release!: () => void;
+
+    const loop = new ModelTurnLoop({
+      store,
+      eventWriter,
+      capabilityRouter,
+      modelAdapter: {
+        async *createTurn() {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          yield { type: "text_delta", delta: "too late" };
+          yield { type: "completed" };
+        },
+      },
+    });
+
+    const executing = loop.execute(run, { signal: controller.signal } as any);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    store.updateRun(run.id, { status: "cancelled", completed_at: "2026-01-01T00:00:01Z" });
+    eventWriter.write(run.id, null, EVENT_TYPES.RUN_CANCELLED, { run_id: run.id });
+    release();
+
+    const cancelled = await executing;
+    const events = store.listEvents(run.id);
+
+    expect(cancelled.status).toBe("cancelled");
+    expect(events.some((event) => event.type === EVENT_TYPES.RUN_COMPLETED)).toBe(false);
+    expect(events.some((event) => event.type === EVENT_TYPES.MESSAGE_DELTA)).toBe(false);
+  });
+
   it("allows multi-step skill runs beyond eight model turns by default", async () => {
     const store = new InMemoryStore();
     const eventWriter = new AgentEventWriter(store);

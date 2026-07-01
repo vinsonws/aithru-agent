@@ -462,15 +462,34 @@ function parseToolInput(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
+function retryableErrorCode(code: string): boolean {
+  return [
+    "rate_limit_exceeded",
+    "rate_limit_error",
+    "server_error",
+    "overloaded_error",
+    "timeout",
+    "etimedout",
+    "econnreset",
+  ].includes(code.toLowerCase());
+}
+
+function isRetryableModelError(error: unknown): boolean {
+  const err = error as any;
+  const status = Number(err?.status ?? err?.statusCode);
+  if (Number.isFinite(status) && (status === 429 || status >= 500)) return true;
+  const code = String(err?.code ?? err?.type ?? err?.name ?? "");
+  return retryableErrorCode(code);
+}
+
 function errorEvent(error: unknown): ModelTurnEvent {
   const err = error as any;
-  const status = Number(err?.status ?? err?.code);
   return {
     type: "failed",
     error: {
       code: String(err?.code ?? err?.name ?? "MODEL_REQUEST_FAILED"),
       message: String(err?.message ?? "Model request failed"),
-      retryable: Number.isFinite(status) ? status >= 500 : false,
+      retryable: isRetryableModelError(error),
     },
   };
 }
@@ -532,6 +551,7 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
   ): AsyncIterable<ModelTurnEvent> {
     const stream = await client.chat.completions.create(
       buildOpenAIChatCompletionRequest(this.options, input) as any,
+      input.signal ? { signal: input.signal } as any : undefined,
     );
     let content = "";
     const toolCalls = new Map<
@@ -610,6 +630,7 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
   ): AsyncIterable<ModelTurnEvent> {
     const stream = await client.responses.create(
       buildOpenAIResponsesRequest(this.options, input) as any,
+      input.signal ? { signal: input.signal } as any : undefined,
     );
     let content = "";
     const toolCalls = new Map<
@@ -696,7 +717,7 @@ export class OpenAISdkModelAdapter implements AgentModelAdapter {
           error: {
             code: String(event.error?.code ?? "MODEL_REQUEST_FAILED"),
             message: String(event.error?.message ?? "Model request failed"),
-            retryable: false,
+            retryable: isRetryableModelError(event.error),
           },
         };
         return;
@@ -723,6 +744,7 @@ export class AnthropicSdkModelAdapter implements AgentModelAdapter {
     try {
       const stream = anthropicClient(this.options).messages.stream(
         buildAnthropicMessagesRequest(this.options, input) as any,
+        input.signal ? { signal: input.signal } as any : undefined,
       );
       let content = "";
       for await (const event of stream as any) {

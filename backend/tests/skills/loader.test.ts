@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "@aithru-agent/persistence";
 import { SkillLoader, SkillRegistry, SkillResolver, findBuiltinSkillsRoot } from "@aithru-agent/skills";
 import { writeFileSync, mkdirSync, rmSync, readdirSync } from "fs";
-import { join } from "path";
+import { basename, join } from "path";
 import { tmpdir } from "os";
 
 function makeDir(): string {
@@ -40,7 +40,7 @@ describe("SkillLoader", () => {
 
       const pkg = loader.loadFromFile(skillPath);
       expect(pkg).not.toBeNull();
-      expect(pkg!.key).toBe(dir.split("/").pop()!);
+      expect(pkg!.key).toBe(basename(dir));
       expect(pkg!.name).toBe("My Skill");
       expect(pkg!.version).toBe("1.0");
       expect(pkg!.instructions).toBe("# Skill Body\n\nActual instructions.");

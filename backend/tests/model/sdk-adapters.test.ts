@@ -564,6 +564,78 @@ describe("SDK model adapters", () => {
     ]);
   });
 
+  it("replays recent tool results as native OpenAI Responses input", () => {
+    const request = buildOpenAIResponsesRequest(
+      { apiKey: "test", provider: "openai", model: "gpt-test" },
+      {
+        ...inputWithTools(),
+        toolResults: [
+          {
+            id: "call_1",
+            name: "todo.create",
+            input: { title: "Ship it" },
+            output: { id: "todo_1", title: "Ship it" },
+          },
+        ],
+      },
+    );
+
+    expect((request.input as unknown[]).slice(-2)).toEqual([
+      {
+        type: "function_call",
+        call_id: "call_1",
+        name: "todo_create",
+        arguments: JSON.stringify({ title: "Ship it" }),
+      },
+      {
+        type: "function_call_output",
+        call_id: "call_1",
+        output: JSON.stringify({ id: "todo_1", title: "Ship it" }),
+      },
+    ]);
+  });
+
+  it("replays recent tool results as native Anthropic transcript", () => {
+    const request = buildAnthropicMessagesRequest(
+      { apiKey: "test", provider: "anthropic", model: "claude-test" },
+      {
+        ...inputWithTools(),
+        toolResults: [
+          {
+            id: "toolu_1",
+            name: "todo.create",
+            input: { title: "Ship it" },
+            output: { id: "todo_1", title: "Ship it" },
+          },
+        ],
+      },
+    );
+
+    expect((request.messages as unknown[]).slice(-2)).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_1",
+            name: "todo_create",
+            input: { title: "Ship it" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: JSON.stringify({ id: "todo_1", title: "Ship it" }),
+          },
+        ],
+      },
+    ]);
+  });
+
   it("fails clearly instead of faking native tool transcript replay", () => {
     expect(() =>
       buildOpenAIChatCompletionRequest(

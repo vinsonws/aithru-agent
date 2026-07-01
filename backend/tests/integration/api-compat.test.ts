@@ -6,6 +6,8 @@ import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp, getRuntime, resetRuntimeForTests } from "@aithru-agent/api";
 import type { AgentRun } from "@aithru-agent/contracts";
+import { createToolCallRecord } from "@aithru-agent/harness";
+import { EVENT_TYPES } from "@aithru-agent/stream";
 import type { FastifyInstance } from "fastify";
 
 type OpenApiDocument = {
@@ -459,6 +461,122 @@ describe("legacy OpenAPI compatibility", () => {
     );
     runtime.store.updateThread("thread_input_resume", { updated_at: "2025-01-01T00:00:00Z" });
     runtime.store.updateRun("run_input_resume", { started_at: "2025-01-01T00:00:00Z" });
+  });
+
+  it("resumes waiting clarification runs with a native tool result", async () => {
+    const runtime = getRuntime();
+    runtime.store.createThread({
+      id: "thread_input_formal",
+      org_id: "org_input",
+      owner_user_id: "user_1",
+      title: "Input formal",
+      status: "active",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    runtime.store.createRun({
+      id: "run_input_formal",
+      org_id: "org_input",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: "thread_input_formal",
+      workspace_id: "ws_input_formal",
+      task_msg: "clarify",
+      scopes: ["agent.input.write"],
+      harness_options: null,
+      status: "waiting_input",
+      current_approval_id: null,
+      started_at: "2026-01-01T00:00:00Z",
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    });
+    createToolCallRecord(runtime.store, {
+      id: "clarify_tc_formal",
+      run_id: "run_input_formal",
+      tool_name: "ask_clarification",
+      input: { question: "Which file?" },
+      status: "completed",
+      output: { input_request_id: "clarify_run_input_formal_clarify_tc_formal" },
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    runtime.eventWriter.write("run_input_formal", "thread_input_formal", EVENT_TYPES.INPUT_REQUESTED, {
+      input_request_id: "clarify_run_input_formal_clarify_tc_formal",
+      tool_call_id: "clarify_tc_formal",
+      prompt: "Which file?",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs/run_input_formal/input",
+      payload: {
+        input_request_id: "clarify_run_input_formal_clarify_tc_formal",
+        response: "Use /a.md",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).status).toBe("queued");
+    const received = runtime.store
+      .listEvents("run_input_formal")
+      .find((event) => event.type === EVENT_TYPES.INPUT_RECEIVED);
+    expect(received?.payload).toMatchObject({
+      input_request_id: "clarify_run_input_formal_clarify_tc_formal",
+      content: "Use /a.md",
+      tool_call_id: "clarify_tc_formal",
+    });
+    runtime.store.updateThread("thread_input_formal", { updated_at: "2025-01-01T00:00:00Z" });
+    runtime.store.updateRun("run_input_formal", { started_at: "2025-01-01T00:00:00Z" });
+  });
+
+  it("rejects mismatched clarification input request ids", async () => {
+    const runtime = getRuntime();
+    runtime.store.createThread({
+      id: "thread_input_mismatch",
+      org_id: "org_input",
+      owner_user_id: "user_1",
+      title: "Input mismatch",
+      status: "active",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    runtime.store.createRun({
+      id: "run_input_mismatch",
+      org_id: "org_input",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: "thread_input_mismatch",
+      workspace_id: "ws_input_mismatch",
+      task_msg: "clarify",
+      scopes: ["agent.input.write"],
+      harness_options: null,
+      status: "waiting_input",
+      current_approval_id: null,
+      started_at: "2026-01-01T00:00:00Z",
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    });
+    runtime.eventWriter.write("run_input_mismatch", "thread_input_mismatch", EVENT_TYPES.INPUT_REQUESTED, {
+      input_request_id: "clarify_expected",
+      tool_call_id: "clarify_tc_mismatch",
+      prompt: "Which file?",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/runs/run_input_mismatch/input",
+      payload: { input_request_id: "clarify_wrong", response: "Use /a.md" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain("input_request_id");
+    expect(runtime.store.getRun("run_input_mismatch")?.status).toBe("waiting_input");
+    runtime.store.updateThread("thread_input_mismatch", { updated_at: "2025-01-01T00:00:00Z" });
+    runtime.store.updateRun("run_input_mismatch", { started_at: "2025-01-01T00:00:00Z" });
   });
 
   it("projects model usage events through the compatibility API", async () => {
