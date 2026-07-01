@@ -3,6 +3,8 @@ import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 import { ProductionCapabilityRouter, TestCapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
+import { ControlledWebProvider } from "@aithru-agent/external";
+import { LocalMemoryProvider } from "@aithru-agent/memory";
 import { SkillRegistry, SkillResolver } from "@aithru-agent/skills";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "node:path";
@@ -98,6 +100,9 @@ describe("ProductionCapabilityRouter", () => {
     expect(presentTool.description).toContain("final primary output");
     expect(presentTool.description).toContain("user decision");
     expect(presentTool.description).toContain("Do not present temporary");
+    expect(tools.some((t) => t.name === "memory.remember")).toBe(true);
+    expect(tools.some((t) => t.name === "web.fetch")).toBe(true);
+    expect(tools.some((t) => t.name === "sandbox.execute")).toBe(true);
   });
 
   it("denies unknown tools", async () => {
@@ -299,6 +304,190 @@ describe("ProductionCapabilityRouter", () => {
 
     expect(result.error).toBeTruthy();
     expect(result.error?.message).toContain("File not found");
+  });
+
+  it("executes memory tools scoped to the run thread", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter, undefined, {
+      memoryProvider: new LocalMemoryProvider(),
+    });
+    const threadRun: AgentRun = {
+      ...run,
+      id: "r_memory_thread",
+      thread_id: "thread_memory",
+      scopes: ["memory:write", "memory:read"],
+    };
+    const otherThreadRun: AgentRun = {
+      ...run,
+      id: "r_memory_other",
+      thread_id: "thread_other",
+      scopes: ["memory:read"],
+    };
+
+    await localRouter.executeToolCall(
+      { id: "tc_mem_write", name: "memory.remember", input: { key: "color", value: "blue" }, run_id: threadRun.id },
+      { run: threadRun },
+    );
+
+    const sameThread = await localRouter.executeToolCall(
+      { id: "tc_mem_read", name: "memory.recall", input: { key: "color" }, run_id: threadRun.id },
+      { run: threadRun },
+    );
+    const otherThread = await localRouter.executeToolCall(
+      { id: "tc_mem_other", name: "memory.recall", input: { key: "color" }, run_id: otherThreadRun.id },
+      { run: otherThreadRun },
+    );
+
+    expect(sameThread.output).toEqual({ key: "color", value: "blue", found: true });
+    expect(otherThread.output).toEqual({ key: "color", value: null, found: false });
+  });
+
+  it("executes controlled web fetch and truncates output", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter, undefined, {
+      webProvider: new ControlledWebProvider({
+        allowedHosts: ["example.com"],
+        fetcher: async (url) => ({
+          status: 200,
+          text: async () => `content from ${url}`,
+        }),
+      }),
+    });
+    const webRun: AgentRun = { ...run, id: "r_web", scopes: ["web:fetch"] };
+
+    const result = await localRouter.executeToolCall(
+      { id: "tc_web", name: "web.fetch", input: { url: "https://example.com/a", max_chars: 7 }, run_id: webRun.id },
+      { run: webRun },
+    );
+    const denied = await localRouter.executeToolCall(
+      { id: "tc_web_denied", name: "web.fetch", input: { url: "https://evil.test/a" }, run_id: webRun.id },
+      { run: webRun },
+    );
+
+    expect(result.error).toBeFalsy();
+    expect(result.output).toEqual({
+      url: "https://example.com/a",
+      status: 200,
+      content: "content",
+      truncated: true,
+    });
+    expect(denied.error?.message).toContain("WEB_HOST_DENIED");
+  });
+
+  it("executes sandbox code inside the run workspace", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter);
+    const sandboxRun: AgentRun = {
+      ...run,
+      id: "r_sandbox",
+      workspace_id: "ws_sandbox",
+      scopes: ["sandbox:execute"],
+    };
+    localStore.createRun(sandboxRun);
+
+    const result = await localRouter.executeToolCall(
+      {
+        id: "tc_sandbox",
+        name: "sandbox.execute",
+        input: {
+          runtime: "node",
+          code: [
+            "import { writeFileSync } from 'node:fs';",
+            "writeFileSync('sandbox.txt', 'ok');",
+            "console.log('done');",
+          ].join("\n"),
+          max_output_bytes: 32,
+        },
+        run_id: sandboxRun.id,
+      },
+      { run: sandboxRun },
+    );
+
+    expect(result.error).toBeFalsy();
+    expect(result.output).toMatchObject({
+      runtime: "node",
+      stdout: "done\n",
+      stderr: "",
+      exit_code: 0,
+      timed_out: false,
+      truncated: false,
+    });
+    expect(localStore.readFile(sandboxRun.workspace_id, "/sandbox.txt")?.content).toBe("ok");
+  });
+
+  it("redacts sensitive sandbox output before returning it", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter);
+    const sandboxRun: AgentRun = {
+      ...run,
+      id: "r_sandbox_redact",
+      workspace_id: "ws_sandbox_redact",
+      scopes: ["sandbox:execute"],
+    };
+    localStore.createRun(sandboxRun);
+
+    const result = await localRouter.executeToolCall(
+      {
+        id: "tc_sandbox_redact",
+        name: "sandbox.execute",
+        input: {
+          runtime: "node",
+          code: "console.log('token=abc123'); console.error('Bearer abc.def');",
+        },
+        run_id: sandboxRun.id,
+      },
+      { run: sandboxRun },
+    );
+
+    expect(result.error).toBeFalsy();
+    expect(result.output).toMatchObject({
+      stdout: "token=[redacted]\n",
+      stderr: "Bearer [redacted]\n",
+    });
+  });
+
+  it("auto-approves later sandbox calls only after the same run has an approved sandbox decision", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter);
+    const sandboxRun: AgentRun = {
+      ...run,
+      id: "r_sandbox_approval",
+      workspace_id: "ws_sandbox_approval",
+      scopes: ["sandbox:execute"],
+    };
+    const otherRun: AgentRun = {
+      ...run,
+      id: "r_sandbox_other_approval",
+      workspace_id: "ws_sandbox_other_approval",
+      scopes: ["sandbox:execute"],
+    };
+    localStore.createRun(sandboxRun);
+    localStore.createRun(otherRun);
+
+    const request = {
+      id: "tc_sandbox_approval",
+      name: "sandbox.execute",
+      input: { runtime: "node", code: "console.log('ok')" },
+      run_id: sandboxRun.id,
+    };
+    const first = await localRouter.prepareToolCall(request, { run: sandboxRun });
+    localWriter.write(sandboxRun.id, null, EVENT_TYPES.APPROVAL_RESOLVED, {
+      approval_id: "aprv_sandbox",
+      tool_call_id: request.id,
+      name: "sandbox.execute",
+      decision: "approved",
+    });
+    const second = await localRouter.prepareToolCall({ ...request, id: "tc_sandbox_second" }, { run: sandboxRun });
+    const other = await localRouter.prepareToolCall({ ...request, id: "tc_sandbox_other", run_id: otherRun.id }, { run: otherRun });
+
+    expect(first.requires_approval).toBe(true);
+    expect(second.requires_approval).toBe(false);
+    expect(other.requires_approval).toBe(true);
   });
 
   it("denies deleted artifact tools", async () => {

@@ -62,7 +62,7 @@ export class FileWorkspaceStore {
   }
 
   listWorkspaceFiles(workspaceId: string): WorkspaceFile[] {
-    const root = this.workspaceRoot(workspaceId);
+    const root = this.workspaceRootPath(workspaceId);
     if (!existsSync(root)) return [];
     return this.listFilePaths(root)
       .map((fullPath) => {
@@ -86,6 +86,12 @@ export class FileWorkspaceStore {
     rmSync(this.root, { recursive: true, force: true });
   }
 
+  getWorkspaceRoot(workspaceId: string): string {
+    const root = this.workspaceRootPath(workspaceId);
+    mkdirSync(root, { recursive: true });
+    return root;
+  }
+
   private fileFromPath(workspaceId: string, path: string, fullPath: string): WorkspaceFile {
     const content = readFileSync(fullPath, "utf8");
     const stat = statSync(fullPath);
@@ -103,7 +109,7 @@ export class FileWorkspaceStore {
 
   private resolvePath(workspaceId: string, path: string): { path: string; fullPath: string } {
     const normalized = normalizeWorkspacePath(path);
-    const root = this.workspaceRoot(workspaceId);
+    const root = this.workspaceRootPath(workspaceId);
     const fullPath = resolve(root, normalized.relativePath);
     if (fullPath !== root && !fullPath.startsWith(`${root}${sep}`)) {
       throw new Error(`Invalid workspace path: ${path}`);
@@ -111,7 +117,7 @@ export class FileWorkspaceStore {
     return { path: normalized.path, fullPath };
   }
 
-  private workspaceRoot(workspaceId: string): string {
+  private workspaceRootPath(workspaceId: string): string {
     return join(this.root, workspaceDirName(workspaceId));
   }
 

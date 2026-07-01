@@ -44,6 +44,7 @@ export interface AgentStore {
   readFile(workspaceId: string, path: string): WorkspaceFile | undefined;
   listWorkspaceFiles(workspaceId: string): WorkspaceFile[];
   deleteFile(workspaceId: string, path: string): boolean;
+  getWorkspaceRoot(workspaceId: string): string;
 
   // Todos
   createTodo(todo: AgentTodo): AgentTodo;

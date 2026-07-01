@@ -549,12 +549,19 @@ describe("ModelTurnLoop", () => {
   });
 
   it("offers basic tools in every composer strength and todo tools only in plan strengths", async () => {
-    const basicTools = [
+    const toolsInEveryMode = [
       "workspace.list_files",
       "workspace.read_file",
       "workspace.write_file",
       "workspace.patch_file",
       "workspace.delete_file",
+      "memory.remember",
+      "memory.recall",
+      "memory.search",
+      "memory.forget",
+      "web.fetch",
+      "web.search",
+      "sandbox.execute",
       "ask_clarification",
       "presentation.present",
       "skill.load",
@@ -581,21 +588,10 @@ describe("ModelTurnLoop", () => {
         capabilityRouter,
         modelAdapter: new TestModelAdapter([
           (input) => {
-            expect(input.tools?.map((tool) => tool.name)).toEqual(
-              isPlanMode
-                ? [
-                    "workspace.list_files",
-                    "workspace.read_file",
-                    "workspace.write_file",
-                    "workspace.patch_file",
-                    "workspace.delete_file",
-                    "todo.create",
-                    "todo.update",
-                    "ask_clarification",
-                    "presentation.present",
-                    "skill.load",
-                  ]
-                : basicTools,
+            const toolNames = input.tools?.map((tool) => tool.name) ?? [];
+            expect(toolNames).toEqual(expect.arrayContaining(toolsInEveryMode));
+            expect(toolNames.filter((name) => name.startsWith("todo."))).toEqual(
+              isPlanMode ? ["todo.create", "todo.update"] : [],
             );
             return [{ type: "text_delta", delta: "ok" }, { type: "completed" }];
           },

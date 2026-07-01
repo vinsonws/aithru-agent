@@ -29,6 +29,11 @@ function expandedScopes(scopes: string[]): Set<string> {
     "agent.workspace.write": ["workspace:write"],
     "agent.todo.write": ["todo:write"],
     "agent.presentation.write": ["presentation"],
+    "agent.memory.read": ["memory:read"],
+    "agent.memory.write": ["memory:write"],
+    "agent.web.fetch": ["web:fetch"],
+    "agent.web.search": ["web:search"],
+    "agent.sandbox.execute": ["sandbox:execute"],
   };
   const expanded = new Set(scopes);
   for (const scope of scopes) {

@@ -178,6 +178,10 @@ export class InMemoryStore {
     return this.workspaceFiles.deleteFile(workspaceId, path);
   }
 
+  getWorkspaceRoot(workspaceId: string): string {
+    return this.workspaceFiles.getWorkspaceRoot(workspaceId);
+  }
+
   // ── Todos ─────────────────────────────────────────────────────────
 
   createTodo(todo: AgentTodo): AgentTodo {

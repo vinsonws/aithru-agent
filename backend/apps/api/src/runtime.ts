@@ -1,7 +1,9 @@
 import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { TERMINAL_RUN_STATUSES } from "@aithru-agent/contracts";
+import { ControlledWebProvider } from "@aithru-agent/external";
 import { ModelTurnLoop, ScriptedHarnessCore } from "@aithru-agent/harness";
+import { LocalMemoryProvider } from "@aithru-agent/memory";
 import {
   TestModelAdapter,
   createSdkModelAdapter,
@@ -141,6 +143,28 @@ function adapterForRun(store: AgentStore, run: AgentRun): AgentModelAdapter {
   });
 }
 
+function createControlledWebProviderFromEnv(): ControlledWebProvider | undefined {
+  const allowedHosts = (process.env.AGENT_WEB_ALLOWED_HOSTS ?? process.env.WEB_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+  if (!allowedHosts.length) return undefined;
+
+  return new ControlledWebProvider({
+    allowedHosts,
+    searchEndpoint: process.env.AGENT_WEB_SEARCH_ENDPOINT ?? process.env.WEB_SEARCH_ENDPOINT,
+    fetcher: async (url, init) => {
+      const fetchImpl = globalThis.fetch;
+      if (!fetchImpl) throw new Error("WEB_FETCH_NOT_AVAILABLE");
+      const response = await fetchImpl(url, init);
+      return {
+        status: response.status,
+        text: () => response.text(),
+      };
+    },
+  });
+}
+
 function createRunScheduler(deps: {
   store: AgentStore;
   eventWriter: AgentEventWriter;
@@ -235,7 +259,11 @@ export async function createRuntime(dbPath?: string): Promise<AgentRuntime> {
   const builtinRoot = findBuiltinSkillsRoot();
   if (builtinRoot) skillRegistry.loadBuiltinPackages(builtinRoot);
   const skillResolver = new SkillResolver(skillRegistry, store);
-  const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, skillResolver);
+  const webProvider = createControlledWebProviderFromEnv();
+  const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, skillResolver, {
+    memoryProvider: new LocalMemoryProvider(),
+    ...(webProvider ? { webProvider } : {}),
+  });
   const harness = new ScriptedHarnessCore({
     store,
     eventWriter,

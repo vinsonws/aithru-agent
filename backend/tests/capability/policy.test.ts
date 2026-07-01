@@ -32,6 +32,11 @@ describe("checkScopes", () => {
     expect(checkScopes(createTool("read", ["workspace:read"]), createRun(["agent.workspace.read"])).allowed).toBe(true);
     expect(checkScopes(createTool("write", ["workspace:write"]), createRun(["agent.workspace.write"])).allowed).toBe(true);
     expect(checkScopes(createTool("todo", ["todo:write"]), createRun(["agent.todo.write"])).allowed).toBe(true);
+    expect(checkScopes(createTool("memory-read", ["memory:read"]), createRun(["agent.memory.read"])).allowed).toBe(true);
+    expect(checkScopes(createTool("memory-write", ["memory:write"]), createRun(["agent.memory.write"])).allowed).toBe(true);
+    expect(checkScopes(createTool("web-fetch", ["web:fetch"]), createRun(["agent.web.fetch"])).allowed).toBe(true);
+    expect(checkScopes(createTool("web-search", ["web:search"]), createRun(["agent.web.search"])).allowed).toBe(true);
+    expect(checkScopes(createTool("sandbox", ["sandbox:execute"]), createRun(["agent.sandbox.execute"])).allowed).toBe(true);
   });
 
   it("denies missing scope", () => {

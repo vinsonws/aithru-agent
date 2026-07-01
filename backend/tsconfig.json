@@ -29,6 +29,7 @@
       "@aithru-agent/external": ["packages/external/src/index.ts"],
       "@aithru-agent/skills": ["packages/skills/src/index.ts"],
       "@aithru-agent/memory": ["packages/memory/src/index.ts"],
+      "@aithru-agent/sandbox": ["packages/sandbox/src/index.ts"],
       "@aithru-agent/snapshots": ["packages/snapshots/src/index.ts"],
       "@aithru-agent/subagents": ["packages/subagents/src/index.ts"],
       "@aithru-agent/worker": ["packages/worker/src/index.ts"]

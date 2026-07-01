@@ -2,6 +2,9 @@ import type { CapabilityRouter, ToolPrepareResult } from "./router.js";
 import type { AgentToolDescriptor, AgentToolCallRequest, AgentToolCallResult } from "./descriptors.js";
 import type { RunContext, SkillPolicy } from "./policy.js";
 import type { AgentStreamEvent } from "@aithru-agent/contracts";
+import type { ControlledWebProvider } from "@aithru-agent/external";
+import type { LocalMemoryProvider } from "@aithru-agent/memory";
+import { SandboxExecutor, type SandboxRuntime } from "@aithru-agent/sandbox";
 import { PolicyEngine, resolveSkillPolicy } from "./policy.js";
 import { activeSkillKeysFromEvents, skillPolicySnapshotsFromEvents } from "./skill-state.js";
 import type { SkillResolver } from "@aithru-agent/skills";
@@ -15,6 +18,7 @@ interface CapabilityStore {
   readFile(workspaceId: string, path: string): { path: string; content: string } | undefined;
   writeFile(workspaceId: string, path: string, content: string): { path: string; version: number };
   deleteFile(workspaceId: string, path: string): boolean;
+  getWorkspaceRoot(workspaceId: string): string;
   createTodo(todo: {
     id: string;
     run_id: string;
@@ -28,6 +32,12 @@ interface CapabilityStore {
     todoId: string,
     patch: { title?: string; status?: string },
   ): { id: string; title: string; status: string };
+}
+
+export interface ProductionCapabilityProviders {
+  webProvider?: ControlledWebProvider;
+  memoryProvider?: LocalMemoryProvider;
+  sandboxExecutorFactory?: (workspaceRoot: string) => SandboxExecutor;
 }
 
 const PRODUCTION_TOOLS: AgentToolDescriptor[] = [
@@ -115,6 +125,113 @@ const PRODUCTION_TOOLS: AgentToolDescriptor[] = [
       type: "object",
       properties: { id: { type: "string" }, title: { type: "string" }, status: { type: "string" } },
       required: ["id"],
+    },
+  },
+  // memory tools
+  {
+    name: "memory.remember",
+    description: "Remember a string value scoped to the current Agent Thread.",
+    risk_level: "low",
+    requires_approval: false,
+    required_scopes: ["memory:write"],
+    input_schema: {
+      type: "object",
+      properties: {
+        key: { type: "string" },
+        value: { type: "string" },
+        ttl_seconds: { type: "number", minimum: 1 },
+      },
+      required: ["key", "value"],
+    },
+  },
+  {
+    name: "memory.recall",
+    description: "Recall a string value scoped to the current Agent Thread.",
+    risk_level: "low",
+    requires_approval: false,
+    required_scopes: ["memory:read"],
+    input_schema: {
+      type: "object",
+      properties: { key: { type: "string" } },
+      required: ["key"],
+    },
+  },
+  {
+    name: "memory.search",
+    description: "Search remembered string values scoped to the current Agent Thread.",
+    risk_level: "low",
+    requires_approval: false,
+    required_scopes: ["memory:read"],
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        limit: { type: "number", minimum: 1 },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "memory.forget",
+    description: "Forget a string value scoped to the current Agent Thread.",
+    risk_level: "low",
+    requires_approval: false,
+    required_scopes: ["memory:write"],
+    input_schema: {
+      type: "object",
+      properties: { key: { type: "string" } },
+      required: ["key"],
+    },
+  },
+  // controlled web tools
+  {
+    name: "web.fetch",
+    description: "Fetch an allowed HTTP(S) URL through the controlled web provider.",
+    risk_level: "medium",
+    requires_approval: true,
+    required_scopes: ["web:fetch"],
+    input_schema: {
+      type: "object",
+      properties: {
+        url: { type: "string" },
+        max_chars: { type: "number", minimum: 1 },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "web.search",
+    description: "Search through the configured controlled web search provider.",
+    risk_level: "medium",
+    requires_approval: true,
+    required_scopes: ["web:search"],
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        max_chars: { type: "number", minimum: 1 },
+      },
+      required: ["query"],
+    },
+  },
+  // controlled execution
+  {
+    name: "sandbox.execute",
+    description: "Execute Node or Bash code inside the current Agent Workspace directory.",
+    risk_level: "high",
+    requires_approval: true,
+    required_scopes: ["sandbox:execute"],
+    input_schema: {
+      type: "object",
+      properties: {
+        runtime: { type: "string", enum: ["auto", "node", "bash"] },
+        code: { type: "string" },
+        command: { type: "string" },
+        cwd: { type: "string" },
+        timeout_ms: { type: "number", minimum: 1, maximum: 120000 },
+        max_output_bytes: { type: "number", minimum: 0 },
+      },
+      required: ["runtime"],
     },
   },
   {
@@ -211,6 +328,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     private store: CapabilityStore,
     private eventWriter: AgentEventWriter,
     private skillResolver?: SkillResolver,
+    private providers: ProductionCapabilityProviders = {},
   ) {}
 
   async listTools(ctx: RunContext): Promise<AgentToolDescriptor[]> {
@@ -259,7 +377,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
 
     return {
       allowed: policyResult.allowed,
-      requires_approval: policyResult.requires_approval,
+      requires_approval: policyResult.requires_approval && !this.hasApprovedRunScopedTool(req.name, ctx.run.id),
       reason: policyResult.reason,
       audit_event_type: policyResult.audit_event_type,
     };
@@ -353,6 +471,69 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
         });
         return { id: updated.id, title: updated.title, status: updated.status };
       }
+      case "memory.remember": {
+        const provider = this.requireMemoryProvider();
+        const key = requiredString(input.key, "key");
+        const value = requiredString(input.value, "value");
+        const ttlSeconds = optionalPositiveInteger(input.ttl_seconds, "ttl_seconds");
+        provider.remember(scopedMemoryKey(run, key), value, ttlSeconds ? ttlSeconds * 1000 : undefined);
+        return { key, remembered: true };
+      }
+      case "memory.recall": {
+        const provider = this.requireMemoryProvider();
+        const key = requiredString(input.key, "key");
+        const value = provider.recall(scopedMemoryKey(run, key));
+        return { key, value: value ?? null, found: value !== undefined };
+      }
+      case "memory.search": {
+        const provider = this.requireMemoryProvider();
+        const query = requiredString(input.query, "query");
+        const limit = optionalPositiveInteger(input.limit, "limit") ?? 20;
+        const prefix = memoryPrefix(run);
+        const results = provider.search(query)
+          .filter((item) => item.key.startsWith(prefix))
+          .slice(0, limit)
+          .map((item) => ({ key: item.key.slice(prefix.length), value: item.value }));
+        return { query, results };
+      }
+      case "memory.forget": {
+        const provider = this.requireMemoryProvider();
+        const key = requiredString(input.key, "key");
+        const forgotten = provider.forget(scopedMemoryKey(run, key));
+        return { key, forgotten };
+      }
+      case "web.fetch": {
+        const provider = this.requireWebProvider();
+        const result = await provider.fetchUrl(requiredString(input.url, "url"));
+        return truncatedWebResult(result, optionalPositiveInteger(input.max_chars, "max_chars") ?? 10000);
+      }
+      case "web.search": {
+        const provider = this.requireWebProvider();
+        const result = await provider.search(requiredString(input.query, "query"));
+        return truncatedWebResult(result, optionalPositiveInteger(input.max_chars, "max_chars") ?? 10000);
+      }
+      case "sandbox.execute": {
+        const code = optionalRawString(input.code, "code");
+        const command = optionalRawString(input.command, "command");
+        if ((code ? 1 : 0) + (command ? 1 : 0) !== 1) {
+          throw new Error("Provide exactly one of code or command.");
+        }
+        const result = await this.sandboxExecutorForWorkspace(run.workspace_id).execute({
+          runtime: optionalSandboxRuntime(input.runtime) ?? "auto",
+          ...(code ? { code } : { command: command! }),
+          cwd: optionalString(input.cwd),
+          timeoutMs: optionalPositiveInteger(input.timeout_ms, "timeout_ms"),
+          maxOutputBytes: optionalNonNegativeInteger(input.max_output_bytes, "max_output_bytes"),
+        });
+        return {
+          runtime: result.runtime,
+          stdout: redactSensitiveOutput(result.stdout),
+          stderr: redactSensitiveOutput(result.stderr),
+          exit_code: result.exitCode,
+          timed_out: result.timedOut,
+          truncated: result.truncated,
+        };
+      }
       case "ask_clarification": {
         const question = requiredString(input.question, "question");
         const context = optionalString(input.context);
@@ -400,6 +581,31 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
       default:
         throw new Error(`Tool not implemented: ${req.name}`);
     }
+  }
+
+  private requireMemoryProvider(): LocalMemoryProvider {
+    if (!this.providers.memoryProvider) throw new Error("MEMORY_PROVIDER_NOT_CONFIGURED");
+    return this.providers.memoryProvider;
+  }
+
+  private requireWebProvider(): ControlledWebProvider {
+    if (!this.providers.webProvider) throw new Error("WEB_PROVIDER_NOT_CONFIGURED");
+    return this.providers.webProvider;
+  }
+
+  private sandboxExecutorForWorkspace(workspaceId: string): SandboxExecutor {
+    const workspaceRoot = this.store.getWorkspaceRoot(workspaceId);
+    return this.providers.sandboxExecutorFactory?.(workspaceRoot)
+      ?? new SandboxExecutor({ workspaceRoot });
+  }
+
+  private hasApprovedRunScopedTool(toolName: string, runId: string): boolean {
+    if (toolName !== "sandbox.execute") return false;
+    return this.store.listEvents(runId).some((event) => {
+      if (event.type !== EVENT_TYPES.APPROVAL_RESOLVED) return false;
+      const payload = isRecord(event.payload) ? event.payload : {};
+      return payload.name === toolName && payload.decision === "approved";
+    });
   }
 
   private presentWorkspaceFile(
@@ -571,7 +777,72 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function optionalRawString(value: unknown, field: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !value.trim()) throw new Error(`Missing required input field: ${field}`);
+  return value;
+}
+
 function optionalPreferredView(value: unknown): string | undefined {
   const view = optionalString(value);
   return view && PREFERRED_VIEWS.includes(view) ? view : undefined;
+}
+
+function optionalSandboxRuntime(value: unknown): SandboxRuntime | undefined {
+  const runtime = optionalString(value);
+  if (!runtime) return undefined;
+  if (runtime === "auto" || runtime === "node" || runtime === "bash") return runtime;
+  throw new Error(`Unsupported sandbox runtime: ${runtime}`);
+}
+
+function optionalPositiveInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+    throw new Error(`Invalid positive number input field: ${field}`);
+  }
+  return Math.floor(value);
+}
+
+function optionalNonNegativeInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid non-negative number input field: ${field}`);
+  }
+  return Math.floor(value);
+}
+
+function memoryPrefix(run: RunContext["run"]): string {
+  const threadOrRun = run.thread_id ? `thread:${run.thread_id}` : `run:${run.id}`;
+  return `${run.org_id}:${run.actor_user_id}:${threadOrRun}\u0000`;
+}
+
+function scopedMemoryKey(run: RunContext["run"], key: string): string {
+  return `${memoryPrefix(run)}${key}`;
+}
+
+function truncatedWebResult(
+  result: { url: string; status: number; content: string },
+  maxChars: number,
+): { url: string; status: number; content: string; truncated: boolean } {
+  const content = result.content.slice(0, maxChars);
+  return {
+    url: result.url,
+    status: result.status,
+    content,
+    truncated: content.length < result.content.length,
+  };
+}
+
+function redactSensitiveOutput(text: string): string {
+  return text
+    .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [redacted]")
+    .replace(
+      /\b(token|secret|password|credential|api[_-]?key|auth)\b(\s*[:=]\s*)([^\s'"`]+)/gi,
+      "$1$2[redacted]",
+    )
+    .replace(/:\/\/([^/\s:@]+):([^/\s@]+)@/g, "://[redacted]@");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
