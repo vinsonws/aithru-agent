@@ -104,6 +104,11 @@ still goes through the Capability Router. `ultra` may also set
 `subagent_enabled`, but subagent tool exposure remains an explicit harness
 decision.
 
+Run limits are harness safety guardrails, not workflow recursion semantics or
+product-tier throttles. `flash`, `thinking`, and `pro` share the same default
+model request and tool execution limits; `pro` is the minimum budget. See
+`docs/superpowers/specs/2026-07-01-agent-run-limits-design.md`.
+
 ### Display History vs Model Context
 
 Agent Thread messages are the complete user-visible conversation record.
