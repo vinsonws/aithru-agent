@@ -346,16 +346,17 @@ export class SqliteStore implements AgentStore {
     workspaceId: string,
     path: string,
     content: string,
+    options?: { runId?: string | null },
   ): WorkspaceFile {
-    return this.workspaceFiles.writeFile(workspaceId, path, content);
+    return this.workspaceFiles.writeFile(workspaceId, path, content, options);
   }
 
   readFile(workspaceId: string, path: string): WorkspaceFile | undefined {
     return this.workspaceFiles.readFile(workspaceId, path);
   }
 
-  listWorkspaceFiles(workspaceId: string): WorkspaceFile[] {
-    return this.workspaceFiles.listWorkspaceFiles(workspaceId);
+  listWorkspaceFiles(workspaceId: string, filter?: { runId?: string }): WorkspaceFile[] {
+    return this.workspaceFiles.listWorkspaceFiles(workspaceId, filter);
   }
 
   deleteFile(workspaceId: string, path: string): boolean {

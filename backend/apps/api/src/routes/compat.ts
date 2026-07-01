@@ -482,6 +482,8 @@ function workspaceFile(file: any) {
     version: file.version,
     file_version: file.version,
     content_hash: null,
+    created_by_run_id: file.created_by_run_id ?? null,
+    last_modified_by_run_id: file.last_modified_by_run_id ?? null,
     created_at: file.created_at,
     updated_at: file.updated_at,
   };

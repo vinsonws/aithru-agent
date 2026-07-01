@@ -562,6 +562,7 @@ describe("ModelTurnLoop", () => {
       "web.fetch",
       "web.search",
       "sandbox.execute",
+      "subagent.delegate",
       "ask_clarification",
       "presentation.present",
       "skill.load",

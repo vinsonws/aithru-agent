@@ -1,7 +1,7 @@
-import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
+import { ProductionCapabilityRouter, type AgentToolDescriptor } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { TERMINAL_RUN_STATUSES } from "@aithru-agent/contracts";
-import { ControlledWebProvider } from "@aithru-agent/external";
+import { ControlledWebProvider, McpCatalog, McpProviderAdapter, type McpServerConfig } from "@aithru-agent/external";
 import { ModelTurnLoop, ScriptedHarnessCore } from "@aithru-agent/harness";
 import { LocalMemoryProvider } from "@aithru-agent/memory";
 import {
@@ -13,6 +13,7 @@ import {
 import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
 import { InMemoryStore, SqliteStore, type AgentApproval, type AgentStore } from "@aithru-agent/persistence";
 import { SkillRegistry, SkillResolver, findBuiltinSkillsRoot } from "@aithru-agent/skills";
+import { SubagentRunner } from "@aithru-agent/subagents";
 import { WorkerRunner } from "@aithru-agent/worker";
 import { createApprovalResolver, type ScheduleRunExecutionOptions } from "./approval-resolution.js";
 
@@ -60,6 +61,36 @@ type StoredModelProfile = {
     use_responses_api?: boolean;
   } | null;
 };
+
+type StoredExternalToolConfig = {
+  id?: string;
+  org_id?: string;
+  key?: string;
+  provider_kind?: string;
+  enabled?: boolean;
+  mcp?: {
+    server_key?: string;
+    name?: string;
+    endpoint?: {
+      url?: unknown;
+      allowed_hosts?: unknown;
+      timeout_ms?: unknown;
+      max_response_bytes?: unknown;
+      auth_secret?: {
+        secret_ref?: unknown;
+      } | null;
+      headers?: unknown;
+    } | null;
+    stdio?: {
+      command?: unknown;
+      args?: unknown;
+      timeout_ms?: unknown;
+    } | null;
+    tools?: unknown;
+  } | null;
+};
+
+type StoredMcpEndpoint = NonNullable<NonNullable<StoredExternalToolConfig["mcp"]>["endpoint"]>;
 
 function modelProfileKey(run: AgentRun): string | null {
   const options = run.harness_options as Record<string, unknown> | null | undefined;
@@ -165,6 +196,158 @@ function createControlledWebProviderFromEnv(): ControlledWebProvider | undefined
   });
 }
 
+function createStoreBackedMcpProvider(store: AgentStore) {
+  return {
+    listAvailableTools(): AgentToolDescriptor[] {
+      return createMcpProviderAdapterFromStore(store).listAvailableTools();
+    },
+    executeTool(toolName: string, input: Record<string, unknown>): Promise<unknown> {
+      return createMcpProviderAdapterFromStore(store).executeTool(toolName, input);
+    },
+  };
+}
+
+function createMcpProviderAdapterFromStore(store: AgentStore): McpProviderAdapter {
+  const catalog = new McpCatalog();
+  for (const doc of store.listDocuments("external_tool_config_entry")) {
+    const server = mcpServerFromStoredConfig(store, doc.payload as StoredExternalToolConfig);
+    if (server) catalog.register(server);
+  }
+  return new McpProviderAdapter(catalog);
+}
+
+function mcpServerFromStoredConfig(
+  store: AgentStore,
+  config: StoredExternalToolConfig,
+): McpServerConfig | null {
+  if (config.provider_kind !== "mcp" || config.enabled === false) return null;
+  const mcp = config.mcp;
+  if (!mcp) return null;
+
+  const toolDescriptors = Array.isArray(mcp.tools)
+    ? mcp.tools.map(mcpToolDescriptorFromConfig).filter((tool): tool is AgentToolDescriptor => Boolean(tool))
+    : [];
+  if (!toolDescriptors.length) return null;
+
+  const id = stringValue(mcp.server_key) ?? stringValue(config.key) ?? stringValue(config.id);
+  if (!id) return null;
+
+  const endpoint = mcp.endpoint;
+  const endpointUrl = stringValue(endpoint?.url);
+  if (endpointUrl?.startsWith("http://") || endpointUrl?.startsWith("https://")) {
+    if (!isAllowedMcpEndpoint(endpointUrl, endpoint?.allowed_hosts)) return null;
+    return {
+      id,
+      transport: "http",
+      enabled: true,
+      toolDescriptors,
+      http: {
+        url: endpointUrl,
+        headers: mcpEndpointHeaders(store, endpoint),
+      },
+    };
+  }
+
+  const command = stringValue(mcp.stdio?.command);
+  if (command) {
+    return {
+      id,
+      transport: "stdio",
+      enabled: true,
+      toolDescriptors,
+      stdio: {
+        command,
+        args: stringArray(mcp.stdio?.args),
+        timeoutMs: positiveInteger(mcp.stdio?.timeout_ms),
+      },
+    };
+  }
+
+  return null;
+}
+
+function mcpToolDescriptorFromConfig(value: unknown): AgentToolDescriptor | null {
+  if (!isRecord(value)) return null;
+  const name = stringValue(value.name);
+  if (!name) return null;
+  const riskLevel = mcpRiskLevel(value.risk_level);
+  return {
+    name,
+    description: stringValue(value.description) ?? name,
+    risk_level: riskLevel,
+    requires_approval: mcpRequiresApproval(value, riskLevel),
+    required_scopes: stringArray(value.required_scopes, ["mcp:use"]),
+    input_schema: isRecord(value.input_schema) ? value.input_schema : {},
+  };
+}
+
+function mcpRiskLevel(value: unknown): AgentToolDescriptor["risk_level"] {
+  if (value === "low" || value === "read") return "low";
+  if (value === "medium" || value === "write") return "medium";
+  if (value === "high" || value === "dangerous") return "high";
+  return "medium";
+}
+
+function mcpRequiresApproval(
+  value: Record<string, unknown>,
+  riskLevel: AgentToolDescriptor["risk_level"],
+): boolean {
+  if (typeof value.requires_approval === "boolean") return value.requires_approval;
+  if (value.approval_policy === "never") return false;
+  if (value.approval_policy === "always" || value.approval_policy === "on_risk") return true;
+  return riskLevel !== "low";
+}
+
+function isAllowedMcpEndpoint(url: string, allowedHosts: unknown): boolean {
+  const hosts = stringArray(allowedHosts).map((host) => host.toLowerCase());
+  if (!hosts.length) return true;
+  try {
+    return hosts.includes(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function mcpEndpointHeaders(
+  store: AgentStore,
+  endpoint: StoredMcpEndpoint | undefined | null,
+): Record<string, string> | undefined {
+  if (!isRecord(endpoint)) return undefined;
+  const headers: Record<string, string> = {};
+  if (isRecord(endpoint.headers)) {
+    for (const [key, value] of Object.entries(endpoint.headers)) {
+      if (typeof value === "string") headers[key] = value;
+    }
+  }
+  const secretRef = isRecord(endpoint.auth_secret) ? stringValue(endpoint.auth_secret.secret_ref) : undefined;
+  const secret = secretRef ? store.getSecret(secretRef) : undefined;
+  if (secret && !Object.keys(headers).some((key) => key.toLowerCase() === "authorization")) {
+    headers.authorization = `Bearer ${secret}`;
+  }
+  return Object.keys(headers).length ? headers : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function stringArray(value: unknown, fallback: string[] = []): string[] {
+  return Array.isArray(value)
+    ? value
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((item) => item.trim())
+    : fallback;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) return undefined;
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function createRunScheduler(deps: {
   store: AgentStore;
   eventWriter: AgentEventWriter;
@@ -260,9 +443,16 @@ export async function createRuntime(dbPath?: string): Promise<AgentRuntime> {
   if (builtinRoot) skillRegistry.loadBuiltinPackages(builtinRoot);
   const skillResolver = new SkillResolver(skillRegistry, store);
   const webProvider = createControlledWebProviderFromEnv();
-  const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, skillResolver, {
+  let capabilityRouter!: ProductionCapabilityRouter;
+  capabilityRouter = new ProductionCapabilityRouter(store, eventWriter, skillResolver, {
     memoryProvider: new LocalMemoryProvider(),
+    mcpProvider: createStoreBackedMcpProvider(store),
     ...(webProvider ? { webProvider } : {}),
+    subagentDelegate: (parentRun, spec) =>
+      new SubagentRunner(store, eventWriter, capabilityRouter, {
+        modelAdapterFactory: (run) => adapterForRun(store, run),
+        skillResolver,
+      }).delegate(parentRun, spec),
   });
   const harness = new ScriptedHarnessCore({
     store,

@@ -13,8 +13,24 @@ function generateEventId(): string {
   return `evt_${nanoid(12)}`;
 }
 
+type AgentEventListener = (event: AgentStreamEvent) => void;
+
 export class AgentEventWriter {
+  private readonly listeners = new Map<string, Set<AgentEventListener>>();
+
   constructor(private store: AgentEventStore) {}
+
+  subscribe(runId: string, listener: AgentEventListener): () => void {
+    const listeners = this.listeners.get(runId) ?? new Set<AgentEventListener>();
+    listeners.add(listener);
+    this.listeners.set(runId, listeners);
+    return () => {
+      const current = this.listeners.get(runId);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) this.listeners.delete(runId);
+    };
+  }
 
   write(
     runId: string,
@@ -43,6 +59,9 @@ export class AgentEventWriter {
       payload: redactPayload(payload, opts?.redaction || REDACTION.NONE),
     };
     this.store.appendEvent(runId, event);
+    for (const listener of [...(this.listeners.get(runId) ?? [])]) {
+      listener(event);
+    }
     return event;
   }
 }

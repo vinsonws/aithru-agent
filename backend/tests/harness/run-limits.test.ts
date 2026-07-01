@@ -63,6 +63,18 @@ describe("RunLimits", () => {
     expect(resolveRunLimits(createRun("ultra"), empty)).toEqual({ maxModelRequests: 100, maxToolExecutions: 200 });
   });
 
+  it("uses explicit run limit overrides from harness options", () => {
+    const run = {
+      ...createRun("ultra"),
+      harness_options: {
+        mode: "ultra",
+        max_model_requests: 15,
+        max_tool_executions: 30,
+      } as unknown as Record<string, unknown>,
+    };
+    expect(resolveRunLimits(run, [])).toEqual({ maxModelRequests: 15, maxToolExecutions: 30 });
+  });
+
   it("adds limit increments from approved limit continuation approvals", () => {
     const empty: AgentStreamEvent[] = [];
     const run = createRun("pro");

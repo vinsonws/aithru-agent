@@ -12,7 +12,12 @@ interface TestCapabilityStore {
   getRun(id: string): { workspace_id: string } | undefined;
   listWorkspaceFiles(workspaceId: string): Array<{ path: string; size: number }>;
   readFile(workspaceId: string, path: string): { path: string; content: string } | undefined;
-  writeFile(workspaceId: string, path: string, content: string): { path: string; version: number };
+  writeFile(
+    workspaceId: string,
+    path: string,
+    content: string,
+    options?: { runId?: string | null },
+  ): { path: string; version: number };
   deleteFile(workspaceId: string, path: string): boolean;
   createTodo(todo: {
     id: string;

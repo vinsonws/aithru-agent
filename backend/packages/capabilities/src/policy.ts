@@ -34,6 +34,8 @@ function expandedScopes(scopes: string[]): Set<string> {
     "agent.web.fetch": ["web:fetch"],
     "agent.web.search": ["web:search"],
     "agent.sandbox.execute": ["sandbox:execute"],
+    "agent.subagent.delegate": ["subagent:delegate"],
+    "agent.mcp.use": ["mcp:use"],
   };
   const expanded = new Set(scopes);
   for (const scope of scopes) {

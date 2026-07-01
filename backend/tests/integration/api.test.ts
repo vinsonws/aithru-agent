@@ -401,6 +401,15 @@ describe("Runs API", () => {
 
     expect(res.statusCode).toBe(200);
     expect(runtime.store.readFile(run.workspace_id, "/approved.txt")?.content).toBe("approved content");
+    const runFiles = await app.inject({ method: "GET", url: `/api/runs/${run.id}/files` });
+    expect(runFiles.statusCode).toBe(200);
+    expect(JSON.parse(runFiles.body)).toEqual([
+      expect.objectContaining({
+        path: "/approved.txt",
+        created_by_run_id: run.id,
+        last_modified_by_run_id: run.id,
+      }),
+    ]);
     expect(runtime.store.getRun(run.id)?.status).toBe("completed");
     expect(runtime.store.getRun(run.id)?.current_approval_id).toBeNull();
     expect(runtime.store.listEvents(run.id).map((event) => event.type)).toEqual(

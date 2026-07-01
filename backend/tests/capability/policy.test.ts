@@ -37,6 +37,8 @@ describe("checkScopes", () => {
     expect(checkScopes(createTool("web-fetch", ["web:fetch"]), createRun(["agent.web.fetch"])).allowed).toBe(true);
     expect(checkScopes(createTool("web-search", ["web:search"]), createRun(["agent.web.search"])).allowed).toBe(true);
     expect(checkScopes(createTool("sandbox", ["sandbox:execute"]), createRun(["agent.sandbox.execute"])).allowed).toBe(true);
+    expect(checkScopes(createTool("subagent", ["subagent:delegate"]), createRun(["agent.subagent.delegate"])).allowed).toBe(true);
+    expect(checkScopes(createTool("mcp", ["mcp:use"]), createRun(["agent.mcp.use"])).allowed).toBe(true);
   });
 
   it("denies missing scope", () => {

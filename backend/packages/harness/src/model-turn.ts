@@ -314,6 +314,7 @@ export class ModelTurnLoop {
           store: this.deps.store,
           eventWriter: this.deps.eventWriter,
           run: this.deps.store.getRun(run.id)!,
+          titleModelAdapter: this.deps.modelAdapter,
           phase: "after_completion",
         });
         return this.deps.store.getRun(run.id)!;

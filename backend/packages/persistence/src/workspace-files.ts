@@ -16,6 +16,8 @@ import type { WorkspaceFile } from "./store.js";
 interface FileMeta {
   created_at: string;
   version: number;
+  created_by_run_id?: string;
+  last_modified_by_run_id?: string;
 }
 
 function nowIso(): string {
@@ -39,7 +41,12 @@ export class FileWorkspaceStore {
   private root = mkdtempSync(join(tmpdir(), "aithru-workspaces-"));
   private meta = new Map<string, FileMeta>();
 
-  writeFile(workspaceId: string, path: string, content: string): WorkspaceFile {
+  writeFile(
+    workspaceId: string,
+    path: string,
+    content: string,
+    options: { runId?: string | null } = {},
+  ): WorkspaceFile {
     const target = this.resolvePath(workspaceId, path);
     const existing = this.readFile(workspaceId, target.path);
     mkdirSync(dirname(target.fullPath), { recursive: true });
@@ -49,6 +56,8 @@ export class FileWorkspaceStore {
     this.meta.set(key, {
       created_at: existing?.created_at ?? timestamp,
       version: (existing?.version ?? 0) + 1,
+      created_by_run_id: existing?.created_by_run_id ?? options.runId ?? undefined,
+      last_modified_by_run_id: options.runId ?? existing?.last_modified_by_run_id,
     });
     return this.readFile(workspaceId, target.path)!;
   }
@@ -61,7 +70,7 @@ export class FileWorkspaceStore {
     return this.fileFromPath(workspaceId, target.path, target.fullPath);
   }
 
-  listWorkspaceFiles(workspaceId: string): WorkspaceFile[] {
+  listWorkspaceFiles(workspaceId: string, filter: { runId?: string } = {}): WorkspaceFile[] {
     const root = this.workspaceRootPath(workspaceId);
     if (!existsSync(root)) return [];
     return this.listFilePaths(root)
@@ -69,6 +78,11 @@ export class FileWorkspaceStore {
         const path = `/${relative(root, fullPath).split(sep).join("/")}`;
         return this.fileFromPath(workspaceId, path, fullPath);
       })
+      .filter((file) =>
+        !filter.runId ||
+        file.created_by_run_id === filter.runId ||
+        file.last_modified_by_run_id === filter.runId,
+      )
       .sort((a, b) => a.path.localeCompare(b.path));
   }
 
@@ -102,6 +116,8 @@ export class FileWorkspaceStore {
       content,
       size: Buffer.byteLength(content, "utf8"),
       version: meta?.version ?? 1,
+      ...(meta?.created_by_run_id ? { created_by_run_id: meta.created_by_run_id } : {}),
+      ...(meta?.last_modified_by_run_id ? { last_modified_by_run_id: meta.last_modified_by_run_id } : {}),
       created_at: meta?.created_at ?? stat.birthtime.toISOString().replace(/\.\d{3}/, ""),
       updated_at: stat.mtime.toISOString().replace(/\.\d{3}/, ""),
     };

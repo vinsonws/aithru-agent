@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp, getRuntime, resetRuntimeForTests } from "@aithru-agent/api";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { createToolCallRecord } from "@aithru-agent/harness";
@@ -707,6 +707,87 @@ describe("legacy OpenAPI compatibility", () => {
     );
     expect(toolsBody[0].provider_kind).toBe("mcp");
     expect(toolsBody[0].mcp.tools.length).toBeGreaterThan(0);
+  });
+
+  it("routes stored MCP configs through the production capability router", async () => {
+    const secretRef = "secret://external-tools/org_1/runtime-search/api-key";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ jsonrpc: "2.0", id: "mcp_test", result: { answer: "found" } }),
+    } as unknown as Response);
+
+    try {
+      getRuntime().store.setSecret(secretRef, "mcp-secret");
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/external-tools/configs",
+        payload: {
+          key: "runtime-search",
+          provider_kind: "mcp",
+          name: "Runtime Search",
+          enabled: true,
+          mcp: {
+            server_key: "runtime-search",
+            name: "Runtime Search",
+            endpoint: {
+              url: "https://search.example.com/mcp",
+              allowed_hosts: ["search.example.com"],
+              auth_secret: { secret_ref: secretRef },
+            },
+            tools: [
+              {
+                name: "mcp.runtime_search",
+                description: "Search via configured MCP server",
+                input_schema: { type: "object" },
+                risk_level: "low",
+                required_scopes: ["web:read"],
+                approval_policy: "never",
+              },
+            ],
+          },
+        },
+      });
+      expect(created.statusCode).toBe(201);
+
+      const run: AgentRun = {
+        id: "run_mcp_runtime",
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        source: "chat",
+        thread_id: null,
+        workspace_id: "ws_mcp_runtime",
+        task_msg: "search",
+        scopes: ["web:read"],
+        harness_options: null,
+        status: "queued",
+        current_approval_id: null,
+        started_at: "2026-01-01T00:00:00Z",
+        completed_at: null,
+        claim: null,
+        result: null,
+        error: null,
+      };
+      getRuntime().store.createRun(run);
+
+      const tools = await getRuntime().capabilityRouter.listTools({ run });
+      const prepared = await getRuntime().capabilityRouter.prepareToolCall(
+        { id: "tc_mcp_runtime_prepare", run_id: run.id, name: "mcp.runtime_search", input: {} },
+        { run },
+      );
+      const result = await getRuntime().capabilityRouter.executeToolCall(
+        { id: "tc_mcp_runtime", run_id: run.id, name: "mcp.runtime_search", input: { query: "x" } },
+        { run },
+      );
+
+      expect(tools.map((tool) => tool.name)).toContain("mcp.runtime_search");
+      expect(prepared).toMatchObject({ allowed: true, requires_approval: false });
+      expect(result.output).toEqual({ answer: "found" });
+      expect(fetchMock.mock.calls[0][0]).toBe("https://search.example.com/mcp");
+      expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).authorization).toBe("Bearer mcp-secret");
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it("does not expose deleted artifact backend routes", () => {

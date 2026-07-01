@@ -198,6 +198,30 @@ export function registerRunRoutes(app: FastifyInstance): void {
     },
   );
 
+  // GET /api/runs/:run_id/files
+  app.get(
+    "/api/runs/:run_id/files",
+    async (request, reply) => {
+      const { run_id } = request.params as any;
+      const runtime = getRuntime();
+      const run = runtime.store.getRun(run_id);
+      if (!run) {
+        reply.code(404);
+        return { error: "Run not found" };
+      }
+      return runtime.store.listWorkspaceFiles(run.workspace_id, { runId: run.id }).map((file) => ({
+        workspace_id: file.workspace_id,
+        path: file.path,
+        size: file.size,
+        version: file.version,
+        created_by_run_id: file.created_by_run_id ?? null,
+        last_modified_by_run_id: file.last_modified_by_run_id ?? null,
+        created_at: file.created_at,
+        updated_at: file.updated_at,
+      }));
+    },
+  );
+
   // POST /api/runs/:run_id/cancel
   app.post(
     "/api/runs/:run_id/cancel",

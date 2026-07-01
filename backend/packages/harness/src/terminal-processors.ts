@@ -149,35 +149,107 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
-function maybeCreateContextSummary(deps: {
+async function maybeCreateContextSummary(deps: {
   store: AgentStore;
   eventWriter: AgentEventWriter;
   run: AgentRun;
-}): void {
+  titleModelAdapter?: AgentModelAdapter;
+}): Promise<void> {
   const threadId = deps.run.thread_id;
   if (!threadId) return;
   const messages = deps.store.listMessages(threadId);
   if (messages.length < SUMMARY_MESSAGE_THRESHOLD) return;
   const latest = deps.store.getLatestContextSummary(threadId);
-  if (latest && latest.source_message_count >= messages.length) return;
-  const summary = deriveContextSummary(messages);
+  const summaryCutoff = Math.max(0, messages.length - MODEL_CONTEXT_MESSAGE_LIMIT);
+  if (latest && latest.source_message_count >= summaryCutoff) return;
+  const summaryMessages = latest
+    ? messages.slice(latest.source_message_count, summaryCutoff)
+    : messages.slice(0, summaryCutoff);
+  if (!summaryMessages.length) return;
+  const generated = await generateContextSummary(
+    {
+      run: deps.run,
+      titleModelAdapter: deps.titleModelAdapter,
+    },
+    summaryMessages,
+    latest?.summary,
+  );
+  const summary = generated ?? deriveContextSummary(messages);
   if (!summary) return;
   deps.store.createContextSummary({
-    id: `summary_${deps.run.id}_${messages.length}`,
+    id: `summary_${deps.run.id}_${summaryCutoff}`,
     org_id: deps.run.org_id,
     thread_id: threadId,
     run_id: deps.run.id,
     summary,
-    source_message_count: messages.length,
+    source_message_count: summaryCutoff,
     created_at: new Date().toISOString().replace(/\.\d{3}/, ""),
   });
   deps.eventWriter.write(
     deps.run.id,
     threadId,
     EVENT_TYPES.CONTEXT_SUMMARY_CREATED,
-    { thread_id: threadId, source_message_count: messages.length },
+    { thread_id: threadId, source_message_count: summaryCutoff },
     { visibility: VISIBILITY.AUDIT, source: { kind: "harness" } },
   );
+}
+
+async function generateContextSummary(
+  deps: { run: AgentRun; titleModelAdapter?: AgentModelAdapter },
+  messages: AgentMessage[],
+  latestSummary?: string,
+): Promise<string | null> {
+  if (!deps.titleModelAdapter) return null;
+
+  const prompt = [
+    "Update the running conversation summary.",
+    "Previous summary:",
+    latestSummary?.trim() ? stripThinkingText(latestSummary) : "(none)",
+    "New messages to fold in:",
+    ...messages.map((message) => `${message.role}: ${trimForSummaryPrompt(message.content)}`),
+    "Return only the updated summary.",
+  ].join("\n");
+
+  let delta = "";
+  let completed = "";
+  const now = new Date().toISOString().replace(/\.\d{3}/, "");
+
+  try {
+    for await (const event of deps.titleModelAdapter.createTurn({
+      run: {
+        ...deps.run,
+        task_msg: prompt,
+        harness_options: {
+          ...(isRecord(deps.run.harness_options) ? deps.run.harness_options : {}),
+          instructions:
+            "Summarize the conversation history using the previous summary and the new messages. Return only the updated summary.",
+          model_reasoning_effort: "none",
+        } as AgentRun["harness_options"],
+      },
+      messages: [
+        {
+          id: `msg_${deps.run.id}_summary_prompt`,
+          thread_id: deps.run.thread_id ?? "",
+          role: "user",
+          content: prompt,
+          run_id: deps.run.id,
+          workspace_paths: [],
+          created_at: now,
+        },
+      ],
+      context: { purpose: "context_summary" },
+      tools: [],
+      toolResults: [],
+    })) {
+      if (event.type === "text_delta") delta += event.delta;
+      if (event.type === "completed" && event.content) completed = event.content;
+      if (event.type === "failed") return null;
+    }
+  } catch {
+    return null;
+  }
+
+  return cleanSummary(completed || delta);
 }
 
 function deriveThreadTitle(messages: AgentMessage[], fallback: string): string | null {
@@ -198,6 +270,22 @@ function deriveContextSummary(messages: AgentMessage[]): string {
     .replace(/\s+/g, " ")
     .trim();
   return text.length > SUMMARY_LIMIT ? `${text.slice(0, SUMMARY_LIMIT).trim()}...` : text;
+}
+
+function trimForSummaryPrompt(value: string): string {
+  const cleaned = stripThinkingText(value).replace(/\s+/g, " ").trim();
+  return cleaned.length > 500 ? `${cleaned.slice(0, 497).trim()}...` : cleaned;
+}
+
+function cleanSummary(value: string): string | null {
+  const cleaned = stripThinkingText(value)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  if (!cleaned) return null;
+  return cleaned.length > SUMMARY_LIMIT ? `${cleaned.slice(0, SUMMARY_LIMIT).trim()}...` : cleaned;
 }
 
 function stripThinkingText(content: string): string {

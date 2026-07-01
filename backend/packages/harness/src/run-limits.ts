@@ -37,8 +37,9 @@ function defaultLimitsForMode(mode: string | null): { maxModelRequests: number; 
 
 export function resolveRunLimits(run: AgentRun, events: AgentStreamEvent[]): AgentRunLimits {
   const defaults = defaultLimitsForMode(modeOf(run));
-  let maxModelRequests = defaults.maxModelRequests;
-  let maxToolExecutions = defaults.maxToolExecutions;
+  const configured = configuredLimits(run);
+  let maxModelRequests = configured.maxModelRequests ?? defaults.maxModelRequests;
+  let maxToolExecutions = configured.maxToolExecutions ?? defaults.maxToolExecutions;
   for (const event of events) {
     if (event.type !== EVENT_TYPES.APPROVAL_RESOLVED) continue;
     const payload = event.payload as Record<string, unknown>;
@@ -48,6 +49,21 @@ export function resolveRunLimits(run: AgentRun, events: AgentStreamEvent[]): Age
     maxToolExecutions += LIMIT_CONTINUATION_INCREMENT.maxToolExecutions;
   }
   return { maxModelRequests, maxToolExecutions };
+}
+
+function configuredLimits(run: AgentRun): Partial<Pick<AgentRunLimits, "maxModelRequests" | "maxToolExecutions">> {
+  const opts = run.harness_options as Record<string, unknown> | null | undefined;
+  if (!opts || typeof opts !== "object") return {};
+  return {
+    maxModelRequests: positiveInteger(opts.max_model_requests),
+    maxToolExecutions: positiveInteger(opts.max_tool_executions),
+  };
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined;
 }
 
 export function countModelRequests(events: AgentStreamEvent[]): number {

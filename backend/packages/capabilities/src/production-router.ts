@@ -16,7 +16,12 @@ interface CapabilityStore {
   listWorkspaceFiles(workspaceId: string): Array<{ path: string; size: number }>;
   listEvents(runId: string): AgentStreamEvent[];
   readFile(workspaceId: string, path: string): { path: string; content: string } | undefined;
-  writeFile(workspaceId: string, path: string, content: string): { path: string; version: number };
+  writeFile(
+    workspaceId: string,
+    path: string,
+    content: string,
+    options?: { runId?: string | null },
+  ): { path: string; version: number };
   deleteFile(workspaceId: string, path: string): boolean;
   getWorkspaceRoot(workspaceId: string): string;
   createTodo(todo: {
@@ -38,6 +43,14 @@ export interface ProductionCapabilityProviders {
   webProvider?: ControlledWebProvider;
   memoryProvider?: LocalMemoryProvider;
   sandboxExecutorFactory?: (workspaceRoot: string) => SandboxExecutor;
+  mcpProvider?: {
+    listAvailableTools(): AgentToolDescriptor[];
+    executeTool(toolName: string, input: Record<string, unknown>): Promise<unknown>;
+  };
+  subagentDelegate?: (
+    parentRun: RunContext["run"],
+    spec: { task: string; scopes: string[] },
+  ) => Promise<{ run_id: string; status: string; content: string | null; error?: { code: string; message: string } }>;
 }
 
 const PRODUCTION_TOOLS: AgentToolDescriptor[] = [
@@ -235,6 +248,21 @@ const PRODUCTION_TOOLS: AgentToolDescriptor[] = [
     },
   },
   {
+    name: "subagent.delegate",
+    description: "Delegate a bounded subtask to a child Agent Run.",
+    risk_level: "high",
+    requires_approval: true,
+    required_scopes: ["subagent:delegate"],
+    input_schema: {
+      type: "object",
+      properties: {
+        task: { type: "string" },
+        scopes: { type: "array", items: { type: "string" } },
+      },
+      required: ["task"],
+    },
+  },
+  {
     name: "ask_clarification",
     description: "Ask the user for clarification before proceeding.",
     risk_level: "low",
@@ -333,8 +361,9 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
 
   async listTools(ctx: RunContext): Promise<AgentToolDescriptor[]> {
     const policy = this.skillPolicyForRun(ctx.run);
-    if (!policy) return PRODUCTION_TOOLS;
-    return PRODUCTION_TOOLS.filter((tool) => {
+    const tools = this.availableTools();
+    if (!policy) return tools;
+    return tools.filter((tool) => {
       if (policy.deniedTools.has(tool.name)) return false;
       if (policy.allowedTools.size > 0 && !policy.allowedTools.has(tool.name)) return false;
       return true;
@@ -345,7 +374,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     req: AgentToolCallRequest,
     ctx: RunContext,
   ): Promise<ToolPrepareResult> {
-    const tool = PRODUCTION_TOOLS.find((t) => t.name === req.name);
+    const tool = this.toolDescriptor(req.name);
     if (!tool) {
       return {
         allowed: false,
@@ -387,7 +416,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     req: AgentToolCallRequest,
     ctx: RunContext,
   ): Promise<AgentToolCallResult> {
-    const tool = PRODUCTION_TOOLS.find((t) => t.name === req.name);
+    const tool = this.toolDescriptor(req.name);
     if (!tool) {
       return {
         id: req.id,
@@ -429,7 +458,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
         return { path: file.path, content: file.content };
       }
       case "workspace.write_file": {
-        const file = this.store.writeFile(run.workspace_id, input.path, input.content);
+        const file = this.store.writeFile(run.workspace_id, input.path, input.content, { runId: run.id });
         if (shouldAutoPresentWrittenFile(run.task_msg, file.path)) {
           this.presentWorkspaceFile(
             req,
@@ -446,7 +475,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
         const file = this.store.readFile(run.workspace_id, input.path);
         if (!file) throw new Error(`File not found: ${input.path}`);
         const newContent = file.content.replace(input.old_text, input.new_text);
-        this.store.writeFile(run.workspace_id, input.path, newContent);
+        this.store.writeFile(run.workspace_id, input.path, newContent, { runId: run.id });
         return { path: input.path, patched: true };
       }
       case "workspace.delete_file": {
@@ -534,6 +563,14 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
           truncated: result.truncated,
         };
       }
+      case "subagent.delegate": {
+        const delegate = this.providers.subagentDelegate;
+        if (!delegate) throw new Error("SUBAGENT_PROVIDER_NOT_CONFIGURED");
+        return await delegate(run, {
+          task: requiredString(input.task, "task"),
+          scopes: requestedChildScopes(run, input.scopes),
+        });
+      }
       case "ask_clarification": {
         const question = requiredString(input.question, "question");
         const context = optionalString(input.context);
@@ -579,8 +616,27 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
         return { presentations, rejected_requests: [] };
       }
       default:
+        if (this.isMcpTool(req.name)) {
+          if (!this.providers.mcpProvider) throw new Error("MCP_PROVIDER_NOT_CONFIGURED");
+          return await this.providers.mcpProvider.executeTool(req.name, input);
+        }
         throw new Error(`Tool not implemented: ${req.name}`);
     }
+  }
+
+  private availableTools(): AgentToolDescriptor[] {
+    return [
+      ...PRODUCTION_TOOLS,
+      ...(this.providers.mcpProvider?.listAvailableTools() ?? []),
+    ];
+  }
+
+  private toolDescriptor(name: string): AgentToolDescriptor | undefined {
+    return this.availableTools().find((tool) => tool.name === name);
+  }
+
+  private isMcpTool(name: string): boolean {
+    return this.providers.mcpProvider?.listAvailableTools().some((tool) => tool.name === name) ?? false;
   }
 
   private requireMemoryProvider(): LocalMemoryProvider {
@@ -818,6 +874,20 @@ function memoryPrefix(run: RunContext["run"]): string {
 
 function scopedMemoryKey(run: RunContext["run"], key: string): string {
   return `${memoryPrefix(run)}${key}`;
+}
+
+function requestedChildScopes(run: RunContext["run"], value: unknown): string[] {
+  const requested = Array.isArray(value)
+    ? value
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((item) => item.trim())
+    : run.scopes;
+  const unique = [...new Set(requested)];
+  if (run.scopes.includes("*")) return unique.length ? unique : ["*"];
+  const parentScopes = new Set(run.scopes);
+  const denied = unique.filter((scope) => !parentScopes.has(scope));
+  if (denied.length) throw new Error(`Subagent scopes exceed parent run scopes: ${denied.join(", ")}`);
+  return unique.length ? unique : run.scopes;
 }
 
 function truncatedWebResult(

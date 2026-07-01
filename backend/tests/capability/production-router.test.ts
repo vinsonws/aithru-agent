@@ -3,7 +3,7 @@ import { InMemoryStore } from "@aithru-agent/persistence";
 import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
 import { ProductionCapabilityRouter, TestCapabilityRouter } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
-import { ControlledWebProvider } from "@aithru-agent/external";
+import { ControlledWebProvider, McpCatalog, McpProviderAdapter } from "@aithru-agent/external";
 import { LocalMemoryProvider } from "@aithru-agent/memory";
 import { SkillRegistry, SkillResolver } from "@aithru-agent/skills";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
@@ -103,6 +103,7 @@ describe("ProductionCapabilityRouter", () => {
     expect(tools.some((t) => t.name === "memory.remember")).toBe(true);
     expect(tools.some((t) => t.name === "web.fetch")).toBe(true);
     expect(tools.some((t) => t.name === "sandbox.execute")).toBe(true);
+    expect(tools.some((t) => t.name === "subagent.delegate")).toBe(true);
   });
 
   it("denies unknown tools", async () => {
@@ -166,6 +167,53 @@ describe("ProductionCapabilityRouter", () => {
     );
     expect(result.error).toBeFalsy();
     expect((result.output as any).content).toBe("content");
+  });
+
+  it("records the run that creates and modifies workspace files", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter);
+    const createRunForFile: AgentRun = {
+      ...run,
+      id: "r_file_create",
+      workspace_id: "ws_file_trace",
+    };
+    const patchRunForFile: AgentRun = {
+      ...run,
+      id: "r_file_patch",
+      workspace_id: "ws_file_trace",
+    };
+    localStore.createRun(createRunForFile);
+    localStore.createRun(patchRunForFile);
+
+    await localRouter.executeToolCall(
+      {
+        id: "tc_file_create",
+        name: "workspace.write_file",
+        input: { path: "/trace.txt", content: "one" },
+        run_id: createRunForFile.id,
+      },
+      { run: createRunForFile },
+    );
+    await localRouter.executeToolCall(
+      {
+        id: "tc_file_patch",
+        name: "workspace.patch_file",
+        input: { path: "/trace.txt", old_text: "one", new_text: "two" },
+        run_id: patchRunForFile.id,
+      },
+      { run: patchRunForFile },
+    );
+
+    const file = localStore.readFile("ws_file_trace", "/trace.txt")!;
+    expect(file.created_by_run_id).toBe(createRunForFile.id);
+    expect(file.last_modified_by_run_id).toBe(patchRunForFile.id);
+    expect(localStore.listWorkspaceFiles("ws_file_trace", { runId: createRunForFile.id }).map((item) => item.path)).toEqual([
+      "/trace.txt",
+    ]);
+    expect(localStore.listWorkspaceFiles("ws_file_trace", { runId: patchRunForFile.id }).map((item) => item.path)).toEqual([
+      "/trace.txt",
+    ]);
   });
 
   it("auto-presents explicitly requested written workspace files without opening preview", async () => {
@@ -488,6 +536,99 @@ describe("ProductionCapabilityRouter", () => {
     expect(first.requires_approval).toBe(true);
     expect(second.requires_approval).toBe(false);
     expect(other.requires_approval).toBe(true);
+  });
+
+  it("delegates subagent work through the configured provider", async () => {
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    let delegated: { parentId: string; task: string; scopes: string[] } | null = null;
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter, undefined, {
+      subagentDelegate: async (parentRun, spec) => {
+        delegated = { parentId: parentRun.id, task: spec.task, scopes: spec.scopes };
+        return { run_id: "run_child", status: "completed", content: "child done" };
+      },
+    });
+    const subagentRun: AgentRun = {
+      ...run,
+      id: "r_subagent_delegate",
+      workspace_id: "ws_subagent_delegate",
+      scopes: ["subagent:delegate", "workspace:read"],
+    };
+    localStore.createRun(subagentRun);
+
+    const result = await localRouter.executeToolCall(
+      {
+        id: "tc_subagent",
+        name: "subagent.delegate",
+        input: { task: "Read the workspace", scopes: ["workspace:read"] },
+        run_id: subagentRun.id,
+      },
+      { run: subagentRun },
+    );
+    const denied = await localRouter.executeToolCall(
+      {
+        id: "tc_subagent_denied",
+        name: "subagent.delegate",
+        input: { task: "Write the workspace", scopes: ["workspace:write"] },
+        run_id: subagentRun.id,
+      },
+      { run: subagentRun },
+    );
+
+    expect(result.error).toBeFalsy();
+    expect(result.output).toEqual({ run_id: "run_child", status: "completed", content: "child done" });
+    expect(delegated).toEqual({ parentId: subagentRun.id, task: "Read the workspace", scopes: ["workspace:read"] });
+    expect(denied.error?.message).toContain("Subagent scopes exceed parent run scopes");
+  });
+
+  it("lists and executes MCP tools through the configured provider", async () => {
+    const catalog = new McpCatalog();
+    catalog.register({
+      id: "srv_router",
+      transport: "http",
+      enabled: true,
+      toolDescriptors: [
+        {
+          name: "mcp.lookup",
+          description: "Lookup via MCP",
+          risk_level: "medium",
+          requires_approval: true,
+          required_scopes: ["mcp:use"],
+          input_schema: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+          },
+        },
+      ],
+      executeTool: async ({ input }) => ({ answer: input.query }),
+    });
+    const localStore = new InMemoryStore();
+    const localWriter = new AgentEventWriter(localStore);
+    const localRouter = new ProductionCapabilityRouter(localStore, localWriter, undefined, {
+      mcpProvider: new McpProviderAdapter(catalog),
+    });
+    const mcpRun: AgentRun = {
+      ...run,
+      id: "r_mcp",
+      workspace_id: "ws_mcp",
+      scopes: ["mcp:use"],
+    };
+    localStore.createRun(mcpRun);
+
+    const tools = await localRouter.listTools({ run: mcpRun });
+    const prepared = await localRouter.prepareToolCall(
+      { id: "tc_mcp_prepare", name: "mcp.lookup", input: { query: "q" }, run_id: mcpRun.id },
+      { run: mcpRun },
+    );
+    const result = await localRouter.executeToolCall(
+      { id: "tc_mcp", name: "mcp.lookup", input: { query: "q" }, run_id: mcpRun.id },
+      { run: mcpRun },
+    );
+
+    expect(tools.some((tool) => tool.name === "mcp.lookup")).toBe(true);
+    expect(prepared).toMatchObject({ allowed: true, requires_approval: true });
+    expect(result.output).toEqual({ answer: "q" });
   });
 
   it("denies deleted artifact tools", async () => {
