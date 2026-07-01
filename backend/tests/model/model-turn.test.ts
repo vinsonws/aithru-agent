@@ -239,7 +239,7 @@ describe("ModelTurnLoop", () => {
         type: "tool_call" as const,
         id: `model_tc_${index}`,
         name: "workspace.list_files",
-        input: {},
+        input: { path: `/file_${index}.txt` },
       },
       { type: "completed" as const },
     ]);
@@ -683,7 +683,7 @@ describe("ModelTurnLoop", () => {
     store.createRun(run);
 
     const toolTurns = Array.from({ length: 20 }, (_, index) => [
-      { type: "tool_call" as const, id: `model_tc_${index}`, name: "workspace.list_files", input: {} },
+      { type: "tool_call" as const, id: `model_tc_${index}`, name: "workspace.list_files", input: { path: `/file_${index}.txt` } },
       { type: "completed" as const },
     ]);
     const loop = new ModelTurnLoop({
@@ -749,5 +749,69 @@ describe("ModelTurnLoop", () => {
     });
 
     await loop.execute(run);
+  });
+
+  it("pauses on 5th identical tool call with repeat_tool_call warning and no tool execution", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = { ...createRun(), id: "run_repeat_pause" };
+    store.createRun(run);
+
+    for (let i = 0; i < 4; i += 1) {
+      eventWriter.write(run.id, null, EVENT_TYPES.TOOL_PROPOSED, {
+        tool_call_id: `prior_tc_${i}`, name: "workspace.write_file", input: { path: "/f.txt" },
+      });
+    }
+
+    const loop = new ModelTurnLoop({
+      store, eventWriter, capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          { type: "tool_call", id: "repeat_tc", name: "workspace.write_file", input: { path: "/f.txt" } },
+          { type: "completed" },
+        ],
+      ]),
+    });
+
+    const paused = await loop.execute(run);
+    expect(paused.status).toBe("waiting_approval");
+    const events = store.listEvents(run.id);
+    const toolProposed = events.filter((e) => e.type === EVENT_TYPES.TOOL_PROPOSED);
+    expect(toolProposed).toHaveLength(4);
+    expect(events.filter((e) => e.type === EVENT_TYPES.TOOL_STARTED)).toHaveLength(0);
+    expect(events.some((e) => e.type === EVENT_TYPES.LIMIT_WARNING
+      && (e.payload as Record<string, unknown>).kind === "repeat_tool_call")).toBe(true);
+  });
+
+  it("pauses before tool execution when 100 prior tool.started events exist", async () => {
+    const store = new InMemoryStore();
+    const eventWriter = new AgentEventWriter(store);
+    const capabilityRouter = new ProductionCapabilityRouter(store, eventWriter);
+    const run = { ...createRun(), id: "run_tool_limit_pause" };
+    store.createRun(run);
+
+    for (let i = 0; i < 100; i += 1) {
+      eventWriter.write(run.id, null, EVENT_TYPES.TOOL_STARTED, {
+        tool_call_id: `prior_tc_${i}`, name: "workspace.read_file",
+      });
+    }
+
+    const loop = new ModelTurnLoop({
+      store, eventWriter, capabilityRouter,
+      modelAdapter: new TestModelAdapter([
+        [
+          { type: "tool_call", id: "new_tc", name: "workspace.write_file", input: { path: "/new.txt" } },
+          { type: "completed" },
+        ],
+      ]),
+    });
+
+    const paused = await loop.execute(run);
+    expect(paused.status).toBe("waiting_approval");
+    const events = store.listEvents(run.id);
+    const newProposed = events.filter((e) => e.type === EVENT_TYPES.TOOL_PROPOSED && (e.payload as Record<string, unknown>).tool_call_id === "new_tc");
+    expect(newProposed).toHaveLength(0);
+    expect(events.some((e) => e.type === EVENT_TYPES.APPROVAL_REQUESTED)).toBe(true);
   });
 });

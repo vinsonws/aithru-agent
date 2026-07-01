@@ -11,9 +11,11 @@ import { buildModelContextPacket, isPlanModeRun } from "./context-packet.js";
 import {
   resolveRunLimits,
   countModelRequests,
+  countToolExecutions,
   shouldWarnAtLimit,
   writeLimitWarning,
   pauseForLimitContinuation,
+  repeatToolCallState,
 } from "./run-limits.js";
 import { RunLoop } from "./run-loop.js";
 import { runTerminalProcessors } from "./terminal-processors.js";
@@ -196,6 +198,55 @@ export class ModelTurnLoop {
           );
         } else if (event.type === "tool_call") {
           flushToolInputDelta();
+
+          const toolExecCount = countToolExecutions(runEvents);
+          if (toolExecCount >= limits.maxToolExecutions) {
+            loop.emitMessageCompleted(messageId, content);
+            return pauseForLimitContinuation({
+              store: this.deps.store,
+              eventWriter: this.deps.eventWriter,
+              run: currentRun,
+              kind: "tool_executions",
+              current: toolExecCount,
+              limit: limits.maxToolExecutions,
+              message: `Tool execution limit reached (${toolExecCount}/${limits.maxToolExecutions})`,
+            });
+          }
+          if (shouldWarnAtLimit("tool_executions", toolExecCount, limits.maxToolExecutions, runEvents)) {
+            writeLimitWarning({
+              eventWriter: this.deps.eventWriter,
+              run: currentRun,
+              kind: "tool_executions",
+              current: toolExecCount,
+              limit: limits.maxToolExecutions,
+              message: `Approaching tool execution limit (${toolExecCount}/${limits.maxToolExecutions})`,
+            });
+          }
+
+          const repeatState = repeatToolCallState(runEvents, event.name, event.input);
+          if (repeatState === "warn" || repeatState === "pause") {
+            writeLimitWarning({
+              eventWriter: this.deps.eventWriter,
+              run: currentRun,
+              kind: "repeat_tool_call",
+              current: 0,
+              limit: 0,
+              message: `Repeated tool call: ${event.name}`,
+            });
+          }
+          if (repeatState === "pause") {
+            loop.emitMessageCompleted(messageId, content);
+            return pauseForLimitContinuation({
+              store: this.deps.store,
+              eventWriter: this.deps.eventWriter,
+              run: currentRun,
+              kind: "repeat_tool_call",
+              current: 0,
+              limit: 0,
+              message: `Repeated tool call paused: ${event.name}`,
+            });
+          }
+
           sawToolCall = true;
           const call = await loop.executeToolCall({
             id: event.id,
