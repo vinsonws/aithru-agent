@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AlertTriangle, ArrowDown, ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, ArrowDown, ChevronDown, ChevronRight, Eye, FileText, Loader2 } from "lucide-react";
 import { Markdown } from "@/components/Markdown";
 import { cn, relativeTime } from "@/lib/utils";
 import { useHost } from "@/lib/host/HostProvider";
@@ -20,11 +20,11 @@ import { buildMessageActions, buildEditAndRerunPrompt } from "./messageActions";
 import { MessageActions } from "./MessageActionsComponent";
 
 type AssistantProcessItem = Extract<ChatTimelineItem, { kind: "assistantProcess" }>;
+type DraftGenerationItem = Extract<ChatTimelineItem, { kind: "draftGeneration" }>;
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 const CHAT_RAIL_CLASSNAME = "mx-auto w-full max-w-[46rem] px-4 sm:px-6";
 const ASSISTANT_GUIDE_CLASSNAME = "border-l border-border/70 pl-4";
-const TERMINAL_RUN_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 function LoadingDots() {
   return (
@@ -129,11 +129,13 @@ function AssistantProcess({
     (step) => step.kind === "reasoning" && step.content.trim().length > 0,
   );
   const toolCount = item.steps.filter((step) => step.kind === "tool").length;
+  const processActive = item.phase === "running";
   const summary = buildProcessSummary(item.state, {
+    active: processActive,
     hasThinkingContent,
     toolCount,
     startedAt: item.startedAt,
-    completedAt: item.completedAt,
+    endedAt: item.endedAt,
     t,
   });
 
@@ -164,11 +166,10 @@ function AssistantProcess({
           ) : (
             <span className="h-3.5 w-3.5" />
           )}
+          {processActive && (
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+          )}
           <span>{summary}</span>
-          {!hasDetails &&
-            (item.state.status === "running" || item.state.status === "queued") && (
-              <LoadingDots />
-            )}
         </button>
 
         {open && hasDetails && (
@@ -201,11 +202,61 @@ function shouldAutoOpenAssistantProcess(item: AssistantProcessItem): boolean {
   const hasAssistantOutput = item.state.messages.some(
     (message) => message.role === "assistant" && message.content.trim().length > 0,
   );
-  return hasReasoningContent && !isTerminalState(item.state) && !hasAssistantOutput;
+  return hasReasoningContent && item.phase !== "completed" && !hasAssistantOutput;
 }
 
-function isTerminalState(state: RunStreamState): boolean {
-  return TERMINAL_RUN_STATUSES.has(state.status);
+function DraftGenerationCard({
+  item,
+  onPreviewDraft,
+}: {
+  item: DraftGenerationItem;
+  onPreviewDraft?: (item: DraftGenerationItem) => void;
+}) {
+  const { t } = useTranslation(["chat"]);
+  const active = item.draft.status === "streaming";
+
+  return (
+    <div className="py-2">
+      <div className={ASSISTANT_GUIDE_CLASSNAME}>
+        <div className="rounded-md border border-border/70 bg-background px-3 py-2 text-sm shadow-sm">
+          <div className="flex min-w-0 items-center gap-2">
+            {active ? (
+              <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+            ) : (
+              <FileText aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium text-foreground">
+                {active
+                  ? t("chat:draft.generating", "Generating draft")
+                  : `${t("chat:draft.generated", "Draft generated")} (${t("chat:draft.fileGenerated", "file generated")})`}
+              </div>
+              <div className="truncate text-xs text-muted-foreground">
+                {item.draft.name} · {formatDraftLength(item.draft.content, t)}
+              </div>
+            </div>
+            {onPreviewDraft && active && (
+              <button
+                type="button"
+                onClick={() => onPreviewDraft(item)}
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+              >
+                <Eye aria-hidden="true" className="h-3.5 w-3.5" />
+                <span>{t("chat:draft.preview", "Preview")}</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatDraftLength(content: string, t: Translate): string {
+  return t("chat:draft.characters", {
+    count: content.length,
+    defaultValue: "{{count}} characters",
+  });
 }
 
 function RunCompletionFooter({
@@ -262,16 +313,18 @@ function RunCompletionFooter({
 function buildProcessSummary(
   state: RunStreamState,
   {
+    active,
     hasThinkingContent,
     toolCount,
     startedAt,
-    completedAt,
+    endedAt,
     t,
   }: {
+    active: boolean;
     hasThinkingContent: boolean;
     toolCount: number;
     startedAt?: string;
-    completedAt?: string;
+    endedAt?: string;
     t: Translate;
   },
 ): string {
@@ -279,24 +332,43 @@ function buildProcessSummary(
   const duration = processDurationLabel(
     {
       startedAt: startedAt ?? state.modelStartedAt,
-      completedAt: completedAt ?? (startedAt ? undefined : state.modelCompletedAt ?? state.runCompletedAt),
+      completedAt: endedAt,
     },
     t,
   );
   if (duration) {
     parts.push(
-      hasThinkingContent
-        ? t("chat:process.thoughtFor", { duration })
-        : t("chat:process.processedFor", { duration }),
+      active
+        ? hasThinkingContent
+          ? t("chat:process.thinkingFor", {
+              duration,
+              defaultValue: "Thinking for {{duration}}",
+            })
+          : t("chat:process.processingFor", {
+              duration,
+              defaultValue: "Processing for {{duration}}",
+            })
+        : hasThinkingContent
+          ? t("chat:process.thoughtFor", { duration })
+          : t("chat:process.processedFor", { duration }),
     );
   } else {
-    parts.push(t("chat:thinking"));
+    parts.push(
+      active && !hasThinkingContent
+        ? t("chat:process.processing", { defaultValue: "Processing" })
+        : t("chat:thinking"),
+    );
   }
   if (toolCount > 0) {
     parts.push(
-      t("chat:process.usedTools", {
-        count: toolCount,
-      }),
+      active
+        ? t("chat:process.usingTools", {
+            count: toolCount,
+            defaultValue: "Using {{count}} tools",
+          })
+        : t("chat:process.usedTools", {
+            count: toolCount,
+          }),
     );
   }
   return parts.join(" · ");
@@ -389,6 +461,14 @@ export function ChatPanel({
     }
   }, [onPreviewFile, state.presentations]);
 
+  const previewDraft = React.useCallback(
+    (item: DraftGenerationItem) => {
+      if (item.draft.status !== "streaming") return;
+      onPreviewFile?.(item.draft.id);
+    },
+    [onPreviewFile],
+  );
+
   const running = state.status === "running" || state.status === "queued";
   const failed = state.status === "failed";
   const hasProcessItem = timeline.some((item) => item.kind === "assistantProcess");
@@ -420,6 +500,15 @@ export function ChatPanel({
             }
             if (item.kind === "assistantProcess") {
               return <AssistantProcess key={item.id} item={item} />;
+            }
+            if (item.kind === "draftGeneration") {
+              return (
+                <DraftGenerationCard
+                  key={item.id}
+                  item={item}
+                  onPreviewDraft={onPreviewFile ? previewDraft : undefined}
+                />
+              );
             }
             if (item.kind === "presentation") {
               return (

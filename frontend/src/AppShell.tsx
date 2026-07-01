@@ -68,16 +68,6 @@ function clampRightPanelWidth(width: number): number {
   return Math.min(MAX_RIGHT_PANEL_WIDTH, Math.max(MIN_RIGHT_PANEL_WIDTH, width));
 }
 
-function nextDraftToAutoOpen(
-  activeRunId: string | null,
-  draftWorkspaceFiles: Array<{ id: string; content: string }>,
-  handledRunIds: Set<string>,
-): { id: string; content: string } | null {
-  if (!activeRunId) return null;
-  if (handledRunIds.has(activeRunId)) return null;
-  return draftWorkspaceFiles.find((file) => file.content.length > 0) ?? null;
-}
-
 function RouteContent({
   selectedRun,
   onSelectedRunChange,
@@ -145,7 +135,8 @@ function RouteContent({
 
   const { state: streamState } = useRunStream(activeRunId);
   const draftWorkspaceFiles = React.useMemo(
-    () => buildDraftWorkspaceFiles(streamState.toolInputDrafts ?? []),
+    () => buildDraftWorkspaceFiles(streamState.toolInputDrafts ?? [])
+      .filter((draft) => draft.status === "streaming"),
     [streamState.toolInputDrafts],
   );
   const presentationHints = React.useMemo<WorkspaceFilePresentationHint[]>(
@@ -157,7 +148,6 @@ function RouteContent({
       }),
     [streamState.presentations],
   );
-  const handledDraftAutoOpenRunIdsRef = React.useRef<Set<string>>(new Set());
 
   const badges = buildRunCompanionBadges(streamState);
 
@@ -171,18 +161,6 @@ function RouteContent({
     onActiveFileIdChange(fileId);
     onRightPanelChange("preview");
   }, [onActiveFileIdChange, onOpenFileIdsChange, onRightPanelChange]);
-
-  React.useEffect(() => {
-    const draft = nextDraftToAutoOpen(
-      activeRunId,
-      draftWorkspaceFiles,
-      handledDraftAutoOpenRunIdsRef.current,
-    );
-    if (!draft) return;
-    if (!activeRunId) return;
-    handledDraftAutoOpenRunIdsRef.current.add(activeRunId);
-    handlePreviewFile(draft.id);
-  }, [activeRunId, draftWorkspaceFiles, handlePreviewFile]);
 
   const rightPanelContent = activeRunId && rightPanel ? (
     <>

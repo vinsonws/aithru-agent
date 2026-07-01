@@ -30,8 +30,13 @@
   "thinkingPrepared": "Prepared the reply",
   "thinkingPreparing": "Preparing the reply",
   "process": {
+    "thinkingFor": "Thinking for {{duration}}",
+    "processingFor": "Processing for {{duration}}",
+    "processing": "Processing",
     "thoughtFor": "Thought for {{duration}}",
     "processedFor": "Processed for {{duration}}",
+    "usingTools": "Using {{count}} tool",
+    "usingTools_plural": "Using {{count}} tools",
     "usedTools": "Used {{count}} tool",
     "usedTools_plural": "Used {{count}} tools",
     "toolLabel": "Tool",
@@ -41,6 +46,15 @@
     "toolsUsed": "{{count}} tool",
     "toolsUsed_plural": "{{count}} tools",
     "tokens": "{{value}} tokens"
+  },
+  "draft": {
+    "generating": "Generating draft",
+    "generated": "Draft generated",
+    "fileGenerated": "file generated",
+    "previewing": "Previewing temporary draft",
+    "preview": "Preview",
+    "characters": "{{count}} character",
+    "characters_plural": "{{count}} characters"
   },
   "subagentDelegated": "Subagent delegated",
   "runCancelled": "Run cancelled",

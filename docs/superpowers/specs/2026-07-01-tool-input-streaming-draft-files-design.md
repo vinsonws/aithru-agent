@@ -231,6 +231,10 @@ Extraction rules:
 - Update draft content whenever `content` grows.
 - If the final tool result fails or is denied, mark the draft unavailable.
 - If the real workspace file appears, the real file replaces the draft.
+- Draft previews are only openable while the tool input is still streaming.
+  When generation reaches a non-streaming state, the conversation keeps a
+  disabled status card that says the file has been generated, and the UI should
+  rely on the real tool/presentation/file card that follows.
 
 The derived draft file shape:
 
@@ -260,12 +264,27 @@ Rules:
   the same path.
 - Draft files use the same preview kind inference as real files.
 - Text, markdown, JSON, and code drafts render directly from `content`.
-- HTML drafts render through `iframe srcDoc` instead of a workspace content URL.
+- HTML drafts follow the frontend viewer policy. The current policy keeps draft
+  HTML source-only instead of rendering it in an iframe.
 - Image and PDF drafts are unsupported in the first implementation because the
   streamed content is plain tool input text.
+- The right preview panel may locally reveal draft text in small chunks for a
+  typing effect. This is presentation-only and does not change stream event
+  ordering or viewer policy.
+- Draft previews use a distinct temporary-preview surface, while the underlying
+  file viewer policy stays the same as real file previews.
+- Revealed draft text is cached by draft file id during the app session so
+  revisiting a thread does not replay the draft from the beginning.
+- Draft preview scroll containers stay pinned to the latest revealed content.
 
-`AppShell` continues to open files by id. The existing
-`onPreviewFile("ws-/path")` flow does not need a new artifact id space.
+Conversation timeline draft cards own first auto-open for streaming draft
+previews. The card must render from the stream timeline before it calls
+`onPreviewFile("ws-/path")`, so the user sees the draft-generation event before
+the right panel opens. Completed/proposed drafts remain visible as disabled
+status cards; the next real tool, presentation, or file card owns subsequent
+opening. `AppShell` continues to open files by id when asked, but does not
+independently auto-open drafts or expose non-streaming drafts to the right
+panel. The existing `ws-/path` id space does not need a new artifact id space.
 
 ## Approval And Execution Semantics
 
@@ -338,8 +357,20 @@ Frontend:
 - Reducer accumulates `tool.input_delta` into `toolInputDrafts`.
 - `tool.proposed` binds drafts to final tool calls.
 - Draft file projection creates a `ws-${path}` view for `workspace.write_file`.
+- Conversation timeline shows a draft-generation card after preceding reasoning
+  and before the final tool proposal.
+- Preceding reasoning groups close before the draft card appears, so the UI does
+  not imply that reasoning and draft generation are running in parallel.
+- Draft-generation cards own the first preview open while input is streaming,
+  preventing AppShell from opening a draft before the conversation card is
+  visible.
+- Proposed/completed drafts remain in the conversation as disabled status
+  cards but are omitted from AppShell draft preview inputs.
 - Partial JSON extraction handles a growing `content` string.
 - Preview panel renders draft markdown/code/text/HTML.
+- Preview panel locally reveals draft text incrementally while preserving
+  existing viewer policy, resumes from cached reveal text on remount, and keeps
+  the preview scrolled to the latest content.
 - Real workspace files replace drafts with the same path.
 
 Integration:

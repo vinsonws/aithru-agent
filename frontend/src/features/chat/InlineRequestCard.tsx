@@ -37,6 +37,7 @@ export function InlineRequestCard({ request }: { request: InlineRequest }) {
     return (
       <div className="rounded-md border border-warning/40 bg-warning/5 p-3">
         <div className="mb-2 flex items-center gap-2 text-sm font-medium text-warning">
+          <span aria-hidden="true" className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning" />
           <MessageCircleQuestion className="h-4 w-4" />
           {t("inputRequestTitle")}
         </div>
@@ -67,6 +68,7 @@ export function InlineRequestCard({ request }: { request: InlineRequest }) {
   return (
     <div className="rounded-md border border-warning/40 bg-warning/5 p-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium text-warning">
+        <span aria-hidden="true" className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning" />
         {request.kind === "external_approval" ? (
           <ExternalLink className="h-4 w-4" />
         ) : (

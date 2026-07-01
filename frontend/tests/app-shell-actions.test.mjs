@@ -1,26 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import ts from "typescript";
 
 const appShellPath = new URL("../src/AppShell.tsx", import.meta.url);
 const conversationPagePath = new URL("../src/features/conversation/ConversationPage.tsx", import.meta.url);
 const conversationHeaderPath = new URL("../src/features/conversation/ConversationHeader.tsx", import.meta.url);
 const sidebarPath = new URL("../src/features/sidebar/Sidebar.tsx", import.meta.url);
 const rightRailPath = new URL("../src/features/sidebar/RightRail.tsx", import.meta.url);
-
-function appShellFunction(source, name) {
-  const output = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.ES2022,
-      target: ts.ScriptTarget.ES2022,
-      jsx: ts.JsxEmit.Preserve,
-    },
-  }).outputText;
-  const match = output.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
-  assert.ok(match, `Expected transpiled AppShell to include ${name}`);
-  return new Function(`${match[0]}; return ${name};`)();
-}
 
 test("manager dialogs wrap both sidebar and conversation routes", async () => {
   const source = await readFile(appShellPath, "utf8");
@@ -157,64 +143,14 @@ test("right panel is stored as session-only React state in AppShell", async () =
   assert.match(source, /onRightPanelChange=\{setRightPanel\}/);
 });
 
-test("app shell derives draft workspace files and auto-opens them once", async () => {
+test("app shell derives draft workspace files without auto-opening preview", async () => {
   const source = await readFile(appShellPath, "utf8");
 
   assert.match(source, /buildDraftWorkspaceFiles/);
   assert.match(source, /draftWorkspaceFiles/);
-  assert.match(source, /handledDraftAutoOpenRunIdsRef/);
-  assert.match(source, /nextDraftToAutoOpen\(/);
-  assert.match(source, /handledDraftAutoOpenRunIdsRef\.current/);
-  assert.match(source, /handlePreviewFile\(draft\.id\)/);
+  assert.match(source, /draft\.status === "streaming"/);
   assert.match(source, /draftWorkspaceFiles=\{draftWorkspaceFiles\}/);
-});
-
-test("app shell selects only the first non-empty draft for an unhandled run", async () => {
-  const source = await readFile(appShellPath, "utf8");
-  const nextDraftToAutoOpen = appShellFunction(source, "nextDraftToAutoOpen");
-
-  assert.equal(nextDraftToAutoOpen(null, [], new Set()), null);
-  assert.equal(
-    nextDraftToAutoOpen(
-      "run-1",
-      [
-        { id: "ws-empty", content: "" },
-        { id: "ws-first", content: "first" },
-        { id: "ws-second", content: "second" },
-      ],
-      new Set(),
-    )?.id,
-    "ws-first",
-  );
-});
-
-test("app shell ignores later drafts after a run has already auto-opened one", async () => {
-  const source = await readFile(appShellPath, "utf8");
-  const nextDraftToAutoOpen = appShellFunction(source, "nextDraftToAutoOpen");
-
-  assert.equal(
-    nextDraftToAutoOpen(
-      "run-1",
-      [
-        { id: "ws-first", content: "first" },
-        { id: "ws-second", content: "second" },
-      ],
-      new Set(["run-1"]),
-    ),
-    null,
-  );
-});
-
-test("app shell lets a different run auto-open the same draft path once", async () => {
-  const source = await readFile(appShellPath, "utf8");
-  const nextDraftToAutoOpen = appShellFunction(source, "nextDraftToAutoOpen");
-
-  assert.equal(
-    nextDraftToAutoOpen(
-      "run-2",
-      [{ id: "ws-outputs/report.html", content: "second run" }],
-      new Set(["run-1"]),
-    )?.id,
-    "ws-outputs/report.html",
-  );
+  assert.doesNotMatch(source, /handledDraftAutoOpenRunIdsRef/);
+  assert.doesNotMatch(source, /nextDraftToAutoOpen/);
+  assert.doesNotMatch(source, /handlePreviewFile\(draft\.id\)/);
 });

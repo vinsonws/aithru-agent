@@ -7,6 +7,10 @@ import type {
   ToolCallEntry,
 } from "./useRunStream";
 import type { AgentMessage } from "../../lib/api/types";
+import {
+  buildDraftWorkspaceFiles,
+  type DraftWorkspaceFileInput,
+} from "../inspection/runFilesView";
 
 export type AssistantProcessStep =
   | {
@@ -23,6 +27,8 @@ export type AssistantProcessStep =
       tool: ToolCallEntry;
     };
 
+export type AssistantProcessPhase = "running" | "waiting" | "completed";
+
 export type ChatTimelineItem =
   | {
       kind: "message";
@@ -38,8 +44,16 @@ export type ChatTimelineItem =
       sequence: number;
       state: RunStreamState;
       steps: AssistantProcessStep[];
+      phase: AssistantProcessPhase;
       startedAt?: string;
       completedAt?: string;
+      endedAt?: string;
+    }
+  | {
+      kind: "draftGeneration";
+      id: string;
+      sequence: number;
+      draft: DraftWorkspaceFileInput;
     }
   | { kind: "inlineRequest"; id: string; sequence: number; request: InlineRequest }
   | { kind: "presentation"; id: string; sequence: number; presentation: PresentationEntry }
@@ -50,9 +64,10 @@ const FALLBACK_SEQUENCE = Number.MAX_SAFE_INTEGER / 2;
 const KIND_ORDER: Record<ChatTimelineItem["kind"], number> = {
   message: 0,
   assistantProcess: 1,
-  presentation: 2,
-  inlineRequest: 3,
-  completion: 4,
+  draftGeneration: 2,
+  presentation: 3,
+  inlineRequest: 4,
+  completion: 5,
 };
 
 export function buildChatTimeline(
@@ -288,6 +303,7 @@ function assistantProcessSequence(
   const candidates = [
     state.modelStartedSequence,
     ...reasoningSegments.map((segment) => segment.sequence ?? segment.lastSequence),
+    ...(state.toolInputDrafts ?? []).map((draft) => draft.sequence ?? draft.lastSequence),
     ...state.toolCalls.map((tool) => tool.sequence ?? tool.lastSequence),
     ...state.todos.map((todo) => todo.sequence),
   ].filter((value): value is number => typeof value === "number");
@@ -385,14 +401,40 @@ function assistantProcessSteps(
   return steps.sort((a, b) => a.sequence - b.sequence || (a.kind === "reasoning" ? -1 : 1));
 }
 
-function assistantProcessTiming(steps: AssistantProcessStep[]): {
+function assistantProcessLifecycle(
+  state: RunStreamState,
+  steps: AssistantProcessStep[],
+  options: { openEnded?: boolean } = {},
+): {
+  phase: AssistantProcessPhase;
   startedAt?: string;
   completedAt?: string;
+  endedAt?: string;
 } {
+  const completedAtValues = steps.map(stepCompletedAt);
+  const completedAt = completedAtValues.every(Boolean) ? latestTimestamp(completedAtValues) : undefined;
+  const openEnded = options.openEnded ?? true;
+  const observedAt = latestTimestamp(steps.map(stepObservedAt));
+  const phase = openEnded ? assistantProcessPhase(state.status, completedAt) : "completed";
   return {
+    phase,
     startedAt: earliestTimestamp(steps.map(stepStartedAt)),
-    completedAt: latestTimestamp(steps.map(stepCompletedAt)),
+    completedAt,
+    endedAt:
+      phase === "running"
+        ? undefined
+        : completedAt ?? (openEnded ? state.modelCompletedAt ?? state.runCompletedAt : undefined) ?? observedAt,
   };
+}
+
+function assistantProcessPhase(
+  status: RunStreamState["status"],
+  completedAt?: string,
+): AssistantProcessPhase {
+  if (completedAt) return "completed";
+  if (status === "running" || status === "queued") return "running";
+  if (status.startsWith("waiting_")) return "waiting";
+  return "completed";
 }
 
 function stepStartedAt(step: AssistantProcessStep): string | undefined {
@@ -408,6 +450,13 @@ function stepCompletedAt(step: AssistantProcessStep): string | undefined {
     return step.tool.updatedAt;
   }
   return undefined;
+}
+
+function stepObservedAt(step: AssistantProcessStep): string | undefined {
+  if (step.kind === "reasoning") {
+    return stepCompletedAt(step) ?? step.segment.updatedAt ?? step.segment.createdAt;
+  }
+  return stepCompletedAt(step) ?? step.tool.updatedAt ?? step.tool.createdAt;
 }
 
 function earliestTimestamp(values: Array<string | undefined>): string | undefined {
@@ -459,6 +508,7 @@ function appendRunTimelineItems(
   baseSequence: number,
 ): void {
   const processSteps = assistantProcessSteps(state);
+  const draftWorkspaceFiles = buildDraftWorkspaceFiles(state.toolInputDrafts ?? []);
   const outputSegments = (state.assistantOutputSegments ?? []).filter(
     (message) => message.content.trim().length > 0 || message.streaming,
   );
@@ -472,6 +522,11 @@ function appendRunTimelineItems(
 
   const units = [
     ...processSteps.map((step) => ({ kind: "process" as const, sequence: step.sequence, step })),
+    ...draftWorkspaceFiles.map((draft) => ({
+      kind: "draft" as const,
+      sequence: draft.sequence ?? draft.lastSequence ?? FALLBACK_SEQUENCE,
+      draft,
+    })),
     ...outputSegments.map((message) => ({
       kind: "output" as const,
       sequence: messageDisplaySequence(message),
@@ -492,7 +547,7 @@ function appendRunTimelineItems(
       sequence: baseSequence,
       state,
       steps: processSteps,
-      ...assistantProcessTiming(processSteps),
+      ...assistantProcessLifecycle(state, processSteps, { openEnded: true }),
     });
     return;
   }
@@ -501,7 +556,7 @@ function appendRunTimelineItems(
   let processGroup: AssistantProcessStep[] = [];
   let processGroupCount = 0;
   const normalize = (sequence: number) => baseSequence + Math.max(0, sequence - firstSequence) / 1_000;
-  const flushProcessGroup = () => {
+  const flushProcessGroup = (openEnded = false) => {
     if (processGroup.length === 0) return;
     const firstStep = processGroup[0];
     items.push({
@@ -510,7 +565,7 @@ function appendRunTimelineItems(
       sequence: normalize(firstStep.sequence),
       state,
       steps: processGroup,
-      ...assistantProcessTiming(processGroup),
+      ...assistantProcessLifecycle(state, processGroup, { openEnded }),
     });
     processGroupCount += 1;
     processGroup = [];
@@ -531,6 +586,16 @@ function appendRunTimelineItems(
       });
       continue;
     }
+    if (unit.kind === "draft") {
+      flushProcessGroup();
+      items.push({
+        kind: "draftGeneration",
+        id: `draft:${runId ?? baseId}:${unit.draft.sourceInputStreamId}`,
+        sequence: normalize(unit.sequence),
+        draft: unit.draft,
+      });
+      continue;
+    }
 
     flushProcessGroup();
     const sourceMessageId = outputSegmentSourceMessageId(unit.message);
@@ -546,7 +611,7 @@ function appendRunTimelineItems(
     });
   }
 
-  flushProcessGroup();
+  flushProcessGroup(true);
 }
 
 function latestOutputSegmentsByMessageId(outputSegments: ChatMessage[]): Map<string, ChatMessage> {

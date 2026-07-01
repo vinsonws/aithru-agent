@@ -30,8 +30,13 @@
   "thinkingPrepared": "已整理回复",
   "thinkingPreparing": "正在整理回复",
   "process": {
+    "thinkingFor": "正在思考 {{duration}}",
+    "processingFor": "正在处理 {{duration}}",
+    "processing": "处理中",
     "thoughtFor": "已思考 {{duration}}",
     "processedFor": "已处理 {{duration}}",
+    "usingTools": "正在调用 {{count}} 个工具",
+    "usingTools_plural": "正在调用 {{count}} 个工具",
     "usedTools": "调用了 {{count}} 个工具",
     "usedTools_plural": "调用了 {{count}} 个工具",
     "toolLabel": "工具",
@@ -41,6 +46,15 @@
     "toolsUsed": "{{count}} 个工具",
     "toolsUsed_plural": "{{count}} 个工具",
     "tokens": "{{value}} tokens"
+  },
+  "draft": {
+    "generating": "正在生成草稿",
+    "generated": "草稿已生成",
+    "fileGenerated": "文件已生成",
+    "previewing": "正在预览临时草稿",
+    "preview": "预览",
+    "characters": "{{count}} 个字符",
+    "characters_plural": "{{count}} 个字符"
   },
   "subagentDelegated": "已委托子代理",
   "runCancelled": "运行已取消",

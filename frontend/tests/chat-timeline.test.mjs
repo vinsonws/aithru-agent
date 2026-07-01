@@ -20,6 +20,7 @@ function baseState(patch = {}) {
     status: "completed",
     messages: [],
     toolCalls: [],
+    toolInputDrafts: [],
     reasoningSegments: [],
     assistantOutputSegments: [],
     todos: [],
@@ -238,20 +239,208 @@ test("buildChatTimeline interleaves assistant output segments with reasoning and
   const processItems = timeline.filter((item) => item.kind === "assistantProcess");
   assert.deepEqual(
     processItems.map((item) => ({
+      phase: item.phase,
       startedAt: item.startedAt,
       completedAt: item.completedAt,
+      endedAt: item.endedAt,
     })),
     [
       {
+        phase: "completed",
         startedAt: "2026-06-23T00:00:11.000Z",
         completedAt: "2026-06-23T00:00:12.000Z",
+        endedAt: "2026-06-23T00:00:12.000Z",
       },
       {
+        phase: "completed",
         startedAt: "2026-06-23T00:00:14.000Z",
         completedAt: "2026-06-23T00:00:17.000Z",
+        endedAt: "2026-06-23T00:00:17.000Z",
       },
     ],
   );
+});
+
+test("buildChatTimeline leaves active mixed process timing incomplete", async () => {
+  const { buildChatTimeline } = await loadChatTimeline();
+  const timeline = buildChatTimeline(
+    baseState({
+      status: "running",
+      toolCalls: [
+        {
+          id: "tool_1",
+          toolName: "workspace.read_file",
+          status: "completed",
+          sequence: 10,
+          lastSequence: 11,
+          createdAt: "2026-06-23T00:00:10.000Z",
+          updatedAt: "2026-06-23T00:00:11.000Z",
+        },
+      ],
+      reasoningSegments: [
+        {
+          id: "think_1",
+          content: "继续分析。",
+          streaming: true,
+          sequence: 12,
+          lastSequence: 13,
+          createdAt: "2026-06-23T00:00:12.000Z",
+          updatedAt: "2026-06-23T00:00:13.000Z",
+        },
+      ],
+    }),
+  );
+
+  const process = timeline.find((item) => item.kind === "assistantProcess");
+  assert.equal(process?.kind, "assistantProcess");
+  assert.equal(process.phase, "running");
+  assert.equal(process.completedAt, undefined);
+  assert.equal(process.endedAt, undefined);
+});
+
+test("buildChatTimeline gives terminal incomplete process a stable endedAt", async () => {
+  const { buildChatTimeline } = await loadChatTimeline();
+  const timeline = buildChatTimeline(
+    baseState({
+      status: "completed",
+      modelCompletedAt: "2026-06-23T00:00:20.000Z",
+      reasoningSegments: [
+        {
+          id: "think_1",
+          content: "最后整理。",
+          streaming: true,
+          sequence: 12,
+          lastSequence: 13,
+          createdAt: "2026-06-23T00:00:12.000Z",
+          updatedAt: "2026-06-23T00:00:13.000Z",
+        },
+      ],
+    }),
+  );
+
+  const process = timeline.find((item) => item.kind === "assistantProcess");
+  assert.equal(process?.kind, "assistantProcess");
+  assert.equal(process.phase, "completed");
+  assert.equal(process.completedAt, undefined);
+  assert.equal(process.endedAt, "2026-06-23T00:00:20.000Z");
+});
+
+test("buildChatTimeline places workspace draft cards after reasoning before tool proposal", async () => {
+  const { buildChatTimeline } = await loadChatTimeline();
+  const timeline = buildChatTimeline(
+    baseState({
+      status: "running",
+      modelStartedSequence: 10,
+      messages: [{ id: "msg_user", role: "user", content: "创建文件", sequence: 2 }],
+      reasoningSegments: [
+        {
+          id: "think_1",
+          content: "准备写草稿。",
+          streaming: true,
+          sequence: 11,
+          lastSequence: 12,
+          createdAt: "2026-06-23T00:00:11.000Z",
+          updatedAt: "2026-06-23T00:00:12.000Z",
+        },
+      ],
+      toolInputDrafts: [
+        {
+          inputStreamId: "chat:0",
+          toolCallId: "call_1",
+          toolName: "workspace.write_file",
+          inputText: '{"path":"/outputs/live.md","content":"# He',
+          status: "streaming",
+          sequence: 13,
+          lastSequence: 14,
+        },
+      ],
+      toolCalls: [
+        {
+          id: "call_1",
+          toolName: "workspace.write_file",
+          status: "proposed",
+          sequence: 20,
+          lastSequence: 20,
+        },
+      ],
+    }),
+  );
+
+  const firstProcess = timeline.find((item) => item.kind === "assistantProcess");
+  assert.equal(firstProcess?.kind, "assistantProcess");
+  assert.equal(firstProcess.phase, "completed");
+  assert.equal(firstProcess.endedAt, "2026-06-23T00:00:12.000Z");
+
+  assert.deepEqual(
+    timeline.map((item) => {
+      if (item.kind === "message") return `message:${item.message.content}`;
+      if (item.kind === "assistantProcess") {
+        return `process:${item.steps.map((step) => step.kind === "tool" ? step.tool.toolName : step.content).join("|")}`;
+      }
+      if (item.kind === "draftGeneration") {
+        return `draft:${item.draft.path}:${item.draft.content}`;
+      }
+      return item.kind;
+    }),
+    [
+      "message:创建文件",
+      "process:准备写草稿。",
+      "draft:/outputs/live.md:# He",
+      "process:workspace.write_file",
+    ],
+  );
+});
+
+test("buildChatTimeline keeps completed workspace draft cards before the real file card", async () => {
+  const { buildChatTimeline } = await loadChatTimeline();
+  const timeline = buildChatTimeline(
+    baseState({
+      status: "running",
+      modelStartedSequence: 10,
+      messages: [{ id: "msg_user", role: "user", content: "创建文件", sequence: 2 }],
+      toolInputDrafts: [
+        {
+          inputStreamId: "chat:0",
+          toolCallId: "call_1",
+          toolName: "workspace.write_file",
+          inputText: '{"path":"/outputs/live.md","content":"# Hello"}',
+          status: "completed",
+          sequence: 13,
+          lastSequence: 14,
+        },
+      ],
+      toolCalls: [
+        {
+          id: "call_1",
+          toolName: "workspace.write_file",
+          status: "completed",
+          sequence: 20,
+          lastSequence: 21,
+        },
+      ],
+      presentations: [
+        {
+          id: "presentation_1",
+          status: "ready",
+          priority: "normal",
+          title: "live.md",
+          resource: { kind: "workspace_file", path: "/outputs/live.md" },
+          surfaces: ["conversation"],
+          preferredView: "markdown",
+          availableViews: ["markdown", "source_text", "download"],
+          sequence: 22,
+          lastSequence: 22,
+        },
+      ],
+    }),
+  );
+
+  assert.deepEqual(
+    timeline.map((item) => item.kind),
+    ["message", "draftGeneration", "assistantProcess", "presentation"],
+  );
+  const draft = timeline.find((item) => item.kind === "draftGeneration");
+  assert.equal(draft?.draft.status, "completed");
 });
 
 test("buildChatTimeline keeps pending inline requests in event order", async () => {

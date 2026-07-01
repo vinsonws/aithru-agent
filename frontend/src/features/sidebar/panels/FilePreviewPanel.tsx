@@ -1,4 +1,4 @@
-
+import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Download, X, EyeOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -41,6 +41,7 @@ export function FilePreviewPanel({
   onClose,
 }: FilePreviewPanelProps) {
   const { t } = useTranslation(["chat", "common"]);
+  const previewScrollRef = React.useRef<HTMLDivElement>(null);
 
   const snapshotQuery = useQuery({
     queryKey: ["runs", runId, "snapshot", "files"],
@@ -74,10 +75,16 @@ export function FilePreviewPanel({
     queryFn: () => readFilePreview(activeFile!, workspaceId),
     enabled: !!activeFile && activeFile.canPreview && activeFile.draftContent === undefined,
   });
+  const revealedDraftContent = useRevealedDraftContent(activeFile);
   const draftPreview =
     activeFile && activeFile.draftContent !== undefined
-      ? previewFromDraftFile(activeFile)
+      ? previewFromDraftFile(activeFile, revealedDraftContent)
       : null;
+
+  React.useEffect(() => {
+    if (!draftPreview || !activeFile?.isDraft || !previewScrollRef.current) return;
+    previewScrollRef.current.scrollTop = previewScrollRef.current.scrollHeight;
+  }, [activeFile?.id, activeFile?.isDraft, draftPreview?.content]);
 
   // Empty state: no files selected
   if (openFileIds.length === 0 || !activeFile) {
@@ -173,8 +180,18 @@ export function FilePreviewPanel({
       </div>
 
       {/* Preview content */}
-      <div className="min-h-0 flex-1 overflow-auto p-3">
-        {draftPreview && <PreviewBody file={activeFile} preview={draftPreview} />}
+      <div ref={previewScrollRef} className="min-h-0 flex-1 overflow-auto p-3">
+        {draftPreview && activeFile?.isDraft && (
+          <div className="rounded-md border border-dashed border-primary/40 bg-primary/5">
+            <div className="border-b border-primary/20 px-3 py-2 text-xs font-medium text-primary">
+              {t("chat:draft.previewing", "Previewing draft")}
+            </div>
+            <div className="p-3">
+              <PreviewBody file={activeFile} preview={draftPreview} />
+            </div>
+          </div>
+        )}
+        {draftPreview && !activeFile?.isDraft && <PreviewBody file={activeFile} preview={draftPreview} />}
         {!draftPreview && previewQuery.isLoading && <LoadingState />}
         {!draftPreview && previewQuery.error && (
           <ErrorState error={previewQuery.error} onRetry={() => previewQuery.refetch()} />
@@ -203,12 +220,81 @@ interface FilePreviewData {
   url?: string;
 }
 
-function previewFromDraftFile(file: RunFileView): FilePreviewData | null {
+const DRAFT_REVEAL_CHARS_PER_TICK = 8;
+const DRAFT_REVEAL_INTERVAL_MS = 16;
+const draftRevealTextCache = new Map<string, string>();
+
+function useRevealedDraftContent(file: RunFileView | null): string | undefined {
+  const fullText = file?.draftContent;
+  const key = fullText === undefined ? "" : file?.id ?? "";
+  const canReveal = file?.draftStatus === "streaming";
+  const [state, setState] = React.useState({ key: "", text: "" });
+
+  React.useEffect(() => {
+    if (fullText === undefined || !key) {
+      setState((current) => (current.key || current.text ? { key: "", text: "" } : current));
+      return;
+    }
+    if (!canReveal) {
+      draftRevealTextCache.set(key, fullText);
+      setState((current) => (
+        current.key === key && current.text === fullText ? current : { key, text: fullText }
+      ));
+      return;
+    }
+    setState((current) => {
+      if (current.key !== key || !fullText.startsWith(current.text)) {
+        const cachedText = draftRevealTextCache.get(key) ?? "";
+        return {
+          key,
+          text: fullText.startsWith(cachedText) ? cachedText : "",
+        };
+      }
+      if (current.text.length > fullText.length) {
+        draftRevealTextCache.set(key, fullText);
+        return { key, text: fullText };
+      }
+      return current;
+    });
+  }, [canReveal, fullText, key]);
+
+  React.useEffect(() => {
+    if (!canReveal || fullText === undefined || !key || state.key !== key || state.text.length >= fullText.length) return;
+    const timer = globalThis.setTimeout(() => {
+      setState((current) => {
+        if (current.key !== key) return current;
+        if (!fullText.startsWith(current.text)) {
+          const cachedText = draftRevealTextCache.get(key) ?? "";
+          return {
+            key,
+            text: fullText.startsWith(cachedText) ? cachedText : "",
+          };
+        }
+        const nextText = fullText.slice(
+          0,
+          Math.min(fullText.length, current.text.length + DRAFT_REVEAL_CHARS_PER_TICK),
+        );
+        draftRevealTextCache.set(key, nextText);
+        return {
+          key,
+          text: nextText,
+        };
+      });
+    }, DRAFT_REVEAL_INTERVAL_MS);
+    return () => globalThis.clearTimeout(timer);
+  }, [canReveal, fullText, key, state.key, state.text]);
+
+  if (fullText === undefined) return undefined;
+  if (!canReveal) return fullText;
+  return state.key === key ? state.text : "";
+}
+
+function previewFromDraftFile(file: RunFileView, revealedContent?: string): FilePreviewData | null {
   if (file.draftContent === undefined) return null;
   return {
     viewer: resolveFileViewer({ file }).view,
     mediaType: null,
-    content: file.draftContent,
+    content: revealedContent ?? file.draftContent,
   };
 }
 

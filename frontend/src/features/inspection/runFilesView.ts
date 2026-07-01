@@ -44,6 +44,7 @@ export interface ToolInputDraftInput {
   toolName?: string;
   inputText: string;
   status: "streaming" | "proposed" | "completed" | "failed" | "denied";
+  sequence?: number;
   lastSequence?: number;
 }
 
@@ -55,6 +56,7 @@ export interface DraftWorkspaceFileInput {
   sourceToolCallId?: string;
   sourceInputStreamId: string;
   status: ToolInputDraftInput["status"];
+  sequence?: number;
   lastSequence?: number;
   preferredView?: PreferredFileView;
 }
@@ -145,6 +147,7 @@ export function buildDraftWorkspaceFiles(
       status: draft.status,
       lastSequence: draft.lastSequence,
     };
+    if (draft.sequence !== undefined) file.sequence = draft.sequence;
     if (extracted.preferredView) file.preferredView = extracted.preferredView;
     files.push(file);
   }

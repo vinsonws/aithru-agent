@@ -89,7 +89,7 @@ test("assistant process auto-expands while thinking and auto-collapses when fina
   assert.match(source, /function shouldAutoOpenAssistantProcess/);
   assert.match(source, /hasReasoningContent[\s\S]*reasoningSegments/);
   assert.match(source, /hasAssistantOutput[\s\S]*message\.role === "assistant"/);
-  assert.match(source, /!isTerminalState\(item\.state\)/);
+  assert.match(source, /item\.phase !== "completed"/);
   assert.match(source, /!hasAssistantOutput/);
   assert.match(source, /const \[manualOpen, setManualOpen\] = React\.useState<boolean \| null>\(null\)/);
   assert.match(source, /const open = manualOpen \?\? autoOpen/);
@@ -106,8 +106,50 @@ test("assistant process summary uses per-process timing", async () => {
   const source = await src("features/chat/ChatPanel.tsx");
 
   assert.match(source, /startedAt:\s*item\.startedAt/);
-  assert.match(source, /completedAt:\s*item\.completedAt/);
+  assert.match(source, /endedAt:\s*item\.endedAt/);
   assert.doesNotMatch(source, /processDurationLabel\(state,\s*t\)/);
+});
+
+test("assistant process summary uses lifecycle from the timeline item", async () => {
+  const source = await src("features/chat/ChatPanel.tsx");
+
+  assert.match(source, /const processActive = item\.phase === "running"/);
+  assert.match(source, /active: processActive/);
+  assert.match(source, /endedAt:\s*item\.endedAt/);
+  assert.doesNotMatch(source, /state\.modelCompletedAt \?\? state\.runCompletedAt/);
+});
+
+test("draft generation cards expose manual preview without auto-opening the right panel", async () => {
+  const source = await src("features/chat/ChatPanel.tsx");
+
+  assert.match(source, /type DraftGenerationItem/);
+  assert.match(source, /function DraftGenerationCard/);
+  assert.match(source, /item\.kind === "draftGeneration"/);
+  assert.match(source, /onPreviewFile\?\.\(item\.draft\.id\)/);
+  assert.match(source, /const active = item\.draft\.status === "streaming"/);
+  assert.match(source, /onPreviewDraft && active/);
+  assert.match(source, /chat:draft\.fileGenerated/);
+  assert.doesNotMatch(source, /onAutoPreviewDraft/);
+  assert.doesNotMatch(source, /autoOpenedDraftCardsRef/);
+});
+
+test("active assistant process summary reads as running and shows motion", async () => {
+  const source = await src("features/chat/ChatPanel.tsx");
+
+  assert.match(source, /Loader2/);
+  assert.match(source, /const processActive = item\.phase === "running"/);
+  assert.match(source, /chat:process\.thinkingFor/);
+  assert.match(source, /chat:process\.processingFor/);
+  assert.match(source, /chat:process\.usingTools/);
+  assert.match(source, /animate-spin/);
+  assert.doesNotMatch(source, /!hasDetails\s*&&\s*\(\s*item\.state\.status === "running"/);
+});
+
+test("inline waiting requests pulse to show the run is paused for input", async () => {
+  const source = await src("features/chat/InlineRequestCard.tsx");
+
+  assert.match(source, /animate-pulse/);
+  assert.match(source, /aria-hidden="true"/);
 });
 
 test("assistant output fragments only show message footer on the final fragment", async () => {
