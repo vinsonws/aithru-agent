@@ -48,16 +48,36 @@ function run(id: string, actor_user_id = "user_2"): AgentRun {
   };
 }
 
-async function appWithActor(register: (app: FastifyInstance) => void): Promise<FastifyInstance> {
+type TestActor = typeof actor;
+
+async function appWithActor(register: (app: FastifyInstance) => void, currentActor: TestActor = actor): Promise<FastifyInstance> {
   resetRuntimeForTests();
   await createRuntime();
   const app = Fastify({ logger: false });
   app.addHook("preHandler", async (request) => {
-    (request as any).aithruActor = actor;
+    (request as any).aithruActor = currentActor;
   });
   register(app);
   await app.ready();
   return app;
+}
+
+async function appWithSwitchableActor(register: (app: FastifyInstance) => void, initialActor: TestActor = actor) {
+  resetRuntimeForTests();
+  await createRuntime();
+  let currentActor = initialActor;
+  const app = Fastify({ logger: false });
+  app.addHook("preHandler", async (request) => {
+    (request as any).aithruActor = currentActor;
+  });
+  register(app);
+  await app.ready();
+  return {
+    app,
+    setActor(nextActor: TestActor) {
+      currentActor = nextActor;
+    },
+  };
 }
 
 describe("authenticated route resource access", () => {
@@ -186,6 +206,21 @@ describe("authenticated route resource access", () => {
     expect(write.statusCode).toBe(403);
     expect(remove.statusCode).toBe(403);
     expect(store.readFile("ws_thread_thread_foreign", "/secret.txt")?.content).toBe("private");
+  });
+
+  it("rejects authenticated writes to unbound workspace ids", async () => {
+    app = await appWithActor(registerCompatRoutes);
+    const store = getRuntime().store;
+    store.writeFile("ws_legacy_unbound", "/secret.txt", "private");
+
+    const write = await app.inject({
+      method: "PUT",
+      url: "/api/workspaces/ws_legacy_unbound/files/secret.txt",
+      payload: { content: "changed" },
+    });
+
+    expect(write.statusCode).toBe(403);
+    expect(store.readFile("ws_legacy_unbound", "/secret.txt")?.content).toBe("private");
   });
 
   it("rejects compat document mutations for resources owned by another user in the same org", async () => {
@@ -329,5 +364,112 @@ describe("authenticated route resource access", () => {
     expect(patch.statusCode).toBe(200);
     expect(store.getDocument("skill_registry_entry", "z_own_shared_skill")?.payload).toMatchObject({ enabled: false });
     expect(store.getDocument("skill_registry_entry", "a_foreign_shared_skill")?.payload).toMatchObject({ enabled: true });
+  });
+
+  it("allows same-org users to create same-key owned compat resources independently", async () => {
+    const user2: TestActor = { ...actor, userId: "user_2" };
+    const switchable = await appWithSwitchableActor(registerCompatRoutes);
+    app = switchable.app;
+
+    const firstProfile = await app.inject({
+      method: "POST",
+      url: "/api/model-profiles",
+      payload: { key: "shared-profile", provider: "test", model: "one" },
+    });
+    const firstSkill = await app.inject({
+      method: "POST",
+      url: "/api/skill-registry",
+      payload: { key: "same-skill", name: "One" },
+    });
+    const firstExternal = await app.inject({
+      method: "POST",
+      url: "/api/external-tools/configs",
+      payload: { key: "same-tool", provider_kind: "mcp", name: "One" },
+    });
+
+    switchable.setActor(user2);
+    const secondProfile = await app.inject({
+      method: "POST",
+      url: "/api/model-profiles",
+      payload: { key: "shared-profile", provider: "test", model: "two" },
+    });
+    const secondSkill = await app.inject({
+      method: "POST",
+      url: "/api/skill-registry",
+      payload: { key: "same-skill", name: "Two" },
+    });
+    const secondExternal = await app.inject({
+      method: "POST",
+      url: "/api/external-tools/configs",
+      payload: { key: "same-tool", provider_kind: "mcp", name: "Two" },
+    });
+
+    expect(firstProfile.statusCode).toBe(201);
+    expect(firstSkill.statusCode).toBe(201);
+    expect(firstExternal.statusCode).toBe(201);
+    expect(secondProfile.statusCode).toBe(201);
+    expect(secondSkill.statusCode).toBe(201);
+    expect(secondExternal.statusCode).toBe(201);
+    expect(JSON.parse(secondProfile.body)).toMatchObject({ key: "shared-profile", owner_user_id: "user_2", model: "two" });
+    expect(JSON.parse(secondSkill.body)).toMatchObject({ key: "same-skill", owner_user_id: "user_2", name: "Two" });
+    expect(JSON.parse(secondExternal.body)).toMatchObject({ key: "same-tool", owner_user_id: "user_2", name: "Two" });
+  });
+
+  it("rejects duplicate same-owner compat resource creates when legacy ids differ", async () => {
+    app = await appWithActor(registerCompatRoutes);
+    const store = getRuntime().store;
+    store.upsertDocument("model_profile_entry", "legacy_profile_id", {
+      id: "legacy_profile_id",
+      org_id: actor.orgId,
+      owner_user_id: actor.userId,
+      key: "legacy-profile",
+    });
+    store.upsertDocument("skill_registry_entry", "legacy_skill_id", {
+      id: "legacy_skill_id",
+      org_id: actor.orgId,
+      owner_user_id: actor.userId,
+      key: "legacy-skill",
+    });
+    store.upsertDocument("external_tool_config_entry", "legacy_external_id", {
+      id: "legacy_external_id",
+      org_id: actor.orgId,
+      owner_user_id: actor.userId,
+      key: "legacy-tool",
+    });
+
+    const profile = await app.inject({
+      method: "POST",
+      url: "/api/model-profiles",
+      payload: { key: "legacy-profile", provider: "test", model: "next" },
+    });
+    const skill = await app.inject({
+      method: "POST",
+      url: "/api/skill-registry",
+      payload: { key: "legacy-skill", name: "Next" },
+    });
+    const external = await app.inject({
+      method: "POST",
+      url: "/api/external-tools/configs",
+      payload: { key: "legacy-tool", provider_kind: "mcp", name: "Next" },
+    });
+
+    expect(profile.statusCode).toBe(409);
+    expect(skill.statusCode).toBe(409);
+    expect(external.statusCode).toBe(409);
+    expect(store.listDocuments("model_profile_entry", actor.orgId).filter((doc) => (doc.payload as any).key === "legacy-profile")).toHaveLength(1);
+    expect(store.listDocuments("skill_registry_entry", actor.orgId).filter((doc) => (doc.payload as any).key === "legacy-skill")).toHaveLength(1);
+    expect(store.listDocuments("external_tool_config_entry", actor.orgId).filter((doc) => (doc.payload as any).key === "legacy-tool")).toHaveLength(1);
+  });
+
+  it("returns tenant-local builtin compat resources for non-default orgs", async () => {
+    app = await appWithActor(registerCompatRoutes, { ...actor, orgId: "org_2" });
+
+    const profiles = await app.inject({ method: "GET", url: "/api/model-profiles" });
+    const skills = await app.inject({ method: "GET", url: "/api/skill-registry" });
+    const external = await app.inject({ method: "GET", url: "/api/external-tools/configs" });
+
+    expect(JSON.parse(profiles.body)[0]).toMatchObject({ org_id: "org_2" });
+    expect(JSON.parse(skills.body).every((entry: any) => entry.org_id === "org_2")).toBe(true);
+    expect(JSON.parse(external.body)[0]).toMatchObject({ org_id: "org_2" });
   });
 });

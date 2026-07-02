@@ -56,6 +56,7 @@ describe("platform auth helpers", () => {
     expect(actorCanAccessOwnedResource({ ...actor, orgId: null }, { org_id: "org_from_token", owner_user_id: "user_from_token" })).toBe(false);
     expect(actorCanAccessOwnedResource(actor, { org_id: "other_org", owner_user_id: "user_from_token" })).toBe(false);
     expect(actorCanAccessOwnedResource(actor, { org_id: "org_from_token", owner_user_id: "other_user" })).toBe(false);
-    expect(actorCanAccessOwnedResource({ ...actor, scopes: ["*"] }, { org_id: "other_org", owner_user_id: "other_user" })).toBe(true);
+    expect(actorCanAccessOwnedResource({ ...actor, scopes: ["*"] }, { org_id: "org_from_token", owner_user_id: "other_user" })).toBe(true);
+    expect(actorCanAccessOwnedResource({ ...actor, scopes: ["*"] }, { org_id: "other_org", owner_user_id: "other_user" })).toBe(false);
   });
 });

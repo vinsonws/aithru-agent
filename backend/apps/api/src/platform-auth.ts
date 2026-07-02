@@ -50,8 +50,8 @@ export function actorCanAccessOwnedResource(
   resource: { org_id?: string | null; owner_user_id?: string | null; actor_user_id?: string | null },
 ): boolean {
   if (!actor) return true;
-  if (scopeAllowed(actor, "*")) return true;
   if (resource.org_id && actor.orgId !== resource.org_id) return false;
+  if (scopeAllowed(actor, "*")) return true;
   const actorId = actor.userId ?? actor.serviceId ?? null;
   const ownerId = resource.owner_user_id ?? resource.actor_user_id ?? null;
   return Boolean(actorId && ownerId && actorId === ownerId);
