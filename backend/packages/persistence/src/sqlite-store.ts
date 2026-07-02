@@ -53,6 +53,8 @@ const RUN_COLUMNS = [
 
 const DOCUMENT_TABLES = {
   model_profile_entry: "model_profiles",
+  model_provider_entry: "model_providers",
+  model_entry: "model_entries",
   skill_registry_entry: "skill_registry_entries",
   skill_package_user: "skill_package_users",
   subagent_spec: "subagent_specs",

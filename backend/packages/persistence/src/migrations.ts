@@ -89,6 +89,22 @@ export function runMigrations(adapter: MigrationExecutor): void {
       payload TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS model_providers (
+      id TEXT PRIMARY KEY,
+      org_id TEXT,
+      owner_user_id TEXT,
+      key TEXT,
+      payload TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS model_entries (
+      id TEXT PRIMARY KEY,
+      org_id TEXT,
+      owner_user_id TEXT,
+      key TEXT,
+      payload TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS skill_registry_entries (
       id TEXT PRIMARY KEY,
       org_id TEXT,
@@ -152,6 +168,8 @@ export function runMigrations(adapter: MigrationExecutor): void {
       ON context_summaries(thread_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_todos_run ON todos(run_id);
     CREATE INDEX IF NOT EXISTS idx_model_profiles_org_key ON model_profiles(org_id, key);
+    CREATE INDEX IF NOT EXISTS idx_model_providers_org_key ON model_providers(org_id, key);
+    CREATE INDEX IF NOT EXISTS idx_model_entries_org_key ON model_entries(org_id, key);
     CREATE INDEX IF NOT EXISTS idx_skill_registry_org_key ON skill_registry_entries(org_id, key);
     CREATE INDEX IF NOT EXISTS idx_skill_package_users_org_owner_key
       ON skill_package_users(org_id, owner_user_id, key);

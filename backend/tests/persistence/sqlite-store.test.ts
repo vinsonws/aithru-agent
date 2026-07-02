@@ -307,6 +307,66 @@ describe("SqliteStore", () => {
     }
   });
 
+  it("persists model providers and model entries in dedicated tables", async () => {
+    const dbPath = join(tempDir, "model-config.sqlite");
+    const durable = await SqliteStore.create(dbPath);
+    durable.upsertDocument("model_provider_entry", "provider_org_1_deepseek", {
+      id: "provider_org_1_deepseek",
+      org_id: "org_1",
+      owner_user_id: "user_1",
+      key: "deepseek",
+      name: "DeepSeek",
+      kind: "openai_compatible",
+      enabled: true,
+      base_url: "https://api.deepseek.com",
+      compat: "deepseek",
+      auth_secret: { has_secret: true, secret_ref: "secret://model-providers/org_1/user_1/deepseek/api-key", redacted: true },
+      metadata: null,
+      created_at: "2026-07-02T00:00:00Z",
+      updated_at: "2026-07-02T00:00:00Z",
+    });
+    durable.upsertDocument("model_entry", "model_org_1_deepseek_flash", {
+      id: "model_org_1_deepseek_flash",
+      org_id: "org_1",
+      owner_user_id: "user_1",
+      provider_key: "deepseek",
+      key: "deepseek-v4-flash",
+      name: "DeepSeek V4 Flash",
+      provider_model_id: "deepseek-v4-flash",
+      enabled: true,
+      capabilities: { vision: false, thinking: true },
+      request: null,
+      cost_policy: null,
+      selection_policy: null,
+      created_at: "2026-07-02T00:00:00Z",
+      updated_at: "2026-07-02T00:00:00Z",
+    });
+    durable.close();
+
+    const reopened = await SqliteStore.create(dbPath);
+    try {
+      expect(reopened.getDocument("model_provider_entry", "provider_org_1_deepseek")?.payload).toMatchObject({
+        key: "deepseek",
+        kind: "openai_compatible",
+      });
+      expect(reopened.getDocument("model_entry", "model_org_1_deepseek_flash")?.payload).toMatchObject({
+        provider_key: "deepseek",
+        key: "deepseek-v4-flash",
+      });
+    } finally {
+      reopened.close();
+    }
+
+    const SQL = await initSqlJs();
+    const raw = new SQL.Database(readFileSync(dbPath));
+    try {
+      const tables = raw.exec("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")[0]?.values.map(([name]) => String(name)) ?? [];
+      expect(tables).toEqual(expect.arrayContaining(["model_providers", "model_entries"]));
+    } finally {
+      raw.close();
+    }
+  });
+
   it("lists documents only for the requested org", async () => {
     store.upsertDocument("model_profile_entry", "profile_org_1", {
       id: "profile_org_1",

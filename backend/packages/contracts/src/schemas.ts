@@ -117,6 +117,80 @@ export const AgentStreamSourceSchema = Type.Object({
 
 // ── Core domain schemas ────────────────────────────────────────────────
 
+export const AgentModelProviderKind = Type.Union([
+  Type.Literal("openai_compatible"),
+  Type.Literal("anthropic"),
+  Type.Literal("test"),
+]);
+
+export const AgentModelCompatKind = Type.Union([
+  Type.Literal("deepseek"),
+  Type.Literal("qwen"),
+  Type.Literal("minimax"),
+  Type.Literal("gemini_openai_compatible"),
+]);
+
+export const AgentModelSecretStatusSchema = Type.Object({
+  has_secret: Type.Boolean({ default: false }),
+  secret_ref: Type.Union([Type.String(), Type.Null()]),
+  redacted: Type.Boolean({ default: true }),
+});
+
+export const ModelSecretInputSchema = Type.Object({
+  write_only_value: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  secret_ref: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+});
+
+export const AgentModelCapabilitiesSchema = Type.Object({
+  vision: Type.Boolean({ default: false }),
+  thinking: Type.Boolean({ default: false }),
+});
+
+export const AgentModelProviderEntrySchema = Type.Object({
+  id: Type.String(),
+  org_id: Type.String(),
+  owner_user_id: Type.String(),
+  key: Type.String(),
+  name: Type.String(),
+  kind: AgentModelProviderKind,
+  enabled: Type.Boolean({ default: true }),
+  base_url: Type.Union([Type.String(), Type.Null()]),
+  compat: Type.Union([AgentModelCompatKind, Type.Null()]),
+  auth_secret: Type.Union([AgentModelSecretStatusSchema, Type.Null()]),
+  metadata: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  created_at: Type.String(),
+  updated_at: Type.String(),
+});
+
+export const AgentModelEntrySchema = Type.Object({
+  id: Type.String(),
+  org_id: Type.String(),
+  owner_user_id: Type.String(),
+  provider_key: Type.String(),
+  key: Type.String(),
+  name: Type.String(),
+  provider_model_id: Type.String(),
+  enabled: Type.Boolean({ default: true }),
+  capabilities: AgentModelCapabilitiesSchema,
+  request: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  cost_policy: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  selection_policy: Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()]),
+  created_at: Type.String(),
+  updated_at: Type.String(),
+});
+
+export const AgentModelProviderWithModelsSchema = Type.Intersect([
+  AgentModelProviderEntrySchema,
+  Type.Object({
+    models: Type.Array(AgentModelEntrySchema),
+    default_model_ref: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  }),
+]);
+
+export const AgentModelDefaultSelectionSchema = Type.Object({
+  model_ref: Type.Union([Type.String(), Type.Null()]),
+});
+
 export const AgentThreadSchema = Type.Object({
   id: Type.String(),
   org_id: Type.String(),
@@ -141,7 +215,7 @@ export const AgentMessageSchema = Type.Object({
 
 export const AgentRunHarnessOptionsSchema = Type.Object({
   model: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  model_profile_key: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  model_ref: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   mode: Type.Optional(
     Type.Union([
       Type.Literal("flash"),
@@ -256,6 +330,36 @@ export const CreateThreadRequestSchema = Type.Object({
   org_id: Type.String(),
   owner_user_id: Type.String(),
   title: Type.Optional(Type.String()),
+});
+
+export const CreateModelProviderRequestSchema = Type.Object({
+  key: Type.String({ minLength: 1 }),
+  name: Type.String({ minLength: 1 }),
+  kind: AgentModelProviderKind,
+  enabled: Type.Optional(Type.Boolean()),
+  base_url: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  compat: Type.Optional(Type.Union([AgentModelCompatKind, Type.Null()])),
+  auth_secret: Type.Optional(Type.Union([ModelSecretInputSchema, Type.Null()])),
+  metadata: Type.Optional(Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()])),
+});
+
+export const UpdateModelProviderRequestSchema = Type.Partial(CreateModelProviderRequestSchema);
+
+export const CreateModelRequestSchema = Type.Object({
+  key: Type.String({ minLength: 1 }),
+  name: Type.String({ minLength: 1 }),
+  provider_model_id: Type.String({ minLength: 1 }),
+  enabled: Type.Optional(Type.Boolean()),
+  capabilities: Type.Optional(AgentModelCapabilitiesSchema),
+  request: Type.Optional(Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()])),
+  cost_policy: Type.Optional(Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()])),
+  selection_policy: Type.Optional(Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Null()])),
+});
+
+export const UpdateModelRequestSchema = Type.Partial(CreateModelRequestSchema);
+
+export const UpdateModelDefaultRequestSchema = Type.Object({
+  model_ref: Type.Union([Type.String(), Type.Null()]),
 });
 
 export const UpdateThreadRequestSchema = Type.Object({

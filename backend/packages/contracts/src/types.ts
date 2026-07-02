@@ -16,6 +16,16 @@ import type {
   AgentRunRetryPolicySchema,
   AgentRunRetryStateSchema,
   AgentRunResultSchema,
+  AgentModelProviderEntrySchema,
+  AgentModelEntrySchema,
+  AgentModelProviderWithModelsSchema,
+  AgentModelDefaultSelectionSchema,
+  CreateModelProviderRequestSchema,
+  UpdateModelProviderRequestSchema,
+  CreateModelRequestSchema,
+  UpdateModelRequestSchema,
+  UpdateModelDefaultRequestSchema,
+  ModelSecretInputSchema,
   HealthResponseSchema,
   CreateThreadRequestSchema,
   UpdateThreadRequestSchema,
@@ -39,6 +49,16 @@ export type AgentRunClaim = Static<typeof AgentRunClaimSchema>;
 export type AgentRunRetryPolicy = Static<typeof AgentRunRetryPolicySchema>;
 export type AgentRunRetryState = Static<typeof AgentRunRetryStateSchema>;
 export type AgentRunResult = Static<typeof AgentRunResultSchema>;
+export type AgentModelProviderEntry = Static<typeof AgentModelProviderEntrySchema>;
+export type AgentModelEntry = Static<typeof AgentModelEntrySchema>;
+export type AgentModelProviderWithModels = Static<typeof AgentModelProviderWithModelsSchema>;
+export type AgentModelDefaultSelection = Static<typeof AgentModelDefaultSelectionSchema>;
+export type CreateModelProviderRequest = Static<typeof CreateModelProviderRequestSchema>;
+export type UpdateModelProviderRequest = Static<typeof UpdateModelProviderRequestSchema>;
+export type CreateModelRequest = Static<typeof CreateModelRequestSchema>;
+export type UpdateModelRequest = Static<typeof UpdateModelRequestSchema>;
+export type UpdateModelDefaultRequest = Static<typeof UpdateModelDefaultRequestSchema>;
+export type ModelSecretInput = Static<typeof ModelSecretInputSchema>;
 export type HealthResponse = Static<typeof HealthResponseSchema>;
 export type CreateThreadRequest = Static<typeof CreateThreadRequestSchema>;
 export type UpdateThreadRequest = Static<typeof UpdateThreadRequestSchema>;
