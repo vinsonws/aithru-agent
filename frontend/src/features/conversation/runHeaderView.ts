@@ -68,7 +68,7 @@ export function buildRunHeaderView(input: RunHeaderInput): RunHeaderView {
 
 function getModelLabel(activeRun?: AgentRun | null): string {
   const opts = activeRun?.harness_options;
-  return opts?.model_profile_key ?? opts?.model ?? "";
+  return opts?.model_ref ?? opts?.model ?? "";
 }
 
 export type RunMode = "flash" | "thinking" | "pro" | "ultra";

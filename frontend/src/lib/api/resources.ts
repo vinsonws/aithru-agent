@@ -11,12 +11,21 @@ import type {
   AgentSkillEnablementResult,
   AgentModelProfileEntry,
   AgentModelProfileEnablementResult,
+  AgentModelProviderEntry,
+  AgentModelEntry,
+  AgentModelProviderWithModels,
+  AgentModelDefaultSelection,
   AgentExternalToolConfigEntry,
   AgentExternalToolConfigOperationResult,
   AgentHealthResponse,
   LongTermMemoryDeleteResult,
   LongTermMemoryHealth,
   AgentSubagentSpec,
+  CreateModelProviderRequest,
+  UpdateModelProviderRequest,
+  CreateModelRequest,
+  UpdateModelRequest,
+  UpdateModelDefaultRequest,
   CreateMemoryEntryRequest,
   CreateUserSkillPackageRequest,
   UpdateUserSkillPackageRequest,
@@ -147,6 +156,44 @@ export const modelProfilesApi = {
     apiRequest<AgentModelProfileEnablementResult>(`/api/model-profiles/${key}/disable`, {
       method: "POST",
     }),
+};
+
+export const modelProvidersApi = {
+  list: () => apiRequest<AgentModelProviderWithModels[]>(`/api/model-providers`),
+
+  create: (body: CreateModelProviderRequest) =>
+    apiRequest<AgentModelProviderEntry>(`/api/model-providers`, { method: "POST", body }),
+
+  patch: (key: string, body: UpdateModelProviderRequest) =>
+    apiRequest<AgentModelProviderEntry>(`/api/model-providers/${key}`, {
+      method: "PATCH",
+      body,
+    }),
+
+  remove: (key: string) =>
+    apiRequest<{ deleted: boolean }>(`/api/model-providers/${key}`, { method: "DELETE" }),
+
+  createModel: (providerKey: string, body: CreateModelRequest) =>
+    apiRequest<AgentModelEntry>(`/api/model-providers/${providerKey}/models`, {
+      method: "POST",
+      body,
+    }),
+
+  patchModel: (providerKey: string, modelKey: string, body: UpdateModelRequest) =>
+    apiRequest<AgentModelEntry>(`/api/model-providers/${providerKey}/models/${modelKey}`, {
+      method: "PATCH",
+      body,
+    }),
+
+  removeModel: (providerKey: string, modelKey: string) =>
+    apiRequest<{ deleted: boolean }>(`/api/model-providers/${providerKey}/models/${modelKey}`, {
+      method: "DELETE",
+    }),
+
+  getDefault: () => apiRequest<AgentModelDefaultSelection>(`/api/model-default`),
+
+  setDefault: (body: UpdateModelDefaultRequest) =>
+    apiRequest<AgentModelDefaultSelection>(`/api/model-default`, { method: "PUT", body }),
 };
 
 export const externalToolsApi = {

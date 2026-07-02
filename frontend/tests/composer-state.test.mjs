@@ -32,7 +32,7 @@ test("pro mode enables plan todo behavior without prompt-only mode instructions"
   const { buildComposerHarnessOptions } = await loadComposerState();
   const options = buildComposerHarnessOptions("MiniMax-M2.7", "pro", "pro");
 
-  assert.equal(options.model_profile_key, "MiniMax-M2.7");
+  assert.equal(options.model_ref, "MiniMax-M2.7");
   assert.equal(options.mode, "pro");
   assert.equal(options.thinking_enabled, true);
   assert.equal(options.is_plan_mode, true);
@@ -109,4 +109,37 @@ test("unknown permission policy falls back to ask", async () => {
   const { normalizePermissionPolicyId } = await loadComposerState();
   assert.equal(normalizePermissionPolicyId("bad-value"), "ask");
   assert.equal(normalizePermissionPolicyId(null), "ask");
+});
+
+test("provider models flatten to usable model refs", async () => {
+  const { flattenUsableModels, selectUsableModelRef } = await loadComposerState();
+  const providers = [
+    { key: "empty", name: "Empty", enabled: true, models: [] },
+    {
+      key: "deepseek",
+      name: "DeepSeek",
+      enabled: true,
+      models: [
+        {
+          key: "deepseek-v4-flash",
+          name: "Flash",
+          provider_model_id: "deepseek-v4-flash",
+          enabled: true,
+        },
+        { key: "disabled", name: "Disabled", provider_model_id: "disabled", enabled: false },
+      ],
+    },
+    {
+      key: "off",
+      name: "Off",
+      enabled: false,
+      models: [{ key: "model", name: "Model", provider_model_id: "model", enabled: true }],
+    },
+  ];
+
+  assert.deepEqual(flattenUsableModels(providers).map((model) => model.ref), [
+    "deepseek/deepseek-v4-flash",
+  ]);
+  assert.equal(selectUsableModelRef(providers, "missing"), "deepseek/deepseek-v4-flash");
+  assert.equal(selectUsableModelRef([], ""), "");
 });

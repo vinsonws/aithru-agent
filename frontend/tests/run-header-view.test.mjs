@@ -30,7 +30,7 @@ async function loadRunHeaderView() {
           build.onLoad({ filter: /^mock-api$/, namespace: "mock" }, () => ({
             contents: `
               export type AgentRunStatus = "queued" | "running" | "waiting_approval" | "waiting_subagent" | "waiting_input" | "waiting_external_run" | "completed" | "failed" | "cancelled";
-              export type AgentRun = { id: string; status: AgentRunStatus; taskMsg: string; scopes: string[]; harness_options?: { model?: string | null; model_profile_key?: string | null } | null };
+              export type AgentRun = { id: string; status: AgentRunStatus; taskMsg: string; scopes: string[]; harness_options?: { model?: string | null; model_ref?: string | null; model_profile_key?: string | null } | null };
               export type AgentThread = { id: string; title?: string | null };
             `,
             loader: "js",
@@ -109,7 +109,7 @@ function makeThread(overrides = {}) {
 }
 
 function makeRun(overrides = {}) {
-  return { id: "run_123456789", status: "running", goal: "Fix the bug", scopes: ["agent.workspace.read", "agent.workspace.write"], harness_options: { model_profile_key: "gpt-4", model: "gpt-4" }, ...overrides };
+  return { id: "run_123456789", status: "running", goal: "Fix the bug", scopes: ["agent.workspace.read", "agent.workspace.write"], harness_options: { model_ref: "deepseek/deepseek-v4-flash", model_profile_key: "gpt-4", model: "gpt-4" }, ...overrides };
 }
 
 test("running run exposes no header actions", async () => {
@@ -180,12 +180,12 @@ test("permission label is inferred from run scopes", async () => {
   assert.equal(view.permissionLabelKey, "chat:permission.readOnly");
 });
 
-test("model label uses model_profile_key then model then empty string", async () => {
+test("model label uses model_ref then model then empty string", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
-  const view1 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_profile_key: "my-profile", model: "gpt-4" } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
-  assert.equal(view1.modelLabel, "my-profile");
-  const view2 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_profile_key: null, model: "gpt-4-turbo" } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
+  const view1 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_ref: "deepseek/deepseek-v4-flash", model_profile_key: "my-profile", model: "gpt-4" } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
+  assert.equal(view1.modelLabel, "deepseek/deepseek-v4-flash");
+  const view2 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_ref: null, model: "gpt-4-turbo" } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
   assert.equal(view2.modelLabel, "gpt-4-turbo");
-  const view3 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_profile_key: null, model: null } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
+  const view3 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_ref: null, model: null } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
   assert.equal(view3.modelLabel, "");
 });

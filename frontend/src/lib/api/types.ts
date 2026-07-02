@@ -51,6 +51,10 @@ export type AgentSkillEnablementResult = S["AgentSkillEnablementResult"];
 export type AgentModelProfileEntry = S["AgentModelProfileEntry"];
 export type AgentModelProfileEnablementResult =
   S["AgentModelProfileEnablementResult"];
+export type AgentModelProviderEntry = S["AgentModelProviderEntry"];
+export type AgentModelEntry = S["AgentModelEntry"];
+export type AgentModelProviderWithModels = S["AgentModelProviderWithModels"];
+export type AgentModelDefaultSelection = S["AgentModelDefaultSelection"];
 
 export type AgentExternalToolConfigEntry = S["AgentExternalToolConfigEntry"];
 export type AgentExternalToolConfigOperationResult =
@@ -84,6 +88,11 @@ export type RunInspectionSummary = S["RunInspectionSummary"];
 export type CreateThreadRequest = S["CreateThreadRequest"];
 export type UpdateThreadRequest = S["UpdateThreadRequest"];
 export type CreateRunRequest = S["CreateRunRequest"];
+export type CreateModelProviderRequest = S["CreateModelProviderRequest"];
+export type UpdateModelProviderRequest = S["UpdateModelProviderRequest"];
+export type CreateModelRequest = S["CreateModelRequest"];
+export type UpdateModelRequest = S["UpdateModelRequest"];
+export type UpdateModelDefaultRequest = S["UpdateModelDefaultRequest"];
 export type CreateMemoryEntryRequest = S["CreateMemoryEntryRequest"];
 export type CreateUserSkillPackageRequest = S["CreateUserSkillPackageRequest"];
 export type UpdateUserSkillPackageRequest = S["UpdateUserSkillPackageRequest"];

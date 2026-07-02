@@ -32,7 +32,7 @@ test("pro mode enables plan todo behavior without prompt-only mode instructions"
   const { buildComposerHarnessOptions } = await loadChatComposerOptions();
   const options = buildComposerHarnessOptions("MiniMax-M2.7", "pro", "pro");
 
-  assert.equal(options.model_profile_key, "MiniMax-M2.7");
+  assert.equal(options.model_ref, "MiniMax-M2.7");
   assert.equal(options.mode, "pro");
   assert.equal(options.thinking_enabled, true);
   assert.equal(options.is_plan_mode, true);

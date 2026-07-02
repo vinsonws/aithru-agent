@@ -22,6 +22,35 @@ export interface ComposerReasoningOption {
   fallbackDescription: string;
 }
 
+export interface ComposerModelProfile {
+  key: string;
+  enabled?: boolean;
+  model?: string | null;
+}
+
+export interface ComposerModelProvider {
+  key: string;
+  name?: string | null;
+  enabled?: boolean;
+  models?: ComposerProviderModel[];
+}
+
+export interface ComposerProviderModel {
+  key: string;
+  name?: string | null;
+  provider_model_id?: string | null;
+  enabled?: boolean;
+}
+
+export interface ComposerSelectableModel {
+  ref: string;
+  providerKey: string;
+  providerName: string;
+  modelKey: string;
+  modelName: string;
+  providerModelId: string;
+}
+
 export const REASONING_LEVELS: ComposerReasoningOption[] = [
   {
     id: "flash",
@@ -162,7 +191,7 @@ export function getPermissionPolicy(
 }
 
 export function buildComposerHarnessOptions(
-  profileKey: string | null,
+  modelRefValue: string | null,
   mode: string,
   reasoningLevel: string | null | undefined,
 ): AgentRunHarnessOptions | undefined {
@@ -189,14 +218,62 @@ export function buildComposerHarnessOptions(
     },
     model_reasoning_effort: reasoningEffort,
   };
-  if (profileKey) {
-    harnessOptions.model_profile_key = profileKey;
+  if (modelRefValue) {
+    harnessOptions.model_ref = modelRefValue;
   }
   return Object.keys(harnessOptions).length > 0 ? harnessOptions : undefined;
 }
 
+export function modelRef(providerKey: string, modelKey: string): string {
+  return `${providerKey}/${modelKey}`;
+}
+
+export function flattenUsableModels(
+  providers: ComposerModelProvider[] | null | undefined,
+): ComposerSelectableModel[] {
+  return (providers ?? []).flatMap((provider) => {
+    if (provider.enabled === false) return [];
+    return (provider.models ?? [])
+      .filter((model) => model.enabled !== false && Boolean(model.provider_model_id?.trim()))
+      .map((model) => ({
+        ref: modelRef(provider.key, model.key),
+        providerKey: provider.key,
+        providerName: provider.name || provider.key,
+        modelKey: model.key,
+        modelName: model.name || model.provider_model_id || model.key,
+        providerModelId: model.provider_model_id || model.key,
+      }));
+  });
+}
+
+export function selectUsableModelRef(
+  providers: ComposerModelProvider[] | null | undefined,
+  currentRef: string | null | undefined,
+): string {
+  const usable = flattenUsableModels(providers);
+  if (currentRef && usable.some((model) => model.ref === currentRef)) return currentRef;
+  return usable[0]?.ref ?? "";
+}
+
 export function buildComposerScopes(policyId: string | null | undefined): string[] {
   return [...getPermissionPolicy(policyId).scopes];
+}
+
+export function hasConfiguredModelProfile(profile: ComposerModelProfile): boolean {
+  return Boolean(profile.model?.trim());
+}
+
+export function isUsableModelProfile(profile: ComposerModelProfile): boolean {
+  return profile.enabled !== false && hasConfiguredModelProfile(profile);
+}
+
+export function selectUsableModelProfileKey(
+  profiles: ComposerModelProfile[] | null | undefined,
+  currentKey: string | null | undefined,
+): string {
+  const usable = profiles?.filter(isUsableModelProfile) ?? [];
+  if (currentKey && usable.some((profile) => profile.key === currentKey)) return currentKey;
+  return usable[0]?.key ?? "";
 }
 
 export function inferPermissionPolicyFromScopes(

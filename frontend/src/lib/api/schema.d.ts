@@ -1855,6 +1855,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/model-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Model Providers */
+        get: operations["list_model_providers_api_model_providers_get"];
+        put?: never;
+        /** Create Model Provider */
+        post: operations["create_model_provider_api_model_providers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/model-providers/{provider_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Model Provider */
+        get: operations["get_model_provider_api_model_providers__provider_key__get"];
+        put?: never;
+        post?: never;
+        /** Delete Model Provider */
+        delete: operations["delete_model_provider_api_model_providers__provider_key__delete"];
+        options?: never;
+        head?: never;
+        /** Update Model Provider */
+        patch: operations["update_model_provider_api_model_providers__provider_key__patch"];
+        trace?: never;
+    };
+    "/api/model-providers/{provider_key}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Models */
+        get: operations["list_models_api_model_providers__provider_key__models_get"];
+        put?: never;
+        /** Create Model */
+        post: operations["create_model_api_model_providers__provider_key__models_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/model-providers/{provider_key}/models/{model_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Model */
+        get: operations["get_model_api_model_providers__provider_key__models__model_key__get"];
+        put?: never;
+        post?: never;
+        /** Delete Model */
+        delete: operations["delete_model_api_model_providers__provider_key__models__model_key__delete"];
+        options?: never;
+        head?: never;
+        /** Update Model */
+        patch: operations["update_model_api_model_providers__provider_key__models__model_key__patch"];
+        trace?: never;
+    };
+    "/api/model-default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Model Default */
+        get: operations["get_model_default_api_model_default_get"];
+        /** Put Model Default */
+        put: operations["put_model_default_api_model_default_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2745,7 +2837,7 @@ export interface components {
          * AgentModelProviderKind
          * @enum {string}
          */
-        AgentModelProviderKind: "test" | "openai" | "anthropic" | "custom";
+        AgentModelProviderKind: "openai_compatible" | "anthropic" | "test";
         /**
          * AgentModelReasoningEffort
          * @enum {string}
@@ -2892,6 +2984,8 @@ export interface components {
             budget_policy?: components["schemas"]["AgentRunBudgetPolicy"] | null;
             research_continuation?: components["schemas"]["AgentRunResearchContinuationOptions"] | null;
             operator_follow_up?: components["schemas"]["AgentRunOperatorFollowUpOptions"] | null;
+            /** Model Ref */
+            model_ref?: string | null;
         };
         /** AgentRunModelCostPolicy */
         AgentRunModelCostPolicy: {
@@ -6127,6 +6221,209 @@ export interface components {
             content: string;
             /** Media Type */
             media_type?: string | null;
+        };
+        /**
+         * AgentModelCompatKind
+         * @enum {string}
+         */
+        AgentModelCompatKind: "deepseek" | "qwen" | "minimax" | "gemini_openai_compatible";
+        /** AgentModelSecretStatus */
+        AgentModelSecretStatus: {
+            /**
+             * Has Secret
+             * @default false
+             */
+            has_secret: boolean;
+            /** Secret Ref */
+            secret_ref: string | null;
+            /**
+             * Redacted
+             * @default true
+             */
+            redacted: boolean;
+        };
+        /** ModelSecretInput */
+        ModelSecretInput: {
+            /** Write Only Value */
+            write_only_value?: string | null;
+            /** Secret Ref */
+            secret_ref?: string | null;
+        };
+        /** AgentModelProviderEntry */
+        AgentModelProviderEntry: {
+            /** Id */
+            id: string;
+            /** Org Id */
+            org_id: string;
+            /** Owner User Id */
+            owner_user_id: string;
+            /** Key */
+            key: string;
+            /** Name */
+            name: string;
+            kind: components["schemas"]["AgentModelProviderKind"];
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Base Url */
+            base_url: string | null;
+            /** Compat */
+            compat: components["schemas"]["AgentModelCompatKind"] | null;
+            /** Auth Secret */
+            auth_secret: components["schemas"]["AgentModelSecretStatus"] | null;
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            } | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** AgentModelEntry */
+        AgentModelEntry: {
+            /** Id */
+            id: string;
+            /** Org Id */
+            org_id: string;
+            /** Owner User Id */
+            owner_user_id: string;
+            /** Provider Key */
+            provider_key: string;
+            /** Key */
+            key: string;
+            /** Name */
+            name: string;
+            /** Provider Model Id */
+            provider_model_id: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            capabilities: components["schemas"]["AgentModelCapabilities"];
+            /** Request */
+            request: {
+                [key: string]: unknown;
+            } | null;
+            /** Cost Policy */
+            cost_policy: {
+                [key: string]: unknown;
+            } | null;
+            /** Selection Policy */
+            selection_policy: {
+                [key: string]: unknown;
+            } | null;
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        AgentModelProviderWithModels: components["schemas"]["AgentModelProviderEntry"] & {
+            /** Models */
+            models: components["schemas"]["AgentModelEntry"][];
+            /** Default Model Ref */
+            default_model_ref?: string | null;
+        };
+        /** AgentModelDefaultSelection */
+        AgentModelDefaultSelection: {
+            /** Model Ref */
+            model_ref: string | null;
+        };
+        /** CreateModelProviderRequest */
+        CreateModelProviderRequest: {
+            /** Key */
+            key: string;
+            /** Name */
+            name: string;
+            kind: components["schemas"]["AgentModelProviderKind"];
+            /** Enabled */
+            enabled?: boolean;
+            /** Base Url */
+            base_url?: string | null;
+            /** Compat */
+            compat?: components["schemas"]["AgentModelCompatKind"] | null;
+            /** Auth Secret */
+            auth_secret?: components["schemas"]["ModelSecretInput"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** UpdateModelProviderRequest */
+        UpdateModelProviderRequest: {
+            /** Key */
+            key?: string;
+            /** Name */
+            name?: string;
+            kind?: components["schemas"]["AgentModelProviderKind"];
+            /** Enabled */
+            enabled?: boolean;
+            /** Base Url */
+            base_url?: string | null;
+            /** Compat */
+            compat?: components["schemas"]["AgentModelCompatKind"] | null;
+            /** Auth Secret */
+            auth_secret?: components["schemas"]["ModelSecretInput"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** CreateModelRequest */
+        CreateModelRequest: {
+            /** Key */
+            key: string;
+            /** Name */
+            name: string;
+            /** Provider Model Id */
+            provider_model_id: string;
+            /** Enabled */
+            enabled?: boolean;
+            capabilities?: components["schemas"]["AgentModelCapabilities"];
+            /** Request */
+            request?: {
+                [key: string]: unknown;
+            } | null;
+            /** Cost Policy */
+            cost_policy?: {
+                [key: string]: unknown;
+            } | null;
+            /** Selection Policy */
+            selection_policy?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** UpdateModelRequest */
+        UpdateModelRequest: {
+            /** Key */
+            key?: string;
+            /** Name */
+            name?: string;
+            /** Provider Model Id */
+            provider_model_id?: string;
+            /** Enabled */
+            enabled?: boolean;
+            capabilities?: components["schemas"]["AgentModelCapabilities"];
+            /** Request */
+            request?: {
+                [key: string]: unknown;
+            } | null;
+            /** Cost Policy */
+            cost_policy?: {
+                [key: string]: unknown;
+            } | null;
+            /** Selection Policy */
+            selection_policy?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** UpdateModelDefaultRequest */
+        UpdateModelDefaultRequest: {
+            /** Model Ref */
+            model_ref: string | null;
         };
     };
     responses: never;
@@ -10161,6 +10458,381 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentSkill"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_model_providers_api_model_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelProviderWithModels"][];
+                };
+            };
+        };
+    };
+    create_model_provider_api_model_providers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateModelProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelProviderEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_provider_api_model_providers__provider_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelProviderWithModels"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_model_provider_api_model_providers__provider_key__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Deleted */
+                        deleted: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_model_provider_api_model_providers__provider_key__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateModelProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelProviderEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_models_api_model_providers__provider_key__models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_model_api_model_providers__provider_key__models_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateModelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_api_model_providers__provider_key__models__model_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_key: string;
+                model_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_model_api_model_providers__provider_key__models__model_key__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_key: string;
+                model_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Deleted */
+                        deleted: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_model_api_model_providers__provider_key__models__model_key__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_key: string;
+                model_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateModelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_model_default_api_model_default_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelDefaultSelection"];
+                };
+            };
+        };
+    };
+    put_model_default_api_model_default_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateModelDefaultRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentModelDefaultSelection"];
                 };
             };
             /** @description Validation Error */
