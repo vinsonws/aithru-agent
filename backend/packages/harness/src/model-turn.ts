@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import type { AgentToolDescriptor } from "@aithru-agent/capabilities";
 import type { CapabilityRouter } from "@aithru-agent/capabilities";
-import { activeSkillKeysFromEvents } from "@aithru-agent/capabilities";
+import { activeSkillKeysFromEvents, runContext } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 import { TERMINAL_RUN_STATUSES } from "@aithru-agent/contracts";
 import type { AgentModelAdapter, AgentModelToolResult, ModelTurnEvent } from "@aithru-agent/model";
@@ -116,7 +116,7 @@ export class ModelTurnLoop {
         { visibility: VISIBILITY.AUDIT, source: { kind: "harness" } },
       );
       const planMode = isPlanModeRun(currentRun);
-      const tools = (await this.deps.capabilityRouter.listTools({ run: currentRun }))
+      const tools = (await this.deps.capabilityRouter.listTools(runContext(currentRun)))
         .filter((tool) => planMode || !tool.name.startsWith("todo."));
       const events = this.createTurnWithRetry({
         run: currentRun,

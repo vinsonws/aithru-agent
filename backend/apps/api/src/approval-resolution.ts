@@ -1,4 +1,4 @@
-import { ProductionCapabilityRouter } from "@aithru-agent/capabilities";
+import { ProductionCapabilityRouter, runContext } from "@aithru-agent/capabilities";
 import type { AgentRun } from "@aithru-agent/contracts";
 import {
   ensureToolCallRecordForApproval,
@@ -167,7 +167,7 @@ async function executeApprovedToolCall(
       input: toolCall.input,
       run_id: run.id,
     },
-    { run },
+    runContext(run),
   );
   const updated = updateToolCallRecord(
     deps.store,

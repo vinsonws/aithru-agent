@@ -1,11 +1,11 @@
 import type { CapabilityRouter, ToolPrepareResult } from "./router.js";
 import type { AgentToolDescriptor, AgentToolCallRequest, AgentToolCallResult } from "./descriptors.js";
-import type { RunContext, SkillPolicy } from "./policy.js";
+import type { RunContext, RunContextInput, SkillPolicy } from "./policy.js";
 import type { AgentStreamEvent } from "@aithru-agent/contracts";
 import type { ControlledWebProvider } from "@aithru-agent/external";
 import type { LocalMemoryProvider } from "@aithru-agent/memory";
 import { SandboxExecutor, type SandboxRuntime } from "@aithru-agent/sandbox";
-import { PolicyEngine, resolveSkillPolicy } from "./policy.js";
+import { PolicyEngine, resolveSkillPolicy, runContext } from "./policy.js";
 import { activeSkillKeysFromEvents, skillPolicySnapshotsFromEvents } from "./skill-state.js";
 import type { SkillResolver } from "@aithru-agent/skills";
 import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream";
@@ -359,9 +359,10 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     private providers: ProductionCapabilityProviders = {},
   ) {}
 
-  async listTools(ctx: RunContext): Promise<AgentToolDescriptor[]> {
-    const policy = this.skillPolicyForRun(ctx.run);
-    const tools = this.availableTools(ctx.run);
+  async listTools(ctx: RunContextInput): Promise<AgentToolDescriptor[]> {
+    const fullCtx = runContext(ctx);
+    const policy = this.skillPolicyForRun(fullCtx.run);
+    const tools = this.availableTools(fullCtx.run);
     if (!policy) return tools;
     return tools.filter((tool) => {
       if (policy.deniedTools.has(tool.name)) return false;
@@ -372,9 +373,10 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
 
   async prepareToolCall(
     req: AgentToolCallRequest,
-    ctx: RunContext,
+    ctx: RunContextInput,
   ): Promise<ToolPrepareResult> {
-    const tool = this.toolDescriptor(req.name, ctx.run);
+    const fullCtx = runContext(ctx);
+    const tool = this.toolDescriptor(req.name, fullCtx.run);
     if (!tool) {
       return {
         allowed: false,
@@ -384,8 +386,8 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
       };
     }
 
-    const policy = this.skillPolicyForRun(ctx.run) ?? { allowedTools: new Set<string>(), deniedTools: new Set<string>() };
-    const engine = new PolicyEngine(policy, ctx.run);
+    const policy = this.skillPolicyForRun(fullCtx.run) ?? { allowedTools: new Set<string>(), deniedTools: new Set<string>() };
+    const engine = new PolicyEngine(policy, fullCtx);
 
     const policyResult = engine.checkToolCall(tool, req);
 
@@ -393,7 +395,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
       // Emit audit event for denied tool
       this.eventWriter.write(
         req.run_id,
-        ctx.run.thread_id || null,
+        fullCtx.run.thread_id || null,
         policyResult.audit_event_type || EVENT_TYPES.TOOL_DENIED,
         {
           tool_call_id: req.id,
@@ -406,7 +408,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
 
     return {
       allowed: policyResult.allowed,
-      requires_approval: policyResult.requires_approval && !this.hasApprovedRunScopedTool(req.name, ctx.run.id),
+      requires_approval: policyResult.requires_approval && !this.hasApprovedRunScopedTool(req.name, fullCtx.run.id),
       reason: policyResult.reason,
       audit_event_type: policyResult.audit_event_type,
     };
@@ -414,9 +416,10 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
 
   async executeToolCall(
     req: AgentToolCallRequest,
-    ctx: RunContext,
+    ctx: RunContextInput,
   ): Promise<AgentToolCallResult> {
-    const tool = this.toolDescriptor(req.name, ctx.run);
+    const fullCtx = runContext(ctx);
+    const tool = this.toolDescriptor(req.name, fullCtx.run);
     if (!tool) {
       return {
         id: req.id,
@@ -427,7 +430,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     }
 
     try {
-      const output = await this._execute(req, ctx);
+      const output = await this._execute(req, fullCtx);
       return { id: req.id, name: req.name, output };
     } catch (err: any) {
       return {

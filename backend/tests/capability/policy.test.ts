@@ -46,6 +46,19 @@ describe("checkScopes", () => {
     expect(result.allowed).toBe(false);
     expect(result.missing_scopes).toContain("admin");
   });
+
+  it("uses actor scopes from run context", () => {
+    const run = createRun([]);
+    const ctx = {
+      run,
+      actor: { userId: run.actor_user_id, orgId: run.org_id, scopes: ["workspace:read"] },
+    };
+
+    expect(checkScopes(createTool("t", ["workspace:read"]), ctx).allowed).toBe(true);
+    const engine = new PolicyEngine({ allowedTools: new Set(), deniedTools: new Set() }, ctx);
+    expect(engine.checkToolCall(createTool("t", ["workspace:read"]), { id: "tc", name: "t", input: {}, run_id: run.id }).allowed)
+      .toBe(true);
+  });
 });
 
 describe("PolicyEngine", () => {

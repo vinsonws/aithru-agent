@@ -1,5 +1,5 @@
 import type { AgentToolDescriptor, AgentToolCallRequest, AgentToolCallResult } from "./descriptors.js";
-import type { RunContext } from "./policy.js";
+import type { RunContextInput } from "./policy.js";
 
 export interface ToolPrepareResult {
   allowed: boolean;
@@ -9,7 +9,7 @@ export interface ToolPrepareResult {
 }
 
 export interface CapabilityRouter {
-  listTools(ctx: RunContext): Promise<AgentToolDescriptor[]>;
-  prepareToolCall(req: AgentToolCallRequest, ctx: RunContext): Promise<ToolPrepareResult>;
-  executeToolCall(req: AgentToolCallRequest, ctx: RunContext): Promise<AgentToolCallResult>;
+  listTools(ctx: RunContextInput): Promise<AgentToolDescriptor[]>;
+  prepareToolCall(req: AgentToolCallRequest, ctx: RunContextInput): Promise<ToolPrepareResult>;
+  executeToolCall(req: AgentToolCallRequest, ctx: RunContextInput): Promise<AgentToolCallResult>;
 }

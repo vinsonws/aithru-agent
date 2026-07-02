@@ -6,7 +6,7 @@ import type { AgentMessage, AgentRun, AgentThread } from "@aithru-agent/contract
 import { emitSkillActivated, ensureToolCallRecordForApproval, getToolCallRecord } from "@aithru-agent/harness";
 import { EVENT_TYPES } from "@aithru-agent/stream";
 import { projectTraceSpans } from "@aithru-agent/trace";
-import { projectCapabilityAudit } from "@aithru-agent/capabilities";
+import { projectCapabilityAudit, runContext } from "@aithru-agent/capabilities";
 import {
   buildRunSnapshot,
   buildRunTree,
@@ -1091,7 +1091,7 @@ async function localToolCatalog() {
     result: null,
     error: null,
   };
-  return (await getRuntime().capabilityRouter.listTools({ run })).map(toolCatalogEntry);
+  return (await getRuntime().capabilityRouter.listTools(runContext(run))).map(toolCatalogEntry);
 }
 
 function externalToolConfig(key = "local-capabilities", enabled = true, tools: any[] = []) {
@@ -1416,7 +1416,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     const access = accessibleRun(request, reply, params(request).run_id);
     if (access.response) return access.response;
     const run = access.run;
-    const tools = await getRuntime().capabilityRouter.listTools({ run });
+    const tools = await getRuntime().capabilityRouter.listTools(runContext(run));
     return tools.map((tool) => ({
       ...tool,
       kind: "local_tool",

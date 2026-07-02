@@ -1,8 +1,32 @@
 import type { AgentToolDescriptor, AgentToolCallRequest } from "./descriptors.js";
 import type { AgentRun } from "@aithru-agent/contracts";
 
+export interface RunActor {
+  userId: string;
+  orgId: string;
+  scopes: string[];
+}
+
 export interface RunContext {
   run: AgentRun;
+  actor: RunActor;
+}
+
+export type RunContextInput = AgentRun | { run: AgentRun; actor?: RunActor };
+
+export function actorFromRun(run: AgentRun): RunActor {
+  return {
+    userId: run.actor_user_id,
+    orgId: run.org_id,
+    scopes: run.scopes,
+  };
+}
+
+export function runContext(input: RunContextInput): RunContext {
+  if ("run" in input) {
+    return { run: input.run, actor: input.actor ?? actorFromRun(input.run) };
+  }
+  return { run: input, actor: actorFromRun(input) };
 }
 
 export interface ScopeCheckResult {
@@ -12,9 +36,9 @@ export interface ScopeCheckResult {
 
 export function checkScopes(
   tool: AgentToolDescriptor,
-  run: AgentRun,
+  ctx: RunContextInput,
 ): ScopeCheckResult {
-  const userScopes = expandedScopes(run.scopes);
+  const userScopes = expandedScopes(runContext(ctx).actor.scopes);
   // "*" scope means unrestricted
   if (userScopes.has("*")) {
     return { allowed: true, missing_scopes: [] };
@@ -83,11 +107,11 @@ export interface PolicyCheckResult {
 
 export class PolicyEngine {
   private skillPolicy: SkillPolicy;
-  private run: AgentRun;
+  private ctx: RunContext;
 
-  constructor(skillPolicy: SkillPolicy, run: AgentRun) {
+  constructor(skillPolicy: SkillPolicy, ctx: RunContextInput) {
     this.skillPolicy = skillPolicy;
-    this.run = run;
+    this.ctx = runContext(ctx);
   }
 
   checkToolCall(
@@ -116,7 +140,7 @@ export class PolicyEngine {
     }
 
     // 2. Scope check
-    const scopeResult = checkScopes(tool, this.run);
+    const scopeResult = checkScopes(tool, this.ctx);
     if (!scopeResult.allowed) {
       return {
         allowed: false,
@@ -128,7 +152,7 @@ export class PolicyEngine {
 
     // 3. Approval check. The wildcard scope is reserved for trusted internal
     // deterministic runs and examples; normal actor scopes still pause.
-    const userScopes = new Set(this.run.scopes);
+    const userScopes = new Set(this.ctx.actor.scopes);
     const autoApproved =
       userScopes.has("*") ||
       (tool.auto_approve_scopes ?? []).some((scope) => userScopes.has(scope));

@@ -1,6 +1,7 @@
 import type { AgentRun, AgentStreamEvent } from "@aithru-agent/contracts";
 import type { CapabilityRouter, ToolPrepareResult } from "@aithru-agent/capabilities";
 import type { AgentToolCallRequest, AgentToolCallResult } from "@aithru-agent/capabilities";
+import { runContext } from "@aithru-agent/capabilities";
 import { AgentEventWriter } from "@aithru-agent/stream";
 import type { AgentStore } from "@aithru-agent/persistence";
 import { EVENT_TYPES } from "@aithru-agent/stream";
@@ -168,7 +169,7 @@ export class RunLoop {
     );
 
     // 2. Prepare (check policy)
-    const prepared = await this.ctx.capabilityRouter.prepareToolCall(request, { run: this.ctx.run });
+    const prepared = await this.ctx.capabilityRouter.prepareToolCall(request, runContext(this.ctx.run));
     if (!prepared.allowed) {
       const error = {
         code: "TOOL_DENIED",
@@ -261,7 +262,7 @@ export class RunLoop {
       { tool_call_id: toolCallId, name: step.name },
     );
 
-    const result = await this.ctx.capabilityRouter.executeToolCall(request, { run: this.ctx.run });
+    const result = await this.ctx.capabilityRouter.executeToolCall(request, runContext(this.ctx.run));
     updateToolCallRecord(
       this.ctx.store,
       toolCallId,

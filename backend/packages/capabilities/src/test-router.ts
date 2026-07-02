@@ -4,7 +4,7 @@ import type {
   AgentToolCallRequest,
   AgentToolCallResult,
 } from "./descriptors.js";
-import type { RunContext } from "./policy.js";
+import type { RunContextInput } from "./policy.js";
 
 const PREFERRED_VIEWS = ["html_preview", "markdown", "json", "image", "pdf", "source_text", "download"];
 
@@ -209,13 +209,13 @@ const P0_TOOLS: AgentToolDescriptor[] = [
 export class TestCapabilityRouter implements CapabilityRouter {
   constructor(private store: TestCapabilityStore) {}
 
-  async listTools(_ctx: RunContext): Promise<AgentToolDescriptor[]> {
+  async listTools(_ctx: RunContextInput): Promise<AgentToolDescriptor[]> {
     return P0_TOOLS;
   }
 
   async prepareToolCall(
     req: AgentToolCallRequest,
-    _ctx?: RunContext,
+    _ctx?: RunContextInput,
   ): Promise<ToolPrepareResult> {
     const tool = P0_TOOLS.find((t) => t.name === req.name);
     if (!tool) {
@@ -229,7 +229,7 @@ export class TestCapabilityRouter implements CapabilityRouter {
 
   async executeToolCall(
     req: AgentToolCallRequest,
-    _ctx?: RunContext,
+    _ctx?: RunContextInput,
   ): Promise<AgentToolCallResult> {
     const tool = P0_TOOLS.find((t) => t.name === req.name);
     if (!tool) {
