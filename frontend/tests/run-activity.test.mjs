@@ -92,7 +92,7 @@ test("buildRunActivity promotes waiting input and failed run states", async () =
   const failed = buildRunActivity(
     baseState({
       status: "failed",
-      error: "model profile metadata cannot include secret values",
+      error: "model configuration metadata cannot include secret values",
     }),
   );
 

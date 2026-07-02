@@ -9,8 +9,6 @@ import type {
   AgentSkill,
   AgentSkillRegistryEntry,
   AgentSkillEnablementResult,
-  AgentModelProfileEntry,
-  AgentModelProfileEnablementResult,
   AgentModelProviderEntry,
   AgentModelEntry,
   AgentModelProviderWithModels,
@@ -131,31 +129,6 @@ export const skillsApi = {
     }),
 
   subagents: () => apiRequest<AgentSubagentSpec[]>(`/api/subagents`),
-};
-
-export const modelProfilesApi = {
-  list: () => apiRequest<AgentModelProfileEntry[]>(`/api/model-profiles`),
-
-  get: (key: string) => apiRequest<AgentModelProfileEntry>(`/api/model-profiles/${key}`),
-
-  create: (body: Record<string, unknown>) =>
-    apiRequest<AgentModelProfileEntry>(`/api/model-profiles`, { method: "POST", body }),
-
-  patch: (key: string, body: Record<string, unknown>) =>
-    apiRequest<AgentModelProfileEntry>(`/api/model-profiles/${key}`, {
-      method: "PATCH",
-      body,
-    }),
-
-  enable: (key: string) =>
-    apiRequest<AgentModelProfileEnablementResult>(`/api/model-profiles/${key}/enable`, {
-      method: "POST",
-    }),
-
-  disable: (key: string) =>
-    apiRequest<AgentModelProfileEnablementResult>(`/api/model-profiles/${key}/disable`, {
-      method: "POST",
-    }),
 };
 
 export const modelProvidersApi = {

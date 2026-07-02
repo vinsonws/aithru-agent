@@ -33,6 +33,26 @@ test("apiRequest delegates hosted calls to the Aithru hosted app SDK fetch", asy
   assert.equal(called, true);
 });
 
+test("model settings routes use settings scopes for hosted fetches", async () => {
+  const { apiRequest, setHostedApiFetch } = await loadApiClientModule();
+  const calls = [];
+
+  setHostedApiFetch(async (input, _init, scopes) => {
+    calls.push({ input, scopes });
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  await apiRequest("/api/model-providers");
+  await apiRequest("/api/model-default");
+
+  assert.deepEqual(calls, [
+    { input: "/api/model-providers", scopes: ["agent.app.settings.read"] },
+    { input: "/api/model-default", scopes: ["agent.app.settings.read"] },
+  ]);
+});
+
 test("apiRequest never sends user or org identity headers", async () => {
   const { apiRequest, setHostedApiFetch, setRequestContext } = await loadApiClientModule();
   const originalFetch = globalThis.fetch;

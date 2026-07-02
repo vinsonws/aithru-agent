@@ -41,7 +41,7 @@ function enabledModelCount(provider: AgentModelProviderWithModels): number {
     .length;
 }
 
-/** Model profiles content - kept for import stability while the UI becomes provider-first. */
+/** Kept for import stability while the settings tab stays provider-first. */
 export function ModelProfilesContent() {
   const { t } = useTranslation("settings");
   const qc = useQueryClient();

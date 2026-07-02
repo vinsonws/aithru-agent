@@ -136,7 +136,15 @@ export function scopesForApiRequest(method: string, path: string): string[] {
     return [`${APP_KEY}.app.memory.manage`];
   }
   if (
-    ["/api/model-profiles", "/api/skills", "/api/skill-registry", "/api/subagents", "/api/external-tools"]
+    [
+      "/api/model-profiles",
+      "/api/model-providers",
+      "/api/model-default",
+      "/api/skills",
+      "/api/skill-registry",
+      "/api/subagents",
+      "/api/external-tools",
+    ]
       .some((prefix) => pathname.startsWith(prefix))
   ) {
     return [verb === "GET" || verb === "HEAD" ? `${APP_KEY}.app.settings.read` : `${APP_KEY}.app.settings.manage`];

@@ -30,7 +30,7 @@ async function loadRunHeaderView() {
           build.onLoad({ filter: /^mock-api$/, namespace: "mock" }, () => ({
             contents: `
               export type AgentRunStatus = "queued" | "running" | "waiting_approval" | "waiting_subagent" | "waiting_input" | "waiting_external_run" | "completed" | "failed" | "cancelled";
-              export type AgentRun = { id: string; status: AgentRunStatus; taskMsg: string; scopes: string[]; harness_options?: { model?: string | null; model_ref?: string | null; model_profile_key?: string | null } | null };
+              export type AgentRun = { id: string; status: AgentRunStatus; taskMsg: string; scopes: string[]; harness_options?: { model?: string | null; model_ref?: string | null } | null };
               export type AgentThread = { id: string; title?: string | null };
             `,
             loader: "js",
@@ -50,7 +50,7 @@ async function loadRunHeaderView() {
                 const result = { ...(map[status] || map.idle) };
                 if (result.fallback === "Failed" && options?.error) {
                   const lower = options.error.toLowerCase();
-                  if (lower.includes("model profile") || lower.includes("api key") || lower.includes("model configuration")) {
+                  if (lower.includes("api key") || lower.includes("model configuration")) {
                     result.failureCategory = "modelConfiguration";
                     result.primaryAction = "openModelSettings";
                   }
@@ -68,7 +68,7 @@ async function loadRunHeaderView() {
               export function classifyRunFailure(error) {
                 if (!error) return "unknown";
                 const l = error.toLowerCase();
-                if (l.includes("model profile") || l.includes("api key") || l.includes("model configuration")) return "modelConfiguration";
+                if (l.includes("api key") || l.includes("model configuration")) return "modelConfiguration";
                 if (l.includes("approval") || l.includes("denied") || l.includes("permission")) return "approval";
                 if (l.includes("tool") || l.includes("capability") || l.includes("workspace") || l.includes("sandbox")) return "capability";
                 return "unknown";
@@ -109,7 +109,7 @@ function makeThread(overrides = {}) {
 }
 
 function makeRun(overrides = {}) {
-  return { id: "run_123456789", status: "running", goal: "Fix the bug", scopes: ["agent.workspace.read", "agent.workspace.write"], harness_options: { model_ref: "deepseek/deepseek-v4-flash", model_profile_key: "gpt-4", model: "gpt-4" }, ...overrides };
+  return { id: "run_123456789", status: "running", goal: "Fix the bug", scopes: ["agent.workspace.read", "agent.workspace.write"], harness_options: { model_ref: "deepseek/deepseek-v4-flash", model: "gpt-4" }, ...overrides };
 }
 
 test("running run exposes no header actions", async () => {
@@ -135,7 +135,7 @@ test("waiting approval run exposes no header actions", async () => {
 
 test("failed model-configuration run exposes no header actions", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
-  const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "failed", goal: "task" }), streamStatus: "failed", streamError: "model profile is missing", threadId: "thread_abcdef", modeLabel: "Auto" });
+  const view = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ status: "failed", goal: "task" }), streamStatus: "failed", streamError: "model configuration is missing", threadId: "thread_abcdef", modeLabel: "Auto" });
   assert.deepEqual(view.actions, []);
   assert.equal(view.status.fallback, "Failed");
 });
@@ -182,7 +182,7 @@ test("permission label is inferred from run scopes", async () => {
 
 test("model label uses model_ref then model then empty string", async () => {
   const { buildRunHeaderView } = await loadRunHeaderView();
-  const view1 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_ref: "deepseek/deepseek-v4-flash", model_profile_key: "my-profile", model: "gpt-4" } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
+  const view1 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_ref: "deepseek/deepseek-v4-flash", model: "gpt-4" } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
   assert.equal(view1.modelLabel, "deepseek/deepseek-v4-flash");
   const view2 = buildRunHeaderView({ thread: makeThread(), activeRun: makeRun({ harness_options: { model_ref: null, model: "gpt-4-turbo" } }), streamStatus: "running", threadId: "t1", modeLabel: "A" });
   assert.equal(view2.modelLabel, "gpt-4-turbo");

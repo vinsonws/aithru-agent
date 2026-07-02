@@ -746,7 +746,7 @@ function defaultModelProfile(key = "default", orgId = "org_1") {
     key,
     name: key === "default" ? "Default" : key,
     provider: "test",
-    model: "test",
+    model: "",
     enabled: true,
     capabilities: { vision: false, thinking: false },
     cost_policy: null,

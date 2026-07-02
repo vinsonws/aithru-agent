@@ -65,7 +65,7 @@ test("humanizeRunStatus('waiting_approval') returns Approval needed and reviewAp
 test("humanizeRunStatus('failed') with model error returns modelConfiguration failure and openModelSettings action", async () => {
   const { humanizeRunStatus } = await loadRunStatusCopy();
   const result = humanizeRunStatus("failed", {
-    error: "model profile metadata cannot include secret values",
+    error: "model configuration metadata cannot include secret values",
   });
   assert.equal(result.fallback, "Failed");
   assert.equal(result.tone, "danger");
@@ -116,7 +116,7 @@ test("isActiveRunStatus returns true for running and waiting states", async () =
 
 test("classifyRunFailure categorizes by error message patterns", async () => {
   const { classifyRunFailure } = await loadRunStatusCopy();
-  assert.equal(classifyRunFailure("model profile is missing"), "modelConfiguration");
+  assert.equal(classifyRunFailure("model configuration is missing"), "modelConfiguration");
   assert.equal(classifyRunFailure("invalid api key"), "modelConfiguration");
   assert.equal(classifyRunFailure("base_url not configured"), "modelConfiguration");
   assert.equal(classifyRunFailure("approval denied by user"), "approval");

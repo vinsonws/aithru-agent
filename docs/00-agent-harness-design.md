@@ -43,7 +43,7 @@ backend/
   packages/harness/src/         run loop, model turn loop, retry
   packages/external/src/        controlled web, MCP, Workflow capability adapters
   packages/memory/src/          local memory provider
-  packages/model/src/           provider-neutral model adapters and profiles
+  packages/model/src/           provider-neutral model adapters and provider-owned models
   packages/persistence/src/     in-memory and SQLite stores
   packages/skills/src/          SKILL.md loader and registry
   packages/snapshots/src/       run snapshot, summary, tree projections
@@ -117,11 +117,11 @@ failed
 ```
 
 OpenAI and Anthropic-family calls use provider SDKs inside this package.
-OpenAI-compatible vendor parameters live in model profile metadata, with small
-compatibility patches only for request/response shapes that cannot be expressed
-as normal SDK parameters. Provider SDK objects are not public API contracts.
-Model adapters never execute tools, read workspace files directly, write
-workspace outputs directly, or own approval state.
+OpenAI-compatible vendor parameters live in provider/model configuration, with
+small compatibility patches only for request/response shapes that cannot be
+expressed as normal SDK parameters. Provider SDK objects are not public API
+contracts. Model adapters never execute tools, read workspace files directly,
+write workspace outputs directly, or own approval state.
 
 Run `harness_options.mode` is structured harness state, not prompt text. The
 current chat surface uses `flash`, `thinking`, `pro`, and `ultra`: `flash`

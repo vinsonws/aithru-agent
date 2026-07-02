@@ -88,7 +88,6 @@ export function classifyRunFailure(error?: string | null): ProductFailureCategor
   if (!error) return "unknown";
   const lower = error.toLowerCase();
   if (
-    lower.includes("model profile") ||
     lower.includes("api key") ||
     lower.includes("metadata cannot include secret") ||
     lower.includes("base_url") ||

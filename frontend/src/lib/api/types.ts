@@ -48,9 +48,6 @@ export type AgentSkillRegistryEntry = S["AgentSkillRegistryEntry"];
 export type AgentSkillConfiguration = S["AgentSkillConfiguration"];
 export type AgentSkillEnablementResult = S["AgentSkillEnablementResult"];
 
-export type AgentModelProfileEntry = S["AgentModelProfileEntry"];
-export type AgentModelProfileEnablementResult =
-  S["AgentModelProfileEnablementResult"];
 export type AgentModelProviderEntry = S["AgentModelProviderEntry"];
 export type AgentModelEntry = S["AgentModelEntry"];
 export type AgentModelProviderWithModels = S["AgentModelProviderWithModels"];

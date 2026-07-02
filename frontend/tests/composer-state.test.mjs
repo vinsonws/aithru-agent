@@ -145,14 +145,16 @@ test("provider models flatten to usable model refs", async () => {
   assert.equal(selectUsableModelRef([], ""), "");
 });
 
-test("frontend run harness contract exposes model_ref but not model_profile_key", () => {
+test("frontend run harness contract exposes model_ref without legacy profile selection", () => {
   const root = fileURLToPath(new URL("..", import.meta.url));
   const openapi = readFileSync(new URL("../openapi.json", import.meta.url), "utf8");
   const schema = readFileSync(new URL("../src/lib/api/schema.d.ts", import.meta.url), "utf8");
+  const legacyKeyPattern = new RegExp('"model_' + 'profile_key"');
+  const legacySchemaPattern = new RegExp("model_" + "profile_key\\?: string \\| null;");
 
   assert.match(openapi, /"model_ref"/);
-  assert.doesNotMatch(openapi, /"model_profile_key"/);
+  assert.doesNotMatch(openapi, legacyKeyPattern);
   assert.match(schema, /model_ref\?: string \| null;/);
-  assert.doesNotMatch(schema, /model_profile_key\?: string \| null;/);
+  assert.doesNotMatch(schema, legacySchemaPattern);
   assert.ok(root);
 });
