@@ -6313,6 +6313,8 @@ export interface components {
             created_at: string;
             /** Updated At */
             updated_at: string;
+            /** Context Window Tokens */
+            context_window_tokens: number | null;
         };
         AgentModelProviderWithModels: components["schemas"]["AgentModelProviderEntry"] & {
             /** Models */
@@ -6388,6 +6390,8 @@ export interface components {
             selection_policy?: {
                 [key: string]: unknown;
             } | null;
+            /** Context Window Tokens */
+            context_window_tokens?: number | null;
         };
         /** UpdateModelRequest */
         UpdateModelRequest: {
@@ -6412,6 +6416,8 @@ export interface components {
             selection_policy?: {
                 [key: string]: unknown;
             } | null;
+            /** Context Window Tokens */
+            context_window_tokens?: number | null;
         };
         /** UpdateModelDefaultRequest */
         UpdateModelDefaultRequest: {

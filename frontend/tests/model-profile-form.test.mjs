@@ -61,6 +61,8 @@ test("custom provider form builds provider and model payloads", async () => {
       key: "qwen3-coder",
       name: "Qwen3 Coder",
       providerModelId: "qwen3-coder",
+      contextWindowTokens: "128000",
+      requestJson: '{"max_tokens":8192,"temperature":0.7}',
       thinking: true,
       vision: false,
     }),
@@ -70,6 +72,8 @@ test("custom provider form builds provider and model payloads", async () => {
       provider_model_id: "qwen3-coder",
       enabled: true,
       capabilities: { thinking: true, vision: false },
+      context_window_tokens: 128000,
+      request: { max_tokens: 8192, temperature: 0.7 },
     },
   );
 });

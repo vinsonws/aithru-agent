@@ -34,6 +34,7 @@ type ModelEntry = {
     vision: boolean;
     thinking: boolean;
   };
+  context_window_tokens: number | null;
   request: Record<string, unknown> | null;
   cost_policy: Record<string, unknown> | null;
   selection_policy: Record<string, unknown> | null;
@@ -98,6 +99,11 @@ function badRequest(reply: FastifyReply, message: string) {
   return { error: message };
 }
 
+function optionalPositiveInteger(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : NaN;
+}
+
 function notFound(reply: FastifyReply, message: string) {
   reply.code(404);
   return { error: message };
@@ -125,7 +131,7 @@ function listDocumentPayloads<T>(kind: string, orgId: string): T[] {
 }
 
 function publicModel(model: ModelEntry): ModelEntry {
-  return { ...model };
+  return { ...model, context_window_tokens: model.context_window_tokens ?? null };
 }
 
 function providerByKey(orgId: string, providerKey: string, ownerUserId?: string): ModelProviderEntry | null {
@@ -354,6 +360,7 @@ function migrateLegacyModelProfilesForRequest(request: FastifyRequest): void {
         provider_model_id: strippedModel,
         enabled: profile.enabled !== false,
         capabilities: profile.capabilities ?? { vision: false, thinking: false },
+        context_window_tokens: null,
         request: profile.metadata?.request ?? null,
         cost_policy: profile.cost_policy ?? null,
         selection_policy: profile.selection_policy ?? null,
@@ -508,6 +515,8 @@ async function createModel(request: FastifyRequest, reply: FastifyReply) {
   const key = String(body.key ?? "").trim();
   if (!isValidModelKey(key)) return badRequest(reply, "Invalid model key");
   if (modelByKey(orgId, providerKey, key, ownerScope)) return conflict(reply, "Model already exists");
+  const contextWindowTokens = optionalPositiveInteger(body.context_window_tokens);
+  if (Number.isNaN(contextWindowTokens)) return badRequest(reply, "Invalid context_window_tokens");
   const timestamp = now();
   const model: ModelEntry = {
     id: idFor("model_entry", orgId, ownerScope, modelRef(providerKey, key)),
@@ -522,6 +531,7 @@ async function createModel(request: FastifyRequest, reply: FastifyReply) {
       vision: Boolean(body.capabilities?.vision),
       thinking: Boolean(body.capabilities?.thinking),
     },
+    context_window_tokens: contextWindowTokens,
     request: body.request && typeof body.request === "object" ? body.request : body.request ?? null,
     cost_policy: body.cost_policy && typeof body.cost_policy === "object" ? body.cost_policy : body.cost_policy ?? null,
     selection_policy:
@@ -559,6 +569,10 @@ async function updateModel(request: FastifyRequest, reply: FastifyReply) {
   if (Object.prototype.hasOwnProperty.call(body, "key") && String(body.key ?? modelKey).trim() !== modelKey) {
     return badRequest(reply, "Model key cannot be changed");
   }
+  const contextWindowTokens = Object.prototype.hasOwnProperty.call(body, "context_window_tokens")
+    ? optionalPositiveInteger(body.context_window_tokens)
+    : model.context_window_tokens;
+  if (Number.isNaN(contextWindowTokens)) return badRequest(reply, "Invalid context_window_tokens");
   const updated: ModelEntry = {
     ...model,
     ...body,
@@ -571,6 +585,7 @@ async function updateModel(request: FastifyRequest, reply: FastifyReply) {
       vision: body.capabilities?.vision ?? model.capabilities.vision,
       thinking: body.capabilities?.thinking ?? model.capabilities.thinking,
     },
+    context_window_tokens: contextWindowTokens,
     updated_at: now(),
   };
   getRuntime().store.upsertDocument("model_entry", model.id, updated, documentWriteGuard(request, body));

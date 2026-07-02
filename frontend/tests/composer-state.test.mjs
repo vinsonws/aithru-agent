@@ -177,3 +177,13 @@ test("provider compat remains an opaque string contract", () => {
   assert.match(schema, /AgentModelCompatKind: string;/);
   assert.doesNotMatch(schema, /AgentModelCompatKind: "deepseek"/);
 });
+
+test("provider model contract exposes context window tokens", () => {
+  const openapi = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
+  const schema = readFileSync(new URL("../src/lib/api/schema.d.ts", import.meta.url), "utf8");
+
+  assert.ok(openapi.components.schemas.AgentModelEntry.properties.context_window_tokens);
+  assert.ok(openapi.components.schemas.CreateModelRequest.properties.context_window_tokens);
+  assert.match(schema, /context_window_tokens: number \| null;/);
+  assert.match(schema, /context_window_tokens\?: number \| null;/);
+});

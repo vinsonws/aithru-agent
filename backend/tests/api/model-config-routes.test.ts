@@ -87,9 +87,15 @@ describe("model provider routes", () => {
         name: "DeepSeek V4 Flash",
         provider_model_id: "deepseek-v4-flash",
         capabilities: { vision: false, thinking: true },
+        context_window_tokens: 128000,
+        request: { max_tokens: 8192, temperature: 0.7 },
       },
     });
     expect(flash.statusCode).toBe(201);
+    expect(JSON.parse(flash.body)).toMatchObject({
+      context_window_tokens: 128000,
+      request: { max_tokens: 8192, temperature: 0.7 },
+    });
 
     const pro = await app.inject({
       method: "POST",

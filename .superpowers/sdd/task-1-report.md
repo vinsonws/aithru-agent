@@ -1,63 +1,76 @@
-# Task 1 Report
+Status: DONE_WITH_CONCERNS
 
-## What I implemented
+Task: Contracts And Persistence for provider/model configuration
+Date: 2026-07-02
 
-- Added the `tool_input_delta` model event branch and threaded `inputStreamId` through final `tool_call` events in the backend model types.
-- Emitted streamed tool argument deltas from both OpenAI SDK adapters:
-  - Chat Completions tool call argument chunks emit `tool_input_delta` with `inputStreamId` like `chat:0`.
-  - Responses API function argument deltas emit `tool_input_delta` keyed by the final item stream id.
-- Normalized OpenAI-compatible provider adapter argument delta events into `tool_input_delta`, and included `inputStreamId` on normalized final `tool_call` events.
-- Added the backend stream event type `tool.input_delta`.
-- Forwarded `tool_input_delta` through the harness as a user-visible observational stream event without preparing, approving, or executing any tool.
-- Carried `inputStreamId` into the final `tool.proposed` payload so proposal events retain the stream association.
-- Added and updated focused backend tests for SDK adapters, provider adapters, and model-turn harness behavior.
+Scope completed:
+- Updated `backend/packages/contracts/src/schemas.ts`
+  - Added `AgentModelProviderKind`, `AgentModelCompatKind`, `AgentModelSecretStatusSchema`, `ModelSecretInputSchema`, `AgentModelCapabilitiesSchema`
+  - Added `AgentModelProviderEntrySchema`, `AgentModelEntrySchema`, `AgentModelProviderWithModelsSchema`, `AgentModelDefaultSelectionSchema`
+  - Added `CreateModelProviderRequestSchema`, `UpdateModelProviderRequestSchema`, `CreateModelRequestSchema`, `UpdateModelRequestSchema`, `UpdateModelDefaultRequestSchema`
+  - Replaced `AgentRunHarnessOptionsSchema.model_profile_key` with `model_ref`
+- Updated `backend/packages/contracts/src/types.ts`
+  - Exported static types for all new provider/model schemas, including `ModelSecretInput`
+- Updated `backend/packages/persistence/src/migrations.ts`
+  - Added dedicated `model_providers` and `model_entries` tables
+  - Added `idx_model_providers_org_key` and `idx_model_entries_org_key`
+- Updated `backend/packages/persistence/src/sqlite-store.ts`
+  - Mapped `model_provider_entry` -> `model_providers`
+  - Mapped `model_entry` -> `model_entries`
+- Updated `backend/tests/persistence/sqlite-store.test.ts`
+  - Added the required failing-first persistence coverage for provider/model document kinds and dedicated tables
 
-## RED failing test command/output summary
+Red/green notes:
+- RED: `npm run test -- tests/persistence/sqlite-store.test.ts` failed because `model_provider_entry` and `model_entry` were still falling through the volatile-document path.
+- GREEN: the same targeted test passed after adding the table migrations and `DOCUMENT_TABLES` mappings.
 
-Command:
+Verification run:
+- `cd backend && npm run test -- tests/persistence/sqlite-store.test.ts` -> PASS
+- `cd backend && npm run test` -> PASS
+- `cd backend && npm run check:no-python-backend` -> PASS
+- `cd backend && npm run examples:file-report` -> PASS
+- `cd backend && npm run typecheck` -> FAIL
 
-```bash
-cd backend
-npm run test -- tests/model/sdk-adapters.test.ts tests/model/provider-adapters.test.ts tests/model/model-turn.test.ts
-```
+Typecheck concern:
+- Expected fallout from Task 1 schema ownership: untouched later-task tests still construct `harness_options` with `model_profile_key`, which no longer exists on `AgentRunHarnessOptions`.
+- Current errors were in:
+  - `backend/tests/integration/api.test.ts`
+  - `backend/tests/model/skill-load-tool.test.ts`
+- I did not modify those files because Task 1 owns only contracts/persistence plus `backend/tests/persistence/sqlite-store.test.ts`, and the brief explicitly says later tasks will update remaining tests that still rely on `model_profile_key`.
 
-Initial RED summary:
+Security/boundary check:
+- No provider API keys were stored on model records.
+- No raw API keys were added to responses, logs, events, or persisted public payloads.
+- No Python backend dependency, workflow behavior, fallback routing, marketplace, or auto-discovery behavior was added.
 
-- Failed in `tests/model/sdk-adapters.test.ts` because streamed tool argument deltas were not emitted and final `tool_call` events did not include `inputStreamId`.
-- Failed in `tests/model/provider-adapters.test.ts` because OpenAI-compatible argument delta events were not normalized into `tool_input_delta`.
-- Failed in `tests/model/model-turn.test.ts` because the harness did not emit `tool.input_delta` and did not carry `input_stream_id` into tool proposal events.
+Git discipline:
+- Checked `git status --short` before staging.
+- Will stage only:
+  - `backend/packages/contracts/src/schemas.ts`
+  - `backend/packages/contracts/src/types.ts`
+  - `backend/packages/persistence/src/migrations.ts`
+  - `backend/packages/persistence/src/sqlite-store.ts`
+  - `backend/tests/persistence/sqlite-store.test.ts`
+- Left unrelated dirty files untouched.
 
-## GREEN passing test command/output summary
+---
 
-Command:
+Follow-up fix: transitional `model_profile_key` restored in `AgentRunHarnessOptionsSchema`
+Date: 2026-07-02
 
-```bash
-cd backend
-npm run test -- tests/model/sdk-adapters.test.ts tests/model/provider-adapters.test.ts tests/model/model-turn.test.ts
-```
+Reason:
+- The Task 1 brief and plan were corrected to keep `model_profile_key` alongside `model_ref` until Task 3 removes runtime profile support.
+- This keeps backend typecheck passing between tasks while runtime and test call sites are still migrating.
 
-Passing summary:
+Change made:
+- Updated `backend/packages/contracts/src/schemas.ts`
+  - Restored `model_profile_key: Type.Optional(Type.Union([Type.String(), Type.Null()]))`
+  - Kept `model_ref` in place
 
-- `tests/model/provider-adapters.test.ts`: 3 passed
-- `tests/model/sdk-adapters.test.ts`: 13 passed
-- `tests/model/model-turn.test.ts`: 12 passed
-- Total: 28 passed, 0 failed
+Verification run:
+- `cd backend && npm run typecheck` -> PASS
+- `cd backend && npm run test -- tests/persistence/sqlite-store.test.ts` -> PASS
 
-## Files changed
-
-- `backend/packages/stream/src/events.ts`
-- `backend/packages/model/src/types.ts`
-- `backend/packages/model/src/sdk-adapters.ts`
-- `backend/packages/model/src/provider-adapters.ts`
-- `backend/packages/harness/src/model-turn.ts`
-- `backend/packages/harness/src/run-loop.ts`
-- `backend/tests/model/sdk-adapters.test.ts`
-- `backend/tests/model/provider-adapters.test.ts`
-- `backend/tests/model/model-turn.test.ts`
-- `.superpowers/sdd/task-1-report.md`
-
-## Self-review findings or concerns
-
-- The change stays on the observational side of the capability boundary: partial tool input is only streamed as `tool.input_delta`; only complete `tool_call` events proceed into prepare/approval/execution.
-- I updated the brief’s proposal-event harness test to a two-turn `TestModelAdapter` sequence, per your explicit follow-up authorization, to match current `ModelTurnLoop` behavior without changing helper semantics.
-- I ran the focused backend test command from the brief, not the full backend verification list from `AGENTS.md`.
+Git discipline for follow-up:
+- Checked `git status --short` before staging.
+- Will stage only `backend/packages/contracts/src/schemas.ts` for this follow-up commit.
