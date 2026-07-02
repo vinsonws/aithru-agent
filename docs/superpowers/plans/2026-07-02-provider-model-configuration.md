@@ -1430,7 +1430,10 @@ Expected: PASS.
 - Modify: `frontend/src/lib/api/schema.d.ts`
 - Modify: `frontend/src/lib/api/types.ts`
 - Modify: `frontend/src/lib/api/resources.ts`
+- Modify: `backend/apps/api/src/routes/compat.ts`
 - Modify: `docs/00-agent-harness-design.md`
+- Modify: `docs/superpowers/specs/2026-07-02-provider-first-model-configuration-design.md`
+- Modify: `docs/superpowers/plans/2026-07-02-provider-model-configuration.md`
 - Modify: tests that still mention model profiles where the product no longer does
 - Verify: backend and frontend commands
 
@@ -1488,6 +1491,11 @@ Concretely remove the transitional frontend `modelProfilesApi` wrapper and
 Update `docs/00-agent-harness-design.md` so it describes provider-owned models
 and model providers instead of saying OpenAI-compatible parameters live in model
 profile metadata or that the store owns model profiles.
+Keep the legacy compat cleanup in `backend/apps/api/src/routes/compat.ts` that
+sets the builtin default model profile model to `""` so the legacy fallback does
+not advertise a fake default model.
+Stage the provider/model design spec and implementation plan with this cleanup
+so the repo's tracked design docs match the provider-first runtime and UI.
 
 - [ ] **Step 3: Run backend verification**
 
