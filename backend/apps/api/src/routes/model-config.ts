@@ -188,9 +188,11 @@ function defaultModelRefForOrg(orgId: string, ownerUserId?: string): string | nu
 }
 
 function clearDefaultModelIfSelected(orgId: string, ownerUserId: string | undefined, value: string): void {
-  const settingKey = defaultRefSettingKey(ownerUserId);
-  if (getRuntime().store.getSetting(orgId, settingKey) === value) {
-    getRuntime().store.setSetting(orgId, settingKey, "");
+  const settingKeys = new Set([defaultRefSettingKey(ownerUserId), DEFAULT_REF_SETTING]);
+  for (const settingKey of settingKeys) {
+    if (getRuntime().store.getSetting(orgId, settingKey) === value) {
+      getRuntime().store.setSetting(orgId, settingKey, "");
+    }
   }
 }
 

@@ -109,3 +109,27 @@ Results:
 
 - route test: passed (`6` tests)
 - typecheck: passed
+
+## Re-review Fix Pass
+
+Remaining issue confirmed:
+
+- unauthenticated/local mode reads and writes `model.default_ref`, but delete-time clearing only checked the owner-scoped key path, which could leave the legacy local default stale after deleting the selected model.
+
+Fix applied:
+
+- kept authenticated owner-scoped clearing behavior
+- updated delete-time default clearing helper to also clear the legacy local `model.default_ref` when it matches the deleted `model_ref`
+- added a focused local-mode route test proving `model.default_ref` is cleared when deleting the selected model without an authenticated actor
+
+Verification for the re-review fix pass:
+
+```bash
+cd backend && npm run test -- tests/api/model-config-routes.test.ts
+cd backend && npm run typecheck
+```
+
+Results:
+
+- route test: passed (`7` tests)
+- typecheck: passed

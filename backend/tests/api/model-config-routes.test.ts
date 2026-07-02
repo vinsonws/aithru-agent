@@ -25,6 +25,15 @@ async function appWithActor(currentActor = actor): Promise<FastifyInstance> {
   return app;
 }
 
+async function appWithoutActor(): Promise<FastifyInstance> {
+  resetRuntimeForTests();
+  await createRuntime();
+  const app = Fastify({ logger: false });
+  registerModelConfigRoutes(app);
+  await app.ready();
+  return app;
+}
+
 async function appWithSwitchableActor(initialActor = actor) {
   resetRuntimeForTests();
   await createRuntime();
@@ -241,5 +250,28 @@ describe("model provider routes", () => {
       url: "/api/model-providers/test/models/bad%20key",
     });
     expect(badModelDelete.statusCode).toBe(400);
+  });
+
+  it("clears the legacy local default when deleting the selected model", async () => {
+    app = await appWithoutActor();
+    await app.inject({
+      method: "POST",
+      url: "/api/model-providers",
+      payload: { key: "local", name: "Local", kind: "test", enabled: true },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/model-providers/local/models",
+      payload: { key: "echo", name: "Echo", provider_model_id: "local-echo", enabled: true },
+    });
+    getRuntime().store.setSetting("org_1", "model.default_ref", "local/echo");
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: "/api/model-providers/local/models/echo",
+    });
+
+    expect(deleted.statusCode).toBe(200);
+    expect(getRuntime().store.getSetting("org_1", "model.default_ref")).toBe("");
   });
 });
