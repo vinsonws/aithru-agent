@@ -80,3 +80,32 @@ cd backend && npm run typecheck
 
 - I added `/api/model-default` to settings-path auth classification alongside the brief-required `/api/model-providers`, since the new default-model API is the same settings surface and otherwise would have weaker scope mapping.
 - The brief required storing model document `key` as `provider/model`, while the API examples and tests expect response `key` values like `echo`. The route stores the full key internally and normalizes it back in responses.
+
+## Review Fix Pass
+
+Reviewer findings confirmed:
+
+- `model.default_ref` was only org-scoped, so same-org different owners with the same `provider/model` names could interfere with each other.
+- malformed `provider_key` and `model_key` path params were falling through to `404` instead of returning `400`.
+
+Fixes applied:
+
+- added owner-scoped settings helper behavior so authenticated requests use:
+  - `model.default_ref.<owner_user_id>`
+  - legacy unauthenticated/local mode still uses `model.default_ref`
+- updated `GET /api/model-default` and `PUT /api/model-default` to use the owner-scoped setting key
+- updated model delete and provider delete cascade clearing to clear only the current owner's default setting
+- added focused tests proving one user's delete does not clear another user's default in the same org
+- added focused malformed path-param tests for representative provider/model GET, PATCH, and DELETE paths returning `400`
+
+Verification for the fix pass:
+
+```bash
+cd backend && npm run test -- tests/api/model-config-routes.test.ts
+cd backend && npm run typecheck
+```
+
+Results:
+
+- route test: passed (`6` tests)
+- typecheck: passed

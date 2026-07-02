@@ -69,6 +69,10 @@ function ownerScopeForRequest(request: FastifyRequest, body?: any): string | und
   return platformActorFromRequest(request) ? requestOwnerUserId(request, body) : undefined;
 }
 
+function defaultRefSettingKey(ownerUserId?: string): string {
+  return ownerUserId ? `${DEFAULT_REF_SETTING}.${ownerUserId}` : DEFAULT_REF_SETTING;
+}
+
 function idFor(prefix: string, orgId: string, ownerUserId: string | undefined, key: string): string {
   const digest = createHash("sha256")
     .update(ownerUserId ? `${orgId}\0${ownerUserId}\0${key}` : `${orgId}\0${key}`)
@@ -178,14 +182,15 @@ function resolveProviderSecret(input: any, orgId: string, providerKey: string, o
   return secretStatus();
 }
 
-function defaultModelRefForOrg(orgId: string): string | null {
-  const value = getRuntime().store.getSetting(orgId, DEFAULT_REF_SETTING);
+function defaultModelRefForOrg(orgId: string, ownerUserId?: string): string | null {
+  const value = getRuntime().store.getSetting(orgId, defaultRefSettingKey(ownerUserId));
   return value ? value : null;
 }
 
-function clearDefaultModelIfSelected(orgId: string, value: string): void {
-  if (getRuntime().store.getSetting(orgId, DEFAULT_REF_SETTING) === value) {
-    getRuntime().store.setSetting(orgId, DEFAULT_REF_SETTING, "");
+function clearDefaultModelIfSelected(orgId: string, ownerUserId: string | undefined, value: string): void {
+  const settingKey = defaultRefSettingKey(ownerUserId);
+  if (getRuntime().store.getSetting(orgId, settingKey) === value) {
+    getRuntime().store.setSetting(orgId, settingKey, "");
   }
 }
 
@@ -197,8 +202,18 @@ function parseModelRef(value: string): { providerKey: string; modelKey: string }
   return isValidModelKey(providerKey) && isValidModelKey(modelKey) ? { providerKey, modelKey } : null;
 }
 
+function requireValidProviderKey(request: FastifyRequest, reply: FastifyReply): string | null {
+  const providerKey = params(request).provider_key;
+  return isValidModelKey(providerKey) ? providerKey : badRequest(reply, "Invalid provider key") && null;
+}
+
+function requireValidModelKey(request: FastifyRequest, reply: FastifyReply): string | null {
+  const modelKey = params(request).model_key;
+  return isValidModelKey(modelKey) ? modelKey : badRequest(reply, "Invalid model key") && null;
+}
+
 function providerWithModels(provider: ModelProviderEntry, orgId: string): ModelProviderEntry & { models: ModelEntry[]; default_model_ref?: string | null } {
-  const defaultRef = defaultModelRefForOrg(orgId);
+  const defaultRef = defaultModelRefForOrg(orgId, provider.owner_user_id);
   return {
     ...provider,
     models: modelsForProvider(orgId, provider.key, provider.owner_user_id).map(publicModel),
@@ -254,16 +269,20 @@ async function createProvider(request: FastifyRequest, reply: FastifyReply) {
 }
 
 async function getProvider(request: FastifyRequest, reply: FastifyReply) {
+  const providerKey = requireValidProviderKey(request, reply);
+  if (!providerKey) return reply.sent ? undefined : badRequest(reply, "Invalid provider key");
   const orgId = requestOrgId(request);
-  const provider = providerByKey(orgId, params(request).provider_key, ownerScopeForRequest(request));
+  const provider = providerByKey(orgId, providerKey, ownerScopeForRequest(request));
   return provider ? providerWithModels(provider, orgId) : notFound(reply, "Model provider not found");
 }
 
 async function updateProvider(request: FastifyRequest, reply: FastifyReply) {
+  const providerKey = requireValidProviderKey(request, reply);
+  if (!providerKey) return reply.sent ? undefined : badRequest(reply, "Invalid provider key");
   const body = (request.body ?? {}) as any;
   const orgId = requestOrgId(request);
   const ownerScope = ownerScopeForRequest(request);
-  const provider = providerByKey(orgId, params(request).provider_key, ownerScope);
+  const provider = providerByKey(orgId, providerKey, ownerScope);
   if (!provider) return notFound(reply, "Model provider not found");
   if (Object.prototype.hasOwnProperty.call(body, "key") && String(body.key ?? provider.key).trim() !== provider.key) {
     return badRequest(reply, "Provider key cannot be changed");
@@ -291,34 +310,37 @@ async function updateProvider(request: FastifyRequest, reply: FastifyReply) {
 }
 
 async function deleteProvider(request: FastifyRequest, reply: FastifyReply) {
+  const providerKey = requireValidProviderKey(request, reply);
+  if (!providerKey) return reply.sent ? undefined : badRequest(reply, "Invalid provider key");
   const orgId = requestOrgId(request);
   const ownerScope = ownerScopeForRequest(request);
-  const provider = providerByKey(orgId, params(request).provider_key, ownerScope);
+  const provider = providerByKey(orgId, providerKey, ownerScope);
   if (!provider) return notFound(reply, "Model provider not found");
   const models = modelsForProvider(orgId, provider.key, ownerScope);
   for (const model of models) {
-    clearDefaultModelIfSelected(orgId, model.key);
+    clearDefaultModelIfSelected(orgId, provider.owner_user_id, model.key);
     getRuntime().store.deleteDocument("model_entry", model.id, documentWriteGuard(request));
   }
-  clearDefaultModelIfSelected(orgId, provider.key);
   getRuntime().store.deleteDocument("model_provider_entry", provider.id, documentWriteGuard(request));
   return { deleted: true };
 }
 
 async function listModels(request: FastifyRequest, reply: FastifyReply) {
+  const providerKey = requireValidProviderKey(request, reply);
+  if (!providerKey) return reply.sent ? undefined : badRequest(reply, "Invalid provider key");
   const orgId = requestOrgId(request);
-  const providerKey = params(request).provider_key;
   const ownerScope = ownerScopeForRequest(request);
   if (!providerByKey(orgId, providerKey, ownerScope)) return notFound(reply, "Model provider not found");
   return modelsForProvider(orgId, providerKey, ownerScope).map(publicModel);
 }
 
 async function createModel(request: FastifyRequest, reply: FastifyReply) {
+  const providerKey = requireValidProviderKey(request, reply);
+  if (!providerKey) return reply.sent ? undefined : badRequest(reply, "Invalid provider key");
   const body = (request.body ?? {}) as any;
   const orgId = requestOrgId(request, body);
   const ownerUserId = requestOwnerUserId(request, body);
   const ownerScope = ownerScopeForRequest(request, body);
-  const providerKey = params(request).provider_key;
   if (!providerByKey(orgId, providerKey, ownerScope)) return notFound(reply, "Model provider not found");
   const key = String(body.key ?? "").trim();
   if (!isValidModelKey(key)) return badRequest(reply, "Invalid model key");
@@ -352,20 +374,26 @@ async function createModel(request: FastifyRequest, reply: FastifyReply) {
 }
 
 async function getModel(request: FastifyRequest, reply: FastifyReply) {
+  const providerKey = requireValidProviderKey(request, reply);
+  if (!providerKey) return reply.sent ? undefined : badRequest(reply, "Invalid provider key");
+  const modelKey = requireValidModelKey(request, reply);
+  if (!modelKey) return reply.sent ? undefined : badRequest(reply, "Invalid model key");
   const orgId = requestOrgId(request);
-  const providerKey = params(request).provider_key;
-  const model = modelByKey(orgId, providerKey, params(request).model_key, ownerScopeForRequest(request));
+  const model = modelByKey(orgId, providerKey, modelKey, ownerScopeForRequest(request));
   return model ? publicModel(model) : notFound(reply, "Model not found");
 }
 
 async function updateModel(request: FastifyRequest, reply: FastifyReply) {
+  const providerKey = requireValidProviderKey(request, reply);
+  if (!providerKey) return reply.sent ? undefined : badRequest(reply, "Invalid provider key");
+  const modelKey = requireValidModelKey(request, reply);
+  if (!modelKey) return reply.sent ? undefined : badRequest(reply, "Invalid model key");
   const body = (request.body ?? {}) as any;
   const orgId = requestOrgId(request);
-  const providerKey = params(request).provider_key;
   const ownerScope = ownerScopeForRequest(request);
-  const model = modelByKey(orgId, providerKey, params(request).model_key, ownerScope);
+  const model = modelByKey(orgId, providerKey, modelKey, ownerScope);
   if (!model) return notFound(reply, "Model not found");
-  if (Object.prototype.hasOwnProperty.call(body, "key") && String(body.key ?? params(request).model_key).trim() !== params(request).model_key) {
+  if (Object.prototype.hasOwnProperty.call(body, "key") && String(body.key ?? modelKey).trim() !== modelKey) {
     return badRequest(reply, "Model key cannot be changed");
   }
   const updated: ModelEntry = {
@@ -387,37 +415,43 @@ async function updateModel(request: FastifyRequest, reply: FastifyReply) {
 }
 
 async function deleteModel(request: FastifyRequest, reply: FastifyReply) {
+  const providerKey = requireValidProviderKey(request, reply);
+  if (!providerKey) return reply.sent ? undefined : badRequest(reply, "Invalid provider key");
+  const modelKey = requireValidModelKey(request, reply);
+  if (!modelKey) return reply.sent ? undefined : badRequest(reply, "Invalid model key");
   const orgId = requestOrgId(request);
-  const providerKey = params(request).provider_key;
-  const modelKey = params(request).model_key;
   const model = modelByKey(orgId, providerKey, modelKey, ownerScopeForRequest(request));
   if (!model) return notFound(reply, "Model not found");
-  clearDefaultModelIfSelected(orgId, modelStoredKey(providerKey, modelKey));
+  clearDefaultModelIfSelected(orgId, model.owner_user_id, modelStoredKey(providerKey, modelKey));
   getRuntime().store.deleteDocument("model_entry", model.id, documentWriteGuard(request));
   return { deleted: true };
 }
 
 async function getDefaultModel(request: FastifyRequest) {
-  return { model_ref: defaultModelRefForOrg(requestOrgId(request)) };
+  return { model_ref: defaultModelRefForOrg(requestOrgId(request), ownerScopeForRequest(request)) };
 }
 
 async function setDefaultModel(request: FastifyRequest, reply: FastifyReply) {
   const body = (request.body ?? {}) as any;
   const orgId = requestOrgId(request, body);
+  const ownerScope = ownerScopeForRequest(request, body);
   const value = body.model_ref;
   if (value == null) {
-    getRuntime().store.setSetting(orgId, DEFAULT_REF_SETTING, "");
+    getRuntime().store.setSetting(orgId, defaultRefSettingKey(ownerScope), "");
     return { model_ref: null };
   }
   if (typeof value !== "string") return badRequest(reply, "Invalid model_ref");
   const parsed = parseModelRef(value.trim());
   if (!parsed) return badRequest(reply, "Invalid model_ref");
-  const ownerScope = ownerScopeForRequest(request, body);
   const provider = providerByKey(orgId, parsed.providerKey, ownerScope);
   const model = modelByKey(orgId, parsed.providerKey, parsed.modelKey, ownerScope);
   if (!provider || !provider.enabled) return badRequest(reply, "Default model provider is not available");
   if (!model || !model.enabled) return badRequest(reply, "Default model is not available");
-  getRuntime().store.setSetting(orgId, DEFAULT_REF_SETTING, modelStoredKey(parsed.providerKey, parsed.modelKey));
+  getRuntime().store.setSetting(
+    orgId,
+    defaultRefSettingKey(ownerScope),
+    modelStoredKey(parsed.providerKey, parsed.modelKey),
+  );
   return { model_ref: modelStoredKey(parsed.providerKey, parsed.modelKey) };
 }
 

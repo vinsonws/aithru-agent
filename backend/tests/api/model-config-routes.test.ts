@@ -25,6 +25,24 @@ async function appWithActor(currentActor = actor): Promise<FastifyInstance> {
   return app;
 }
 
+async function appWithSwitchableActor(initialActor = actor) {
+  resetRuntimeForTests();
+  await createRuntime();
+  let currentActor = initialActor;
+  const app = Fastify({ logger: false });
+  app.addHook("preHandler", async (request) => {
+    (request as any).aithruActor = currentActor;
+  });
+  registerModelConfigRoutes(app);
+  await app.ready();
+  return {
+    app,
+    setActor(nextActor: typeof actor) {
+      currentActor = nextActor;
+    },
+  };
+}
+
 describe("model provider routes", () => {
   let app: FastifyInstance | null = null;
 
@@ -105,7 +123,7 @@ describe("model provider routes", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("clears model.default_ref when deleting the default model", async () => {
+  it("clears the owner's default when deleting the default model", async () => {
     app = await appWithActor();
     await app.inject({
       method: "POST",
@@ -117,14 +135,14 @@ describe("model provider routes", () => {
       url: "/api/model-providers/test/models",
       payload: { key: "echo", name: "Echo", provider_model_id: "test", enabled: true },
     });
-    getRuntime().store.setSetting("org_1", "model.default_ref", "test/echo");
+    getRuntime().store.setSetting("org_1", "model.default_ref.user_1", "test/echo");
 
     const deleted = await app.inject({
       method: "DELETE",
       url: "/api/model-providers/test/models/echo",
     });
     expect(deleted.statusCode).toBe(200);
-    expect(getRuntime().store.getSetting("org_1", "model.default_ref")).toBe("");
+    expect(getRuntime().store.getSetting("org_1", "model.default_ref.user_1")).toBe("");
   });
 
   it("sets and clears the explicit default model", async () => {
@@ -158,5 +176,70 @@ describe("model provider routes", () => {
     });
     expect(cleared.statusCode).toBe(200);
     expect(JSON.parse(cleared.body)).toEqual({ model_ref: null });
+  });
+
+  it("does not clear another owner's default when same-named model is deleted", async () => {
+    const secondActor = { ...actor, userId: "user_2" };
+    const switchable = await appWithSwitchableActor();
+    app = switchable.app;
+
+    await app.inject({
+      method: "POST",
+      url: "/api/model-providers",
+      payload: { key: "shared", name: "Shared", kind: "test", enabled: true },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/model-providers/shared/models",
+      payload: { key: "echo", name: "Echo", provider_model_id: "shared-echo", enabled: true },
+    });
+    await app.inject({
+      method: "PUT",
+      url: "/api/model-default",
+      payload: { model_ref: "shared/echo" },
+    });
+
+    switchable.setActor(secondActor);
+    await app.inject({
+      method: "POST",
+      url: "/api/model-providers",
+      payload: { key: "shared", name: "Shared", kind: "test", enabled: true },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/model-providers/shared/models",
+      payload: { key: "echo", name: "Echo", provider_model_id: "shared-echo", enabled: true },
+    });
+    await app.inject({
+      method: "DELETE",
+      url: "/api/model-providers/shared/models/echo",
+    });
+
+    switchable.setActor(actor);
+    const read = await app.inject({ method: "GET", url: "/api/model-default" });
+    expect(JSON.parse(read.body)).toEqual({ model_ref: "shared/echo" });
+  });
+
+  it("returns 400 for malformed provider and model path keys", async () => {
+    app = await appWithActor();
+
+    const badProviderGet = await app.inject({
+      method: "GET",
+      url: "/api/model-providers/bad%20key",
+    });
+    expect(badProviderGet.statusCode).toBe(400);
+
+    const badProviderPatch = await app.inject({
+      method: "PATCH",
+      url: "/api/model-providers/bad%20key",
+      payload: { name: "Nope" },
+    });
+    expect(badProviderPatch.statusCode).toBe(400);
+
+    const badModelDelete = await app.inject({
+      method: "DELETE",
+      url: "/api/model-providers/test/models/bad%20key",
+    });
+    expect(badModelDelete.statusCode).toBe(400);
   });
 });
