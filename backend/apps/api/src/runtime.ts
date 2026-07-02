@@ -36,6 +36,7 @@ let _runtime: AgentRuntime | null = null;
 
 type StoredModelProfile = {
   key: string;
+  owner_user_id?: string;
   name?: string;
   provider?: string;
   model?: string;
@@ -65,6 +66,7 @@ type StoredModelProfile = {
 type StoredExternalToolConfig = {
   id?: string;
   org_id?: string;
+  owner_user_id?: string;
   key?: string;
   provider_kind?: string;
   enabled?: boolean;
@@ -127,12 +129,13 @@ function failingAdapter(code: string, message: string): AgentModelAdapter {
 function storedModelProfile(
   store: AgentStore,
   orgId: string,
+  actorUserId: string,
   key: string,
 ): StoredModelProfile | null {
   const profile = store
     .listDocuments("model_profile_entry", orgId)
     .map((doc) => doc.payload as StoredModelProfile)
-    .find((entry) => entry.key === key);
+    .find((entry) => entry.key === key && entry.owner_user_id === actorUserId);
   if (profile) return profile;
   if (key === "default") {
     return {
@@ -148,7 +151,7 @@ function storedModelProfile(
 function adapterForRun(store: AgentStore, run: AgentRun): AgentModelAdapter {
   const key = modelProfileKey(run);
   if (!key) return defaultTestAdapter();
-  const profile = storedModelProfile(store, run.org_id, key);
+  const profile = storedModelProfile(store, run.org_id, run.actor_user_id, key);
   if (!profile) {
     return failingAdapter("MODEL_PROFILE_NOT_FOUND", `Model profile not found: ${key}`);
   }
@@ -199,18 +202,19 @@ function createControlledWebProviderFromEnv(): ControlledWebProvider | undefined
 function createStoreBackedMcpProvider(store: AgentStore) {
   return {
     listAvailableTools(run: AgentRun): AgentToolDescriptor[] {
-      return createMcpProviderAdapterFromStore(store, run.org_id).listAvailableTools();
+      return createMcpProviderAdapterFromStore(store, run.org_id, run.actor_user_id).listAvailableTools();
     },
     executeTool(run: AgentRun, toolName: string, input: Record<string, unknown>): Promise<unknown> {
-      return createMcpProviderAdapterFromStore(store, run.org_id).executeTool(toolName, input);
+      return createMcpProviderAdapterFromStore(store, run.org_id, run.actor_user_id).executeTool(toolName, input);
     },
   };
 }
 
-function createMcpProviderAdapterFromStore(store: AgentStore, orgId: string): McpProviderAdapter {
+function createMcpProviderAdapterFromStore(store: AgentStore, orgId: string, actorUserId: string): McpProviderAdapter {
   const catalog = new McpCatalog();
   for (const doc of store.listDocuments("external_tool_config_entry", orgId)) {
     const config = doc.payload as StoredExternalToolConfig;
+    if (config.owner_user_id !== actorUserId) continue;
     const server = mcpServerFromStoredConfig(store, config);
     if (server) catalog.register(server);
   }

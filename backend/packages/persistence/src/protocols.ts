@@ -10,6 +10,7 @@ import type {
   AgentApproval,
   AgentDocument,
   AgentContextSummary,
+  DocumentWriteGuard,
 } from "./store.js";
 
 export interface AgentStore {
@@ -66,11 +67,11 @@ export interface AgentStore {
   ): AgentApproval;
 
   // Generic documents
-  upsertDocument(kind: string, id: string, payload: unknown): AgentDocument;
-  insertDocument(kind: string, id: string, payload: unknown): AgentDocument;
+  upsertDocument(kind: string, id: string, payload: unknown, guard?: DocumentWriteGuard): AgentDocument;
+  insertDocument(kind: string, id: string, payload: unknown, guard?: DocumentWriteGuard): AgentDocument;
   getDocument(kind: string, id: string): AgentDocument | undefined;
   listDocuments(kind: string, orgId: string): AgentDocument[];
-  deleteDocument(kind: string, id: string): number;
+  deleteDocument(kind: string, id: string, guard?: DocumentWriteGuard): number;
 
   // Context summaries
   createContextSummary(summary: AgentContextSummary): AgentContextSummary;

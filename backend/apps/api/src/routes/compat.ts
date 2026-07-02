@@ -746,6 +746,22 @@ function requestOrgId(request: FastifyRequest, body?: any): string {
   return platformRequestOrgId(platformActorFromRequest(request), body, query(request));
 }
 
+function requestOwnerUserId(request: FastifyRequest, body?: any): string {
+  return requestActorUserId(platformActorFromRequest(request), body);
+}
+
+function documentWriteGuard(request: FastifyRequest, body?: any) {
+  const actor = platformActorFromRequest(request);
+  return {
+    orgId: requestOrgId(request, body),
+    ...(actor ? { ownerUserId: requestOwnerUserId(request, body) } : {}),
+  };
+}
+
+function canAccessDocument(request: FastifyRequest, payload: any): boolean {
+  return actorCanAccessOwnedResource(platformActorFromRequest(request), payload);
+}
+
 function documentPayload<T>(kind: string, id: string): T | null {
   return (getRuntime().store.getDocument(kind, id)?.payload as T | undefined) ?? null;
 }
@@ -789,8 +805,8 @@ function deleteMemoryResponse(request: FastifyRequest) {
   const memoryId = params(request).memory_id;
   const orgId = requestOrgId(request);
   const entry = documentPayload<any>("memory", memoryId);
-  const deleted = entry?.org_id === orgId
-    ? getRuntime().store.deleteDocument("memory", memoryId)
+  const deleted = entry?.org_id === orgId && canAccessDocument(request, entry)
+    ? getRuntime().store.deleteDocument("memory", memoryId, documentWriteGuard(request))
     : 0;
   return {
     memory_id: memoryId,
@@ -802,12 +818,14 @@ function deleteMemoryResponse(request: FastifyRequest) {
 
 function createModelProfileFromBody(request: FastifyRequest, body: any) {
   const orgId = requestOrgId(request, body);
+  const ownerUserId = requestOwnerUserId(request, body);
   const key = String(body.key ?? "custom");
   const timestamp = now();
   const profile = {
     ...defaultModelProfile(key),
     ...body,
     org_id: orgId,
+    owner_user_id: ownerUserId,
     key,
     id: modelProfileId(orgId, key),
     enabled: body.enabled ?? true,
@@ -825,6 +843,11 @@ function modelProfileByIdOrKey(orgId: string, value: string) {
   return listDocumentPayloads<any>("model_profile_entry", orgId).find(
     (profile) => profile.key === value,
   ) ?? null;
+}
+
+function accessibleModelProfileByIdOrKey(request: FastifyRequest, value: string) {
+  const profile = modelProfileByIdOrKey(requestOrgId(request), value);
+  return profile && canAccessDocument(request, profile) ? profile : null;
 }
 
 type BuiltinSkill = {
@@ -985,17 +1008,23 @@ function skillPackageFromEntry(entry: any) {
   };
 }
 
-function skillRegistryEntry(orgId: string, key: string) {
-  const byId = documentPayload<any>("skill_registry_entry", key);
-  if (byId?.org_id === orgId) return byId;
-  return listDocumentPayloads<any>("skill_registry_entry", orgId).find(
-    (entry) => entry.key === key,
-  ) ?? skillEntry(key);
+function skillRegistryEntryForRequest(request: FastifyRequest, key: string) {
+  return storedSkillRegistryEntry(requestOrgId(request), key, requestOwnerUserId(request)) ?? skillEntry(key);
 }
 
-function skillRegistryEntries(orgId: string) {
+function storedSkillRegistryEntry(orgId: string, key: string, ownerUserId?: string) {
+  const byId = documentPayload<any>("skill_registry_entry", key);
+  if (byId?.org_id === orgId && (!ownerUserId || byId.owner_user_id === ownerUserId)) return byId;
+  return listDocumentPayloads<any>("skill_registry_entry", orgId).find(
+    (entry) => entry.key === key && (!ownerUserId || entry.owner_user_id === ownerUserId),
+  ) ?? null;
+}
+
+function skillRegistryEntries(request: FastifyRequest) {
+  const orgId = requestOrgId(request);
   const stored = new Map(
     listDocumentPayloads<any>("skill_registry_entry", orgId)
+      .filter((entry) => canAccessDocument(request, entry))
       .map((entry) => [entry.key, entry]),
   );
   for (const skill of builtinSkills()) {
@@ -1004,17 +1033,23 @@ function skillRegistryEntries(orgId: string) {
   return [...stored.values()].sort((a, b) => String(a.key).localeCompare(String(b.key)));
 }
 
-function saveSkillRegistryEntry(orgId: string, key: string, patch: Record<string, unknown>) {
-  const existing = skillRegistryEntry(orgId, key);
+function saveSkillRegistryEntry(request: FastifyRequest, reply: FastifyReply, key: string, patch: Record<string, unknown>) {
+  const orgId = requestOrgId(request);
+  const ownerUserId = requestOwnerUserId(request);
+  const stored = storedSkillRegistryEntry(orgId, key, ownerUserId);
+  const foreign = stored ? null : storedSkillRegistryEntry(orgId, key);
+  if (foreign && !builtinSkill(key)) return forbidden(reply);
+  const existing = stored ?? skillEntry(key);
   const updated = {
     ...existing,
     ...patch,
     org_id: orgId,
+    owner_user_id: ownerUserId,
     key: existing.key,
     id: existing.id,
     updated_at: now(),
   };
-  getRuntime().store.upsertDocument("skill_registry_entry", updated.id, updated);
+  getRuntime().store.upsertDocument("skill_registry_entry", updated.id, updated, documentWriteGuard(request));
   return updated;
 }
 
@@ -1134,6 +1169,7 @@ function resolveExternalToolSecrets(config: any, orgId: string, key: string) {
 
 function externalToolConfigFromBody(request: FastifyRequest, body: any) {
   const orgId = requestOrgId(request, body);
+  const ownerUserId = requestOwnerUserId(request, body);
   const key = String(body.key ?? "custom");
   const timestamp = now();
   return resolveExternalToolSecrets({
@@ -1141,19 +1177,20 @@ function externalToolConfigFromBody(request: FastifyRequest, body: any) {
     ...body,
     id: externalToolConfigId(orgId, key),
     org_id: orgId,
+    owner_user_id: ownerUserId,
     key,
     enabled: body.enabled ?? true,
     activation_status: "pending_runtime_reload",
     created_at: timestamp,
     updated_at: timestamp,
-    created_by: "user_1",
-    updated_by: "user_1",
+    created_by: ownerUserId,
+    updated_by: ownerUserId,
     audit: [
       {
         id: `audit_${nanoid(8)}`,
         action: "created",
         at: timestamp,
-        actor_user_id: "user_1",
+        actor_user_id: ownerUserId,
       },
     ],
   }, orgId, key);
@@ -1165,6 +1202,11 @@ function externalToolByIdOrKey(orgId: string, value: string) {
   return listDocumentPayloads<any>("external_tool_config_entry", orgId).find(
     (config) => config.key === value,
   ) ?? null;
+}
+
+function accessibleExternalToolByIdOrKey(request: FastifyRequest, value: string) {
+  const config = externalToolByIdOrKey(requestOrgId(request), value);
+  return config && canAccessDocument(request, config) ? config : null;
 }
 
 function externalToolOperation(key: string, action: string, enabled: boolean) {
@@ -1473,14 +1515,15 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   });
 
   register(app, "GET", "/api/memory", async (request: FastifyRequest) =>
-    listDocumentPayloads<any>("memory", requestOrgId(request)),
+    listDocumentPayloads<any>("memory", requestOrgId(request)).filter((entry) => canAccessDocument(request, entry)),
   );
   register(app, "POST", "/api/memory", async (request: FastifyRequest, reply: FastifyReply) => {
     const body = (request.body ?? {}) as any;
     const entry = {
       id: `memory_${nanoid(12)}`,
-      org_id: requestOrgId(request, body),
       ...body,
+      org_id: requestOrgId(request, body),
+      owner_user_id: requestOwnerUserId(request, body),
       created_at: now(),
       updated_at: now(),
     };
@@ -1495,6 +1538,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     const q = query(request);
     return listDocumentPayloads<any>("memory_candidate", requestOrgId(request)).filter(
       (candidate) =>
+        canAccessDocument(request, candidate) &&
         (!q.status || candidate.status === q.status) &&
         (!q.run_id || candidate.run_id === q.run_id),
     );
@@ -1502,13 +1546,14 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   register(app, "POST", "/api/memory-candidates/:candidate_id/approve", async (request: FastifyRequest, reply: FastifyReply) => {
     const candidateId = params(request).candidate_id;
     const candidate = documentPayload<any>("memory_candidate", candidateId);
-    if (!candidate || candidate.org_id !== requestOrgId(request)) {
+    if (!candidate || candidate.org_id !== requestOrgId(request) || !canAccessDocument(request, candidate)) {
       return notFound(reply, "Memory candidate not found");
     }
     const timestamp = now();
     const memory = {
       id: `memory_${nanoid(12)}`,
       org_id: candidate.org_id,
+      owner_user_id: candidate.owner_user_id ?? requestOwnerUserId(request),
       scope: candidate.scope,
       scope_id: candidate.scope_id ?? null,
       key: candidate.key,
@@ -1526,7 +1571,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   register(app, "POST", "/api/memory-candidates/:candidate_id/reject", async (request: FastifyRequest, reply: FastifyReply) => {
     const candidateId = params(request).candidate_id;
     const candidate = documentPayload<any>("memory_candidate", candidateId);
-    if (!candidate || candidate.org_id !== requestOrgId(request)) {
+    if (!candidate || candidate.org_id !== requestOrgId(request) || !canAccessDocument(request, candidate)) {
       return notFound(reply, "Memory candidate not found");
     }
     const resolved = { ...candidate, status: "rejected", resolved_at: now() };
@@ -1544,11 +1589,12 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   register(app, "GET", "/api/model-profiles", async (request: FastifyRequest) => {
     const orgId = requestOrgId(request);
     const stored = listDocumentPayloads<any>("model_profile_entry", orgId)
+      .filter((profile) => canAccessDocument(request, profile))
       .sort((a, b) => String(a.key).localeCompare(String(b.key)));
     return stored.length > 0 ? stored : [defaultModelProfile()];
   });
   register(app, "GET", "/api/model-profiles/:profile_id_or_key", async (request: FastifyRequest, reply: FastifyReply) =>
-    modelProfileByIdOrKey(requestOrgId(request), params(request).profile_id_or_key) ??
+    accessibleModelProfileByIdOrKey(request, params(request).profile_id_or_key) ??
     notFound(reply, "Model profile not found"),
   );
   register(app, "POST", "/api/model-profiles", async (request: FastifyRequest, reply: FastifyReply) => {
@@ -1562,6 +1608,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     const orgId = requestOrgId(request);
     const existing = modelProfileByIdOrKey(orgId, params(request).profile_id_or_key);
     if (!existing) return notFound(reply, "Model profile not found");
+    if (!canAccessDocument(request, existing)) return forbidden(reply);
     const body = (request.body ?? {}) as any;
     const authSecret =
       Object.prototype.hasOwnProperty.call(body, "auth_secret")
@@ -1572,11 +1619,12 @@ export function registerCompatRoutes(app: FastifyInstance): void {
       ...body,
       id: existing.id,
       org_id: orgId,
+      owner_user_id: existing.owner_user_id ?? requestOwnerUserId(request),
       key: existing.key,
       auth_secret: authSecret,
       updated_at: now(),
     };
-    getRuntime().store.upsertDocument("model_profile_entry", existing.id, updated);
+    getRuntime().store.upsertDocument("model_profile_entry", existing.id, updated, documentWriteGuard(request));
     return updated;
   });
   for (const enabled of [true, false]) {
@@ -1588,28 +1636,34 @@ export function registerCompatRoutes(app: FastifyInstance): void {
         const orgId = requestOrgId(request);
         const existing = modelProfileByIdOrKey(orgId, params(request).profile_id_or_key);
         if (!existing) return notFound(reply, "Model profile not found");
+        if (!canAccessDocument(request, existing)) return forbidden(reply);
         const profile = { ...existing, enabled, updated_at: now() };
-        getRuntime().store.upsertDocument("model_profile_entry", profile.id, profile);
+        getRuntime().store.upsertDocument("model_profile_entry", profile.id, profile, documentWriteGuard(request));
         return { id: profile.id, org_id: profile.org_id, key: profile.key, enabled, profile };
       },
     );
   }
 
   register(app, "GET", "/api/skills", async (request: FastifyRequest) =>
-    skillRegistryEntries(requestOrgId(request)).map(skillPackageFromEntry),
+    skillRegistryEntries(request).map(skillPackageFromEntry),
   );
   register(app, "GET", "/api/skills/:skill_key_or_ref", async (request: FastifyRequest) =>
-    skillPackageFromEntry(skillRegistryEntry(requestOrgId(request), params(request).skill_key_or_ref)),
+    skillPackageFromEntry(skillRegistryEntryForRequest(request, params(request).skill_key_or_ref)),
   );
   register(app, "GET", "/api/skill-registry", async (request: FastifyRequest) =>
-    skillRegistryEntries(requestOrgId(request)),
+    skillRegistryEntries(request),
   );
   register(app, "GET", "/api/skill-registry/:entry_id_or_key", async (request: FastifyRequest) =>
-    skillRegistryEntry(requestOrgId(request), params(request).entry_id_or_key),
+    skillRegistryEntryForRequest(request, params(request).entry_id_or_key),
   );
   register(app, "POST", "/api/skill-registry", async (request: FastifyRequest, reply: FastifyReply) => {
     const body = (request.body ?? {}) as any;
-    const entry = { ...skillEntry(body.key ?? "custom"), ...body, org_id: requestOrgId(request, body) };
+    const entry = {
+      ...skillEntry(body.key ?? "custom"),
+      ...body,
+      org_id: requestOrgId(request, body),
+      owner_user_id: requestOwnerUserId(request, body),
+    };
     getRuntime().store.insertDocument("skill_registry_entry", entry.id, entry);
     reply.code(201);
     return entry;
@@ -1631,12 +1685,8 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     reply.code(201);
     return entry;
   });
-  register(app, "PATCH", "/api/skill-registry/:entry_id_or_key", async (request: FastifyRequest) =>
-    saveSkillRegistryEntry(
-      requestOrgId(request),
-      params(request).entry_id_or_key,
-      (request.body ?? {}) as Record<string, unknown>,
-    ),
+  register(app, "PATCH", "/api/skill-registry/:entry_id_or_key", async (request: FastifyRequest, reply: FastifyReply) =>
+    saveSkillRegistryEntry(request, reply, params(request).entry_id_or_key, (request.body ?? {}) as Record<string, unknown>),
   );
   register(app, "PATCH", "/api/skill-registry/user/:skill_key", async (request: FastifyRequest) => {
     const orgId = requestOrgId(request);
@@ -1651,8 +1701,14 @@ export function registerCompatRoutes(app: FastifyInstance): void {
       source: "user",
       read_only: false,
     };
-    const updated = { ...existing, ...((request.body ?? {}) as any), updated_at: now() };
-    getRuntime().store.upsertDocument("skill_package_user", id, updated);
+    const updated = {
+      ...existing,
+      ...((request.body ?? {}) as any),
+      org_id: orgId,
+      owner_user_id: actor,
+      updated_at: now(),
+    };
+    getRuntime().store.upsertDocument("skill_package_user", id, updated, documentWriteGuard(request));
     return updated;
   });
   for (const enabled of [true, false]) {
@@ -1660,8 +1716,9 @@ export function registerCompatRoutes(app: FastifyInstance): void {
       app,
       "POST",
       `/api/skill-registry/:entry_id_or_key/${enabled ? "enable" : "disable"}`,
-      async (request: FastifyRequest) => {
-        const entry = saveSkillRegistryEntry(requestOrgId(request), params(request).entry_id_or_key, { enabled });
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        const entry = saveSkillRegistryEntry(request, reply, params(request).entry_id_or_key, { enabled });
+        if ("error" in entry) return entry;
         return {
           id: entry.id,
           org_id: entry.org_id,
@@ -1675,13 +1732,13 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     );
   }
   register(app, "GET", "/api/subagents", async (request: FastifyRequest) =>
-    listDocumentPayloads<any>("subagent_spec", requestOrgId(request)),
+    listDocumentPayloads<any>("subagent_spec", requestOrgId(request)).filter((spec) => canAccessDocument(request, spec)),
   );
   register(app, "GET", "/api/subagents/:key", async (request: FastifyRequest, reply: FastifyReply) => {
     const orgId = requestOrgId(request);
     const key = params(request).key;
     const spec = listDocumentPayloads<any>("subagent_spec", orgId).find(
-      (item) => item.key === key,
+      (item) => item.key === key && canAccessDocument(request, item),
     );
     return spec ?? notFound(reply, "Subagent not found");
   });
@@ -1689,7 +1746,9 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     const body = (request.body ?? {}) as any;
     const spec = {
       id: `subagent_spec_${nanoid(12)}`,
+      ...body,
       org_id: requestOrgId(request, body),
+      owner_user_id: requestOwnerUserId(request, body),
       key: body.key ?? `subagent_${nanoid(8)}`,
       name: body.name ?? body.key ?? "Subagent",
       instructions: body.instructions ?? "",
@@ -1707,13 +1766,14 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     return [
       externalToolConfig("local-capabilities", true, await localToolCatalog()),
       ...listDocumentPayloads<any>("external_tool_config_entry", orgId)
+        .filter((config) => canAccessDocument(request, config))
         .sort((a, b) => String(a.key).localeCompare(String(b.key))),
     ];
   });
   register(app, "GET", "/api/external-tools/configs/:config_id_or_key", async (request: FastifyRequest, reply: FastifyReply) => {
     const key = params(request).config_id_or_key;
     if (key === "local-capabilities") return externalToolConfig(key, true, await localToolCatalog());
-    return externalToolByIdOrKey(requestOrgId(request), key) ?? notFound(reply, "External tool config not found");
+    return accessibleExternalToolByIdOrKey(request, key) ?? notFound(reply, "External tool config not found");
   });
   register(app, "POST", "/api/external-tools/configs", async (request: FastifyRequest, reply: FastifyReply) => {
     const config = externalToolConfigFromBody(request, (request.body ?? {}) as any);
@@ -1724,39 +1784,45 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   register(app, "PATCH", "/api/external-tools/configs/:config_id_or_key", async (request: FastifyRequest, reply: FastifyReply) => {
     const existing = externalToolByIdOrKey(requestOrgId(request), params(request).config_id_or_key);
     if (!existing) return notFound(reply, "External tool config not found");
+    if (!canAccessDocument(request, existing)) return forbidden(reply);
+    const ownerUserId = requestOwnerUserId(request);
     const updated = resolveExternalToolSecrets({
       ...existing,
       ...((request.body ?? {}) as any),
       id: existing.id,
       key: existing.key,
       org_id: existing.org_id,
+      owner_user_id: existing.owner_user_id ?? ownerUserId,
       activation_status: "pending_runtime_reload",
       updated_at: now(),
-      updated_by: "user_1",
+      updated_by: ownerUserId,
     }, existing.org_id, existing.key);
-    getRuntime().store.upsertDocument("external_tool_config_entry", existing.id, updated);
+    getRuntime().store.upsertDocument("external_tool_config_entry", existing.id, updated, documentWriteGuard(request));
     return updated;
   });
   register(app, "POST", "/api/external-tools/configs/:config_id_or_key/enable", async (request: FastifyRequest, reply: FastifyReply) => {
     const existing = externalToolByIdOrKey(requestOrgId(request), params(request).config_id_or_key);
     if (!existing) return externalToolOperation(params(request).config_id_or_key, "enable", true);
+    if (!canAccessDocument(request, existing)) return forbidden(reply);
     const config = { ...existing, enabled: true, updated_at: now(), activation_status: "pending_runtime_reload" };
-    getRuntime().store.upsertDocument("external_tool_config_entry", existing.id, config);
-    return { action: "enable", config, audit_event: { id: `audit_${nanoid(8)}`, action: "enable", at: now(), actor_user_id: "user_1" } };
+    getRuntime().store.upsertDocument("external_tool_config_entry", existing.id, config, documentWriteGuard(request));
+    return { action: "enable", config, audit_event: { id: `audit_${nanoid(8)}`, action: "enable", at: now(), actor_user_id: requestOwnerUserId(request) } };
   });
-  register(app, "POST", "/api/external-tools/configs/:config_id_or_key/disable", async (request: FastifyRequest) => {
+  register(app, "POST", "/api/external-tools/configs/:config_id_or_key/disable", async (request: FastifyRequest, reply: FastifyReply) => {
     const existing = externalToolByIdOrKey(requestOrgId(request), params(request).config_id_or_key);
     if (!existing) return externalToolOperation(params(request).config_id_or_key, "disable", false);
+    if (!canAccessDocument(request, existing)) return forbidden(reply);
     const config = { ...existing, enabled: false, updated_at: now(), activation_status: "pending_runtime_reload" };
-    getRuntime().store.upsertDocument("external_tool_config_entry", existing.id, config);
-    return { action: "disable", config, audit_event: { id: `audit_${nanoid(8)}`, action: "disable", at: now(), actor_user_id: "user_1" } };
+    getRuntime().store.upsertDocument("external_tool_config_entry", existing.id, config, documentWriteGuard(request));
+    return { action: "disable", config, audit_event: { id: `audit_${nanoid(8)}`, action: "disable", at: now(), actor_user_id: requestOwnerUserId(request) } };
   });
-  register(app, "POST", "/api/external-tools/configs/:config_id_or_key/reset-cache", async (request: FastifyRequest) => {
+  register(app, "POST", "/api/external-tools/configs/:config_id_or_key/reset-cache", async (request: FastifyRequest, reply: FastifyReply) => {
     const existing = externalToolByIdOrKey(requestOrgId(request), params(request).config_id_or_key);
     if (!existing) return externalToolOperation(params(request).config_id_or_key, "reset_cache", true);
+    if (!canAccessDocument(request, existing)) return forbidden(reply);
     const config = { ...existing, cache_status: { status: "empty", last_reset_at: now() }, updated_at: now() };
-    getRuntime().store.upsertDocument("external_tool_config_entry", existing.id, config);
-    return { action: "reset_cache", config, audit_event: { id: `audit_${nanoid(8)}`, action: "reset_cache", at: now(), actor_user_id: "user_1" } };
+    getRuntime().store.upsertDocument("external_tool_config_entry", existing.id, config, documentWriteGuard(request));
+    return { action: "reset_cache", config, audit_event: { id: `audit_${nanoid(8)}`, action: "reset_cache", at: now(), actor_user_id: requestOwnerUserId(request) } };
   });
 
   register(app, "GET", "/api/workspaces/:workspace_id/files", async (request: FastifyRequest) =>

@@ -15,6 +15,7 @@ import type {
   AgentApproval,
   AgentDocument,
   AgentContextSummary,
+  DocumentWriteGuard,
 } from "./store.js";
 import { runMigrations } from "./migrations.js";
 import { FileWorkspaceStore } from "./workspace-files.js";
@@ -516,7 +517,12 @@ export class SqliteStore implements AgentStore {
 
   // ── Generic Documents ────────────────────────────────────────────────
 
-  upsertDocument(kind: string, id: string, payload: unknown): AgentDocument {
+  upsertDocument(kind: string, id: string, payload: unknown, guard?: DocumentWriteGuard): AgentDocument {
+    const existing = this.getDocument(kind, id);
+    if (existing && !documentMatchesGuard(existing.payload, guard)) {
+      throw new Error(`Document not found: ${kind}/${id}`);
+    }
+    if (!documentMatchesGuard(payload, guard)) throw new Error(`Document not found: ${kind}/${id}`);
     const table = this.documentTable(kind);
     if (!table) {
       this.setVolatileDocument(kind, id, payload);
@@ -531,9 +537,11 @@ export class SqliteStore implements AgentStore {
     return { kind, id, payload };
   }
 
-  insertDocument(kind: string, id: string, payload: unknown): AgentDocument {
-    if (this.getDocument(kind, id)) throw new Error(`Document already exists: ${kind}/${id}`);
-    return this.upsertDocument(kind, id, payload);
+  insertDocument(kind: string, id: string, payload: unknown, guard?: DocumentWriteGuard): AgentDocument {
+    const existing = this.getDocument(kind, id);
+    if (existing && !documentMatchesGuard(existing.payload, guard)) throw new Error(`Document not found: ${kind}/${id}`);
+    if (existing) throw new Error(`Document already exists: ${kind}/${id}`);
+    return this.upsertDocument(kind, id, payload, guard);
   }
 
   getDocument(kind: string, id: string): AgentDocument | undefined {
@@ -561,15 +569,20 @@ export class SqliteStore implements AgentStore {
     }));
   }
 
-  deleteDocument(kind: string, id: string): number {
+  deleteDocument(kind: string, id: string, guard?: DocumentWriteGuard): number {
     const table = this.documentTable(kind);
-    if (!table) return this.deleteVolatileDocument(kind, id);
-    const deleted = this.getDocument(kind, id) ? 1 : 0;
-    this.runStatement(
-      `DELETE FROM ${table} WHERE id = ?`,
-      [id],
-    );
-    return deleted;
+    if (!table) return this.deleteVolatileDocument(kind, id, guard);
+    const where = ["id = ?"];
+    const params: SqliteParam[] = [id];
+    if (guard?.orgId) {
+      where.push("org_id = ?");
+      params.push(guard.orgId);
+    }
+    if (guard?.ownerUserId) {
+      where.push("owner_user_id = ?");
+      params.push(guard.ownerUserId);
+    }
+    return this.runStatement(`DELETE FROM ${table} WHERE ${where.join(" AND ")}`, params);
   }
 
   createContextSummary(summary: AgentContextSummary): AgentContextSummary {
@@ -1041,8 +1054,11 @@ export class SqliteStore implements AgentStore {
       .map(([id, payload]) => ({ kind, id, payload }));
   }
 
-  private deleteVolatileDocument(kind: string, id: string): number {
-    return this.volatileDocuments.get(kind)?.delete(id) ? 1 : 0;
+  private deleteVolatileDocument(kind: string, id: string, guard?: DocumentWriteGuard): number {
+    const docs = this.volatileDocuments.get(kind);
+    const existing = docs?.get(id);
+    if (existing === undefined || !documentMatchesGuard(existing, guard)) return 0;
+    return docs!.delete(id) ? 1 : 0;
   }
 
   private todoScope(runId: string): { column: string; value: string; orgId: string } {
@@ -1067,4 +1083,12 @@ function documentFields(payload: unknown): {
     ownerUserId: typeof record.owner_user_id === "string" ? record.owner_user_id : null,
     key: typeof record.key === "string" ? record.key : null,
   };
+}
+
+function documentMatchesGuard(payload: unknown, guard?: DocumentWriteGuard): boolean {
+  if (!guard) return true;
+  const fields = documentFields(payload);
+  if (guard.orgId && fields.orgId !== guard.orgId) return false;
+  if (guard.ownerUserId && fields.ownerUserId !== guard.ownerUserId) return false;
+  return true;
 }

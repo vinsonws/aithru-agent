@@ -292,6 +292,26 @@ describe("SkillResolver", () => {
       version: "1.0.0",
     }]);
   });
+
+  it("does not expose registry entries owned by another user", () => {
+    const store = new InMemoryStore();
+    store.upsertDocument("skill_registry_entry", "foreign-skill-entry", {
+      id: "foreign-skill-entry",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      key: "foreign-skill",
+      name: "Foreign Skill",
+      version: "1.0.0",
+      status: "published",
+      enabled: true,
+      instructions: "private instructions",
+    });
+    const resolver = new SkillResolver(new SkillRegistry(), store);
+
+    expect(resolver.resolve("foreign-skill", "org_1", "user_1")).toBeNull();
+    expect(resolver.listVisible("org_1", "user_1").map((skill) => skill.key)).not.toContain("foreign-skill");
+    expect(resolver.resolve("foreign-skill", "org_1", "user_2")?.source).toBe("registry");
+  });
 });
 
 describe("findBuiltinSkillsRoot", () => {

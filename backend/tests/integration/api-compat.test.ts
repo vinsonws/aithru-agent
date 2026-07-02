@@ -193,6 +193,39 @@ describe("legacy OpenAPI compatibility", () => {
     expect(filtered.body).not.toContain('"sequence":1');
   });
 
+  it("does not let runs use model profiles owned by another user in the same org", async () => {
+    getRuntime().store.upsertDocument("model_profile_entry", "model_profile_foreign_runtime", {
+      id: "model_profile_foreign_runtime",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      key: "foreign-runtime-chat",
+      name: "Foreign Runtime Chat",
+      provider: "test",
+      model: "test",
+      enabled: true,
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        task_msg: "say hi",
+        org_id: "org_1",
+        actor_user_id: "user_1",
+        scopes: ["agent.workspace.read"],
+        selected_skill_keys: null,
+        harness_options: { model_profile_key: "foreign-runtime-chat" },
+        wait_for_completion: false,
+        persist_task_msg_message: true,
+      },
+    });
+
+    expect(created.statusCode).toBe(201);
+    const run = JSON.parse(created.body);
+    const events = await waitForRunEvents(run.id, "run.failed");
+    expect(events.find((event: any) => event.type === "run.failed")?.payload.error.code).toBe("MODEL_PROFILE_NOT_FOUND");
+  });
+
   it("streams events from create-run stream POST endpoints", async () => {
     const root = await app.inject({
       method: "POST",
@@ -775,11 +808,19 @@ describe("legacy OpenAPI compatibility", () => {
         actor_user_id: "user_2",
         workspace_id: "ws_mcp_runtime_other_org",
       };
+      const otherUserRun: AgentRun = {
+        ...run,
+        id: "run_mcp_runtime_other_user",
+        actor_user_id: "user_2",
+        workspace_id: "ws_mcp_runtime_other_user",
+      };
       getRuntime().store.createRun(run);
       getRuntime().store.createRun(otherOrgRun);
+      getRuntime().store.createRun(otherUserRun);
 
       const tools = await getRuntime().capabilityRouter.listTools({ run });
       const otherOrgTools = await getRuntime().capabilityRouter.listTools({ run: otherOrgRun });
+      const otherUserTools = await getRuntime().capabilityRouter.listTools({ run: otherUserRun });
       const prepared = await getRuntime().capabilityRouter.prepareToolCall(
         { id: "tc_mcp_runtime_prepare", run_id: run.id, name: "mcp.runtime_search", input: {} },
         { run },
@@ -792,11 +833,17 @@ describe("legacy OpenAPI compatibility", () => {
         { id: "tc_mcp_runtime_other_org_prepare", run_id: otherOrgRun.id, name: "mcp.runtime_search", input: {} },
         { run: otherOrgRun },
       );
+      const otherUserPrepared = await getRuntime().capabilityRouter.prepareToolCall(
+        { id: "tc_mcp_runtime_other_user_prepare", run_id: otherUserRun.id, name: "mcp.runtime_search", input: {} },
+        { run: otherUserRun },
+      );
 
       expect(tools.map((tool) => tool.name)).toContain("mcp.runtime_search");
       expect(otherOrgTools.map((tool) => tool.name)).not.toContain("mcp.runtime_search");
+      expect(otherUserTools.map((tool) => tool.name)).not.toContain("mcp.runtime_search");
       expect(prepared).toMatchObject({ allowed: true, requires_approval: false });
       expect(otherOrgPrepared).toMatchObject({ allowed: false, reason: "Unknown tool: mcp.runtime_search" });
+      expect(otherUserPrepared).toMatchObject({ allowed: false, reason: "Unknown tool: mcp.runtime_search" });
       expect(result.output).toEqual({ answer: "found" });
       expect(fetchMock.mock.calls[0][0]).toBe("https://search.example.com/mcp");
       expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).authorization).toBe("Bearer mcp-secret");

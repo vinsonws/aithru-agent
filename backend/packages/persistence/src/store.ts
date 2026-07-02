@@ -48,6 +48,11 @@ export interface AgentDocument {
   payload: unknown;
 }
 
+export interface DocumentWriteGuard {
+  orgId?: string;
+  ownerUserId?: string;
+}
+
 export interface AgentContextSummary {
   id: string;
   org_id: string;
@@ -63,6 +68,19 @@ function documentOrgId(payload: unknown): string | null {
   return payload && typeof payload === "object" && typeof (payload as any).org_id === "string"
     ? (payload as any).org_id
     : null;
+}
+
+function documentOwnerUserId(payload: unknown): string | null {
+  return payload && typeof payload === "object" && typeof (payload as any).owner_user_id === "string"
+    ? (payload as any).owner_user_id
+    : null;
+}
+
+function documentMatchesGuard(payload: unknown, guard?: DocumentWriteGuard): boolean {
+  if (!guard) return true;
+  if (guard.orgId && documentOrgId(payload) !== guard.orgId) return false;
+  if (guard.ownerUserId && documentOwnerUserId(payload) !== guard.ownerUserId) return false;
+  return true;
 }
 
 export class InMemoryStore {
@@ -287,16 +305,23 @@ export class InMemoryStore {
 
   // ── Generic Documents ──────────────────────────────────────────────
 
-  upsertDocument(kind: string, id: string, payload: unknown): AgentDocument {
+  upsertDocument(kind: string, id: string, payload: unknown, guard?: DocumentWriteGuard): AgentDocument {
     const docs = this.documents.get(kind) ?? new Map<string, unknown>();
+    const existing = docs.get(id);
+    if (existing !== undefined && !documentMatchesGuard(existing, guard)) {
+      throw new Error(`Document not found: ${kind}/${id}`);
+    }
+    if (!documentMatchesGuard(payload, guard)) throw new Error(`Document not found: ${kind}/${id}`);
     docs.set(id, payload);
     this.documents.set(kind, docs);
     return { kind, id, payload };
   }
 
-  insertDocument(kind: string, id: string, payload: unknown): AgentDocument {
-    if (this.getDocument(kind, id)) throw new Error(`Document already exists: ${kind}/${id}`);
-    return this.upsertDocument(kind, id, payload);
+  insertDocument(kind: string, id: string, payload: unknown, guard?: DocumentWriteGuard): AgentDocument {
+    const existing = this.getDocument(kind, id);
+    if (existing && !documentMatchesGuard(existing.payload, guard)) throw new Error(`Document not found: ${kind}/${id}`);
+    if (existing) throw new Error(`Document already exists: ${kind}/${id}`);
+    return this.upsertDocument(kind, id, payload, guard);
   }
 
   getDocument(kind: string, id: string): AgentDocument | undefined {
@@ -312,8 +337,11 @@ export class InMemoryStore {
       .map(([id, payload]) => ({ kind, id, payload }));
   }
 
-  deleteDocument(kind: string, id: string): number {
-    return this.documents.get(kind)?.delete(id) ? 1 : 0;
+  deleteDocument(kind: string, id: string, guard?: DocumentWriteGuard): number {
+    const docs = this.documents.get(kind);
+    const existing = docs?.get(id);
+    if (existing === undefined || !documentMatchesGuard(existing, guard)) return 0;
+    return docs!.delete(id) ? 1 : 0;
   }
 
   createContextSummary(summary: AgentContextSummary): AgentContextSummary {

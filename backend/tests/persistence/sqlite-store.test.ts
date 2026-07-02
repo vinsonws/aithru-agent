@@ -353,6 +353,65 @@ describe("SqliteStore", () => {
     memoryStore.close();
   });
 
+  it("guards document writes and deletes by owner", () => {
+    store.upsertDocument("memory", "owned_doc", {
+      id: "owned_doc",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      value: "private",
+    });
+
+    expect(() =>
+      store.upsertDocument("memory", "owned_doc", {
+        id: "owned_doc",
+        org_id: "org_1",
+        owner_user_id: "user_1",
+        value: "stolen",
+      }, { orgId: "org_1", ownerUserId: "user_1" }),
+    ).toThrow(/Document not found/);
+    expect(store.deleteDocument("memory", "owned_doc", { orgId: "org_1", ownerUserId: "user_1" })).toBe(0);
+    expect(store.getDocument("memory", "owned_doc")?.payload).toMatchObject({ value: "private" });
+    expect(store.deleteDocument("memory", "owned_doc", { orgId: "org_1", ownerUserId: "user_2" })).toBe(1);
+  });
+
+  it("rejects guarded new documents with mismatched payload ownership", () => {
+    expect(() =>
+      store.upsertDocument("memory", "fresh_owner_mismatch", {
+        id: "fresh_owner_mismatch",
+        org_id: "org_1",
+        owner_user_id: "user_2",
+      }, { orgId: "org_1", ownerUserId: "user_1" }),
+    ).toThrow(/Document not found/);
+    expect(() =>
+      store.insertDocument("memory", "fresh_org_mismatch", {
+        id: "fresh_org_mismatch",
+        org_id: "org_2",
+        owner_user_id: "user_1",
+      }, { orgId: "org_1", ownerUserId: "user_1" }),
+    ).toThrow(/Document not found/);
+    expect(store.getDocument("memory", "fresh_owner_mismatch")).toBeUndefined();
+    expect(store.getDocument("memory", "fresh_org_mismatch")).toBeUndefined();
+
+    const memoryStore = new InMemoryStore();
+    expect(() =>
+      memoryStore.upsertDocument("memory", "fresh_owner_mismatch", {
+        id: "fresh_owner_mismatch",
+        org_id: "org_1",
+        owner_user_id: "user_2",
+      }, { orgId: "org_1", ownerUserId: "user_1" }),
+    ).toThrow(/Document not found/);
+    expect(() =>
+      memoryStore.insertDocument("memory", "fresh_org_mismatch", {
+        id: "fresh_org_mismatch",
+        org_id: "org_2",
+        owner_user_id: "user_1",
+      }, { orgId: "org_1", ownerUserId: "user_1" }),
+    ).toThrow(/Document not found/);
+    expect(memoryStore.getDocument("memory", "fresh_owner_mismatch")).toBeUndefined();
+    expect(memoryStore.getDocument("memory", "fresh_org_mismatch")).toBeUndefined();
+    memoryStore.close();
+  });
+
   it("persists tool call records as dedicated documents", async () => {
     const dbPath = join(tempDir, "tool-calls.sqlite");
     const durable = await SqliteStore.create(dbPath);

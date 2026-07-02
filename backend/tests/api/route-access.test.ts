@@ -139,4 +139,147 @@ describe("authenticated route resource access", () => {
     expect(response.statusCode).toBe(403);
     expect(getRuntime().store.getApproval("approval_foreign")?.status).toBe("pending");
   });
+
+  it("rejects compat document mutations for resources owned by another user in the same org", async () => {
+    app = await appWithActor(registerCompatRoutes);
+    const timestamp = now();
+    const store = getRuntime().store;
+    store.upsertDocument("model_profile_entry", "profile_foreign", {
+      id: "profile_foreign",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      key: "foreign-profile",
+      provider: "test",
+      model: "test",
+      enabled: true,
+      auth_secret: { has_secret: false, secret_ref: null, redacted: true },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    store.upsertDocument("skill_registry_entry", "skill_foreign", {
+      id: "skill_foreign",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      key: "foreign-skill",
+      name: "Foreign Skill",
+      description: null,
+      version: "1.0.0",
+      status: "published",
+      enabled: true,
+      configuration: { instructions: "private", allowed_tools: [], denied_tools: [] },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    store.upsertDocument("external_tool_config_entry", "external_foreign", {
+      id: "external_foreign",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      key: "foreign-tool",
+      name: "Foreign Tool",
+      provider_kind: "mcp",
+      enabled: true,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    store.upsertDocument("subagent_spec", "subagent_foreign", {
+      id: "subagent_foreign",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      key: "foreign-subagent",
+      name: "Foreign Subagent",
+      instructions: "private",
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    store.upsertDocument("memory", "memory_foreign", {
+      id: "memory_foreign",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      key: "foreign-memory",
+      value: "private",
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    const profile = await app.inject({
+      method: "PATCH",
+      url: "/api/model-profiles/foreign-profile",
+      payload: { enabled: false },
+    });
+    const skill = await app.inject({
+      method: "PATCH",
+      url: "/api/skill-registry/foreign-skill",
+      payload: { enabled: false },
+    });
+    const external = await app.inject({
+      method: "PATCH",
+      url: "/api/external-tools/configs/foreign-tool",
+      payload: { enabled: false },
+    });
+    const subagent = await app.inject({
+      method: "GET",
+      url: "/api/subagents/foreign-subagent",
+    });
+    const memoryDelete = await app.inject({
+      method: "DELETE",
+      url: "/api/memory/memory_foreign",
+    });
+
+    expect(profile.statusCode).toBe(403);
+    expect(skill.statusCode).toBe(403);
+    expect(external.statusCode).toBe(403);
+    expect(subagent.statusCode).toBe(404);
+    expect(JSON.parse(memoryDelete.body)).toMatchObject({ forgotten: false, deleted_count: 0 });
+    expect(store.getDocument("model_profile_entry", "profile_foreign")?.payload).toMatchObject({ enabled: true });
+    expect(store.getDocument("skill_registry_entry", "skill_foreign")?.payload).toMatchObject({ enabled: true });
+    expect(store.getDocument("external_tool_config_entry", "external_foreign")?.payload).toMatchObject({ enabled: true });
+    expect(store.getDocument("memory", "memory_foreign")).toBeDefined();
+  });
+
+  it("uses the current user's skill registry entry when another user has the same key", async () => {
+    app = await appWithActor(registerCompatRoutes);
+    const timestamp = now();
+    const store = getRuntime().store;
+    store.upsertDocument("skill_registry_entry", "a_foreign_shared_skill", {
+      id: "a_foreign_shared_skill",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      key: "shared-skill",
+      name: "Foreign Shared Skill",
+      version: "1.0.0",
+      status: "published",
+      enabled: true,
+      configuration: { instructions: "foreign", allowed_tools: [], denied_tools: [] },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    store.upsertDocument("skill_registry_entry", "z_own_shared_skill", {
+      id: "z_own_shared_skill",
+      org_id: "org_1",
+      owner_user_id: "user_1",
+      key: "shared-skill",
+      name: "Own Shared Skill",
+      version: "1.0.0",
+      status: "published",
+      enabled: true,
+      configuration: { instructions: "own", allowed_tools: [], denied_tools: [] },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    const read = await app.inject({
+      method: "GET",
+      url: "/api/skill-registry/shared-skill",
+    });
+    const patch = await app.inject({
+      method: "PATCH",
+      url: "/api/skill-registry/shared-skill",
+      payload: { enabled: false },
+    });
+
+    expect(JSON.parse(read.body)).toMatchObject({ id: "z_own_shared_skill", owner_user_id: "user_1" });
+    expect(patch.statusCode).toBe(200);
+    expect(store.getDocument("skill_registry_entry", "z_own_shared_skill")?.payload).toMatchObject({ enabled: false });
+    expect(store.getDocument("skill_registry_entry", "a_foreign_shared_skill")?.payload).toMatchObject({ enabled: true });
+  });
 });
