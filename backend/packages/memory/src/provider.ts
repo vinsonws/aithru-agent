@@ -6,30 +6,32 @@ interface MemoryEntry<T = string> {
 }
 
 export class LocalMemoryProvider {
-  private store = new Map<string, MemoryEntry>();
+  private store = new Map<string, Map<string, MemoryEntry>>();
 
-  remember(key: string, value: string, ttlMs?: number): void {
-    this.store.set(key, {
+  remember(scope: string, key: string, value: string, ttlMs?: number): void {
+    this.ensureScopeStore(scope).set(key, {
       key, value,
       created_at: Date.now(),
       ttl_ms: ttlMs || null,
     });
   }
 
-  recall(key: string): string | undefined {
-    const entry = this.store.get(key);
+  recall(scope: string, key: string): string | undefined {
+    const entries = this.store.get(scope);
+    if (!entries) return undefined;
+    const entry = entries.get(key);
     if (!entry) return undefined;
     if (entry.ttl_ms && Date.now() - entry.created_at > entry.ttl_ms) {
-      this.store.delete(key);
+      entries.delete(key);
       return undefined;
     }
     return entry.value;
   }
 
-  search(query: string): Array<{ key: string; value: string }> {
+  search(scope: string, query: string): Array<{ key: string; value: string }> {
     const results: Array<{ key: string; value: string }> = [];
     const lowerQuery = query.toLowerCase();
-    for (const entry of this.store.values()) {
+    for (const entry of this.store.get(scope)?.values() ?? []) {
       if (entry.key.toLowerCase().includes(lowerQuery) || entry.value.toLowerCase().includes(lowerQuery)) {
         results.push({ key: entry.key, value: entry.value });
       }
@@ -37,15 +39,33 @@ export class LocalMemoryProvider {
     return results;
   }
 
-  forget(key: string): boolean {
-    return this.store.delete(key);
+  forget(scope: string, key: string): boolean {
+    return this.store.get(scope)?.delete(key) ?? false;
   }
 
-  clear(): void {
+  clear(scope?: string): void {
+    if (scope) {
+      this.store.delete(scope);
+      return;
+    }
+    this.store.clear();
+  }
+
+  clearAll(): void {
     this.store.clear();
   }
 
   get size(): number {
-    return this.store.size;
+    let total = 0;
+    for (const entries of this.store.values()) total += entries.size;
+    return total;
+  }
+
+  private ensureScopeStore(scope: string): Map<string, MemoryEntry> {
+    const existing = this.store.get(scope);
+    if (existing) return existing;
+    const entries = new Map<string, MemoryEntry>();
+    this.store.set(scope, entries);
+    return entries;
   }
 }

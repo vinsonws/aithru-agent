@@ -99,6 +99,8 @@ export class SqliteStore implements AgentStore {
     const sqlite = new SQL.Database(buffer);
     const store = new SqliteStore(sqlite, dbPath);
     runMigrations(store);
+    store.migrateSettingsOrgScope();
+    store.migrateSecretsOrgScope();
     store.ensureColumn("todos", "thread_id", "TEXT");
     store.exec("CREATE INDEX IF NOT EXISTS idx_todos_thread ON todos(thread_id)");
     for (const table of Object.values(DOCUMENT_TABLES)) {
@@ -567,11 +569,11 @@ export class SqliteStore implements AgentStore {
     );
   }
 
-  setSecret(secretRef: string, value: string): void {
+  setSecret(orgId: string, secretRef: string, value: string): void {
     validateSecretRef(secretRef);
     const existing = this.selectOne<SqliteRow>(
-      "SELECT created_at FROM secrets WHERE secret_ref = ?",
-      [secretRef],
+      "SELECT created_at FROM secrets WHERE org_id = ? AND secret_ref = ?",
+      [orgId, secretRef],
     );
     const timestamp = nowIso();
     const iv = randomBytes(12);
@@ -580,9 +582,10 @@ export class SqliteStore implements AgentStore {
     const tag = cipher.getAuthTag();
     this.runStatement(
       `INSERT OR REPLACE INTO secrets
-        (secret_ref, encrypted_value, iv, tag, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        (org_id, secret_ref, encrypted_value, iv, tag, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
+        orgId,
         secretRef,
         encrypted.toString("base64"),
         iv.toString("base64"),
@@ -593,11 +596,11 @@ export class SqliteStore implements AgentStore {
     );
   }
 
-  getSecret(secretRef: string): string | undefined {
+  getSecret(orgId: string, secretRef: string): string | undefined {
     validateSecretRef(secretRef);
     const record = this.selectOne<SqliteRow>(
-      "SELECT encrypted_value, iv, tag FROM secrets WHERE secret_ref = ?",
-      [secretRef],
+      "SELECT encrypted_value, iv, tag FROM secrets WHERE org_id = ? AND secret_ref = ?",
+      [orgId, secretRef],
     );
     if (
       typeof record?.encrypted_value !== "string" ||
@@ -618,18 +621,18 @@ export class SqliteStore implements AgentStore {
     ]).toString("utf8");
   }
 
-  setSetting(key: string, value: string): void {
+  setSetting(orgId: string, key: string, value: string): void {
     this.runStatement(
-      `INSERT OR REPLACE INTO settings (key, value, updated_at)
-       VALUES (?, ?, ?)`,
-      [key, value, nowIso()],
+      `INSERT OR REPLACE INTO settings (org_id, key, value, updated_at)
+       VALUES (?, ?, ?, ?)`,
+      [orgId, key, value, nowIso()],
     );
   }
 
-  getSetting(key: string): string | undefined {
+  getSetting(orgId: string, key: string): string | undefined {
     const row = this.selectOne<SqliteRow>(
-      "SELECT value FROM settings WHERE key = ?",
-      [key],
+      "SELECT value FROM settings WHERE org_id = ? AND key = ?",
+      [orgId, key],
     );
     return typeof row?.value === "string" ? row.value : undefined;
   }
@@ -764,9 +767,67 @@ export class SqliteStore implements AgentStore {
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
-    const columns = this.selectAll<SqliteRow>(`PRAGMA table_info(${table})`);
+    const columns = this.tableInfo(table);
     if (columns.some((row) => row.name === column)) return;
     this.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+
+  private migrateSettingsOrgScope(): void {
+    const columns = this.tableInfo("settings");
+    if (this.hasCompositePrimaryKey(columns, ["org_id", "key"])) return;
+    const orgExpr = columns.some((row) => row.name === "org_id")
+      ? "COALESCE(NULLIF(org_id, ''), 'org_1')"
+      : "'org_1'";
+    this.exec(`
+      CREATE TABLE settings_scoped_migration (
+        org_id TEXT NOT NULL DEFAULT '',
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (org_id, key)
+      );
+      INSERT OR REPLACE INTO settings_scoped_migration (org_id, key, value, updated_at)
+        SELECT ${orgExpr}, key, value, updated_at FROM settings;
+      DROP TABLE settings;
+      ALTER TABLE settings_scoped_migration RENAME TO settings;
+    `);
+  }
+
+  private migrateSecretsOrgScope(): void {
+    const columns = this.tableInfo("secrets");
+    if (this.hasCompositePrimaryKey(columns, ["org_id", "secret_ref"])) return;
+    const orgExpr = columns.some((row) => row.name === "org_id")
+      ? "COALESCE(NULLIF(org_id, ''), 'org_1')"
+      : "'org_1'";
+    this.exec(`
+      CREATE TABLE secrets_scoped_migration (
+        org_id TEXT NOT NULL DEFAULT '',
+        secret_ref TEXT NOT NULL,
+        encrypted_value TEXT NOT NULL,
+        iv TEXT NOT NULL,
+        tag TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (org_id, secret_ref)
+      );
+      INSERT OR REPLACE INTO secrets_scoped_migration
+        (org_id, secret_ref, encrypted_value, iv, tag, created_at, updated_at)
+        SELECT ${orgExpr}, secret_ref, encrypted_value, iv, tag, created_at, updated_at FROM secrets;
+      DROP TABLE secrets;
+      ALTER TABLE secrets_scoped_migration RENAME TO secrets;
+    `);
+  }
+
+  private tableInfo(table: string): SqliteRow[] {
+    return this.selectAll<SqliteRow>(`PRAGMA table_info(${table})`);
+  }
+
+  private hasCompositePrimaryKey(columns: SqliteRow[], names: string[]): boolean {
+    const pk = columns
+      .filter((row) => Number(row.pk ?? 0) > 0)
+      .sort((a, b) => Number(a.pk) - Number(b.pk))
+      .map((row) => String(row.name));
+    return pk.length === names.length && pk.every((name, index) => name === names[index]);
   }
 
   private hydrateMessage(row: SqliteRow): AgentMessage {

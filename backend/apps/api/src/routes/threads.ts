@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { nanoid } from "nanoid";
 import { getRuntime } from "../runtime.js";
 import type { AgentThread, AgentMessage } from "@aithru-agent/contracts";
@@ -10,12 +10,18 @@ import {
   AgentMessageSchema,
 } from "@aithru-agent/contracts";
 import {
+  actorCanAccessOwnedResource,
   bodyWithPlatformActor,
   platformActorFromRequest,
 } from "../platform-auth.js";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
+}
+
+function forbidden(reply: FastifyReply) {
+  reply.code(403);
+  return { error: "Forbidden" };
 }
 
 export function registerThreadRoutes(app: FastifyInstance): void {
@@ -71,7 +77,9 @@ export function registerThreadRoutes(app: FastifyInstance): void {
       const actor = platformActorFromRequest(request);
       const org_id = actor?.orgId ?? (request.query as any)?.org_id;
       const runtime = getRuntime();
-      return runtime.store.listThreads(org_id);
+      return runtime.store
+        .listThreads(org_id)
+        .filter((thread) => actorCanAccessOwnedResource(actor, thread));
     },
   );
 
@@ -99,6 +107,7 @@ export function registerThreadRoutes(app: FastifyInstance): void {
         reply.code(404);
         return { error: "Thread not found" };
       }
+      if (!actorCanAccessOwnedResource(platformActorFromRequest(request), existing)) return forbidden(reply);
       const updated = runtime.store.updateThread(thread_id, {
         ...(body.title !== undefined ? { title: body.title } : {}),
         ...(body.status !== undefined ? { status: body.status } : {}),
@@ -132,6 +141,7 @@ export function registerThreadRoutes(app: FastifyInstance): void {
         reply.code(404);
         return { error: "Thread not found" };
       }
+      if (!actorCanAccessOwnedResource(platformActorFromRequest(request), thread)) return forbidden(reply);
       const message: AgentMessage = {
         id: `msg_${nanoid(12)}`,
         thread_id,
@@ -174,6 +184,7 @@ export function registerThreadRoutes(app: FastifyInstance): void {
         reply.code(404);
         return { error: "Thread not found" };
       }
+      if (!actorCanAccessOwnedResource(platformActorFromRequest(request), thread)) return forbidden(reply);
       return runtime.store.listMessages(thread_id);
     },
   );

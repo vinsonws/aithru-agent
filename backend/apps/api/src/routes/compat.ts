@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
-import type { AgentMessage, AgentRun } from "@aithru-agent/contracts";
+import type { AgentMessage, AgentRun, AgentThread } from "@aithru-agent/contracts";
 import { emitSkillActivated, ensureToolCallRecordForApproval, getToolCallRecord } from "@aithru-agent/harness";
 import { EVENT_TYPES } from "@aithru-agent/stream";
 import { projectTraceSpans } from "@aithru-agent/trace";
@@ -18,6 +18,7 @@ import { getRuntime } from "../runtime.js";
 import type { AgentToolDescriptor } from "@aithru-agent/capabilities";
 import { shouldFollowRunStream, writeRunStream } from "./run-stream.js";
 import {
+  actorCanAccessOwnedResource,
   bodyWithPlatformActor,
   platformActorFromRequest,
   requestActorUserId,
@@ -41,6 +42,34 @@ function notFound(reply: FastifyReply, message: string) {
   return { error: message };
 }
 
+function forbidden(reply: FastifyReply) {
+  reply.code(403);
+  return { error: "Forbidden" };
+}
+
+function accessibleThread(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  threadId: string,
+): { thread: AgentThread; response?: never } | { thread?: never; response: { error: string } } {
+  const thread = getRuntime().store.getThread(threadId);
+  if (!thread) return { response: notFound(reply, "Thread not found") };
+  if (!actorCanAccessOwnedResource(platformActorFromRequest(request), thread)) return { response: forbidden(reply) };
+  return { thread };
+}
+
+function accessibleRun(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  runId: string,
+  threadId?: string,
+): { run: AgentRun; response?: never } | { run?: never; response: { error: string } } {
+  const run = getRuntime().store.getRun(runId);
+  if (!run || (threadId && run.thread_id !== threadId)) return { response: notFound(reply, "Run not found") };
+  if (!actorCanAccessOwnedResource(platformActorFromRequest(request), run)) return { response: forbidden(reply) };
+  return { run };
+}
+
 function workspaceIdForThread(threadId: string | null): string {
   return threadId ? `ws_thread_${threadId}` : `ws_${nanoid(12)}`;
 }
@@ -56,6 +85,10 @@ class SelectedSkillNotFoundError extends Error {
     super(`Skill not found: ${key}`);
   }
 }
+
+class ResourceForbiddenError extends Error {}
+
+class ThreadNotFoundError extends Error {}
 
 function selectedSkillKeys(body: any): string[] {
   const raw = Array.isArray(body.selected_skill_keys) ? body.selected_skill_keys : [];
@@ -80,6 +113,11 @@ async function createRun(
   const actorUserId = body.actor_user_id ?? "user_1";
   const runThreadId =
     threadId ?? (typeof body.thread_id === "string" && body.thread_id.length > 0 ? body.thread_id : null);
+  if (runThreadId && actor) {
+    const thread = runtime.store.getThread(runThreadId);
+    if (!thread) throw new ThreadNotFoundError();
+    if (!actorCanAccessOwnedResource(actor, thread)) throw new ResourceForbiddenError();
+  }
   const selectedSkills = [];
   for (const key of selectedSkillKeys(body)) {
     const skill = runtime.skillResolver.resolve(key, orgId, actorUserId);
@@ -148,8 +186,11 @@ async function createRun(
   return run;
 }
 
-function cancelRun(runId: string, reply: FastifyReply) {
+function cancelRun(runId: string, request: FastifyRequest, reply: FastifyReply) {
   const runtime = getRuntime();
+  const run = runtime.store.getRun(runId);
+  if (!run) return notFound(reply, "Run not found");
+  if (!actorCanAccessOwnedResource(platformActorFromRequest(request), run)) return forbidden(reply);
   return runtime.cancelRun(runId) ?? notFound(reply, "Run not found");
 }
 
@@ -161,6 +202,7 @@ async function submitRunInput(
   const runtime = getRuntime();
   const run = runtime.store.getRun(runId);
   if (!run) return notFound(reply, "Run not found");
+  if (!actorCanAccessOwnedResource(platformActorFromRequest(request), run)) return forbidden(reply);
   if (["completed", "failed", "cancelled"].includes(String(run.status))) {
     reply.code(409);
     return { error: "Run is not accepting input" };
@@ -296,10 +338,12 @@ async function sendRunStream(
   request: FastifyRequest,
   reply: FastifyReply,
   minSequence = 0,
+  threadId?: string,
 ) {
   const runtime = getRuntime();
-  const run = runtime.store.getRun(runId);
-  if (!run) return notFound(reply, "Run not found");
+  const access = accessibleRun(request, reply, runId, threadId);
+  if (access.response) return access.response;
+  const run = access.run;
   void runtime.scheduleRunExecution(run);
   return writeRunStream({
     request,
@@ -325,6 +369,8 @@ async function createRunStream(
       reply.code(400);
       return { error: error.message };
     }
+    if (error instanceof ThreadNotFoundError) return notFound(reply, "Thread not found");
+    if (error instanceof ResourceForbiddenError) return forbidden(reply);
     throw error;
   }
   return writeRunStream({
@@ -350,6 +396,8 @@ async function createRunResponse(
       reply.code(400);
       return { error: error.message };
     }
+    if (error instanceof ThreadNotFoundError) return notFound(reply, "Thread not found");
+    if (error instanceof ResourceForbiddenError) return forbidden(reply);
     throw error;
   }
 }
@@ -399,10 +447,12 @@ function runInspection(runId: string) {
   };
 }
 
-function threadSummary(threadId: string) {
+function threadSummary(threadId: string, actor: ReturnType<typeof platformActorFromRequest> = null) {
   const runtime = getRuntime();
   const messages = runtime.store.listMessages(threadId);
-  const runs = runtime.store.listRuns({ thread_id: threadId });
+  const runs = runtime.store
+    .listRuns({ thread_id: threadId })
+    .filter((run) => actorCanAccessOwnedResource(actor, run));
   const latestMessage = messages.at(-1);
   const latestRun = runs.at(-1);
   const activeRunCount = runs.filter((run) => ["queued", "running"].includes(String(run.status))).length;
@@ -446,11 +496,13 @@ function workbenchRun(run: AgentRun) {
   };
 }
 
-function dashboardItem(thread: any) {
+function dashboardItem(thread: any, actor: ReturnType<typeof platformActorFromRequest> = null) {
   const runtime = getRuntime();
-  const runs = runtime.store.listRuns({ thread_id: thread.id });
+  const runs = runtime.store
+    .listRuns({ thread_id: thread.id })
+    .filter((run) => actorCanAccessOwnedResource(actor, run));
   const latestRun = runs.at(-1);
-  const summary = threadSummary(thread.id);
+  const summary = threadSummary(thread.id, actor);
   return {
     thread,
     summary,
@@ -723,7 +775,7 @@ function resolveModelProfileSecret(input: any, orgId: string, key: string) {
       throw new Error("write_only_value must be a nonblank string");
     }
     const ref = modelProfileSecretRef(orgId, key);
-    getRuntime().store.setSecret(ref, input.write_only_value);
+    getRuntime().store.setSecret(orgId, ref, input.write_only_value);
     return secretStatus(ref);
   }
   if (typeof input.secret_ref === "string" && input.secret_ref.trim()) {
@@ -1042,7 +1094,7 @@ function resolveExternalSecret(input: any, orgId: string, key: string) {
       throw new Error("write_only_value must be a nonblank string");
     }
     const ref = externalToolSecretRef(orgId, key);
-    getRuntime().store.setSecret(ref, input.write_only_value);
+    getRuntime().store.setSecret(orgId, ref, input.write_only_value);
     return secretStatus(ref);
   }
   if (typeof input.secret_ref === "string" && input.secret_ref.trim()) {
@@ -1114,10 +1166,16 @@ function externalToolOperation(key: string, action: string, enabled: boolean) {
   };
 }
 
-function runExport(runId: string, reply: FastifyReply) {
+function runExport(
+  runId: string,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  threadId?: string,
+) {
   const runtime = getRuntime();
-  const run = runtime.store.getRun(runId);
-  if (!run) return notFound(reply, "Run not found");
+  const access = accessibleRun(request, reply, runId, threadId);
+  if (access.response) return access.response;
+  const run = access.run;
   return {
     schema_version: "run_export.v1",
     exported_at: now(),
@@ -1144,10 +1202,13 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   register(app, "GET", "/api/threads/dashboard", async (request: FastifyRequest) => {
     const { status, limit = "20", offset = "0" } = query(request);
     const runtime = getRuntime();
-    let threads = runtime.store.listThreads();
+    const actor = platformActorFromRequest(request);
+    let threads = runtime.store
+      .listThreads(actor?.orgId ?? query(request).org_id)
+      .filter((thread) => actorCanAccessOwnedResource(actor, thread));
     if (status) threads = threads.filter((thread) => thread.status === status);
     const items = threads
-      .map(dashboardItem)
+      .map((thread) => dashboardItem(thread, actor))
       .sort((a, b) => timestampMillis(b.last_activity_at) - timestampMillis(a.last_activity_at));
     const page = items.slice(Number(offset), Number(offset) + Number(limit));
     return {
@@ -1170,32 +1231,42 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   });
 
   register(app, "GET", "/api/threads/:thread_id", async (request: FastifyRequest, reply: FastifyReply) => {
-    const thread = getRuntime().store.getThread(params(request).thread_id);
-    return thread ?? notFound(reply, "Thread not found");
+    const access = accessibleThread(request, reply, params(request).thread_id);
+    return access.response ?? access.thread;
   });
   register(app, "GET", "/api/threads/:thread_id/summary", async (request: FastifyRequest, reply: FastifyReply) => {
     const threadId = params(request).thread_id;
-    if (!getRuntime().store.getThread(threadId)) return notFound(reply, "Thread not found");
-    return threadSummary(threadId);
+    const access = accessibleThread(request, reply, threadId);
+    if (access.response) return access.response;
+    return threadSummary(threadId, platformActorFromRequest(request));
   });
   register(app, "GET", "/api/threads/:thread_id/workbench", async (request: FastifyRequest, reply: FastifyReply) => {
     const threadId = params(request).thread_id;
-    const thread = getRuntime().store.getThread(threadId);
-    if (!thread) return notFound(reply, "Thread not found");
-    const runs = getRuntime().store.listRuns({ thread_id: threadId });
+    const access = accessibleThread(request, reply, threadId);
+    if (access.response) return access.response;
+    const actor = platformActorFromRequest(request);
+    const runs = getRuntime().store
+      .listRuns({ thread_id: threadId })
+      .filter((run) => actorCanAccessOwnedResource(actor, run));
     const selectedRunId = query(request).selected_run_id ?? runs.at(-1)?.id ?? null;
     return {
-      thread,
-      summary: threadSummary(threadId),
+      thread: access.thread,
+      summary: threadSummary(threadId, actor),
       runs: runs.map(workbenchRun),
       selected_run_id: selectedRunId,
-      selected_run: selectedRunId ? buildRunSnapshot(getRuntime().store, selectedRunId) ?? null : null,
+      selected_run: selectedRunId && runs.some((run) => run.id === selectedRunId)
+        ? buildRunSnapshot(getRuntime().store, selectedRunId) ?? null
+        : null,
     };
   });
   register(app, "GET", "/api/threads/:thread_id/runs", async (request: FastifyRequest, reply: FastifyReply) => {
     const threadId = params(request).thread_id;
-    if (!getRuntime().store.getThread(threadId)) return notFound(reply, "Thread not found");
-    return getRuntime().store.listRuns({ thread_id: threadId });
+    const access = accessibleThread(request, reply, threadId);
+    if (access.response) return access.response;
+    const actor = platformActorFromRequest(request);
+    return getRuntime().store
+      .listRuns({ thread_id: threadId })
+      .filter((run) => actorCanAccessOwnedResource(actor, run));
   });
   register(app, "POST", "/api/threads/:thread_id/runs", async (request: FastifyRequest, reply: FastifyReply) =>
     createRunResponse(request.body ?? {}, reply, params(request).thread_id, request),
@@ -1212,30 +1283,35 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   );
 
   const runDetail = async (request: FastifyRequest, reply: FastifyReply) => {
-    const run = getRuntime().store.getRun(params(request).run_id);
-    return run ?? notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, params(request).run_id, params(request).thread_id);
+    return access.response ?? access.run;
   };
   register(app, "GET", "/api/threads/:thread_id/runs/:run_id", runDetail);
 
   const runStream = async (request: FastifyRequest, reply: FastifyReply) =>
-    sendRunStream(params(request).run_id, request, reply, afterSequence(request));
+    sendRunStream(params(request).run_id, request, reply, afterSequence(request), params(request).thread_id);
   register(app, "GET", "/api/threads/:thread_id/runs/:run_id/stream", runStream);
 
   const runEvents = async (request: FastifyRequest, reply: FastifyReply) => {
     const runId = params(request).run_id;
-    if (!getRuntime().store.getRun(runId)) return notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, runId, params(request).thread_id);
+    if (access.response) return access.response;
     return getRuntime().store.listEvents(runId);
   };
   register(app, "GET", "/api/threads/:thread_id/runs/:run_id/events", runEvents);
 
   register(app, "GET", "/api/threads/:thread_id/runs/:run_id/capability-audit", async (request: FastifyRequest, reply: FastifyReply) => {
     const runId = params(request).run_id;
-    if (!getRuntime().store.getRun(runId)) return notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, runId, params(request).thread_id);
+    if (access.response) return access.response;
     return projectCapabilityAudit(getRuntime().store.listEvents(runId));
   });
 
-  const runSummaryHandler = async (request: FastifyRequest, reply: FastifyReply) =>
-    runInspection(params(request).run_id) ?? notFound(reply, "Run not found");
+  const runSummaryHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    const access = accessibleRun(request, reply, params(request).run_id, params(request).thread_id);
+    if (access.response) return access.response;
+    return runInspection(access.run.id);
+  };
   for (const path of [
     "/api/runs/:run_id/summary",
     "/api/threads/:thread_id/runs/:run_id/summary",
@@ -1243,7 +1319,8 @@ export function registerCompatRoutes(app: FastifyInstance): void {
 
   const runUsageHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const runId = params(request).run_id;
-    if (!getRuntime().store.getRun(runId)) return notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, runId, params(request).thread_id);
+    if (access.response) return access.response;
     return runUsage(runId);
   };
   for (const path of [
@@ -1253,6 +1330,8 @@ export function registerCompatRoutes(app: FastifyInstance): void {
 
   const treeHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const runId = params(request).run_id;
+    const access = accessibleRun(request, reply, runId, params(request).thread_id);
+    if (access.response) return access.response;
     return buildRunTree(getRuntime().store, runId) ?? notFound(reply, "Run not found");
   };
   register(app, "GET", "/api/runs/:run_id/tree", treeHandler);
@@ -1260,7 +1339,8 @@ export function registerCompatRoutes(app: FastifyInstance): void {
 
   const treeUsageHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const runId = params(request).run_id;
-    if (!getRuntime().store.getRun(runId)) return notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, runId, params(request).thread_id);
+    if (access.response) return access.response;
     return treeUsage(runId);
   };
   register(app, "GET", "/api/runs/:run_id/tree/usage", treeUsageHandler);
@@ -1268,15 +1348,17 @@ export function registerCompatRoutes(app: FastifyInstance): void {
 
   const memoryRecall = async (request: FastifyRequest, reply: FastifyReply) => {
     const runId = params(request).run_id;
-    if (!getRuntime().store.getRun(runId)) return notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, runId, params(request).thread_id);
+    if (access.response) return access.response;
     return { run_id: runId, items: [] };
   };
   register(app, "GET", "/api/runs/:run_id/memory-recall", memoryRecall);
   register(app, "GET", "/api/threads/:thread_id/runs/:run_id/memory-recall", memoryRecall);
 
   register(app, "GET", "/api/runs/:run_id/tools", async (request: FastifyRequest, reply: FastifyReply) => {
-    const run = getRuntime().store.getRun(params(request).run_id);
-    if (!run) return notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, params(request).run_id);
+    if (access.response) return access.response;
+    const run = access.run;
     const tools = await getRuntime().capabilityRouter.listTools({ run });
     return tools.map((tool) => ({
       ...tool,
@@ -1294,12 +1376,16 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   });
   register(app, "GET", "/api/runs/:run_id/subagents", async (request: FastifyRequest, reply: FastifyReply) => {
     const runId = params(request).run_id;
-    if (!getRuntime().store.getRun(runId)) return notFound(reply, "Run not found");
-    return getRuntime().store.listRuns().filter((run) => String(run.task_msg).includes(`parent:${runId}`));
+    const access = accessibleRun(request, reply, runId);
+    if (access.response) return access.response;
+    const actor = platformActorFromRequest(request);
+    return getRuntime().store
+      .listRuns()
+      .filter((run) => actorCanAccessOwnedResource(actor, run) && String(run.task_msg).includes(`parent:${runId}`));
   });
 
   const exportHandler = async (request: FastifyRequest, reply: FastifyReply) =>
-    runExport(params(request).run_id, reply);
+    runExport(params(request).run_id, request, reply, params(request).thread_id);
   register(app, "GET", "/api/runs/:run_id/export", exportHandler);
   register(app, "GET", "/api/threads/:thread_id/runs/:run_id/export", exportHandler);
   register(app, "GET", "/api/runs/:run_id/join", runDetail);
@@ -1307,7 +1393,8 @@ export function registerCompatRoutes(app: FastifyInstance): void {
 
   const research = async (request: FastifyRequest, reply: FastifyReply) => {
     const runId = params(request).run_id;
-    if (!getRuntime().store.getRun(runId)) return notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, runId, params(request).thread_id);
+    if (access.response) return access.response;
     return { run_id: runId, status: "none", items: [], evidence: [], lineage: [] };
   };
   for (const suffix of [
@@ -1323,8 +1410,8 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   }
 
   const returnRun = async (request: FastifyRequest, reply: FastifyReply) => {
-    const run = getRuntime().store.getRun(params(request).run_id);
-    return run ?? notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, params(request).run_id, params(request).thread_id);
+    return access.response ?? access.run;
   };
   register(app, "POST", "/api/runs/:run_id/resume", returnRun);
   register(app, "POST", "/api/runs/:run_id/input", async (request: FastifyRequest, reply: FastifyReply) =>
@@ -1339,24 +1426,35 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   register(app, "POST", "/api/threads/:thread_id/runs/:run_id/operator-actions/follow-up", returnRun);
   register(app, "POST", "/api/threads/:thread_id/runs/:run_id/research/continue", returnRun);
   register(app, "POST", "/api/threads/:thread_id/runs/:run_id/cancel", async (request: FastifyRequest, reply: FastifyReply) =>
-    cancelRun(params(request).run_id, reply),
+    cancelRun(params(request).run_id, request, reply),
   );
   register(app, "POST", "/api/runs/:run_id/external-run/resolve", async (request: FastifyRequest, reply: FastifyReply) => {
     const runId = params(request).run_id;
-    if (!getRuntime().store.getRun(runId)) return notFound(reply, "Run not found");
+    const access = accessibleRun(request, reply, runId);
+    if (access.response) return access.response;
     return { run_id: runId, resolved: true };
   });
   register(app, "GET", "/api/approvals", async (request: FastifyRequest) => {
     const q = query(request);
     const status = q.status === "resolved" ? undefined : q.status;
+    const runtime = getRuntime();
+    const actor = platformActorFromRequest(request);
     return getRuntime().store
       .listApprovals({ run_id: q.run_id, status })
+      .filter((approval) => {
+        const run = runtime.store.getRun(approval.run_id);
+        return Boolean(run && actorCanAccessOwnedResource(actor, run));
+      })
       .map(approvalResponse)
       .filter((approval) => (q.status ? approval.status === q.status : true));
   });
   register(app, "GET", "/api/approvals/:approval_id", async (request: FastifyRequest, reply: FastifyReply) => {
     const approval = getRuntime().store.getApproval(params(request).approval_id);
-    return approval ? approvalResponse(approval) : notFound(reply, "Approval not found");
+    if (!approval) return notFound(reply, "Approval not found");
+    const run = getRuntime().store.getRun(approval.run_id);
+    if (!run) return notFound(reply, "Run not found");
+    if (!actorCanAccessOwnedResource(platformActorFromRequest(request), run)) return forbidden(reply);
+    return approvalResponse(approval);
   });
 
   register(app, "GET", "/api/memory", async (request: FastifyRequest) =>

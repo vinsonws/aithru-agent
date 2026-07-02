@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { nanoid } from "nanoid";
 import { getRuntime } from "../runtime.js";
 import type { AgentRun, AgentMessage, AgentStreamEvent } from "@aithru-agent/contracts";
@@ -9,7 +9,7 @@ import { projectTraceSpans } from "@aithru-agent/trace";
 import { buildRunSnapshot } from "@aithru-agent/snapshots";
 import { projectCapabilityAudit } from "@aithru-agent/capabilities";
 import { shouldFollowRunStream, writeRunStream } from "./run-stream.js";
-import { bodyWithPlatformActor, platformActorFromRequest } from "../platform-auth.js";
+import { actorCanAccessOwnedResource, bodyWithPlatformActor, platformActorFromRequest } from "../platform-auth.js";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
@@ -37,6 +37,15 @@ function selectedSkillKeys(body: any): string[] {
   return keys;
 }
 
+function forbidden(reply: FastifyReply) {
+  reply.code(403);
+  return { error: "Forbidden" };
+}
+
+function authorizeRun(reply: FastifyReply, actor: ReturnType<typeof platformActorFromRequest>, run: AgentRun) {
+  return actorCanAccessOwnedResource(actor, run) ? null : forbidden(reply);
+}
+
 export function registerRunRoutes(app: FastifyInstance): void {
   // POST /api/runs
   app.post(
@@ -47,9 +56,18 @@ export function registerRunRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const body = bodyWithPlatformActor(request.body as any, platformActorFromRequest(request));
+      const actor = platformActorFromRequest(request);
+      const body = bodyWithPlatformActor(request.body as any, actor);
       const runtime = getRuntime();
       const threadId = typeof body.thread_id === "string" && body.thread_id.length > 0 ? body.thread_id : null;
+      if (threadId && actor) {
+        const thread = runtime.store.getThread(threadId);
+        if (!thread) {
+          reply.code(404);
+          return { error: "Thread not found" };
+        }
+        if (!actorCanAccessOwnedResource(actor, thread)) return forbidden(reply);
+      }
       const selectedSkills = [];
       for (const key of selectedSkillKeys(body)) {
         const skill = runtime.skillResolver.resolve(key, body.org_id, body.actor_user_id);
@@ -133,7 +151,9 @@ export function registerRunRoutes(app: FastifyInstance): void {
       const actor = platformActorFromRequest(request);
       const { org_id, thread_id } = (request.query as any) || {};
       const runtime = getRuntime();
-      return runtime.store.listRuns({ org_id: actor?.orgId ?? org_id, thread_id });
+      return runtime.store
+        .listRuns({ org_id: actor?.orgId ?? org_id, thread_id })
+        .filter((run) => actorCanAccessOwnedResource(actor, run));
     },
   );
 
@@ -158,6 +178,8 @@ export function registerRunRoutes(app: FastifyInstance): void {
         reply.code(404);
         return { error: "Run not found" };
       }
+      const denied = authorizeRun(reply, platformActorFromRequest(request), run);
+      if (denied) return denied;
       return run;
     },
   );
@@ -173,6 +195,8 @@ export function registerRunRoutes(app: FastifyInstance): void {
         reply.code(404);
         return { error: "Run not found" };
       }
+      const denied = authorizeRun(reply, platformActorFromRequest(request), run);
+      if (denied) return denied;
       void runtime.scheduleRunExecution(run);
       await writeRunStream({
         request,
@@ -196,6 +220,8 @@ export function registerRunRoutes(app: FastifyInstance): void {
         reply.code(404);
         return { error: "Run not found" };
       }
+      const denied = authorizeRun(reply, platformActorFromRequest(request), run);
+      if (denied) return denied;
       return runtime.store.listEvents(run_id);
     },
   );
@@ -211,6 +237,8 @@ export function registerRunRoutes(app: FastifyInstance): void {
         reply.code(404);
         return { error: "Run not found" };
       }
+      const denied = authorizeRun(reply, platformActorFromRequest(request), run);
+      if (denied) return denied;
       return runtime.store.listWorkspaceFiles(run.workspace_id, { runId: run.id }).map((file) => ({
         workspace_id: file.workspace_id,
         path: file.path,
@@ -230,6 +258,13 @@ export function registerRunRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { run_id } = request.params as any;
       const runtime = getRuntime();
+      const run = runtime.store.getRun(run_id);
+      if (!run) {
+        reply.code(404);
+        return { error: "Run not found" };
+      }
+      const denied = authorizeRun(reply, platformActorFromRequest(request), run);
+      if (denied) return denied;
       const cancelled = runtime.cancelRun(run_id);
       if (!cancelled) {
         reply.code(404);
@@ -248,6 +283,8 @@ export function registerRunRoutes(app: FastifyInstance): void {
       reply.code(404);
       return { error: "Run not found" };
     }
+    const denied = authorizeRun(reply, platformActorFromRequest(request), run);
+    if (denied) return denied;
     const events = runtime.store.listEvents(run_id);
     const spans = projectTraceSpans(events);
     return spans;
@@ -257,6 +294,10 @@ export function registerRunRoutes(app: FastifyInstance): void {
   app.get("/api/runs/:run_id/snapshot", async (request, reply) => {
     const { run_id } = request.params as any;
     const runtime = getRuntime();
+    const run = runtime.store.getRun(run_id);
+    if (!run) { reply.code(404); return { error: "Run not found" }; }
+    const denied = authorizeRun(reply, platformActorFromRequest(request), run);
+    if (denied) return denied;
     const snapshot = buildRunSnapshot(runtime.store, run_id);
     if (!snapshot) { reply.code(404); return { error: "Run not found" }; }
     return snapshot;
@@ -271,6 +312,8 @@ export function registerRunRoutes(app: FastifyInstance): void {
       reply.code(404);
       return { error: "Run not found" };
     }
+    const denied = authorizeRun(reply, platformActorFromRequest(request), run);
+    if (denied) return denied;
     return projectCapabilityAudit(runtime.store.listEvents(run_id));
   });
 }

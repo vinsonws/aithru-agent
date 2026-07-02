@@ -718,7 +718,7 @@ describe("legacy OpenAPI compatibility", () => {
     } as unknown as Response);
 
     try {
-      getRuntime().store.setSecret(secretRef, "mcp-secret");
+      getRuntime().store.setSecret("org_1", secretRef, "mcp-secret");
       const created = await app.inject({
         method: "POST",
         url: "/api/external-tools/configs",
@@ -768,9 +768,18 @@ describe("legacy OpenAPI compatibility", () => {
         result: null,
         error: null,
       };
+      const otherOrgRun: AgentRun = {
+        ...run,
+        id: "run_mcp_runtime_other_org",
+        org_id: "org_2",
+        actor_user_id: "user_2",
+        workspace_id: "ws_mcp_runtime_other_org",
+      };
       getRuntime().store.createRun(run);
+      getRuntime().store.createRun(otherOrgRun);
 
       const tools = await getRuntime().capabilityRouter.listTools({ run });
+      const otherOrgTools = await getRuntime().capabilityRouter.listTools({ run: otherOrgRun });
       const prepared = await getRuntime().capabilityRouter.prepareToolCall(
         { id: "tc_mcp_runtime_prepare", run_id: run.id, name: "mcp.runtime_search", input: {} },
         { run },
@@ -779,9 +788,15 @@ describe("legacy OpenAPI compatibility", () => {
         { id: "tc_mcp_runtime", run_id: run.id, name: "mcp.runtime_search", input: { query: "x" } },
         { run },
       );
+      const otherOrgPrepared = await getRuntime().capabilityRouter.prepareToolCall(
+        { id: "tc_mcp_runtime_other_org_prepare", run_id: otherOrgRun.id, name: "mcp.runtime_search", input: {} },
+        { run: otherOrgRun },
+      );
 
       expect(tools.map((tool) => tool.name)).toContain("mcp.runtime_search");
+      expect(otherOrgTools.map((tool) => tool.name)).not.toContain("mcp.runtime_search");
       expect(prepared).toMatchObject({ allowed: true, requires_approval: false });
+      expect(otherOrgPrepared).toMatchObject({ allowed: false, reason: "Unknown tool: mcp.runtime_search" });
       expect(result.output).toEqual({ answer: "found" });
       expect(fetchMock.mock.calls[0][0]).toBe("https://search.example.com/mcp");
       expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).authorization).toBe("Bearer mcp-secret");
@@ -858,7 +873,7 @@ describe("database-backed settings compatibility", () => {
     expect(detail.statusCode).toBe(200);
     expect(detail.body).not.toContain("sk-test-secret");
     expect(JSON.parse(detail.body).model).toBe("custom:DeepSeekv4 flash");
-    expect(getRuntime().store.getSecret(secretRef)).toBe("sk-test-secret");
+    expect(getRuntime().store.getSecret("org_1", secretRef)).toBe("sk-test-secret");
     await app.close();
   });
 

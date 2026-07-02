@@ -372,6 +372,13 @@ describe("ProductionCapabilityRouter", () => {
       thread_id: "thread_other",
       scopes: ["memory:read"],
     };
+    const otherUserSameThreadRun: AgentRun = {
+      ...run,
+      id: "r_memory_other_user",
+      actor_user_id: "u2",
+      thread_id: "thread_memory",
+      scopes: ["memory:read"],
+    };
 
     await localRouter.executeToolCall(
       { id: "tc_mem_write", name: "memory.remember", input: { key: "color", value: "blue" }, run_id: threadRun.id },
@@ -386,9 +393,14 @@ describe("ProductionCapabilityRouter", () => {
       { id: "tc_mem_other", name: "memory.recall", input: { key: "color" }, run_id: otherThreadRun.id },
       { run: otherThreadRun },
     );
+    const otherUserSameThread = await localRouter.executeToolCall(
+      { id: "tc_mem_other_user", name: "memory.recall", input: { key: "color" }, run_id: otherUserSameThreadRun.id },
+      { run: otherUserSameThreadRun },
+    );
 
     expect(sameThread.output).toEqual({ key: "color", value: "blue", found: true });
     expect(otherThread.output).toEqual({ key: "color", value: null, found: false });
+    expect(otherUserSameThread.output).toEqual({ key: "color", value: null, found: false });
   });
 
   it("executes controlled web fetch and truncates output", async () => {
@@ -605,8 +617,12 @@ describe("ProductionCapabilityRouter", () => {
     });
     const localStore = new InMemoryStore();
     const localWriter = new AgentEventWriter(localStore);
+    const adapter = new McpProviderAdapter(catalog);
     const localRouter = new ProductionCapabilityRouter(localStore, localWriter, undefined, {
-      mcpProvider: new McpProviderAdapter(catalog),
+      mcpProvider: {
+        listAvailableTools: () => adapter.listAvailableTools(),
+        executeTool: (_run, toolName, input) => adapter.executeTool(toolName, input),
+      },
     });
     const mcpRun: AgentRun = {
       ...run,

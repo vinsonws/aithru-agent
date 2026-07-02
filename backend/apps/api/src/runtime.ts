@@ -160,7 +160,7 @@ function adapterForRun(store: AgentStore, run: AgentRun): AgentModelAdapter {
   }
 
   const secretRef = profile.auth_secret?.secret_ref;
-  const apiKey = secretRef ? store.getSecret(secretRef) : undefined;
+  const apiKey = secretRef ? store.getSecret(run.org_id, secretRef) : undefined;
   if (!apiKey) {
     return failingAdapter("MODEL_PROFILE_SECRET_MISSING", `Model profile has no API key: ${key}`);
   }
@@ -198,19 +198,21 @@ function createControlledWebProviderFromEnv(): ControlledWebProvider | undefined
 
 function createStoreBackedMcpProvider(store: AgentStore) {
   return {
-    listAvailableTools(): AgentToolDescriptor[] {
-      return createMcpProviderAdapterFromStore(store).listAvailableTools();
+    listAvailableTools(run: AgentRun): AgentToolDescriptor[] {
+      return createMcpProviderAdapterFromStore(store, run.org_id).listAvailableTools();
     },
-    executeTool(toolName: string, input: Record<string, unknown>): Promise<unknown> {
-      return createMcpProviderAdapterFromStore(store).executeTool(toolName, input);
+    executeTool(run: AgentRun, toolName: string, input: Record<string, unknown>): Promise<unknown> {
+      return createMcpProviderAdapterFromStore(store, run.org_id).executeTool(toolName, input);
     },
   };
 }
 
-function createMcpProviderAdapterFromStore(store: AgentStore): McpProviderAdapter {
+function createMcpProviderAdapterFromStore(store: AgentStore, orgId: string): McpProviderAdapter {
   const catalog = new McpCatalog();
   for (const doc of store.listDocuments("external_tool_config_entry")) {
-    const server = mcpServerFromStoredConfig(store, doc.payload as StoredExternalToolConfig);
+    const config = doc.payload as StoredExternalToolConfig;
+    if (config.org_id !== orgId) continue;
+    const server = mcpServerFromStoredConfig(store, config);
     if (server) catalog.register(server);
   }
   return new McpProviderAdapter(catalog);
@@ -243,7 +245,7 @@ function mcpServerFromStoredConfig(
       toolDescriptors,
       http: {
         url: endpointUrl,
-        headers: mcpEndpointHeaders(store, endpoint),
+        headers: mcpEndpointHeaders(store, config.org_id ?? "", endpoint),
       },
     };
   }
@@ -310,6 +312,7 @@ function isAllowedMcpEndpoint(url: string, allowedHosts: unknown): boolean {
 
 function mcpEndpointHeaders(
   store: AgentStore,
+  orgId: string,
   endpoint: StoredMcpEndpoint | undefined | null,
 ): Record<string, string> | undefined {
   if (!isRecord(endpoint)) return undefined;
@@ -320,7 +323,7 @@ function mcpEndpointHeaders(
     }
   }
   const secretRef = isRecord(endpoint.auth_secret) ? stringValue(endpoint.auth_secret.secret_ref) : undefined;
-  const secret = secretRef ? store.getSecret(secretRef) : undefined;
+  const secret = secretRef ? store.getSecret(orgId, secretRef) : undefined;
   if (secret && !Object.keys(headers).some((key) => key.toLowerCase() === "authorization")) {
     headers.authorization = `Bearer ${secret}`;
   }

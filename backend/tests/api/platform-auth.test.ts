@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  actorCanAccessOwnedResource,
   bodyWithPlatformActor,
   requestActorUserId,
   requestOrgId,
@@ -46,5 +47,15 @@ describe("platform auth helpers", () => {
     expect(requiredScopeForRequest("POST", "/api/approvals/aprv_1/resolve")).toBe("agent.app.approvals.resolve");
     expect(requiredScopeForRequest("PUT", "/api/workspaces/ws_1/files/report.md")).toBe("agent.app.workspaces.write");
     expect(requiredScopeForRequest("GET", "/api/health")).toBeNull();
+  });
+
+  it("matches authenticated actors to owned resources", () => {
+    expect(actorCanAccessOwnedResource(null, { org_id: "org_any", owner_user_id: "user_any" })).toBe(true);
+    expect(actorCanAccessOwnedResource(actor, { org_id: "org_from_token", owner_user_id: "user_from_token" })).toBe(true);
+    expect(actorCanAccessOwnedResource(actor, { org_id: "org_from_token", actor_user_id: "user_from_token" })).toBe(true);
+    expect(actorCanAccessOwnedResource({ ...actor, orgId: null }, { org_id: "org_from_token", owner_user_id: "user_from_token" })).toBe(false);
+    expect(actorCanAccessOwnedResource(actor, { org_id: "other_org", owner_user_id: "user_from_token" })).toBe(false);
+    expect(actorCanAccessOwnedResource(actor, { org_id: "org_from_token", owner_user_id: "other_user" })).toBe(false);
+    expect(actorCanAccessOwnedResource({ ...actor, scopes: ["*"] }, { org_id: "other_org", owner_user_id: "other_user" })).toBe(true);
   });
 });

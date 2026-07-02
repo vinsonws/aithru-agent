@@ -50,9 +50,11 @@ export function runMigrations(adapter: MigrationExecutor): void {
     );
 
     CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL DEFAULT '',
+      key TEXT NOT NULL,
       value TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (org_id, key)
     );
 
     CREATE TABLE IF NOT EXISTS context_summaries (
@@ -66,12 +68,14 @@ export function runMigrations(adapter: MigrationExecutor): void {
     );
 
     CREATE TABLE IF NOT EXISTS secrets (
-      secret_ref TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL DEFAULT '',
+      secret_ref TEXT NOT NULL,
       encrypted_value TEXT NOT NULL,
       iv TEXT NOT NULL,
       tag TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (org_id, secret_ref)
     );
 
     CREATE TABLE IF NOT EXISTS model_profiles (

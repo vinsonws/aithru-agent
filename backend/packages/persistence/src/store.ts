@@ -63,8 +63,8 @@ export class InMemoryStore {
   private todos = new Map<string, AgentTodo[]>();
   private approvals = new Map<string, AgentApproval[]>();
   private documents = new Map<string, Map<string, unknown>>();
-  private secrets = new Map<string, string>();
-  private settings = new Map<string, string>();
+  private secrets = new Map<string, Map<string, string>>();
+  private settings = new Map<string, Map<string, string>>();
   private contextSummaries = new Map<string, AgentContextSummary[]>();
 
   // ── Threads ────────────────────────────────────────────────────────
@@ -291,20 +291,24 @@ export class InMemoryStore {
     return this.listContextSummaries(threadId).at(-1);
   }
 
-  setSecret(secretRef: string, value: string): void {
-    this.secrets.set(secretRef, value);
+  setSecret(orgId: string, secretRef: string, value: string): void {
+    const scoped = this.secrets.get(orgId) ?? new Map<string, string>();
+    scoped.set(secretRef, value);
+    this.secrets.set(orgId, scoped);
   }
 
-  getSecret(secretRef: string): string | undefined {
-    return this.secrets.get(secretRef);
+  getSecret(orgId: string, secretRef: string): string | undefined {
+    return this.secrets.get(orgId)?.get(secretRef);
   }
 
-  setSetting(key: string, value: string): void {
-    this.settings.set(key, value);
+  setSetting(orgId: string, key: string, value: string): void {
+    const scoped = this.settings.get(orgId) ?? new Map<string, string>();
+    scoped.set(key, value);
+    this.settings.set(orgId, scoped);
   }
 
-  getSetting(key: string): string | undefined {
-    return this.settings.get(key);
+  getSetting(orgId: string, key: string): string | undefined {
+    return this.settings.get(orgId)?.get(key);
   }
 
   // ── Claims ───────────────────────────────────────────────────────────

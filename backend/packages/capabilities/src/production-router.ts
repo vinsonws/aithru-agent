@@ -44,8 +44,8 @@ export interface ProductionCapabilityProviders {
   memoryProvider?: LocalMemoryProvider;
   sandboxExecutorFactory?: (workspaceRoot: string) => SandboxExecutor;
   mcpProvider?: {
-    listAvailableTools(): AgentToolDescriptor[];
-    executeTool(toolName: string, input: Record<string, unknown>): Promise<unknown>;
+    listAvailableTools(run: RunContext["run"]): AgentToolDescriptor[];
+    executeTool(run: RunContext["run"], toolName: string, input: Record<string, unknown>): Promise<unknown>;
   };
   subagentDelegate?: (
     parentRun: RunContext["run"],
@@ -361,7 +361,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
 
   async listTools(ctx: RunContext): Promise<AgentToolDescriptor[]> {
     const policy = this.skillPolicyForRun(ctx.run);
-    const tools = this.availableTools();
+    const tools = this.availableTools(ctx.run);
     if (!policy) return tools;
     return tools.filter((tool) => {
       if (policy.deniedTools.has(tool.name)) return false;
@@ -374,7 +374,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     req: AgentToolCallRequest,
     ctx: RunContext,
   ): Promise<ToolPrepareResult> {
-    const tool = this.toolDescriptor(req.name);
+    const tool = this.toolDescriptor(req.name, ctx.run);
     if (!tool) {
       return {
         allowed: false,
@@ -416,7 +416,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     req: AgentToolCallRequest,
     ctx: RunContext,
   ): Promise<AgentToolCallResult> {
-    const tool = this.toolDescriptor(req.name);
+    const tool = this.toolDescriptor(req.name, ctx.run);
     if (!tool) {
       return {
         id: req.id,
@@ -505,30 +505,28 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
         const key = requiredString(input.key, "key");
         const value = requiredString(input.value, "value");
         const ttlSeconds = optionalPositiveInteger(input.ttl_seconds, "ttl_seconds");
-        provider.remember(scopedMemoryKey(run, key), value, ttlSeconds ? ttlSeconds * 1000 : undefined);
+        provider.remember(memoryScope(run), key, value, ttlSeconds ? ttlSeconds * 1000 : undefined);
         return { key, remembered: true };
       }
       case "memory.recall": {
         const provider = this.requireMemoryProvider();
         const key = requiredString(input.key, "key");
-        const value = provider.recall(scopedMemoryKey(run, key));
+        const value = provider.recall(memoryScope(run), key);
         return { key, value: value ?? null, found: value !== undefined };
       }
       case "memory.search": {
         const provider = this.requireMemoryProvider();
         const query = requiredString(input.query, "query");
         const limit = optionalPositiveInteger(input.limit, "limit") ?? 20;
-        const prefix = memoryPrefix(run);
-        const results = provider.search(query)
-          .filter((item) => item.key.startsWith(prefix))
+        const results = provider.search(memoryScope(run), query)
           .slice(0, limit)
-          .map((item) => ({ key: item.key.slice(prefix.length), value: item.value }));
+          .map((item) => ({ key: item.key, value: item.value }));
         return { query, results };
       }
       case "memory.forget": {
         const provider = this.requireMemoryProvider();
         const key = requiredString(input.key, "key");
-        const forgotten = provider.forget(scopedMemoryKey(run, key));
+        const forgotten = provider.forget(memoryScope(run), key);
         return { key, forgotten };
       }
       case "web.fetch": {
@@ -616,27 +614,27 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
         return { presentations, rejected_requests: [] };
       }
       default:
-        if (this.isMcpTool(req.name)) {
+        if (this.isMcpTool(req.name, run)) {
           if (!this.providers.mcpProvider) throw new Error("MCP_PROVIDER_NOT_CONFIGURED");
-          return await this.providers.mcpProvider.executeTool(req.name, input);
+          return await this.providers.mcpProvider.executeTool(run, req.name, input);
         }
         throw new Error(`Tool not implemented: ${req.name}`);
     }
   }
 
-  private availableTools(): AgentToolDescriptor[] {
+  private availableTools(run: RunContext["run"]): AgentToolDescriptor[] {
     return [
       ...PRODUCTION_TOOLS,
-      ...(this.providers.mcpProvider?.listAvailableTools() ?? []),
+      ...(this.providers.mcpProvider?.listAvailableTools(run) ?? []),
     ];
   }
 
-  private toolDescriptor(name: string): AgentToolDescriptor | undefined {
-    return this.availableTools().find((tool) => tool.name === name);
+  private toolDescriptor(name: string, run: RunContext["run"]): AgentToolDescriptor | undefined {
+    return this.availableTools(run).find((tool) => tool.name === name);
   }
 
-  private isMcpTool(name: string): boolean {
-    return this.providers.mcpProvider?.listAvailableTools().some((tool) => tool.name === name) ?? false;
+  private isMcpTool(name: string, run: RunContext["run"]): boolean {
+    return this.providers.mcpProvider?.listAvailableTools(run).some((tool) => tool.name === name) ?? false;
   }
 
   private requireMemoryProvider(): LocalMemoryProvider {
@@ -867,13 +865,9 @@ function optionalNonNegativeInteger(value: unknown, field: string): number | und
   return Math.floor(value);
 }
 
-function memoryPrefix(run: RunContext["run"]): string {
+function memoryScope(run: RunContext["run"]): string {
   const threadOrRun = run.thread_id ? `thread:${run.thread_id}` : `run:${run.id}`;
-  return `${run.org_id}:${run.actor_user_id}:${threadOrRun}\u0000`;
-}
-
-function scopedMemoryKey(run: RunContext["run"], key: string): string {
-  return `${memoryPrefix(run)}${key}`;
+  return `${run.org_id}:${run.actor_user_id}:${threadOrRun}`;
 }
 
 function requestedChildScopes(run: RunContext["run"], value: unknown): string[] {

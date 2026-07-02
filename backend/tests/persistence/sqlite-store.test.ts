@@ -90,11 +90,70 @@ describe("SqliteStore", () => {
     }
   });
 
+  it("opens existing global settings and secrets tables as org-scoped tables", async () => {
+    const dbPath = join(tempDir, "legacy-settings.sqlite");
+    const SQL = await initSqlJs();
+    const legacy = new SQL.Database();
+    legacy.run(`
+      CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE secrets (
+        secret_ref TEXT PRIMARY KEY,
+        encrypted_value TEXT NOT NULL,
+        iv TEXT NOT NULL,
+        tag TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    legacy.run(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES ('legacy.setting', 'legacy-value', '2026-01-01T00:00:00Z')`,
+    );
+    legacy.run(
+      `INSERT INTO secrets (secret_ref, encrypted_value, iv, tag, created_at, updated_at)
+       VALUES ('secret://legacy/ref', 'encrypted', 'iv', 'tag', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+    );
+    writeFileSync(dbPath, Buffer.from(legacy.export()));
+    legacy.close();
+
+    const reopened = await SqliteStore.create(dbPath);
+    try {
+      expect(reopened.getSetting("org_1", "legacy.setting")).toBe("legacy-value");
+      expect(reopened.getSetting("org_2", "legacy.setting")).toBeUndefined();
+    } finally {
+      reopened.close();
+    }
+
+    const raw = new SQL.Database(readFileSync(dbPath));
+    try {
+      const settingsPk = raw.exec("PRAGMA table_info(settings)")[0]?.values
+        .filter((column) => Number(column[5]) > 0)
+        .sort((a, b) => Number(a[5]) - Number(b[5]))
+        .map((column) => String(column[1]));
+      const secretsPk = raw.exec("PRAGMA table_info(secrets)")[0]?.values
+        .filter((column) => Number(column[5]) > 0)
+        .sort((a, b) => Number(a[5]) - Number(b[5]))
+        .map((column) => String(column[1]));
+      expect(settingsPk).toEqual(["org_id", "key"]);
+      expect(secretsPk).toEqual(["org_id", "secret_ref"]);
+      expect(raw.exec("SELECT org_id FROM secrets WHERE secret_ref = 'secret://legacy/ref'")[0]?.values).toEqual([
+        ["org_1"],
+      ]);
+    } finally {
+      raw.close();
+    }
+  });
+
   it("persists settings, dedicated config docs, and encrypted secrets outside agent_documents", async () => {
     const dbPath = join(tempDir, "settings.sqlite");
     const secretRef = "secret://model-profiles/org_1/deepseek-v4-flash/api-key";
     const durable = await SqliteStore.create(dbPath);
-    durable.setSetting("model.default_profile_id", "profile_1");
+    durable.setSetting("org_1", "model.default_profile_id", "profile_1");
+    durable.setSetting("org_2", "model.default_profile_id", "profile_2");
     durable.upsertDocument("model_profile_entry", "profile_1", {
       id: "profile_1",
       org_id: "org_1",
@@ -103,19 +162,24 @@ describe("SqliteStore", () => {
       model: "DeepSeekv4 flash",
       auth_secret: { secret_ref: secretRef, status: "set" },
     });
-    durable.setSecret(secretRef, "sk-test-secret");
+    durable.setSecret("org_1", secretRef, "sk-test-secret");
+    durable.setSecret("org_2", secretRef, "sk-other-secret");
     durable.writeFile("ws1", "/notes.txt", "one");
     expect(durable.readFile("ws1", "/notes.txt")?.content).toBe("one");
     durable.close();
 
     const reopened = await SqliteStore.create(dbPath);
     try {
-      expect(reopened.getSetting("model.default_profile_id")).toBe("profile_1");
+      expect(reopened.getSetting("org_1", "model.default_profile_id")).toBe("profile_1");
+      expect(reopened.getSetting("org_2", "model.default_profile_id")).toBe("profile_2");
+      expect(reopened.getSetting("org_3", "model.default_profile_id")).toBeUndefined();
       expect(reopened.getDocument("model_profile_entry", "profile_1")?.payload).toMatchObject({
         key: "deepseek-v4-flash",
         auth_secret: { secret_ref: secretRef, status: "set" },
       });
-      expect(reopened.getSecret(secretRef)).toBe("sk-test-secret");
+      expect(reopened.getSecret("org_1", secretRef)).toBe("sk-test-secret");
+      expect(reopened.getSecret("org_2", secretRef)).toBe("sk-other-secret");
+      expect(reopened.getSecret("org_3", secretRef)).toBeUndefined();
       expect(reopened.readFile("ws1", "/notes.txt")).toBeUndefined();
     } finally {
       reopened.close();
@@ -131,9 +195,10 @@ describe("SqliteStore", () => {
       expect(tables).not.toContain("workspace_files");
       expect(tables).not.toContain("workspace_file_versions");
 
-      const secretRows = raw.exec(`SELECT encrypted_value FROM secrets WHERE secret_ref = '${secretRef}'`);
-      expect(secretRows[0]?.values).toHaveLength(1);
-      expect(String(secretRows[0].values[0][0])).not.toContain("sk-test-secret");
+      const secretRows = raw.exec(`SELECT org_id, encrypted_value FROM secrets WHERE secret_ref = '${secretRef}' ORDER BY org_id`);
+      expect(secretRows[0]?.values).toHaveLength(2);
+      expect(secretRows[0].values.map(([orgId]) => String(orgId))).toEqual(["org_1", "org_2"]);
+      expect(String(secretRows[0].values[0][1])).not.toContain("sk-test-secret");
     } finally {
       raw.close();
     }
