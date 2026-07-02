@@ -943,4 +943,44 @@ describe("database-backed settings compatibility", () => {
     expect(JSON.parse(skillDetail.body).enabled).toBe(false);
     await reloaded.close();
   });
+
+  it("does not delete memory entries across orgs", async () => {
+    resetRuntimeForTests();
+    const memoryApp = await createApp();
+    await memoryApp.ready();
+    const created = await memoryApp.inject({
+      method: "POST",
+      url: "/api/memory",
+      payload: {
+        org_id: "org_2",
+        key: "private-note",
+        value: "org 2 only",
+      },
+    });
+    const memory = JSON.parse(created.body);
+
+    const deleteMemory = await memoryApp.inject({
+      method: "DELETE",
+      url: `/api/memory/${memory.id}?org_id=org_1`,
+    });
+    const deleteLongTerm = await memoryApp.inject({
+      method: "DELETE",
+      url: `/api/long-term-memory/${memory.id}?org_id=org_1`,
+    });
+    const stillVisible = await memoryApp.inject({
+      method: "GET",
+      url: "/api/memory?org_id=org_2",
+    });
+    const ownDelete = await memoryApp.inject({
+      method: "DELETE",
+      url: `/api/long-term-memory/${memory.id}?org_id=org_2`,
+    });
+
+    expect(JSON.parse(deleteMemory.body)).toMatchObject({ forgotten: false, deleted_count: 0 });
+    expect(JSON.parse(deleteLongTerm.body)).toMatchObject({ forgotten: false, deleted_count: 0 });
+    expect(JSON.parse(stillVisible.body).map((entry: any) => entry.id)).toContain(memory.id);
+    expect(JSON.parse(ownDelete.body)).toMatchObject({ forgotten: true, deleted_count: 1 });
+    await memoryApp.close();
+    resetRuntimeForTests();
+  });
 });

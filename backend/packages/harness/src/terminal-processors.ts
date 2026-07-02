@@ -56,7 +56,7 @@ function maybeGenerateThreadTitle(deps: {
   if (!threadId) return;
   const thread = deps.store.getThread(threadId);
   if (!thread || thread.title?.trim()) return;
-  const messages = deps.store.listMessages(threadId);
+  const messages = deps.store.listMessages(threadId, deps.run.org_id);
   return generateThreadTitle(deps, messages).then((generated) => {
     const title = generated ?? deriveThreadTitle(messages, deps.run.task_msg);
     if (!title) return;
@@ -157,9 +157,9 @@ async function maybeCreateContextSummary(deps: {
 }): Promise<void> {
   const threadId = deps.run.thread_id;
   if (!threadId) return;
-  const messages = deps.store.listMessages(threadId);
+  const messages = deps.store.listMessages(threadId, deps.run.org_id);
   if (messages.length < SUMMARY_MESSAGE_THRESHOLD) return;
-  const latest = deps.store.getLatestContextSummary(threadId);
+  const latest = deps.store.getLatestContextSummary(threadId, deps.run.org_id);
   const summaryCutoff = Math.max(0, messages.length - MODEL_CONTEXT_MESSAGE_LIMIT);
   if (latest && latest.source_message_count >= summaryCutoff) return;
   const summaryMessages = latest

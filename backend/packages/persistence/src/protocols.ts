@@ -22,7 +22,7 @@ export interface AgentStore {
   // Messages
   createMessage(msg: AgentMessage): AgentMessage;
   getMessage(id: string): AgentMessage | undefined;
-  listMessages(threadId: string): AgentMessage[];
+  listMessages(threadId: string, orgId?: string): AgentMessage[];
 
   // Runs
   createRun(run: AgentRun): AgentRun;
@@ -59,7 +59,7 @@ export interface AgentStore {
   // Approvals
   createApproval(approval: AgentApproval): AgentApproval;
   getApproval(id: string): AgentApproval | undefined;
-  listApprovals(filter?: { run_id?: string; status?: string }): AgentApproval[];
+  listApprovals(filter?: { run_id?: string; status?: string; org_id?: string }): AgentApproval[];
   resolveApproval(
     id: string,
     status: "approved" | "denied",
@@ -69,13 +69,13 @@ export interface AgentStore {
   upsertDocument(kind: string, id: string, payload: unknown): AgentDocument;
   insertDocument(kind: string, id: string, payload: unknown): AgentDocument;
   getDocument(kind: string, id: string): AgentDocument | undefined;
-  listDocuments(kind: string): AgentDocument[];
+  listDocuments(kind: string, orgId: string): AgentDocument[];
   deleteDocument(kind: string, id: string): number;
 
   // Context summaries
   createContextSummary(summary: AgentContextSummary): AgentContextSummary;
-  listContextSummaries(threadId: string): AgentContextSummary[];
-  getLatestContextSummary(threadId: string): AgentContextSummary | undefined;
+  listContextSummaries(threadId: string, orgId?: string): AgentContextSummary[];
+  getLatestContextSummary(threadId: string, orgId?: string): AgentContextSummary | undefined;
 
   // Secrets
   setSecret(orgId: string, secretRef: string, value: string): void;

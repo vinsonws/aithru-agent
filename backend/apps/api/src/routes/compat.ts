@@ -449,7 +449,8 @@ function runInspection(runId: string) {
 
 function threadSummary(threadId: string, actor: ReturnType<typeof platformActorFromRequest> = null) {
   const runtime = getRuntime();
-  const messages = runtime.store.listMessages(threadId);
+  const thread = runtime.store.getThread(threadId);
+  const messages = runtime.store.listMessages(threadId, thread?.org_id);
   const runs = runtime.store
     .listRuns({ thread_id: threadId })
     .filter((run) => actorCanAccessOwnedResource(actor, run));
@@ -749,8 +750,8 @@ function documentPayload<T>(kind: string, id: string): T | null {
   return (getRuntime().store.getDocument(kind, id)?.payload as T | undefined) ?? null;
 }
 
-function listDocumentPayloads<T>(kind: string): T[] {
-  return getRuntime().store.listDocuments(kind).map((doc) => doc.payload as T);
+function listDocumentPayloads<T>(kind: string, orgId: string): T[] {
+  return getRuntime().store.listDocuments(kind, orgId).map((doc) => doc.payload as T);
 }
 
 function modelProfileId(orgId: string, key: string): string {
@@ -784,6 +785,21 @@ function resolveModelProfileSecret(input: any, orgId: string, key: string) {
   return secretStatus();
 }
 
+function deleteMemoryResponse(request: FastifyRequest) {
+  const memoryId = params(request).memory_id;
+  const orgId = requestOrgId(request);
+  const entry = documentPayload<any>("memory", memoryId);
+  const deleted = entry?.org_id === orgId
+    ? getRuntime().store.deleteDocument("memory", memoryId)
+    : 0;
+  return {
+    memory_id: memoryId,
+    org_id: orgId,
+    forgotten: deleted > 0,
+    deleted_count: deleted,
+  };
+}
+
 function createModelProfileFromBody(request: FastifyRequest, body: any) {
   const orgId = requestOrgId(request, body);
   const key = String(body.key ?? "custom");
@@ -806,8 +822,8 @@ function createModelProfileFromBody(request: FastifyRequest, body: any) {
 function modelProfileByIdOrKey(orgId: string, value: string) {
   const byId = documentPayload<any>("model_profile_entry", value);
   if (byId?.org_id === orgId) return byId;
-  return listDocumentPayloads<any>("model_profile_entry").find(
-    (profile) => profile.org_id === orgId && profile.key === value,
+  return listDocumentPayloads<any>("model_profile_entry", orgId).find(
+    (profile) => profile.key === value,
   ) ?? null;
 }
 
@@ -972,15 +988,14 @@ function skillPackageFromEntry(entry: any) {
 function skillRegistryEntry(orgId: string, key: string) {
   const byId = documentPayload<any>("skill_registry_entry", key);
   if (byId?.org_id === orgId) return byId;
-  return listDocumentPayloads<any>("skill_registry_entry").find(
-    (entry) => entry.org_id === orgId && entry.key === key,
+  return listDocumentPayloads<any>("skill_registry_entry", orgId).find(
+    (entry) => entry.key === key,
   ) ?? skillEntry(key);
 }
 
 function skillRegistryEntries(orgId: string) {
   const stored = new Map(
-    listDocumentPayloads<any>("skill_registry_entry")
-      .filter((entry) => entry.org_id === orgId)
+    listDocumentPayloads<any>("skill_registry_entry", orgId)
       .map((entry) => [entry.key, entry]),
   );
   for (const skill of builtinSkills()) {
@@ -1147,8 +1162,8 @@ function externalToolConfigFromBody(request: FastifyRequest, body: any) {
 function externalToolByIdOrKey(orgId: string, value: string) {
   const byId = documentPayload<any>("external_tool_config_entry", value);
   if (byId?.org_id === orgId) return byId;
-  return listDocumentPayloads<any>("external_tool_config_entry").find(
-    (config) => config.org_id === orgId && config.key === value,
+  return listDocumentPayloads<any>("external_tool_config_entry", orgId).find(
+    (config) => config.key === value,
   ) ?? null;
 }
 
@@ -1440,7 +1455,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     const runtime = getRuntime();
     const actor = platformActorFromRequest(request);
     return getRuntime().store
-      .listApprovals({ run_id: q.run_id, status })
+      .listApprovals({ run_id: q.run_id, status, org_id: requestOrgId(request) })
       .filter((approval) => {
         const run = runtime.store.getRun(approval.run_id);
         return Boolean(run && actorCanAccessOwnedResource(actor, run));
@@ -1458,9 +1473,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
   });
 
   register(app, "GET", "/api/memory", async (request: FastifyRequest) =>
-    listDocumentPayloads<any>("memory").filter(
-      (entry) => entry.org_id === requestOrgId(request),
-    ),
+    listDocumentPayloads<any>("memory", requestOrgId(request)),
   );
   register(app, "POST", "/api/memory", async (request: FastifyRequest, reply: FastifyReply) => {
     const body = (request.body ?? {}) as any;
@@ -1476,21 +1489,12 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     return entry;
   });
   register(app, "DELETE", "/api/memory/:memory_id", async (request: FastifyRequest) => {
-    const memoryId = params(request).memory_id;
-    const entry = documentPayload<any>("memory", memoryId);
-    const deleted = getRuntime().store.deleteDocument("memory", memoryId);
-    return {
-      memory_id: memoryId,
-      org_id: entry?.org_id ?? requestOrgId(request),
-      forgotten: deleted > 0,
-      deleted_count: deleted,
-    };
+    return deleteMemoryResponse(request);
   });
   register(app, "GET", "/api/memory-candidates", async (request: FastifyRequest) => {
     const q = query(request);
-    return listDocumentPayloads<any>("memory_candidate").filter(
+    return listDocumentPayloads<any>("memory_candidate", requestOrgId(request)).filter(
       (candidate) =>
-        candidate.org_id === requestOrgId(request) &&
         (!q.status || candidate.status === q.status) &&
         (!q.run_id || candidate.run_id === q.run_id),
     );
@@ -1534,21 +1538,12 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     enabled: false,
   }));
   register(app, "DELETE", "/api/long-term-memory/:memory_id", async (request: FastifyRequest) => {
-    const memoryId = params(request).memory_id;
-    const entry = documentPayload<any>("memory", memoryId);
-    const deleted = getRuntime().store.deleteDocument("memory", memoryId);
-    return {
-      memory_id: memoryId,
-      org_id: entry?.org_id ?? requestOrgId(request),
-      forgotten: deleted > 0,
-      deleted_count: deleted,
-    };
+    return deleteMemoryResponse(request);
   });
 
   register(app, "GET", "/api/model-profiles", async (request: FastifyRequest) => {
     const orgId = requestOrgId(request);
-    const stored = listDocumentPayloads<any>("model_profile_entry")
-      .filter((profile) => profile.org_id === orgId)
+    const stored = listDocumentPayloads<any>("model_profile_entry", orgId)
       .sort((a, b) => String(a.key).localeCompare(String(b.key)));
     return stored.length > 0 ? stored : [defaultModelProfile()];
   });
@@ -1680,15 +1675,13 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     );
   }
   register(app, "GET", "/api/subagents", async (request: FastifyRequest) =>
-    listDocumentPayloads<any>("subagent_spec").filter(
-      (spec) => spec.org_id === requestOrgId(request),
-    ),
+    listDocumentPayloads<any>("subagent_spec", requestOrgId(request)),
   );
   register(app, "GET", "/api/subagents/:key", async (request: FastifyRequest, reply: FastifyReply) => {
     const orgId = requestOrgId(request);
     const key = params(request).key;
-    const spec = listDocumentPayloads<any>("subagent_spec").find(
-      (item) => item.org_id === orgId && item.key === key,
+    const spec = listDocumentPayloads<any>("subagent_spec", orgId).find(
+      (item) => item.key === key,
     );
     return spec ?? notFound(reply, "Subagent not found");
   });
@@ -1713,8 +1706,7 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     const orgId = requestOrgId(request);
     return [
       externalToolConfig("local-capabilities", true, await localToolCatalog()),
-      ...listDocumentPayloads<any>("external_tool_config_entry")
-        .filter((config) => config.org_id === orgId)
+      ...listDocumentPayloads<any>("external_tool_config_entry", orgId)
         .sort((a, b) => String(a.key).localeCompare(String(b.key))),
     ];
   });

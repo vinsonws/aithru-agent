@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import initSqlJs from "sql.js";
-import { SqliteStore } from "@aithru-agent/persistence";
+import { InMemoryStore, SqliteStore } from "@aithru-agent/persistence";
 
 const removedRunSkillField = ["skill", "id"].join("_");
 
@@ -33,6 +33,104 @@ describe("SqliteStore", () => {
     };
     store.createThread(thread);
     expect(store.getThread("t1")).toEqual(thread);
+  });
+
+  it("derives child entity identity from parent thread and run", () => {
+    const timestamp = "2026-01-01T00:00:00Z";
+    store.createThread({
+      id: "thread_child_identity",
+      org_id: "org_parent",
+      owner_user_id: "user_thread",
+      title: "Child identity",
+      status: "active",
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    store.createRun({
+      id: "run_child_identity",
+      org_id: "org_parent",
+      actor_user_id: "user_run",
+      source: "api",
+      thread_id: "thread_child_identity",
+      workspace_id: "ws_child_identity",
+      task_msg: "child identity",
+      scopes: ["*"],
+      harness_options: null,
+      status: "queued",
+      started_at: timestamp,
+      completed_at: null,
+      current_approval_id: null,
+      claim: null,
+      result: null,
+      error: null,
+    });
+
+    const message = store.createMessage({
+      id: "msg_child_identity",
+      org_id: "spoofed_org",
+      actor_user_id: "spoofed_user",
+      thread_id: "thread_child_identity",
+      role: "user",
+      content: "hello",
+      run_id: "run_child_identity",
+      workspace_paths: [],
+      created_at: timestamp,
+    });
+    const todo = store.createTodo({
+      id: "todo_child_identity",
+      org_id: "spoofed_org",
+      actor_user_id: "spoofed_user",
+      run_id: "run_child_identity",
+      title: "Todo",
+      status: "pending",
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    const approval = store.createApproval({
+      id: "approval_child_identity",
+      org_id: "spoofed_org",
+      actor_user_id: "spoofed_user",
+      run_id: "run_child_identity",
+      tool_call_id: "tool_child_identity",
+      tool_name: "workspace.write_file",
+      status: "pending",
+      created_at: timestamp,
+    });
+    store.appendEvent("run_child_identity", {
+      id: "event_child_identity",
+      org_id: "spoofed_org",
+      actor_user_id: "spoofed_user",
+      run_id: "run_child_identity",
+      thread_id: "thread_child_identity",
+      sequence: 1,
+      timestamp,
+      type: "test.event",
+      source: { kind: "test" },
+      visibility: "user",
+      redaction: "none",
+      payload: {},
+    });
+    const summary = store.createContextSummary({
+      id: "summary_child_identity",
+      org_id: "spoofed_org",
+      actor_user_id: "spoofed_user",
+      thread_id: "thread_child_identity",
+      run_id: "run_child_identity",
+      summary: "summary",
+      source_message_count: 1,
+      created_at: timestamp,
+    });
+
+    expect(message).toMatchObject({ org_id: "org_parent", actor_user_id: "user_run" });
+    expect(todo).toMatchObject({ org_id: "org_parent", actor_user_id: "user_run" });
+    expect(approval).toMatchObject({ org_id: "org_parent", actor_user_id: "user_run" });
+    expect(store.listEvents("run_child_identity")[0]).toMatchObject({ org_id: "org_parent", actor_user_id: "user_run" });
+    expect(summary).toMatchObject({ org_id: "org_parent", actor_user_id: "user_run" });
+    expect(store.listMessages("thread_child_identity", "org_parent")).toHaveLength(1);
+    expect(store.listMessages("thread_child_identity", "other_org")).toHaveLength(0);
+    expect(store.listApprovals({ org_id: "org_parent" })).toHaveLength(1);
+    expect(store.listApprovals({ org_id: "other_org" })).toHaveLength(0);
+    expect(store.getLatestContextSummary("thread_child_identity", "other_org")).toBeUndefined();
   });
 
   it("persists data to a dbPath and reloads it", async () => {
@@ -81,10 +179,15 @@ describe("SqliteStore", () => {
       try {
         const columns = raw.exec("PRAGMA table_info(todos)");
         expect(columns[0]?.values.map((column) => column[1])).toContain("thread_id");
+        expect(columns[0]?.values.map((column) => column[1])).toContain("org_id");
+        expect(columns[0]?.values.map((column) => column[1])).toContain("actor_user_id");
+        expect(raw.exec("SELECT org_id, actor_user_id FROM todos WHERE id = 'todo_legacy'")[0]?.values).toEqual([
+          [null, null],
+        ]);
       } finally {
         raw.close();
       }
-      expect(reopened.listTodos("run_legacy")).toHaveLength(1);
+      expect(reopened.listTodos("run_legacy")).toEqual([]);
     } finally {
       reopened.close();
     }
@@ -202,6 +305,52 @@ describe("SqliteStore", () => {
     } finally {
       raw.close();
     }
+  });
+
+  it("lists documents only for the requested org", async () => {
+    store.upsertDocument("model_profile_entry", "profile_org_1", {
+      id: "profile_org_1",
+      org_id: "org_1",
+      key: "default",
+    });
+    store.upsertDocument("model_profile_entry", "profile_org_2", {
+      id: "profile_org_2",
+      org_id: "org_2",
+      key: "default",
+    });
+    store.upsertDocument("memory", "memory_org_1", {
+      id: "memory_org_1",
+      org_id: "org_1",
+      content: "one",
+    });
+    store.upsertDocument("memory", "memory_org_2", {
+      id: "memory_org_2",
+      org_id: "org_2",
+      content: "two",
+    });
+
+    expect(store.listDocuments("model_profile_entry", "org_1").map((doc) => doc.id)).toEqual(["profile_org_1"]);
+    expect(store.listDocuments("model_profile_entry", "org_2").map((doc) => doc.id)).toEqual(["profile_org_2"]);
+    expect(store.listDocuments("memory", "org_1").map((doc) => doc.id)).toEqual(["memory_org_1"]);
+    expect(store.listDocuments("memory", "org_2").map((doc) => doc.id)).toEqual(["memory_org_2"]);
+  });
+
+  it("lists in-memory documents only for the requested org", () => {
+    const memoryStore = new InMemoryStore();
+    memoryStore.upsertDocument("model_profile_entry", "profile_org_1", {
+      id: "profile_org_1",
+      org_id: "org_1",
+      key: "default",
+    });
+    memoryStore.upsertDocument("model_profile_entry", "profile_org_2", {
+      id: "profile_org_2",
+      org_id: "org_2",
+      key: "default",
+    });
+
+    expect(memoryStore.listDocuments("model_profile_entry", "org_1").map((doc) => doc.id)).toEqual(["profile_org_1"]);
+    expect(memoryStore.listDocuments("model_profile_entry", "org_2").map((doc) => doc.id)).toEqual(["profile_org_2"]);
+    memoryStore.close();
   });
 
   it("persists tool call records as dedicated documents", async () => {

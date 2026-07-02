@@ -83,7 +83,7 @@ export class ModelTurnLoop {
       }
 
       const fullMessages = currentRun.thread_id
-        ? this.deps.store.listMessages(currentRun.thread_id)
+        ? this.deps.store.listMessages(currentRun.thread_id, currentRun.org_id)
         : [];
       const activeKeys = activeSkillKeysFromEvents(runEvents);
       const loadedSkills = activeKeys
@@ -95,7 +95,7 @@ export class ModelTurnLoop {
         messages: fullMessages,
         events: runEvents,
         latestSummary: currentRun.thread_id
-          ? this.deps.store.getLatestContextSummary(currentRun.thread_id)
+          ? this.deps.store.getLatestContextSummary(currentRun.thread_id, currentRun.org_id)
           : undefined,
         skillInstructions: loadedSkills.map((skill) => ({
           name: skill.name,

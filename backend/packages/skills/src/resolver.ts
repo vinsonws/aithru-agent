@@ -3,7 +3,7 @@ import type { SkillRegistry } from "./registry.js";
 
 export interface SkillDocumentStore {
   getDocument(kind: string, id: string): { payload: unknown } | undefined;
-  listDocuments(kind: string): { payload: unknown }[];
+  listDocuments(kind: string, orgId: string): { payload: unknown }[];
 }
 
 export interface ResolvedSkill {
@@ -79,13 +79,13 @@ export class SkillResolver {
   listVisible(orgId: string, actorUserId: string): SkillCatalogEntry[] {
     const keys = new Set<string>();
     for (const pkg of this.builtins.list()) keys.add(pkg.key);
-    for (const doc of this.store.listDocuments("skill_registry_entry")) {
+    for (const doc of this.store.listDocuments("skill_registry_entry", orgId)) {
       const entry = doc.payload as SkillEntryPayload;
-      if ((entry as any).org_id === orgId && entry.key) keys.add(entry.key);
+      if (entry.key) keys.add(entry.key);
     }
-    for (const doc of this.store.listDocuments("skill_package_user")) {
+    for (const doc of this.store.listDocuments("skill_package_user", orgId)) {
       const entry = doc.payload as SkillEntryPayload;
-      if ((entry as any).org_id === orgId && (entry as any).owner_user_id === actorUserId && entry.key) {
+      if ((entry as any).owner_user_id === actorUserId && entry.key) {
         keys.add(entry.key);
       }
     }
@@ -99,9 +99,9 @@ export class SkillResolver {
     const byId = this.store.getDocument("skill_registry_entry", key)?.payload as SkillEntryPayload | undefined;
     if (byId && (byId as any).org_id === orgId) return byId;
     return this.store
-      .listDocuments("skill_registry_entry")
+      .listDocuments("skill_registry_entry", orgId)
       .map((doc) => doc.payload as SkillEntryPayload)
-      .find((entry) => (entry as any).org_id === orgId && entry.key === key);
+      .find((entry) => entry.key === key);
   }
 }
 

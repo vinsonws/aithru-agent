@@ -130,9 +130,9 @@ function storedModelProfile(
   key: string,
 ): StoredModelProfile | null {
   const profile = store
-    .listDocuments("model_profile_entry")
+    .listDocuments("model_profile_entry", orgId)
     .map((doc) => doc.payload as StoredModelProfile)
-    .find((entry) => entry.key === key && (entry as any).org_id === orgId);
+    .find((entry) => entry.key === key);
   if (profile) return profile;
   if (key === "default") {
     return {
@@ -209,9 +209,8 @@ function createStoreBackedMcpProvider(store: AgentStore) {
 
 function createMcpProviderAdapterFromStore(store: AgentStore, orgId: string): McpProviderAdapter {
   const catalog = new McpCatalog();
-  for (const doc of store.listDocuments("external_tool_config_entry")) {
+  for (const doc of store.listDocuments("external_tool_config_entry", orgId)) {
     const config = doc.payload as StoredExternalToolConfig;
-    if (config.org_id !== orgId) continue;
     const server = mcpServerFromStoredConfig(store, config);
     if (server) catalog.register(server);
   }

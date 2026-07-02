@@ -20,6 +20,8 @@ export interface WorkspaceFile {
 
 export interface AgentTodo {
   id: string;
+  org_id?: string | null;
+  actor_user_id?: string | null;
   thread_id?: string | null;
   run_id: string;
   title: string;
@@ -30,6 +32,8 @@ export interface AgentTodo {
 
 export interface AgentApproval {
   id: string;
+  org_id?: string | null;
+  actor_user_id?: string | null;
   run_id: string;
   tool_call_id: string;
   tool_name: string;
@@ -47,11 +51,18 @@ export interface AgentDocument {
 export interface AgentContextSummary {
   id: string;
   org_id: string;
+  actor_user_id?: string | null;
   thread_id: string;
   run_id: string;
   summary: string;
   source_message_count: number;
   created_at: string;
+}
+
+function documentOrgId(payload: unknown): string | null {
+  return payload && typeof payload === "object" && typeof (payload as any).org_id === "string"
+    ? (payload as any).org_id
+    : null;
 }
 
 export class InMemoryStore {
@@ -95,17 +106,24 @@ export class InMemoryStore {
   // ── Messages ──────────────────────────────────────────────────────
 
   createMessage(msg: AgentMessage): AgentMessage {
-    this.messages.set(msg.id, msg);
-    return msg;
+    const thread = this.getThread(msg.thread_id);
+    const run = msg.run_id ? this.getRun(msg.run_id) : undefined;
+    const stored = {
+      ...msg,
+      org_id: thread?.org_id ?? run?.org_id ?? msg.org_id ?? null,
+      actor_user_id: run?.actor_user_id ?? thread?.owner_user_id ?? msg.actor_user_id ?? null,
+    };
+    this.messages.set(msg.id, stored);
+    return stored;
   }
 
   getMessage(id: string): AgentMessage | undefined {
     return this.messages.get(id);
   }
 
-  listMessages(threadId: string): AgentMessage[] {
+  listMessages(threadId: string, orgId?: string): AgentMessage[] {
     return [...this.messages.values()]
-      .filter((m) => m.thread_id === threadId)
+      .filter((m) => m.thread_id === threadId && (!orgId || m.org_id === orgId))
       .sort(
         (a, b) =>
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
@@ -145,8 +163,14 @@ export class InMemoryStore {
   // ── Events ────────────────────────────────────────────────────────
 
   appendEvent(runId: string, event: AgentStreamEvent): void {
+    const run = this.getRun(runId);
+    const stored = {
+      ...event,
+      org_id: run?.org_id ?? event.org_id ?? null,
+      actor_user_id: run?.actor_user_id ?? event.actor_user_id ?? null,
+    };
     const events = this.events.get(runId) || [];
-    events.push(event);
+    events.push(stored);
     this.events.set(runId, events);
   }
 
@@ -190,7 +214,12 @@ export class InMemoryStore {
   createTodo(todo: AgentTodo): AgentTodo {
     const run = this.getRun(todo.run_id);
     const threadId = todo.thread_id ?? run?.thread_id ?? null;
-    const stored = { ...todo, thread_id: threadId };
+    const stored = {
+      ...todo,
+      org_id: run?.org_id ?? todo.org_id ?? null,
+      actor_user_id: run?.actor_user_id ?? todo.actor_user_id ?? null,
+      thread_id: threadId,
+    };
     const key = this.todoScopeKey(todo.run_id);
     const runTodos = this.todos.get(key) || [];
     runTodos.push(stored);
@@ -199,24 +228,33 @@ export class InMemoryStore {
   }
 
   updateTodo(runId: string, todoId: string, patch: Partial<AgentTodo>): AgentTodo {
+    const orgId = this.getRun(runId)?.org_id;
     const runTodos = this.todos.get(this.todoScopeKey(runId)) || [];
-    const todo = runTodos.find((t) => t.id === todoId);
+    const todo = runTodos.find((t) => t.id === todoId && (!orgId || t.org_id === orgId));
     if (!todo) throw new Error(`Todo ${todoId} not found`);
     Object.assign(todo, patch, { updated_at: new Date().toISOString().replace(/\.\d{3}/, "") });
     return todo;
   }
 
   listTodos(runId: string): AgentTodo[] {
-    return this.todos.get(this.todoScopeKey(runId)) || [];
+    const orgId = this.getRun(runId)?.org_id;
+    const todos = this.todos.get(this.todoScopeKey(runId)) || [];
+    return orgId ? todos.filter((todo) => todo.org_id === orgId) : todos;
   }
 
   // ── Approvals ────────────────────────────────────────────────────
 
   createApproval(approval: AgentApproval): AgentApproval {
+    const run = this.getRun(approval.run_id);
+    const stored = {
+      ...approval,
+      org_id: run?.org_id ?? approval.org_id ?? null,
+      actor_user_id: run?.actor_user_id ?? approval.actor_user_id ?? null,
+    };
     const runApprovals = this.approvals.get(approval.run_id) || [];
-    runApprovals.push(approval);
+    runApprovals.push(stored);
     this.approvals.set(approval.run_id, runApprovals);
-    return approval;
+    return stored;
   }
 
   getApproval(id: string): AgentApproval | undefined {
@@ -227,8 +265,10 @@ export class InMemoryStore {
     return undefined;
   }
 
-  listApprovals(filter?: { run_id?: string; status?: string }): AgentApproval[] {
+  listApprovals(filter?: { run_id?: string; status?: string; org_id?: string }): AgentApproval[] {
     let approvals = [...this.approvals.values()].flat();
+    const orgId = filter?.org_id ?? (filter?.run_id ? this.getRun(filter.run_id)?.org_id : undefined);
+    if (orgId) approvals = approvals.filter((a) => a.org_id === orgId);
     if (filter?.run_id) approvals = approvals.filter((a) => a.run_id === filter.run_id);
     if (filter?.status) approvals = approvals.filter((a) => a.status === filter.status);
     return approvals;
@@ -265,8 +305,9 @@ export class InMemoryStore {
     return { kind, id, payload: docs.get(id) };
   }
 
-  listDocuments(kind: string): AgentDocument[] {
+  listDocuments(kind: string, orgId: string): AgentDocument[] {
     return [...(this.documents.get(kind) ?? new Map<string, unknown>()).entries()]
+      .filter(([, payload]) => documentOrgId(payload) === orgId)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([id, payload]) => ({ kind, id, payload }));
   }
@@ -276,19 +317,26 @@ export class InMemoryStore {
   }
 
   createContextSummary(summary: AgentContextSummary): AgentContextSummary {
+    const run = this.getRun(summary.run_id);
+    const stored = {
+      ...summary,
+      org_id: run?.org_id ?? summary.org_id,
+      actor_user_id: run?.actor_user_id ?? summary.actor_user_id ?? null,
+    };
     const summaries = this.contextSummaries.get(summary.thread_id) ?? [];
-    summaries.push(summary);
+    summaries.push(stored);
     summaries.sort((a, b) => a.created_at.localeCompare(b.created_at));
     this.contextSummaries.set(summary.thread_id, summaries);
-    return summary;
+    return stored;
   }
 
-  listContextSummaries(threadId: string): AgentContextSummary[] {
-    return this.contextSummaries.get(threadId) ?? [];
+  listContextSummaries(threadId: string, orgId?: string): AgentContextSummary[] {
+    const summaries = this.contextSummaries.get(threadId) ?? [];
+    return orgId ? summaries.filter((summary) => summary.org_id === orgId) : summaries;
   }
 
-  getLatestContextSummary(threadId: string): AgentContextSummary | undefined {
-    return this.listContextSummaries(threadId).at(-1);
+  getLatestContextSummary(threadId: string, orgId?: string): AgentContextSummary | undefined {
+    return this.listContextSummaries(threadId, orgId).at(-1);
   }
 
   setSecret(orgId: string, secretRef: string, value: string): void {

@@ -129,6 +129,8 @@ export const AgentThreadSchema = Type.Object({
 
 export const AgentMessageSchema = Type.Object({
   id: Type.String(),
+  org_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  actor_user_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   thread_id: Type.String(),
   role: AgentMessageRole,
   content: Type.String(),
@@ -229,6 +231,8 @@ export const AgentRunSchema = Type.Object({
 
 export const AgentStreamEventSchema = Type.Object({
   id: Type.String(),
+  org_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  actor_user_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   run_id: Type.String(),
   thread_id: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   sequence: Type.Number(),

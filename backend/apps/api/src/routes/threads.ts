@@ -151,11 +151,11 @@ export function registerThreadRoutes(app: FastifyInstance): void {
         workspace_paths: [],
         created_at: now(),
       };
-      runtime.store.createMessage(message);
+      const stored = runtime.store.createMessage(message);
       thread.updated_at = now();
       runtime.store.updateThread(thread_id, { updated_at: now() });
       reply.code(201);
-      return message;
+      return stored;
     },
   );
 
@@ -185,7 +185,7 @@ export function registerThreadRoutes(app: FastifyInstance): void {
         return { error: "Thread not found" };
       }
       if (!actorCanAccessOwnedResource(platformActorFromRequest(request), thread)) return forbidden(reply);
-      return runtime.store.listMessages(thread_id);
+      return runtime.store.listMessages(thread_id, thread.org_id);
     },
   );
 }

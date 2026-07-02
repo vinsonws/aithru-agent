@@ -101,8 +101,7 @@ export class SqliteStore implements AgentStore {
     runMigrations(store);
     store.migrateSettingsOrgScope();
     store.migrateSecretsOrgScope();
-    store.ensureColumn("todos", "thread_id", "TEXT");
-    store.exec("CREATE INDEX IF NOT EXISTS idx_todos_thread ON todos(thread_id)");
+    store.migrateChildEntityIdentity();
     for (const table of Object.values(DOCUMENT_TABLES)) {
       store.ensureColumn(table, "owner_user_id", "TEXT");
     }
@@ -178,21 +177,30 @@ export class SqliteStore implements AgentStore {
   // ── Messages ─────────────────────────────────────────────────────────
 
   createMessage(msg: AgentMessage): AgentMessage {
+    const thread = this.getThread(msg.thread_id);
+    const run = msg.run_id ? this.getRun(msg.run_id) : undefined;
+    const stored = {
+      ...msg,
+      org_id: thread?.org_id ?? run?.org_id ?? msg.org_id ?? null,
+      actor_user_id: run?.actor_user_id ?? thread?.owner_user_id ?? msg.actor_user_id ?? null,
+    };
     this.runStatement(
       `INSERT INTO messages
-        (id, thread_id, role, content, run_id, workspace_paths, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (id, org_id, actor_user_id, thread_id, role, content, run_id, workspace_paths, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        msg.id,
-        msg.thread_id,
-        String(msg.role),
-        msg.content,
-        msg.run_id ?? null,
-        JSON.stringify(msg.workspace_paths),
-        msg.created_at,
+        stored.id,
+        stored.org_id ?? null,
+        stored.actor_user_id ?? null,
+        stored.thread_id,
+        String(stored.role),
+        stored.content,
+        stored.run_id ?? null,
+        JSON.stringify(stored.workspace_paths),
+        stored.created_at,
       ],
     );
-    return msg;
+    return stored;
   }
 
   getMessage(id: string): AgentMessage | undefined {
@@ -203,10 +211,12 @@ export class SqliteStore implements AgentStore {
     return row ? this.hydrateMessage(row) : undefined;
   }
 
-  listMessages(threadId: string): AgentMessage[] {
+  listMessages(threadId: string, orgId?: string): AgentMessage[] {
+    const where = orgId ? "thread_id = ? AND org_id = ?" : "thread_id = ?";
+    const params = orgId ? [threadId, orgId] : [threadId];
     return this.selectAll<SqliteRow>(
-      "SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC",
-      [threadId],
+      `SELECT * FROM messages WHERE ${where} ORDER BY created_at ASC`,
+      params,
     ).map((row) => this.hydrateMessage(row));
   }
 
@@ -304,25 +314,33 @@ export class SqliteStore implements AgentStore {
   // ── Events ───────────────────────────────────────────────────────────
 
   appendEvent(runId: string, event: AgentStreamEvent): void {
+    const run = this.getRun(runId);
+    const stored = {
+      ...event,
+      org_id: run?.org_id ?? event.org_id ?? null,
+      actor_user_id: run?.actor_user_id ?? event.actor_user_id ?? null,
+    };
     this.runStatement(
       `INSERT INTO events
-        (id, run_id, thread_id, sequence, timestamp, type, source_kind,
+        (id, org_id, actor_user_id, run_id, thread_id, sequence, timestamp, type, source_kind,
          source_id, source_name, visibility, redaction, summary, payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        event.id,
+        stored.id,
+        stored.org_id ?? null,
+        stored.actor_user_id ?? null,
         runId,
-        event.thread_id ?? null,
-        event.sequence,
-        event.timestamp,
-        event.type,
-        event.source.kind,
-        event.source.id ?? null,
-        event.source.name ?? null,
-        event.visibility,
-        event.redaction,
-        event.summary ?? null,
-        JSON.stringify(event.payload),
+        stored.thread_id ?? null,
+        stored.sequence,
+        stored.timestamp,
+        stored.type,
+        stored.source.kind,
+        stored.source.id ?? null,
+        stored.source.name ?? null,
+        stored.visibility,
+        stored.redaction,
+        stored.summary ?? null,
+        JSON.stringify(stored.payload),
       ],
     );
   }
@@ -372,14 +390,22 @@ export class SqliteStore implements AgentStore {
   // ── Todos ────────────────────────────────────────────────────────────
 
   createTodo(todo: AgentTodo): AgentTodo {
-    const threadId = todo.thread_id ?? this.getRun(todo.run_id)?.thread_id ?? null;
-    const stored = { ...todo, thread_id: threadId };
+    const run = this.getRun(todo.run_id);
+    const threadId = todo.thread_id ?? run?.thread_id ?? null;
+    const stored = {
+      ...todo,
+      org_id: run?.org_id ?? todo.org_id ?? null,
+      actor_user_id: run?.actor_user_id ?? todo.actor_user_id ?? null,
+      thread_id: threadId,
+    };
     this.runStatement(
       `INSERT INTO todos
-        (id, thread_id, run_id, title, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (id, org_id, actor_user_id, thread_id, run_id, title, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         stored.id,
+        stored.org_id ?? null,
+        stored.actor_user_id ?? null,
         stored.thread_id ?? null,
         stored.run_id,
         stored.title,
@@ -397,13 +423,13 @@ export class SqliteStore implements AgentStore {
     patch: Partial<AgentTodo>,
   ): AgentTodo {
     const scope = this.todoScope(runId);
-    this.updateRow("todos", `id = ? AND ${scope.column} = ?`, [todoId, scope.value], {
+    this.updateRow("todos", `id = ? AND ${scope.column} = ? AND org_id = ?`, [todoId, scope.value, scope.orgId], {
       ...patch,
       updated_at: nowIso(),
-    }, ["thread_id", "run_id", "title", "status", "created_at", "updated_at"]);
+    }, ["org_id", "actor_user_id", "thread_id", "run_id", "title", "status", "created_at", "updated_at"]);
     const todo = this.selectOne<AgentTodo>(
-      `SELECT * FROM todos WHERE id = ? AND ${scope.column} = ?`,
-      [todoId, scope.value],
+      `SELECT * FROM todos WHERE id = ? AND ${scope.column} = ? AND org_id = ?`,
+      [todoId, scope.value, scope.orgId],
     );
     if (!todo) throw new Error(`Todo ${todoId} not found`);
     return todo;
@@ -412,29 +438,37 @@ export class SqliteStore implements AgentStore {
   listTodos(runId: string): AgentTodo[] {
     const scope = this.todoScope(runId);
     return this.selectAll<AgentTodo>(
-      `SELECT * FROM todos WHERE ${scope.column} = ? ORDER BY created_at ASC`,
-      [scope.value],
+      `SELECT * FROM todos WHERE ${scope.column} = ? AND org_id = ? ORDER BY created_at ASC`,
+      [scope.value, scope.orgId],
     );
   }
 
   // ── Approvals ────────────────────────────────────────────────────────
 
   createApproval(approval: AgentApproval): AgentApproval {
+    const run = this.getRun(approval.run_id);
+    const stored = {
+      ...approval,
+      org_id: run?.org_id ?? approval.org_id ?? null,
+      actor_user_id: run?.actor_user_id ?? approval.actor_user_id ?? null,
+    };
     this.runStatement(
       `INSERT INTO approvals
-        (id, run_id, tool_call_id, tool_name, status, created_at, resolved_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (id, org_id, actor_user_id, run_id, tool_call_id, tool_name, status, created_at, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        approval.id,
-        approval.run_id,
-        approval.tool_call_id,
-        approval.tool_name,
-        approval.status,
-        approval.created_at,
-        approval.resolved_at ?? null,
+        stored.id,
+        stored.org_id ?? null,
+        stored.actor_user_id ?? null,
+        stored.run_id,
+        stored.tool_call_id,
+        stored.tool_name,
+        stored.status,
+        stored.created_at,
+        stored.resolved_at ?? null,
       ],
     );
-    return approval;
+    return stored;
   }
 
   getApproval(id: string): AgentApproval | undefined {
@@ -444,9 +478,14 @@ export class SqliteStore implements AgentStore {
     );
   }
 
-  listApprovals(filter?: { run_id?: string; status?: string }): AgentApproval[] {
+  listApprovals(filter?: { run_id?: string; status?: string; org_id?: string }): AgentApproval[] {
     const where: string[] = [];
     const params: SqliteParam[] = [];
+    const orgId = filter?.org_id ?? (filter?.run_id ? this.getRun(filter.run_id)?.org_id : undefined);
+    if (orgId) {
+      where.push("org_id = ?");
+      params.push(orgId);
+    }
     if (filter?.run_id) {
       where.push("run_id = ?");
       params.push(filter.run_id);
@@ -509,11 +548,12 @@ export class SqliteStore implements AgentStore {
       : undefined;
   }
 
-  listDocuments(kind: string): AgentDocument[] {
+  listDocuments(kind: string, orgId: string): AgentDocument[] {
     const table = this.documentTable(kind);
-    if (!table) return this.listVolatileDocuments(kind);
+    if (!table) return this.listVolatileDocuments(kind, orgId);
     return this.selectAll<SqliteRow>(
-      `SELECT id, payload FROM ${table} ORDER BY id ASC`,
+      `SELECT id, payload FROM ${table} WHERE org_id = ? ORDER BY id ASC`,
+      [orgId],
     ).map((row) => ({
       kind,
       id: String(row.id),
@@ -533,39 +573,50 @@ export class SqliteStore implements AgentStore {
   }
 
   createContextSummary(summary: AgentContextSummary): AgentContextSummary {
+    const run = this.getRun(summary.run_id);
+    const stored = {
+      ...summary,
+      org_id: run?.org_id ?? summary.org_id,
+      actor_user_id: run?.actor_user_id ?? summary.actor_user_id ?? null,
+    };
     this.runStatement(
       `INSERT INTO context_summaries
-        (id, org_id, thread_id, run_id, summary, source_message_count, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (id, org_id, actor_user_id, thread_id, run_id, summary, source_message_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        summary.id,
-        summary.org_id,
-        summary.thread_id,
-        summary.run_id,
-        summary.summary,
-        summary.source_message_count,
-        summary.created_at,
+        stored.id,
+        stored.org_id,
+        stored.actor_user_id ?? null,
+        stored.thread_id,
+        stored.run_id,
+        stored.summary,
+        stored.source_message_count,
+        stored.created_at,
       ],
     );
-    return summary;
+    return stored;
   }
 
-  listContextSummaries(threadId: string): AgentContextSummary[] {
+  listContextSummaries(threadId: string, orgId?: string): AgentContextSummary[] {
+    const where = orgId ? "thread_id = ? AND org_id = ?" : "thread_id = ?";
+    const params = orgId ? [threadId, orgId] : [threadId];
     return this.selectAll<AgentContextSummary>(
       `SELECT * FROM context_summaries
-       WHERE thread_id = ?
+       WHERE ${where}
        ORDER BY created_at ASC`,
-      [threadId],
+      params,
     );
   }
 
-  getLatestContextSummary(threadId: string): AgentContextSummary | undefined {
+  getLatestContextSummary(threadId: string, orgId?: string): AgentContextSummary | undefined {
+    const where = orgId ? "thread_id = ? AND org_id = ?" : "thread_id = ?";
+    const params = orgId ? [threadId, orgId] : [threadId];
     return this.selectOne<AgentContextSummary>(
       `SELECT * FROM context_summaries
-       WHERE thread_id = ?
+       WHERE ${where}
        ORDER BY created_at DESC
        LIMIT 1`,
-      [threadId],
+      params,
     );
   }
 
@@ -818,6 +869,57 @@ export class SqliteStore implements AgentStore {
     `);
   }
 
+  private migrateChildEntityIdentity(): void {
+    this.ensureColumn("messages", "org_id", "TEXT");
+    this.ensureColumn("messages", "actor_user_id", "TEXT");
+    this.ensureColumn("events", "org_id", "TEXT");
+    this.ensureColumn("events", "actor_user_id", "TEXT");
+    this.ensureColumn("todos", "org_id", "TEXT");
+    this.ensureColumn("todos", "actor_user_id", "TEXT");
+    this.ensureColumn("todos", "thread_id", "TEXT");
+    this.ensureColumn("approvals", "org_id", "TEXT");
+    this.ensureColumn("approvals", "actor_user_id", "TEXT");
+    this.ensureColumn("context_summaries", "actor_user_id", "TEXT");
+    this.exec(`
+      UPDATE messages
+      SET
+        org_id = COALESCE(NULLIF(org_id, ''), (SELECT org_id FROM threads WHERE threads.id = messages.thread_id), (SELECT org_id FROM runs WHERE runs.id = messages.run_id)),
+        actor_user_id = COALESCE(NULLIF(actor_user_id, ''), (SELECT actor_user_id FROM runs WHERE runs.id = messages.run_id), (SELECT owner_user_id FROM threads WHERE threads.id = messages.thread_id))
+      WHERE org_id IS NULL OR org_id = '' OR actor_user_id IS NULL OR actor_user_id = '';
+
+      UPDATE events
+      SET
+        org_id = COALESCE(NULLIF(org_id, ''), (SELECT org_id FROM runs WHERE runs.id = events.run_id)),
+        actor_user_id = COALESCE(NULLIF(actor_user_id, ''), (SELECT actor_user_id FROM runs WHERE runs.id = events.run_id))
+      WHERE org_id IS NULL OR org_id = '' OR actor_user_id IS NULL OR actor_user_id = '';
+
+      UPDATE todos
+      SET
+        org_id = COALESCE(NULLIF(org_id, ''), (SELECT org_id FROM runs WHERE runs.id = todos.run_id)),
+        actor_user_id = COALESCE(NULLIF(actor_user_id, ''), (SELECT actor_user_id FROM runs WHERE runs.id = todos.run_id)),
+        thread_id = COALESCE(thread_id, (SELECT thread_id FROM runs WHERE runs.id = todos.run_id))
+      WHERE org_id IS NULL OR org_id = '' OR actor_user_id IS NULL OR actor_user_id = '' OR thread_id IS NULL;
+
+      UPDATE approvals
+      SET
+        org_id = COALESCE(NULLIF(org_id, ''), (SELECT org_id FROM runs WHERE runs.id = approvals.run_id)),
+        actor_user_id = COALESCE(NULLIF(actor_user_id, ''), (SELECT actor_user_id FROM runs WHERE runs.id = approvals.run_id))
+      WHERE org_id IS NULL OR org_id = '' OR actor_user_id IS NULL OR actor_user_id = '';
+
+      UPDATE context_summaries
+      SET actor_user_id = COALESCE(NULLIF(actor_user_id, ''), (SELECT actor_user_id FROM runs WHERE runs.id = context_summaries.run_id))
+      WHERE actor_user_id IS NULL OR actor_user_id = '';
+
+      CREATE INDEX IF NOT EXISTS idx_todos_thread ON todos(thread_id);
+      CREATE INDEX IF NOT EXISTS idx_messages_org_thread ON messages(org_id, thread_id);
+      CREATE INDEX IF NOT EXISTS idx_events_org_run ON events(org_id, run_id);
+      CREATE INDEX IF NOT EXISTS idx_todos_org_run ON todos(org_id, run_id);
+      CREATE INDEX IF NOT EXISTS idx_approvals_org_run ON approvals(org_id, run_id);
+      CREATE INDEX IF NOT EXISTS idx_context_summaries_org_thread
+        ON context_summaries(org_id, thread_id, created_at);
+    `);
+  }
+
   private tableInfo(table: string): SqliteRow[] {
     return this.selectAll<SqliteRow>(`PRAGMA table_info(${table})`);
   }
@@ -833,6 +935,8 @@ export class SqliteStore implements AgentStore {
   private hydrateMessage(row: SqliteRow): AgentMessage {
     return {
       id: String(row.id),
+      org_id: row.org_id == null ? null : String(row.org_id),
+      actor_user_id: row.actor_user_id == null ? null : String(row.actor_user_id),
       thread_id: String(row.thread_id),
       role: row.role as AgentMessage["role"],
       content: String(row.content),
@@ -888,6 +992,8 @@ export class SqliteStore implements AgentStore {
   private hydrateEvent(row: SqliteRow): AgentStreamEvent {
     return {
       id: String(row.id),
+      org_id: row.org_id == null ? null : String(row.org_id),
+      actor_user_id: row.actor_user_id == null ? null : String(row.actor_user_id),
       run_id: String(row.run_id),
       thread_id: row.thread_id == null ? null : String(row.thread_id),
       sequence: Number(row.sequence),
@@ -928,8 +1034,9 @@ export class SqliteStore implements AgentStore {
     return { kind, id, payload: docs.get(id) };
   }
 
-  private listVolatileDocuments(kind: string): AgentDocument[] {
+  private listVolatileDocuments(kind: string, orgId: string): AgentDocument[] {
     return [...(this.volatileDocuments.get(kind) ?? new Map<string, unknown>()).entries()]
+      .filter(([, payload]) => documentFields(payload).orgId === orgId)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([id, payload]) => ({ kind, id, payload }));
   }
@@ -938,11 +1045,12 @@ export class SqliteStore implements AgentStore {
     return this.volatileDocuments.get(kind)?.delete(id) ? 1 : 0;
   }
 
-  private todoScope(runId: string): { column: string; value: string } {
-    const threadId = this.getRun(runId)?.thread_id ?? null;
+  private todoScope(runId: string): { column: string; value: string; orgId: string } {
+    const run = this.getRun(runId);
+    const threadId = run?.thread_id ?? null;
     return threadId
-      ? { column: "thread_id", value: threadId }
-      : { column: "run_id", value: runId };
+      ? { column: "thread_id", value: threadId, orgId: run?.org_id ?? "org_1" }
+      : { column: "run_id", value: runId, orgId: run?.org_id ?? "org_1" };
   }
 }
 

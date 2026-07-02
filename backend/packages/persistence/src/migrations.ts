@@ -17,9 +17,10 @@ export function runMigrations(adapter: MigrationExecutor): void {
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL,
-      content TEXT NOT NULL, run_id TEXT,
+	    CREATE TABLE IF NOT EXISTS messages (
+	      id TEXT PRIMARY KEY, org_id TEXT, actor_user_id TEXT,
+	      thread_id TEXT NOT NULL, role TEXT NOT NULL,
+	      content TEXT NOT NULL, run_id TEXT,
       workspace_paths TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL
     );
@@ -39,8 +40,9 @@ export function runMigrations(adapter: MigrationExecutor): void {
       result TEXT, error TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS events (
-      id TEXT PRIMARY KEY, run_id TEXT NOT NULL, thread_id TEXT,
+	    CREATE TABLE IF NOT EXISTS events (
+	      id TEXT PRIMARY KEY, org_id TEXT, actor_user_id TEXT,
+	      run_id TEXT NOT NULL, thread_id TEXT,
       sequence INTEGER NOT NULL, timestamp TEXT NOT NULL,
       type TEXT NOT NULL,
       source_kind TEXT NOT NULL, source_id TEXT, source_name TEXT,
@@ -57,10 +59,11 @@ export function runMigrations(adapter: MigrationExecutor): void {
       PRIMARY KEY (org_id, key)
     );
 
-    CREATE TABLE IF NOT EXISTS context_summaries (
-      id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL,
-      thread_id TEXT NOT NULL,
+	    CREATE TABLE IF NOT EXISTS context_summaries (
+	      id TEXT PRIMARY KEY,
+	      org_id TEXT NOT NULL,
+	      actor_user_id TEXT,
+	      thread_id TEXT NOT NULL,
       run_id TEXT NOT NULL,
       summary TEXT NOT NULL,
       source_message_count INTEGER NOT NULL,
@@ -126,14 +129,16 @@ export function runMigrations(adapter: MigrationExecutor): void {
       payload TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS todos (
-      id TEXT PRIMARY KEY, thread_id TEXT, run_id TEXT NOT NULL, title TEXT NOT NULL,
+	    CREATE TABLE IF NOT EXISTS todos (
+	      id TEXT PRIMARY KEY, org_id TEXT, actor_user_id TEXT,
+	      thread_id TEXT, run_id TEXT NOT NULL, title TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS approvals (
-      id TEXT PRIMARY KEY, run_id TEXT NOT NULL,
+	    CREATE TABLE IF NOT EXISTS approvals (
+	      id TEXT PRIMARY KEY, org_id TEXT, actor_user_id TEXT,
+	      run_id TEXT NOT NULL,
       tool_call_id TEXT NOT NULL, tool_name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL, resolved_at TEXT
