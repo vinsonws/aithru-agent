@@ -198,10 +198,11 @@
   "composerContext": "上下文",
   "composerSettings": "设置",
   "defaultModel": "默认模型",
+  "noModel": "未配置模型",
+  "noAvailableModels": "没有可用模型",
   "defaultSkill": "默认技能",
   "expandComposerSettings": "调整推理、模型和权限",
-  "collapseComposerSettings": "隐藏输入设置"
-,
+  "collapseComposerSettings": "隐藏输入设置",
   "cards": {
     "preview": "预览",
     "download": "下载"

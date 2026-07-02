@@ -58,7 +58,7 @@ test("templates and file actions use translation keys instead of English fallbac
   const messageActions = await src("features/chat/MessageActionsComponent.tsx");
 
   assert.match(newThread, /t\(template\.titleKey/);
-  assert.match(newThread, /t\(template\.descriptionKey/);
+  assert.match(newThread, /t\(\s*template\.descriptionKey/);
   assert.match(composer, /t\(template\.titleKey/);
   assert.match(fileList, /chat:tabFiles/);
   assert.match(filePreview, /chat:tabPreview/);

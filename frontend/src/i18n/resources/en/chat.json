@@ -198,10 +198,11 @@
   "composerContext": "Context",
   "composerSettings": "Settings",
   "defaultModel": "Default model",
+  "noModel": "No model",
+  "noAvailableModels": "No usable models configured",
   "defaultSkill": "Default skill",
   "expandComposerSettings": "Adjust reasoning, model, and permission",
-  "collapseComposerSettings": "Hide composer settings"
-,
+  "collapseComposerSettings": "Hide composer settings",
   "cards": {
     "preview": "Preview",
     "download": "Download"

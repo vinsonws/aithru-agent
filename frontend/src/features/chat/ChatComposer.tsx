@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { runsApi, modelProfilesApi } from "@/lib/api";
+import { runsApi, modelProvidersApi } from "@/lib/api";
 import type { CreateRunRequest } from "@/lib/api";
 import { useHost } from "@/lib/host/HostProvider";
 import { useTranslation } from "react-i18next";
@@ -11,6 +11,7 @@ import {
   composerModeForReasoningLevel,
   normalizeReasoningLevel,
   reasoningLevelForComposerMode,
+  selectUsableModelRef,
   type ComposerPermissionPolicyId,
   type ComposerReasoningLevel,
 } from "./composerState";
@@ -51,7 +52,7 @@ export function ChatComposer({
   const [internalTaskMsg, setInternalTaskMsg] = React.useState("");
   const [reasoningLevel, setReasoningLevel] =
     React.useState<ComposerReasoningLevel>("pro");
-  const [profileKey, setProfileKey] = React.useState<string>("");
+  const [modelRef, setModelRef] = React.useState<string>("");
   const [permissionPolicy, setPermissionPolicy] =
     React.useState<ComposerPermissionPolicyId>("ask");
 
@@ -60,7 +61,8 @@ export function ChatComposer({
   const setTaskMsg = isControlled
     ? (text: string) => externalDraftChange?.(text)
     : setInternalTaskMsg;
-  const cancelTargetRunId = cancellableRunId === undefined ? activeRunId : cancellableRunId;
+  const cancelTargetRunId =
+    cancellableRunId === undefined ? activeRunId : cancellableRunId;
 
   React.useEffect(() => {
     if (focusKey && focusKey > 0) {
@@ -69,38 +71,30 @@ export function ChatComposer({
   }, [focusKey]);
 
   React.useEffect(() => {
-    if (initialReasoningLevel) setReasoningLevel(normalizeReasoningLevel(initialReasoningLevel));
+    if (initialReasoningLevel)
+      setReasoningLevel(normalizeReasoningLevel(initialReasoningLevel));
   }, [initialReasoningLevel]);
 
-  const profilesQuery = useQuery({
-    queryKey: ["model-profiles"],
-    queryFn: modelProfilesApi.list,
+  const providersQuery = useQuery({
+    queryKey: ["model-providers"],
+    queryFn: modelProvidersApi.list,
   });
 
   React.useEffect(() => {
-    const profiles = profilesQuery.data;
-    if (!profiles || profiles.length === 0) {
-      setProfileKey("");
-      return;
-    }
-    if (profileKey && profiles.some((p) => p.key === profileKey && p.enabled)) {
-      return;
-    }
-    const firstEnabled = profiles.find((p) => p.enabled);
-    setProfileKey(firstEnabled?.key ?? "");
-  }, [profilesQuery.data, profileKey]);
+    setModelRef(selectUsableModelRef(providersQuery.data, modelRef));
+  }, [providersQuery.data, modelRef]);
 
   const createRun = useMutation({
     mutationFn: async (vars: {
       taskMsg: string;
       selectedSkillKeys: string[];
-      profileKey: string | null;
+      model_ref: string | null;
       reasoningLevel: ComposerReasoningLevel;
       permissionPolicy: ComposerPermissionPolicyId;
     }) => {
       const mode = composerModeForReasoningLevel(vars.reasoningLevel);
       const harnessOptions = buildComposerHarnessOptions(
-        vars.profileKey,
+        vars.model_ref,
         mode,
         vars.reasoningLevel,
       );
@@ -121,7 +115,9 @@ export function ChatComposer({
     onSuccess: (run) => onRunCreated(run.id),
   });
 
-  const cancelRun = useMutation({ mutationFn: (id: string) => runsApi.cancel(id) });
+  const cancelRun = useMutation({
+    mutationFn: (id: string) => runsApi.cancel(id),
+  });
 
   const handleCancel = () => {
     if (onCancelRun) {
@@ -133,7 +129,7 @@ export function ChatComposer({
 
   const handleSend = () => {
     const trimmed = taskMsg.trim();
-    if (!trimmed || createRun.isPending) return;
+    if (!trimmed || !modelRef || createRun.isPending) return;
 
     const command = parseSlashCommand(trimmed, { activeRunTaskMsg });
     if (command.kind === "local") {
@@ -156,7 +152,7 @@ export function ChatComposer({
     createRun.mutate({
       taskMsg: command.taskMsg,
       selectedSkillKeys: command.selectedSkillKeys ?? [],
-      profileKey,
+      model_ref: modelRef,
       reasoningLevel: nextReasoning,
       permissionPolicy,
     });
@@ -192,7 +188,7 @@ export function ChatComposer({
           onChange={setTaskMsg}
           onKeyDown={onKeyDown}
           onSend={handleSend}
-          sendDisabled={!taskMsg.trim() || !profileKey}
+          sendDisabled={!taskMsg.trim() || !modelRef}
           sendPending={createRun.isPending}
           activeRunId={cancelTargetRunId}
           onCancelRun={handleCancel}
@@ -200,9 +196,9 @@ export function ChatComposer({
           sendLabel={t("chat:sendMessage")}
           cancelLabel={t("chat:cancelRun")}
           attachFileLabel={t("chat:attachFile")}
-          profileKey={profileKey}
-          onProfileKeyChange={setProfileKey}
-          modelProfiles={profilesQuery.data}
+          modelRef={modelRef}
+          onModelRefChange={setModelRef}
+          modelProviders={providersQuery.data}
           selectModelLabel={t("chat:selectModelProfile")}
           reasoningLevel={reasoningLevel}
           onReasoningLevelChange={setReasoningLevel}

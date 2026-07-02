@@ -24,12 +24,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { AgentModelProfileEntry } from "@/lib/api";
+import type { AgentModelProviderWithModels } from "@/lib/api";
 import {
   type ComposerPermissionPolicyId,
   type ComposerReasoningLevel,
   PERMISSION_POLICIES,
   REASONING_LEVELS,
+  flattenUsableModels,
   normalizePermissionPolicyId,
   normalizeReasoningLevel,
 } from "./composerState";
@@ -55,9 +56,9 @@ export interface ReferenceComposerSurfaceProps {
   sendLabel: string;
   cancelLabel: string;
   attachFileLabel: string;
-  profileKey: string;
-  onProfileKeyChange: (profileKey: string) => void;
-  modelProfiles?: AgentModelProfileEntry[];
+  modelRef: string;
+  onModelRefChange: (modelRef: string) => void;
+  modelProviders?: AgentModelProviderWithModels[];
   selectModelLabel: string;
   reasoningLevel: ComposerReasoningLevel;
   onReasoningLevelChange: (level: ComposerReasoningLevel) => void;
@@ -80,11 +81,12 @@ const REASONING_ICONS: Record<ComposerReasoningLevel, React.ElementType> = {
   ultra: Rocket,
 };
 
-const PERMISSION_ICONS: Record<ComposerPermissionPolicyId, React.ElementType> = {
-  ask: ShieldCheck,
-  auto_safe: Zap,
-  read_only: Eye,
-};
+const PERMISSION_ICONS: Record<ComposerPermissionPolicyId, React.ElementType> =
+  {
+    ask: ShieldCheck,
+    auto_safe: Zap,
+    read_only: Eye,
+  };
 
 export function ReferenceComposerSurface({
   value,
@@ -99,9 +101,9 @@ export function ReferenceComposerSurface({
   sendLabel,
   cancelLabel,
   attachFileLabel,
-  profileKey,
-  onProfileKeyChange,
-  modelProfiles,
+  modelRef,
+  onModelRefChange,
+  modelProviders,
   selectModelLabel,
   reasoningLevel,
   onReasoningLevelChange,
@@ -126,13 +128,26 @@ export function ReferenceComposerSurface({
   const selectedReasoning =
     REASONING_LEVELS.find((level) => level.id === normalizedReasoning) ??
     REASONING_LEVELS[2];
-  const selectedProfile = modelProfiles?.find((profile) => profile.key === profileKey);
-  const modelDisplayLabel = selectedProfile
-    ? (selectedProfile.name || selectedProfile.model)
-    : selectModelLabel;
+  const usableModels = flattenUsableModels(modelProviders);
+  const groupedModels = usableModels.reduce<
+    Record<string, typeof usableModels>
+  >((groups, model) => {
+    (groups[model.providerName] ??= []).push(model);
+    return groups;
+  }, {});
+  const selectedModel = usableModels.find((model) => model.ref === modelRef);
+  const modelDisplayLabel = selectedModel
+    ? selectedModel.modelName
+    : t("chat:noModel", "No model");
   const PermissionIcon = PERMISSION_ICONS[normalizedPermission];
-  const permissionLabel = t(selectedPermission.labelKey, selectedPermission.fallback);
-  const reasoningLabel = t(selectedReasoning.labelKey, selectedReasoning.fallback);
+  const permissionLabel = t(
+    selectedPermission.labelKey,
+    selectedPermission.fallback,
+  );
+  const reasoningLabel = t(
+    selectedReasoning.labelKey,
+    selectedReasoning.fallback,
+  );
   const slashPanelVisible = showSlashSuggestions && slashSuggestions.length > 0;
 
   return (
@@ -319,28 +334,42 @@ export function ReferenceComposerSurface({
                 <div className="px-2 pb-1 pt-1 text-xs font-semibold text-muted-foreground">
                   {selectModelLabel}
                 </div>
-                {(!modelProfiles || modelProfiles.length === 0) ? (
+                {usableModels.length === 0 ? (
                   <div className="px-3 py-2.5 text-sm text-muted-foreground">
-                    {t("chat:noModelProfiles", "No model profiles configured")}
+                    {t("chat:noAvailableModels", "No usable models configured")}
                   </div>
                 ) : (
-                  modelProfiles.map((profile) => (
-                  <DropdownMenuItem
-                    key={profile.key}
-                    disabled={!profile.enabled}
-                    onSelect={() => onProfileKeyChange(profile.key)}
-                    className="items-start gap-3 rounded-xl px-3 py-2.5"
-                  >
-                    <Cpu className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{profile.name}</span>
-                      <span className="block truncate text-xs leading-5 text-muted-foreground">
-                        {profile.model}
-                      </span>
-                    </span>
-                    {profileKey === profile.key && <Check className="mt-0.5 h-4 w-4 shrink-0" />}
-                  </DropdownMenuItem>
-                )))}
+                  Object.entries(groupedModels).map(
+                    ([providerName, models], groupIndex) => (
+                      <React.Fragment key={providerName}>
+                        {groupIndex > 0 && <DropdownMenuSeparator />}
+                        <div className="px-2 pb-1 pt-2 text-xs font-semibold text-muted-foreground">
+                          {providerName}
+                        </div>
+                        {models.map((model) => (
+                          <DropdownMenuItem
+                            key={model.ref}
+                            onSelect={() => onModelRefChange(model.ref)}
+                            className="items-start gap-3 rounded-xl px-3 py-2.5"
+                          >
+                            <Cpu className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">
+                                {model.modelName}
+                              </span>
+                              <span className="block truncate text-xs leading-5 text-muted-foreground">
+                                {model.ref}
+                              </span>
+                            </span>
+                            {modelRef === model.ref && (
+                              <Check className="mt-0.5 h-4 w-4 shrink-0" />
+                            )}
+                          </DropdownMenuItem>
+                        ))}
+                      </React.Fragment>
+                    ),
+                  )
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             {activeRunId ? (

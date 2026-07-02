@@ -20,26 +20,41 @@ async function renderSettingsTabs() {
       {
         name: "settings-tabs-test-mocks",
         setup(build) {
-          build.onResolve({ filter: /^@\/features\/admin\/ModelProfilesPage$/ }, () => ({
-            path: "mock-model-profiles",
-            namespace: "mock",
-          }));
-          build.onResolve({ filter: /^@\/features\/admin\/ExternalToolsPage$/ }, () => ({
-            path: "mock-external-tools",
-            namespace: "mock",
-          }));
-          build.onResolve({ filter: /^@\/features\/admin\/SkillsPage$/ }, () => ({
-            path: "mock-skills",
-            namespace: "mock",
-          }));
-          build.onResolve({ filter: /^@\/features\/admin\/ApprovalsPage$/ }, () => ({
-            path: "mock-approvals",
-            namespace: "mock",
-          }));
-          build.onResolve({ filter: /^@\/features\/admin\/MemoryPage$/ }, () => ({
-            path: "mock-memory",
-            namespace: "mock",
-          }));
+          build.onResolve(
+            { filter: /^@\/features\/admin\/ModelProfilesPage$/ },
+            () => ({
+              path: "mock-model-profiles",
+              namespace: "mock",
+            }),
+          );
+          build.onResolve(
+            { filter: /^@\/features\/admin\/ExternalToolsPage$/ },
+            () => ({
+              path: "mock-external-tools",
+              namespace: "mock",
+            }),
+          );
+          build.onResolve(
+            { filter: /^@\/features\/admin\/SkillsPage$/ },
+            () => ({
+              path: "mock-skills",
+              namespace: "mock",
+            }),
+          );
+          build.onResolve(
+            { filter: /^@\/features\/admin\/ApprovalsPage$/ },
+            () => ({
+              path: "mock-approvals",
+              namespace: "mock",
+            }),
+          );
+          build.onResolve(
+            { filter: /^@\/features\/admin\/MemoryPage$/ },
+            () => ({
+              path: "mock-memory",
+              namespace: "mock",
+            }),
+          );
           build.onResolve({ filter: /^@\/components\/ui\/tabs$/ }, () => ({
             path: "mock-tabs",
             namespace: "mock",
@@ -56,14 +71,20 @@ async function renderSettingsTabs() {
             path: "mock-separator",
             namespace: "mock",
           }));
-          build.onResolve({ filter: /^@\/components\/ui\/scroll-area$/ }, () => ({
-            path: "mock-scroll-area",
-            namespace: "mock",
-          }));
-          build.onResolve({ filter: /^@\/components\/shared\/states$/ }, () => ({
-            path: "mock-states",
-            namespace: "mock",
-          }));
+          build.onResolve(
+            { filter: /^@\/components\/ui\/scroll-area$/ },
+            () => ({
+              path: "mock-scroll-area",
+              namespace: "mock",
+            }),
+          );
+          build.onResolve(
+            { filter: /^@\/components\/shared\/states$/ },
+            () => ({
+              path: "mock-states",
+              namespace: "mock",
+            }),
+          );
           build.onResolve({ filter: /^react-i18next$/ }, () => ({
             path: "mock-react-i18next",
             namespace: "mock",
@@ -81,25 +102,38 @@ async function renderSettingsTabs() {
             namespace: "mock",
           }));
           build.onResolve({ filter: /^@\// }, (args) => ({
-            path: fileURLToPath(new URL(`../src/${args.path.slice(2)}`, import.meta.url)),
+            path: fileURLToPath(
+              new URL(`../src/${args.path.slice(2)}`, import.meta.url),
+            ),
           }));
 
-          build.onLoad({ filter: /^mock-model-profiles$/, namespace: "mock" }, () => ({
-            contents: "export function ModelProfilesContent() { return null; }",
-            loader: "js",
-          }));
-          build.onLoad({ filter: /^mock-external-tools$/, namespace: "mock" }, () => ({
-            contents: "export function ExternalToolsContent() { return null; }",
-            loader: "js",
-          }));
+          build.onLoad(
+            { filter: /^mock-model-profiles$/, namespace: "mock" },
+            () => ({
+              contents:
+                "export function ModelProfilesContent() { return null; }",
+              loader: "js",
+            }),
+          );
+          build.onLoad(
+            { filter: /^mock-external-tools$/, namespace: "mock" },
+            () => ({
+              contents:
+                "export function ExternalToolsContent() { return null; }",
+              loader: "js",
+            }),
+          );
           build.onLoad({ filter: /^mock-skills$/, namespace: "mock" }, () => ({
             contents: "export function SkillsContent() { return null; }",
             loader: "js",
           }));
-          build.onLoad({ filter: /^mock-approvals$/, namespace: "mock" }, () => ({
-            contents: "export function ApprovalsContent() { return null; }",
-            loader: "js",
-          }));
+          build.onLoad(
+            { filter: /^mock-approvals$/, namespace: "mock" },
+            () => ({
+              contents: "export function ApprovalsContent() { return null; }",
+              loader: "js",
+            }),
+          );
           build.onLoad({ filter: /^mock-memory$/, namespace: "mock" }, () => ({
             contents: "export function MemoryContent() { return null; }",
             loader: "js",
@@ -127,14 +161,17 @@ async function renderSettingsTabs() {
             loader: "js",
             resolveDir,
           }));
-          build.onLoad({ filter: /^mock-scroll-area$/, namespace: "mock" }, () => ({
-            contents: `
+          build.onLoad(
+            { filter: /^mock-scroll-area$/, namespace: "mock" },
+            () => ({
+              contents: `
               import React from "react";
               export function ScrollArea(props) { return React.createElement("div", props); }
             `,
-            loader: "js",
-            resolveDir,
-          }));
+              loader: "js",
+              resolveDir,
+            }),
+          );
           build.onLoad({ filter: /^mock-badge$/, namespace: "mock" }, () => ({
             contents: `
               import React from "react";
@@ -143,14 +180,17 @@ async function renderSettingsTabs() {
             loader: "js",
             resolveDir,
           }));
-          build.onLoad({ filter: /^mock-separator$/, namespace: "mock" }, () => ({
-            contents: `
+          build.onLoad(
+            { filter: /^mock-separator$/, namespace: "mock" },
+            () => ({
+              contents: `
               import React from "react";
               export function Separator(props) { return React.createElement("hr", props); }
             `,
-            loader: "js",
-            resolveDir,
-          }));
+              loader: "js",
+              resolveDir,
+            }),
+          );
           build.onLoad({ filter: /^mock-states$/, namespace: "mock" }, () => ({
             contents: `
               import React from "react";
@@ -160,11 +200,14 @@ async function renderSettingsTabs() {
             loader: "js",
             resolveDir,
           }));
-          build.onLoad({ filter: /^mock-react-i18next$/, namespace: "mock" }, () => ({
-            contents: `
+          build.onLoad(
+            { filter: /^mock-react-i18next$/, namespace: "mock" },
+            () => ({
+              contents: `
               const translations = {
                 title: "Settings",
-                modelProfiles: "Model profiles",
+                models: "Models",
+                modelsDescription: "Configure providers and the models available to chat runs.",
                 externalTools: "External tools",
                 skills: "Skills",
                 memory: "Memory",
@@ -182,10 +225,13 @@ async function renderSettingsTabs() {
                 return { t: (key) => translations[key] ?? key };
               }
             `,
-            loader: "js",
-          }));
-          build.onLoad({ filter: /^mock-react-query$/, namespace: "mock" }, () => ({
-            contents: `
+              loader: "js",
+            }),
+          );
+          build.onLoad(
+            { filter: /^mock-react-query$/, namespace: "mock" },
+            () => ({
+              contents: `
               export function useQuery() {
                 return {
                   data: { ok: true, service: "aithru-agent-backend" },
@@ -196,8 +242,9 @@ async function renderSettingsTabs() {
                 };
               }
             `,
-            loader: "js",
-          }));
+              loader: "js",
+            }),
+          );
           build.onLoad({ filter: /^mock-api$/, namespace: "mock" }, () => ({
             contents: `
               export const healthApi = {
@@ -234,11 +281,14 @@ async function renderSettingsTabs() {
 test("settings tabs expose product-managed configuration and runtime defaults", async () => {
   const html = await renderSettingsTabs();
 
-  assert.match(html, /Model profiles/);
+  assert.match(html, /Models/);
   assert.match(html, /External tools/);
   assert.match(html, /Skills/);
   assert.match(html, /Memory/);
-  assert.equal((html.match(/Review the long-term memory provider/g) ?? []).length, 1);
+  assert.equal(
+    (html.match(/Review the long-term memory provider/g) ?? []).length,
+    1,
+  );
   assert.match(html, /Runtime/);
   assert.match(html, /Runtime defaults/);
   assert.match(html, /Backend health/);

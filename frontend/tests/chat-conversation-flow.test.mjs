@@ -24,7 +24,10 @@ test("tool calls are rendered as compact inline rows in the conversation flow", 
   const source = await src("features/chat/ToolCallCard.tsx");
 
   assert.match(source, /data-testid="tool-call-row"/);
-  assert.doesNotMatch(source, /rounded-md border bg-muted\/25 text-sm shadow-none/);
+  assert.doesNotMatch(
+    source,
+    /rounded-md border bg-muted\/25 text-sm shadow-none/,
+  );
   assert.match(source, /font-mono/);
 });
 
@@ -40,47 +43,101 @@ test("chat panel uses a narrower reading rail with lightweight message separatio
 test("historical assistant process state is display-only and not part of new run payloads", async () => {
   const conversation = await src("features/conversation/ConversationPage.tsx");
   const composer = await src("features/chat/ChatComposer.tsx");
-  const requestBody = composer.match(/const body: CreateRunRequest = \{[\s\S]*?\n\s*\};/)?.[0] ?? "";
+  const requestBody =
+    composer.match(/const body: CreateRunRequest = \{[\s\S]*?\n\s*\};/)?.[0] ??
+    "";
 
-  assert.match(conversation, /buildRunStreamState\(await runsApi\.events\(runId\)\)/);
-  assert.match(conversation, /historicalRunStates=\{historicalRunStatesQuery\.data \?\? \{\}\}/);
+  assert.match(
+    conversation,
+    /buildRunStreamState\(await runsApi\.events\(runId\)\)/,
+  );
+  assert.match(
+    conversation,
+    /historicalRunStates=\{historicalRunStatesQuery\.data \?\? \{\}\}/,
+  );
   assert.match(requestBody, /task_msg: vars\.taskMsg/);
   assert.match(requestBody, /thread_id: threadId/);
-  assert.doesNotMatch(requestBody, /historicalRunStates|threadMessages|streamState|reasoningSegments|toolCalls/);
+  assert.doesNotMatch(
+    requestBody,
+    /historicalRunStates|threadMessages|streamState|reasoningSegments|toolCalls/,
+  );
 });
 
 test("chat composer create-run request sends selected skill keys and omits the legacy run skill field", async () => {
   const composer = await src("features/chat/ChatComposer.tsx");
-  const requestBody = composer.match(/const body: CreateRunRequest = \{[\s\S]*?\n\s*\};/)?.[0] ?? "";
+  const requestBody =
+    composer.match(/const body: CreateRunRequest = \{[\s\S]*?\n\s*\};/)?.[0] ??
+    "";
 
   assert.match(requestBody, /selected_skill_keys: vars\.selectedSkillKeys/);
   assert.doesNotMatch(requestBody, removedRunSkillFieldPattern);
-  assert.match(composer, /selectedSkillKeys:\s*command\.selectedSkillKeys \?\? \[\]/);
+  assert.match(
+    composer,
+    /selectedSkillKeys:\s*command\.selectedSkillKeys \?\? \[\]/,
+  );
 });
 
 test("new thread create-run request sends selected skill keys and omits the legacy run skill field", async () => {
   const newThreadPage = await src("features/conversation/NewThreadPage.tsx");
-  const requestBody = newThreadPage.match(/const run = await runsApi\.create\(\{[\s\S]*?\n\s*\}\);/)?.[0] ?? "";
+  const requestBody =
+    newThreadPage.match(
+      /const run = await runsApi\.create\(\{[\s\S]*?\n\s*\}\);/,
+    )?.[0] ?? "";
 
   assert.match(requestBody, /selected_skill_keys: vars\.selectedSkillKeys/);
   assert.doesNotMatch(requestBody, removedRunSkillFieldPattern);
-  assert.match(newThreadPage, /selectedSkillKeys:\s*command\.selectedSkillKeys \?\? \[\]/);
+  assert.match(
+    newThreadPage,
+    /selectedSkillKeys:\s*command\.selectedSkillKeys \?\? \[\]/,
+  );
+});
+
+test("composers block sends until a usable model ref is selected", async () => {
+  const composer = await src("features/chat/ChatComposer.tsx");
+  const newThreadPage = await src("features/conversation/NewThreadPage.tsx");
+
+  assert.match(composer, /modelProvidersApi\.list/);
+  assert.match(composer, /selectUsableModelRef/);
+  assert.match(
+    composer,
+    /if \(!trimmed \|\| !modelRef \|\| createRun\.isPending\) return/,
+  );
+  assert.match(composer, /model_ref/);
+  assert.match(newThreadPage, /modelProvidersApi\.list/);
+  assert.match(newThreadPage, /selectUsableModelRef/);
+  assert.match(
+    newThreadPage,
+    /if \(!trimmed \|\| !modelRef \|\| createMutation\.isPending\) return/,
+  );
+  assert.match(newThreadPage, /model_ref/);
 });
 
 test("creating a run from a run route navigates to the new run stream", async () => {
   const source = await src("AppShell.tsx");
 
   assert.match(source, /useNavigate/);
-  assert.match(source, /navigate\(`\/threads\/\$\{encodeURIComponent\(threadId\)\}\/runs\/\$\{encodeURIComponent\(id\)\}`\)/);
+  assert.match(
+    source,
+    /navigate\(`\/threads\/\$\{encodeURIComponent\(threadId\)\}\/runs\/\$\{encodeURIComponent\(id\)\}`\)/,
+  );
 });
 
 test("composer inherits the active run reasoning mode after navigation", async () => {
   const conversation = await src("features/conversation/ConversationPage.tsx");
   const composer = await src("features/chat/ChatComposer.tsx");
 
-  assert.match(conversation, /initialReasoningLevel=\{activeRun \? getRunMode\(activeRun\) : null\}/);
-  assert.match(composer, /initialReasoningLevel\?: ComposerReasoningLevel \| null/);
-  assert.match(composer, /if \(initialReasoningLevel\) setReasoningLevel\(normalizeReasoningLevel\(initialReasoningLevel\)\)/);
+  assert.match(
+    conversation,
+    /initialReasoningLevel=\{activeRun \? getRunMode\(activeRun\) : null\}/,
+  );
+  assert.match(
+    composer,
+    /initialReasoningLevel\?: ComposerReasoningLevel \| null/,
+  );
+  assert.match(
+    composer,
+    /if \(initialReasoningLevel\)\s*setReasoningLevel\(normalizeReasoningLevel\(initialReasoningLevel\)\)/,
+  );
 });
 
 test("assistant process auto-expands while thinking and auto-collapses when final output starts", async () => {
@@ -88,10 +145,16 @@ test("assistant process auto-expands while thinking and auto-collapses when fina
 
   assert.match(source, /function shouldAutoOpenAssistantProcess/);
   assert.match(source, /hasReasoningContent[\s\S]*reasoningSegments/);
-  assert.match(source, /hasAssistantOutput[\s\S]*message\.role === "assistant"/);
+  assert.match(
+    source,
+    /hasAssistantOutput[\s\S]*message\.role === "assistant"/,
+  );
   assert.match(source, /item\.phase !== "completed"/);
   assert.match(source, /!hasAssistantOutput/);
-  assert.match(source, /const \[manualOpen, setManualOpen\] = React\.useState<boolean \| null>\(null\)/);
+  assert.match(
+    source,
+    /const \[manualOpen, setManualOpen\] = React\.useState<boolean \| null>\(null\)/,
+  );
   assert.match(source, /const open = manualOpen \?\? autoOpen/);
 });
 
@@ -99,7 +162,10 @@ test("assistant process reasoning content omits repeated Thinking subheading", a
   const source = await src("features/chat/ChatPanel.tsx");
 
   assert.doesNotMatch(source, /chat:process\.thinkingLabel/);
-  assert.match(source, /<Markdown variant="chat">\{step\.content\}<\/Markdown>/);
+  assert.match(
+    source,
+    /<Markdown variant="chat">\{step\.content\}<\/Markdown>/,
+  );
 });
 
 test("assistant process summary uses per-process timing", async () => {
@@ -116,7 +182,10 @@ test("assistant process summary uses lifecycle from the timeline item", async ()
   assert.match(source, /const processActive = item\.phase === "running"/);
   assert.match(source, /active: processActive/);
   assert.match(source, /endedAt:\s*item\.endedAt/);
-  assert.doesNotMatch(source, /state\.modelCompletedAt \?\? state\.runCompletedAt/);
+  assert.doesNotMatch(
+    source,
+    /state\.modelCompletedAt \?\? state\.runCompletedAt/,
+  );
 });
 
 test("draft generation cards expose manual preview without auto-opening the right panel", async () => {
@@ -142,7 +211,10 @@ test("active assistant process summary reads as running and shows motion", async
   assert.match(source, /chat:process\.processingFor/);
   assert.match(source, /chat:process\.usingTools/);
   assert.match(source, /animate-spin/);
-  assert.doesNotMatch(source, /!hasDetails\s*&&\s*\(\s*item\.state\.status === "running"/);
+  assert.doesNotMatch(
+    source,
+    /!hasDetails\s*&&\s*\(\s*item\.state\.status === "running"/,
+  );
 });
 
 test("inline waiting requests pulse to show the run is paused for input", async () => {

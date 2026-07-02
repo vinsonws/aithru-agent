@@ -45,7 +45,13 @@ export function useManager(): ManagerDialogApi {
 }
 
 export function ManagerDialogs({ children }: { children: React.ReactNode }) {
-  const { t } = useTranslation(["common", "skills", "approvals", "memory", "settings"]);
+  const { t } = useTranslation([
+    "common",
+    "skills",
+    "approvals",
+    "memory",
+    "settings",
+  ]);
   const [kind, setKind] = React.useState<ManagerKind | null>(null);
 
   const api = React.useMemo<ManagerDialogApi>(
@@ -98,8 +104,8 @@ export function ManagerDialogs({ children }: { children: React.ReactNode }) {
 const settingsSections = [
   {
     value: "profiles",
-    labelKey: "modelProfiles",
-    descriptionKey: "modelProfilesDescription",
+    labelKey: "models",
+    descriptionKey: "modelsDescription",
     icon: Bot,
     content: <ModelProfilesContent />,
   },
@@ -250,7 +256,7 @@ function RuntimeSettingsContent() {
             label={t("managedConfiguration")}
             value={
               <span className="flex flex-wrap gap-1.5">
-                <Badge variant="accent">{t("modelProfiles")}</Badge>
+                <Badge variant="accent">{t("models")}</Badge>
                 <Badge variant="accent">{t("externalTools")}</Badge>
                 <Badge variant="accent">{t("skills")}</Badge>
                 <Badge variant="accent">{t("memory")}</Badge>
@@ -272,7 +278,10 @@ function RuntimeSettingsContent() {
       {healthQuery.isError && (
         <>
           <Separator />
-          <ErrorState error={healthQuery.error} onRetry={() => healthQuery.refetch()} />
+          <ErrorState
+            error={healthQuery.error}
+            onRetry={() => healthQuery.refetch()}
+          />
         </>
       )}
       {healthQuery.isLoading && <LoadingState label={t("checking")} />}

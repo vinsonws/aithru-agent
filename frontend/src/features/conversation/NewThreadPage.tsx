@@ -4,16 +4,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { useHost } from "@/lib/host/HostProvider";
 import { useTranslation } from "react-i18next";
-import { threadsApi, runsApi, modelProfilesApi } from "@/lib/api";
+import { threadsApi, runsApi, modelProvidersApi } from "@/lib/api";
 import { getPromptTemplates } from "@/features/chat/promptTemplates";
-import {
-  ReferenceComposerSurface,
-} from "@/features/chat/ReferenceComposerSurface";
+import { ReferenceComposerSurface } from "@/features/chat/ReferenceComposerSurface";
 import {
   buildComposerHarnessOptions,
   buildComposerScopes,
   composerModeForReasoningLevel,
   reasoningLevelForComposerMode,
+  selectUsableModelRef,
   type ComposerPermissionPolicyId,
   type ComposerReasoningLevel,
 } from "@/features/chat/composerState";
@@ -29,39 +28,30 @@ export function NewThreadPage() {
   const [taskMsg, setTaskMsg] = React.useState("");
   const [reasoningLevel, setReasoningLevel] =
     React.useState<ComposerReasoningLevel>("pro");
-  const [profileKey, setProfileKey] = React.useState<string>("");
+  const [modelRef, setModelRef] = React.useState<string>("");
   const [permissionPolicy, setPermissionPolicy] =
     React.useState<ComposerPermissionPolicyId>("ask");
 
-  const profilesQuery = useQuery({
-    queryKey: ["model-profiles"],
-    queryFn: modelProfilesApi.list,
+  const providersQuery = useQuery({
+    queryKey: ["model-providers"],
+    queryFn: modelProvidersApi.list,
   });
 
   React.useEffect(() => {
-    const profiles = profilesQuery.data;
-    if (!profiles || profiles.length === 0) {
-      setProfileKey("");
-      return;
-    }
-    if (profileKey && profiles.some((p) => p.key === profileKey && p.enabled)) {
-      return;
-    }
-    const firstEnabled = profiles.find((p) => p.enabled);
-    setProfileKey(firstEnabled?.key ?? "");
-  }, [profilesQuery.data, profileKey]);
+    setModelRef(selectUsableModelRef(providersQuery.data, modelRef));
+  }, [providersQuery.data, modelRef]);
 
   const createMutation = useMutation({
     mutationFn: async (vars: {
       taskMsgText: string;
       selectedSkillKeys: string[];
-      profileKey: string | null;
+      model_ref: string | null;
       reasoningLevel: ComposerReasoningLevel;
       permissionPolicy: ComposerPermissionPolicyId;
     }) => {
       const mode = composerModeForReasoningLevel(vars.reasoningLevel);
       const harnessOptions = buildComposerHarnessOptions(
-        vars.profileKey,
+        vars.model_ref,
         mode,
         vars.reasoningLevel,
       );
@@ -90,7 +80,7 @@ export function NewThreadPage() {
 
   const handleSend = () => {
     const trimmed = taskMsg.trim();
-    if (!trimmed || createMutation.isPending) return;
+    if (!trimmed || !modelRef || createMutation.isPending) return;
 
     const command = parseSlashCommand(trimmed, {});
     if (command.kind === "local") {
@@ -112,7 +102,7 @@ export function NewThreadPage() {
     createMutation.mutate({
       taskMsgText: command.taskMsg,
       selectedSkillKeys: command.selectedSkillKeys ?? [],
-      profileKey,
+      model_ref: modelRef,
       reasoningLevel: nextReasoning,
       permissionPolicy,
     });
@@ -151,7 +141,10 @@ export function NewThreadPage() {
             {t("chat:newChat.title", "What should Aithru work on?")}
           </h1>
           <p className="mx-auto max-w-2xl text-base font-medium leading-7 text-muted-foreground">
-            {t("chat:newChat.subtitle", "Describe a task or choose a template below")}
+            {t(
+              "chat:newChat.subtitle",
+              "Describe a task or choose a template below",
+            )}
           </p>
         </div>
         <ReferenceComposerSurface
@@ -159,15 +152,15 @@ export function NewThreadPage() {
           onChange={setTaskMsg}
           onKeyDown={handleKeyDown}
           onSend={handleSend}
-          sendDisabled={!taskMsg.trim() || !profileKey}
+          sendDisabled={!taskMsg.trim() || !modelRef}
           sendPending={createMutation.isPending}
           placeholder={t("chat:taskMsgPlaceholder")}
           sendLabel={t("chat:newChat.startButton", "Start")}
           cancelLabel={t("chat:cancelRun")}
           attachFileLabel={t("chat:attachFile")}
-          profileKey={profileKey}
-          onProfileKeyChange={setProfileKey}
-          modelProfiles={profilesQuery.data}
+          modelRef={modelRef}
+          onModelRefChange={setModelRef}
+          modelProviders={providersQuery.data}
           selectModelLabel={t("chat:selectModelProfile")}
           reasoningLevel={reasoningLevel}
           onReasoningLevelChange={setReasoningLevel}
@@ -182,7 +175,10 @@ export function NewThreadPage() {
         <div className="flex flex-wrap justify-center gap-2">
           {templates.map((template) => {
             const templateTitle = t(template.titleKey, template.fallbackTitle);
-            const templateDescription = t(template.descriptionKey, template.fallbackDescription);
+            const templateDescription = t(
+              template.descriptionKey,
+              template.fallbackDescription,
+            );
             return (
               <button
                 key={template.id}
