@@ -3,6 +3,7 @@ import { createRuntime } from "./runtime.js";
 import { registerApprovalRoutes } from "./routes/approvals.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerCompatRoutes } from "./routes/compat.js";
+import { registerModelConfigRoutes } from "./routes/model-config.js";
 import { registerRunRoutes } from "./routes/runs.js";
 import { registerThreadRoutes } from "./routes/threads.js";
 import {
@@ -33,6 +34,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   registerRunRoutes(app);
   registerApprovalRoutes(app);
   registerCompatRoutes(app);
+  registerModelConfigRoutes(app);
 
   return app;
 }

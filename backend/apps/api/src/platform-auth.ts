@@ -151,6 +151,8 @@ function pathname(url: string): string {
 
 function isSettingsPath(path: string): boolean {
   return [
+    "/api/model-default",
+    "/api/model-providers",
     "/api/model-profiles",
     "/api/skills",
     "/api/skill-registry",

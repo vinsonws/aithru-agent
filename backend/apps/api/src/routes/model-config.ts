@@ -1,0 +1,439 @@
+import { createHash } from "node:crypto";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { getRuntime } from "../runtime.js";
+import { platformActorFromRequest, requestActorUserId, requestOrgId as platformRequestOrgId } from "../platform-auth.js";
+
+const DEFAULT_REF_SETTING = "model.default_ref";
+
+type ModelProviderEntry = {
+  id: string;
+  org_id: string;
+  owner_user_id: string;
+  key: string;
+  name: string;
+  kind: string;
+  enabled: boolean;
+  base_url: string | null;
+  compat: string | null;
+  auth_secret: ReturnType<typeof secretStatus> | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type ModelEntry = {
+  id: string;
+  org_id: string;
+  owner_user_id: string;
+  provider_key: string;
+  key: string;
+  name: string;
+  provider_model_id: string;
+  enabled: boolean;
+  capabilities: {
+    vision: boolean;
+    thinking: boolean;
+  };
+  request: Record<string, unknown> | null;
+  cost_policy: Record<string, unknown> | null;
+  selection_policy: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export function modelRef(providerKey: string, modelKey: string): string {
+  return `${providerKey}/${modelKey}`;
+}
+
+export function isValidModelKey(value: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value);
+}
+
+function now(): string {
+  return new Date().toISOString().replace(/\.\d{3}/, "");
+}
+
+function params(request: FastifyRequest): Record<string, string> {
+  return (request.params ?? {}) as Record<string, string>;
+}
+
+function requestOrgId(request: FastifyRequest, body?: any): string {
+  return platformRequestOrgId(platformActorFromRequest(request), body, request.query as any);
+}
+
+function requestOwnerUserId(request: FastifyRequest, body?: any): string {
+  return requestActorUserId(platformActorFromRequest(request), body);
+}
+
+function ownerScopeForRequest(request: FastifyRequest, body?: any): string | undefined {
+  return platformActorFromRequest(request) ? requestOwnerUserId(request, body) : undefined;
+}
+
+function idFor(prefix: string, orgId: string, ownerUserId: string | undefined, key: string): string {
+  const digest = createHash("sha256")
+    .update(ownerUserId ? `${orgId}\0${ownerUserId}\0${key}` : `${orgId}\0${key}`)
+    .digest("hex")
+    .slice(0, 20);
+  return `${prefix}_${digest}`;
+}
+
+function secretStatus(secretRef: string | null = null) {
+  return secretRef
+    ? { has_secret: true, secret_ref: secretRef, redacted: true }
+    : { has_secret: false, secret_ref: null, redacted: true };
+}
+
+function providerSecretRef(orgId: string, ownerUserId: string | undefined, providerKey: string): string {
+  return ownerUserId
+    ? `secret://model-providers/${orgId}/${ownerUserId}/${providerKey}/api-key`
+    : `secret://model-providers/${orgId}/${providerKey}/api-key`;
+}
+
+function badRequest(reply: FastifyReply, message: string) {
+  reply.code(400);
+  return { error: message };
+}
+
+function notFound(reply: FastifyReply, message: string) {
+  reply.code(404);
+  return { error: message };
+}
+
+function conflict(reply: FastifyReply, message: string) {
+  reply.code(409);
+  return { error: message };
+}
+
+function documentWriteGuard(request: FastifyRequest, body?: any) {
+  const actor = platformActorFromRequest(request);
+  return {
+    orgId: requestOrgId(request, body),
+    ...(actor ? { ownerUserId: requestOwnerUserId(request, body) } : {}),
+  };
+}
+
+function documentPayload<T>(kind: string, id: string): T | null {
+  return (getRuntime().store.getDocument(kind, id)?.payload as T | undefined) ?? null;
+}
+
+function listDocumentPayloads<T>(kind: string, orgId: string): T[] {
+  return getRuntime().store.listDocuments(kind, orgId).map((doc) => doc.payload as T);
+}
+
+function modelStoredKey(providerKey: string, key: string): string {
+  return modelRef(providerKey, key);
+}
+
+function publicModelKey(providerKey: string, storedKey: string): string {
+  const prefix = `${providerKey}/`;
+  return storedKey.startsWith(prefix) ? storedKey.slice(prefix.length) : storedKey;
+}
+
+function publicModel(model: ModelEntry): ModelEntry {
+  return {
+    ...model,
+    key: publicModelKey(model.provider_key, model.key),
+  };
+}
+
+function providerByKey(orgId: string, providerKey: string, ownerUserId?: string): ModelProviderEntry | null {
+  return listDocumentPayloads<ModelProviderEntry>("model_provider_entry", orgId).find(
+    (provider) => provider.key === providerKey && (!ownerUserId || provider.owner_user_id === ownerUserId),
+  ) ?? null;
+}
+
+function modelByKey(orgId: string, providerKey: string, key: string, ownerUserId?: string): ModelEntry | null {
+  const storedKey = modelStoredKey(providerKey, key);
+  return listDocumentPayloads<ModelEntry>("model_entry", orgId).find(
+    (model) =>
+      model.provider_key === providerKey &&
+      model.key === storedKey &&
+      (!ownerUserId || model.owner_user_id === ownerUserId),
+  ) ?? null;
+}
+
+function modelsForProvider(orgId: string, providerKey: string, ownerUserId?: string): ModelEntry[] {
+  return listDocumentPayloads<ModelEntry>("model_entry", orgId)
+    .filter(
+      (model) =>
+        model.provider_key === providerKey &&
+        (!ownerUserId || model.owner_user_id === ownerUserId),
+    )
+    .sort((a, b) => publicModelKey(providerKey, a.key).localeCompare(publicModelKey(providerKey, b.key)));
+}
+
+function resolveProviderSecret(input: any, orgId: string, providerKey: string, ownerUserId?: string) {
+  if (!input) return null;
+  if (input.write_only_value != null) {
+    if (typeof input.write_only_value !== "string" || !input.write_only_value.trim()) {
+      throw new Error("write_only_value must be a nonblank string");
+    }
+    const ref = providerSecretRef(orgId, ownerUserId, providerKey);
+    getRuntime().store.setSecret(orgId, ref, input.write_only_value);
+    return secretStatus(ref);
+  }
+  if (typeof input.secret_ref === "string" && input.secret_ref.trim()) {
+    return secretStatus(input.secret_ref.trim());
+  }
+  return secretStatus();
+}
+
+function defaultModelRefForOrg(orgId: string): string | null {
+  const value = getRuntime().store.getSetting(orgId, DEFAULT_REF_SETTING);
+  return value ? value : null;
+}
+
+function clearDefaultModelIfSelected(orgId: string, value: string): void {
+  if (getRuntime().store.getSetting(orgId, DEFAULT_REF_SETTING) === value) {
+    getRuntime().store.setSetting(orgId, DEFAULT_REF_SETTING, "");
+  }
+}
+
+function parseModelRef(value: string): { providerKey: string; modelKey: string } | null {
+  const slash = value.indexOf("/");
+  if (slash <= 0 || slash === value.length - 1) return null;
+  const providerKey = value.slice(0, slash);
+  const modelKey = value.slice(slash + 1);
+  return isValidModelKey(providerKey) && isValidModelKey(modelKey) ? { providerKey, modelKey } : null;
+}
+
+function providerWithModels(provider: ModelProviderEntry, orgId: string): ModelProviderEntry & { models: ModelEntry[]; default_model_ref?: string | null } {
+  const defaultRef = defaultModelRefForOrg(orgId);
+  return {
+    ...provider,
+    models: modelsForProvider(orgId, provider.key, provider.owner_user_id).map(publicModel),
+    ...(defaultRef?.startsWith(`${provider.key}/`) ? { default_model_ref: defaultRef } : {}),
+  };
+}
+
+async function listProviders(request: FastifyRequest) {
+  const orgId = requestOrgId(request);
+  const ownerUserId = ownerScopeForRequest(request);
+  return listDocumentPayloads<ModelProviderEntry>("model_provider_entry", orgId)
+    .filter((provider) => !ownerUserId || provider.owner_user_id === ownerUserId)
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((provider) => providerWithModels(provider, orgId));
+}
+
+async function createProvider(request: FastifyRequest, reply: FastifyReply) {
+  const body = (request.body ?? {}) as any;
+  const orgId = requestOrgId(request, body);
+  const ownerUserId = requestOwnerUserId(request, body);
+  const ownerScope = ownerScopeForRequest(request, body);
+  const key = String(body.key ?? "").trim();
+  if (!isValidModelKey(key)) return badRequest(reply, "Invalid provider key");
+  if (providerByKey(orgId, key, ownerScope)) return conflict(reply, "Model provider already exists");
+  const timestamp = now();
+  let authSecret = null;
+  try {
+    authSecret =
+      Object.prototype.hasOwnProperty.call(body, "auth_secret")
+        ? resolveProviderSecret(body.auth_secret, orgId, key, ownerScope)
+        : secretStatus();
+  } catch (error) {
+    return badRequest(reply, error instanceof Error ? error.message : "Invalid provider secret");
+  }
+  const provider: ModelProviderEntry = {
+    id: idFor("model_provider", orgId, ownerScope, key),
+    org_id: orgId,
+    owner_user_id: ownerUserId,
+    key,
+    name: String(body.name ?? key),
+    kind: String(body.kind ?? "openai_compatible"),
+    enabled: body.enabled ?? true,
+    base_url: typeof body.base_url === "string" ? body.base_url : body.base_url ?? null,
+    compat: typeof body.compat === "string" ? body.compat : body.compat ?? null,
+    auth_secret: authSecret,
+    metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : body.metadata ?? null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  getRuntime().store.insertDocument("model_provider_entry", provider.id, provider, documentWriteGuard(request, body));
+  reply.code(201);
+  return providerWithModels(provider, orgId);
+}
+
+async function getProvider(request: FastifyRequest, reply: FastifyReply) {
+  const orgId = requestOrgId(request);
+  const provider = providerByKey(orgId, params(request).provider_key, ownerScopeForRequest(request));
+  return provider ? providerWithModels(provider, orgId) : notFound(reply, "Model provider not found");
+}
+
+async function updateProvider(request: FastifyRequest, reply: FastifyReply) {
+  const body = (request.body ?? {}) as any;
+  const orgId = requestOrgId(request);
+  const ownerScope = ownerScopeForRequest(request);
+  const provider = providerByKey(orgId, params(request).provider_key, ownerScope);
+  if (!provider) return notFound(reply, "Model provider not found");
+  if (Object.prototype.hasOwnProperty.call(body, "key") && String(body.key ?? provider.key).trim() !== provider.key) {
+    return badRequest(reply, "Provider key cannot be changed");
+  }
+  let authSecret = provider.auth_secret;
+  try {
+    if (Object.prototype.hasOwnProperty.call(body, "auth_secret")) {
+      authSecret = resolveProviderSecret(body.auth_secret, orgId, provider.key, ownerScope);
+    }
+  } catch (error) {
+    return badRequest(reply, error instanceof Error ? error.message : "Invalid provider secret");
+  }
+  const updated: ModelProviderEntry = {
+    ...provider,
+    ...body,
+    id: provider.id,
+    org_id: provider.org_id,
+    owner_user_id: provider.owner_user_id,
+    key: provider.key,
+    auth_secret: authSecret,
+    updated_at: now(),
+  };
+  getRuntime().store.upsertDocument("model_provider_entry", provider.id, updated, documentWriteGuard(request, body));
+  return providerWithModels(updated, orgId);
+}
+
+async function deleteProvider(request: FastifyRequest, reply: FastifyReply) {
+  const orgId = requestOrgId(request);
+  const ownerScope = ownerScopeForRequest(request);
+  const provider = providerByKey(orgId, params(request).provider_key, ownerScope);
+  if (!provider) return notFound(reply, "Model provider not found");
+  const models = modelsForProvider(orgId, provider.key, ownerScope);
+  for (const model of models) {
+    clearDefaultModelIfSelected(orgId, model.key);
+    getRuntime().store.deleteDocument("model_entry", model.id, documentWriteGuard(request));
+  }
+  clearDefaultModelIfSelected(orgId, provider.key);
+  getRuntime().store.deleteDocument("model_provider_entry", provider.id, documentWriteGuard(request));
+  return { deleted: true };
+}
+
+async function listModels(request: FastifyRequest, reply: FastifyReply) {
+  const orgId = requestOrgId(request);
+  const providerKey = params(request).provider_key;
+  const ownerScope = ownerScopeForRequest(request);
+  if (!providerByKey(orgId, providerKey, ownerScope)) return notFound(reply, "Model provider not found");
+  return modelsForProvider(orgId, providerKey, ownerScope).map(publicModel);
+}
+
+async function createModel(request: FastifyRequest, reply: FastifyReply) {
+  const body = (request.body ?? {}) as any;
+  const orgId = requestOrgId(request, body);
+  const ownerUserId = requestOwnerUserId(request, body);
+  const ownerScope = ownerScopeForRequest(request, body);
+  const providerKey = params(request).provider_key;
+  if (!providerByKey(orgId, providerKey, ownerScope)) return notFound(reply, "Model provider not found");
+  const key = String(body.key ?? "").trim();
+  if (!isValidModelKey(key)) return badRequest(reply, "Invalid model key");
+  if (modelByKey(orgId, providerKey, key, ownerScope)) return conflict(reply, "Model already exists");
+  const timestamp = now();
+  const model: ModelEntry = {
+    id: idFor("model_entry", orgId, ownerScope, modelStoredKey(providerKey, key)),
+    org_id: orgId,
+    owner_user_id: ownerUserId,
+    provider_key: providerKey,
+    key: modelStoredKey(providerKey, key),
+    name: String(body.name ?? key),
+    provider_model_id: String(body.provider_model_id ?? key),
+    enabled: body.enabled ?? true,
+    capabilities: {
+      vision: Boolean(body.capabilities?.vision),
+      thinking: Boolean(body.capabilities?.thinking),
+    },
+    request: body.request && typeof body.request === "object" ? body.request : body.request ?? null,
+    cost_policy: body.cost_policy && typeof body.cost_policy === "object" ? body.cost_policy : body.cost_policy ?? null,
+    selection_policy:
+      body.selection_policy && typeof body.selection_policy === "object"
+        ? body.selection_policy
+        : body.selection_policy ?? null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  getRuntime().store.insertDocument("model_entry", model.id, model, documentWriteGuard(request, body));
+  reply.code(201);
+  return publicModel(model);
+}
+
+async function getModel(request: FastifyRequest, reply: FastifyReply) {
+  const orgId = requestOrgId(request);
+  const providerKey = params(request).provider_key;
+  const model = modelByKey(orgId, providerKey, params(request).model_key, ownerScopeForRequest(request));
+  return model ? publicModel(model) : notFound(reply, "Model not found");
+}
+
+async function updateModel(request: FastifyRequest, reply: FastifyReply) {
+  const body = (request.body ?? {}) as any;
+  const orgId = requestOrgId(request);
+  const providerKey = params(request).provider_key;
+  const ownerScope = ownerScopeForRequest(request);
+  const model = modelByKey(orgId, providerKey, params(request).model_key, ownerScope);
+  if (!model) return notFound(reply, "Model not found");
+  if (Object.prototype.hasOwnProperty.call(body, "key") && String(body.key ?? params(request).model_key).trim() !== params(request).model_key) {
+    return badRequest(reply, "Model key cannot be changed");
+  }
+  const updated: ModelEntry = {
+    ...model,
+    ...body,
+    id: model.id,
+    org_id: model.org_id,
+    owner_user_id: model.owner_user_id,
+    provider_key: model.provider_key,
+    key: model.key,
+    capabilities: {
+      vision: body.capabilities?.vision ?? model.capabilities.vision,
+      thinking: body.capabilities?.thinking ?? model.capabilities.thinking,
+    },
+    updated_at: now(),
+  };
+  getRuntime().store.upsertDocument("model_entry", model.id, updated, documentWriteGuard(request, body));
+  return publicModel(updated);
+}
+
+async function deleteModel(request: FastifyRequest, reply: FastifyReply) {
+  const orgId = requestOrgId(request);
+  const providerKey = params(request).provider_key;
+  const modelKey = params(request).model_key;
+  const model = modelByKey(orgId, providerKey, modelKey, ownerScopeForRequest(request));
+  if (!model) return notFound(reply, "Model not found");
+  clearDefaultModelIfSelected(orgId, modelStoredKey(providerKey, modelKey));
+  getRuntime().store.deleteDocument("model_entry", model.id, documentWriteGuard(request));
+  return { deleted: true };
+}
+
+async function getDefaultModel(request: FastifyRequest) {
+  return { model_ref: defaultModelRefForOrg(requestOrgId(request)) };
+}
+
+async function setDefaultModel(request: FastifyRequest, reply: FastifyReply) {
+  const body = (request.body ?? {}) as any;
+  const orgId = requestOrgId(request, body);
+  const value = body.model_ref;
+  if (value == null) {
+    getRuntime().store.setSetting(orgId, DEFAULT_REF_SETTING, "");
+    return { model_ref: null };
+  }
+  if (typeof value !== "string") return badRequest(reply, "Invalid model_ref");
+  const parsed = parseModelRef(value.trim());
+  if (!parsed) return badRequest(reply, "Invalid model_ref");
+  const ownerScope = ownerScopeForRequest(request, body);
+  const provider = providerByKey(orgId, parsed.providerKey, ownerScope);
+  const model = modelByKey(orgId, parsed.providerKey, parsed.modelKey, ownerScope);
+  if (!provider || !provider.enabled) return badRequest(reply, "Default model provider is not available");
+  if (!model || !model.enabled) return badRequest(reply, "Default model is not available");
+  getRuntime().store.setSetting(orgId, DEFAULT_REF_SETTING, modelStoredKey(parsed.providerKey, parsed.modelKey));
+  return { model_ref: modelStoredKey(parsed.providerKey, parsed.modelKey) };
+}
+
+export function registerModelConfigRoutes(app: FastifyInstance): void {
+  app.get("/api/model-providers", async (request) => listProviders(request));
+  app.post("/api/model-providers", async (request, reply) => createProvider(request, reply));
+  app.get("/api/model-providers/:provider_key", async (request, reply) => getProvider(request, reply));
+  app.patch("/api/model-providers/:provider_key", async (request, reply) => updateProvider(request, reply));
+  app.delete("/api/model-providers/:provider_key", async (request, reply) => deleteProvider(request, reply));
+
+  app.get("/api/model-providers/:provider_key/models", async (request, reply) => listModels(request, reply));
+  app.post("/api/model-providers/:provider_key/models", async (request, reply) => createModel(request, reply));
+  app.get("/api/model-providers/:provider_key/models/:model_key", async (request, reply) => getModel(request, reply));
+  app.patch("/api/model-providers/:provider_key/models/:model_key", async (request, reply) => updateModel(request, reply));
+  app.delete("/api/model-providers/:provider_key/models/:model_key", async (request, reply) => deleteModel(request, reply));
+
+  app.get("/api/model-default", async (request) => getDefaultModel(request));
+  app.put("/api/model-default", async (request, reply) => setDefaultModel(request, reply));
+}

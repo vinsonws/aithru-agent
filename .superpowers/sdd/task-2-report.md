@@ -1,63 +1,82 @@
-# Task 2 Report: Frontend Tool Input Draft State
+# Task 2 Report: Provider And Model API Routes
 
-## Result
+Date: 2026-07-02
 
-Implemented Task 2 only in the frontend reducer/state layer:
+## Scope
 
-- Added exported `ToolInputDraft`.
-- Added `RunStreamState.toolInputDrafts` and initialized it to `[]`.
-- Added reducer projection for `tool.input_delta`.
-- Bound streamed draft entries to `tool.proposed` and terminal tool lifecycle events by `input_stream_id` / `tool_call_id`.
+Implemented only Task 2 backend API route work:
 
-No backend files were changed. No draft file projection or preview panel wiring was added.
+- created `/Users/vinsonws/code-repo/github.com/vinsonws/aithru-agent/backend/apps/api/src/routes/model-config.ts`
+- updated `/Users/vinsonws/code-repo/github.com/vinsonws/aithru-agent/backend/apps/api/src/app.ts`
+- updated `/Users/vinsonws/code-repo/github.com/vinsonws/aithru-agent/backend/apps/api/src/platform-auth.ts`
+- added `/Users/vinsonws/code-repo/github.com/vinsonws/aithru-agent/backend/tests/api/model-config-routes.test.ts`
 
-## TDD Evidence
+Legacy `/api/model-profiles` behavior was left untouched.
 
-### RED
+## TDD Flow
 
-Wrote the failing reducer test first in `frontend/tests/use-run-stream.test.mjs`:
+1. Added the route test file from the brief exactly.
+2. Ran:
 
-- Added `toolInputDrafts: []` to the local `state()` helper.
-- Added `reduceEvent accumulates and binds streamed tool input drafts`.
+```bash
+cd backend && npm run test -- tests/api/model-config-routes.test.ts
+```
 
-Focused test command from the brief failed before implementation:
+Observed the expected red failure:
 
-- Command: `cd frontend && npm test -- tests/use-run-stream.test.mjs`
-- Failure:
-  - `✖ reduceEvent accumulates and binds streamed tool input drafts`
-  - `AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal`
-  - `+ actual - expected`
-  - `+ undefined`
-  - expected projected `toolInputDrafts` entry
+- missing module `../../apps/api/src/routes/model-config.js`
 
-### GREEN
+3. Implemented the new route module and wiring.
+4. Re-ran the focused route test until green.
 
-After the reducer/state changes, the same focused command passed:
+## What Changed
 
-- Command: `cd frontend && npm test -- tests/use-run-stream.test.mjs`
-- Result:
-  - `✔ reduceEvent accumulates and binds streamed tool input drafts`
-  - `ℹ pass 183`
-  - `ℹ fail 0`
+### `backend/apps/api/src/routes/model-config.ts`
 
-## Files Changed
+Added:
 
-- `frontend/src/features/chat/useRunStream.ts`
-- `frontend/tests/use-run-stream.test.mjs`
+- `modelRef(providerKey, modelKey)`
+- `isValidModelKey(value)`
+- provider CRUD routes under `/api/model-providers`
+- nested model CRUD routes under `/api/model-providers/:provider_key/models`
+- default model routes:
+  - `GET /api/model-default`
+  - `PUT /api/model-default`
+
+Behavior implemented per brief:
+
+- org-scoped document reads and writes
+- actor-owner filtering for authenticated requests
+- provider secret writes through `store.setSecret(...)`
+- redacted secret status responses only
+- provider key and model key validation with `400`
+- stored model `key` as `provider/model`
+- returned model payloads normalized back to per-provider model keys
+- provider delete cascades to child models
+- deleting the selected default provider/model clears `model.default_ref` to `""`
+- `PUT /api/model-default` validates provider/model existence, ownership, and enabled status
+
+### `backend/apps/api/src/app.ts`
+
+Registered `registerModelConfigRoutes(app)`.
+
+### `backend/apps/api/src/platform-auth.ts`
+
+Classified these as settings routes:
+
+- `/api/model-providers`
+- `/api/model-default`
 
 ## Verification
 
 Passed:
 
-- `cd frontend && npm test -- tests/use-run-stream.test.mjs`
+```bash
+cd backend && npm run test -- tests/api/model-config-routes.test.ts
+cd backend && npm run typecheck
+```
 
-## Self-Review
+## Notes / Concerns
 
-- The implementation follows the brief’s reducer-only scope and leaves preview/file projection for later tasks.
-- I used the existing local reducer/tool lifecycle pattern in `useRunStream.ts`; no helper renames were needed.
-- `bindToolInputDraft(...)` only mutates existing draft entries, so non-streamed tool calls remain unchanged.
-- `applyToolInputDelta(...)` ignores malformed `index` payloads without widening behavior beyond the brief.
-
-## Concerns
-
-None.
+- I added `/api/model-default` to settings-path auth classification alongside the brief-required `/api/model-providers`, since the new default-model API is the same settings surface and otherwise would have weaker scope mapping.
+- The brief required storing model document `key` as `provider/model`, while the API examples and tests expect response `key` values like `echo`. The route stores the full key internally and normalizes it back in responses.
