@@ -368,6 +368,67 @@ describe("authenticated route resource access", () => {
     ).toHaveLength(0);
   });
 
+  it("migrates grouped legacy profiles into one enabled provider with the available secret and base url", async () => {
+    app = await appWithActor(registerModelConfigRoutes);
+    const timestamp = now();
+    const store = getRuntime().store;
+    store.upsertDocument("model_profile_entry", "profile_group_disabled", {
+      id: "profile_group_disabled",
+      org_id: "org_1",
+      owner_user_id: "user_1",
+      key: "a-disabled-profile",
+      name: "Disabled Profile",
+      provider: "custom",
+      model: "custom:first-model",
+      enabled: false,
+      auth_secret: { has_secret: false, secret_ref: null, redacted: true },
+      metadata: {
+        base_url: "https://api.example.com/v1",
+        request: { temperature: 0.1 },
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    store.upsertDocument("model_profile_entry", "profile_group_enabled", {
+      id: "profile_group_enabled",
+      org_id: "org_1",
+      owner_user_id: "user_1",
+      key: "z-enabled-profile",
+      name: "Enabled Profile",
+      provider: "custom",
+      model: "custom:second-model",
+      enabled: true,
+      auth_secret: {
+        has_secret: true,
+        secret_ref: "secret://model-profiles/org_1/z-enabled-profile/api-key",
+        redacted: true,
+      },
+      metadata: {
+        base_url: "https://api.example.com/v1",
+        request: { temperature: 0.9 },
+      },
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    const response = await app.inject({ method: "GET", url: "/api/model-providers" });
+
+    expect(response.statusCode).toBe(200);
+    const providers = JSON.parse(response.body);
+    expect(providers).toHaveLength(1);
+    expect(providers[0]).toMatchObject({
+      owner_user_id: "user_1",
+      enabled: true,
+      base_url: "https://api.example.com/v1",
+      auth_secret: {
+        has_secret: true,
+        secret_ref: "secret://model-profiles/org_1/z-enabled-profile/api-key",
+        redacted: true,
+      },
+    });
+    expect(providers[0].models.map((model: any) => model.key)).toEqual(["first-model", "second-model"]);
+  });
+
   it("uses the current user's skill registry entry when another user has the same key", async () => {
     app = await appWithActor(registerCompatRoutes);
     const timestamp = now();

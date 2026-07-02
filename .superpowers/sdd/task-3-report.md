@@ -73,3 +73,25 @@ Notes / Concerns
   - `backend/tests/integration/api.test.ts`
   - `backend/tests/model/skill-load-tool.test.ts`
   This was needed to keep `typecheck` green after removing `model_profile_key` from the shared harness options schema.
+
+Review Fix
+- Fixed the legacy migration bug where provider-level state depended on whichever legacy profile was seen first.
+- Migration now groups legacy profiles by normalized provider kind plus base URL plus compat before writing provider rows.
+- DeepSeek compat still migrates to provider key `deepseek`.
+- Non-DeepSeek groups now get deterministic keys, and when one provider kind splits across multiple base URL/compat groups, the key includes a slug of that group identity to avoid collisions.
+- Provider-level migration state is now derived deterministically:
+  - `enabled` is true if any profile in the group is enabled
+  - `auth_secret` comes from the first stable-sorted profile with a secret
+  - `base_url` and `compat` come from the group identity
+  - `kind` comes from normalized provider kind
+- Migrated model IDs now use `idFor("model_entry", ...)` to match newly created model IDs.
+
+Reviewer Verification
+- `cd backend && npm run test -- tests/integration/api-compat.test.ts tests/api/route-access.test.ts`
+  - PASS
+- `cd backend && npm run typecheck`
+  - PASS
+- `cd backend && npm run check:no-python-backend`
+  - PASS
+- `cd backend && npm run examples:file-report`
+  - PASS

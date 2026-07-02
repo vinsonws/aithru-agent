@@ -203,6 +203,73 @@ function humanizeName(value: string): string {
   return stripKnownModelPrefix(value).replace(/[-_]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+type LegacyModelProfile = {
+  id?: string;
+  org_id?: string;
+  owner_user_id?: string;
+  key?: string;
+  name?: string;
+  provider?: string;
+  model?: string;
+  enabled?: boolean;
+  auth_secret?: ReturnType<typeof secretStatus> | null;
+  metadata?: {
+    base_url?: string | null;
+    compat?: string | null;
+    request?: Record<string, unknown> | null;
+  } | null;
+  capabilities?: ModelEntry["capabilities"] | null;
+  cost_policy?: Record<string, unknown> | null;
+  selection_policy?: Record<string, unknown> | null;
+};
+
+type LegacyProviderGroup = {
+  kind: ModelProviderEntry["kind"];
+  baseUrl: string | null;
+  compat: string | null;
+  profiles: LegacyModelProfile[];
+};
+
+function normalizedLegacyProviderKind(provider: string | undefined): ModelProviderEntry["kind"] {
+  return provider === "anthropic"
+    ? "anthropic"
+    : provider === "test"
+      ? "test"
+      : "openai_compatible";
+}
+
+function legacyProviderGroupId(profile: LegacyModelProfile): string {
+  const kind = normalizedLegacyProviderKind(profile.provider);
+  const baseUrl = typeof profile.metadata?.base_url === "string" ? profile.metadata.base_url : "";
+  const compat = typeof profile.metadata?.compat === "string" ? profile.metadata.compat : "";
+  return `${kind}\0${baseUrl}\0${compat}`;
+}
+
+function legacyProviderBaseKey(group: LegacyProviderGroup): string {
+  return group.compat === "deepseek"
+    ? "deepseek"
+    : slugifyKey(
+        group.kind === "anthropic"
+          ? "anthropic"
+          : group.kind === "test"
+            ? "test"
+            : "custom",
+      );
+}
+
+function legacyProviderKey(group: LegacyProviderGroup, groupCountForBaseKey: number): string {
+  if (group.compat === "deepseek") return "deepseek";
+  const baseKey = legacyProviderBaseKey(group);
+  if (groupCountForBaseKey <= 1) return baseKey;
+  return slugifyKey(
+    `${baseKey}-${group.compat ?? "default"}-${group.baseUrl ?? "default"}`,
+  );
+}
+
+function stableLegacyProfileSort(a: LegacyModelProfile, b: LegacyModelProfile): number {
+  return `${a.key ?? ""}\0${a.id ?? ""}`.localeCompare(`${b.key ?? ""}\0${b.id ?? ""}`);
+}
+
 function migrateLegacyModelProfilesForRequest(request: FastifyRequest): void {
   const store = getRuntime().store;
   const orgId = requestOrgId(request);
@@ -214,58 +281,86 @@ function migrateLegacyModelProfilesForRequest(request: FastifyRequest): void {
 
   const profiles = store
     .listDocuments("model_profile_entry", orgId)
-    .map((doc) => doc.payload as any)
+    .map((doc) => doc.payload as LegacyModelProfile)
     .filter((profile) => profile.owner_user_id === ownerUserId && typeof profile.model === "string" && profile.model.trim());
 
+  const groups = new Map<string, LegacyProviderGroup>();
   for (const profile of profiles) {
-    const strippedModel = stripKnownModelPrefix(String(profile.model));
-    const providerKey =
-      profile.metadata?.compat === "deepseek"
-        ? "deepseek"
-        : slugifyKey(String(profile.provider ?? "custom"));
+    const groupId = legacyProviderGroupId(profile);
+    const existingGroup = groups.get(groupId);
+    if (existingGroup) {
+      existingGroup.profiles.push(profile);
+      continue;
+    }
+    groups.set(groupId, {
+      kind: normalizedLegacyProviderKind(profile.provider),
+      baseUrl: typeof profile.metadata?.base_url === "string" ? profile.metadata.base_url : null,
+      compat: typeof profile.metadata?.compat === "string" ? profile.metadata.compat : null,
+      profiles: [profile],
+    });
+  }
+
+  const grouped = [...groups.values()].sort((a, b) =>
+    `${legacyProviderBaseKey(a)}\0${a.compat ?? ""}\0${a.baseUrl ?? ""}`.localeCompare(
+      `${legacyProviderBaseKey(b)}\0${b.compat ?? ""}\0${b.baseUrl ?? ""}`,
+    ),
+  );
+  const baseKeyCounts = new Map<string, number>();
+  for (const group of grouped) {
+    const baseKey = legacyProviderBaseKey(group);
+    baseKeyCounts.set(baseKey, (baseKeyCounts.get(baseKey) ?? 0) + 1);
+  }
+
+  for (const group of grouped) {
+    group.profiles.sort(stableLegacyProfileSort);
+    const providerKey = legacyProviderKey(group, baseKeyCounts.get(legacyProviderBaseKey(group)) ?? 1);
     const providerId = idFor("model_provider", orgId, ownerUserId, providerKey);
-    if (!store.getDocument("model_provider_entry", providerId)) {
-      const timestamp = now();
-      store.upsertDocument("model_provider_entry", providerId, {
-        id: providerId,
+    const timestamp = now();
+    const secretProfile = group.profiles.find(
+      (profile) => profile.auth_secret?.has_secret || profile.auth_secret?.secret_ref,
+    );
+    store.upsertDocument("model_provider_entry", providerId, {
+      id: providerId,
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      key: providerKey,
+      name: providerKey === "deepseek" ? "DeepSeek" : humanizeName(providerKey),
+      kind: group.kind,
+      enabled: group.profiles.some((profile) => profile.enabled !== false),
+      base_url: group.baseUrl,
+      compat: group.compat,
+      auth_secret: secretProfile?.auth_secret ?? secretStatus(),
+      metadata: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    const usedModelKeys = new Set<string>();
+    for (const profile of group.profiles) {
+      const strippedModel = stripKnownModelPrefix(String(profile.model));
+      const modelKey = slugifyKey(strippedModel);
+      let uniqueModelKey = modelKey;
+      for (let suffix = 2; usedModelKeys.has(uniqueModelKey); suffix += 1) {
+        uniqueModelKey = `${modelKey}-${suffix}`;
+      }
+      usedModelKeys.add(uniqueModelKey);
+      store.upsertDocument("model_entry", idFor("model_entry", orgId, ownerUserId, `${providerKey}/${uniqueModelKey}`), {
+        id: idFor("model_entry", orgId, ownerUserId, `${providerKey}/${uniqueModelKey}`),
         org_id: orgId,
         owner_user_id: ownerUserId,
-        key: providerKey,
-        name: providerKey === "deepseek" ? "DeepSeek" : humanizeName(providerKey),
-        kind:
-          profile.provider === "anthropic"
-            ? "anthropic"
-            : profile.provider === "test"
-              ? "test"
-              : "openai_compatible",
+        provider_key: providerKey,
+        key: uniqueModelKey,
+        name: profile.name ?? humanizeName(strippedModel),
+        provider_model_id: strippedModel,
         enabled: profile.enabled !== false,
-        base_url: profile.metadata?.base_url ?? null,
-        compat: profile.metadata?.compat ?? null,
-        auth_secret: profile.auth_secret ?? secretStatus(),
-        metadata: null,
+        capabilities: profile.capabilities ?? { vision: false, thinking: false },
+        request: profile.metadata?.request ?? null,
+        cost_policy: profile.cost_policy ?? null,
+        selection_policy: profile.selection_policy ?? null,
         created_at: timestamp,
         updated_at: timestamp,
       });
     }
-
-    const modelKey = slugifyKey(strippedModel);
-    const timestamp = now();
-    store.upsertDocument("model_entry", idFor("model", orgId, ownerUserId, `${providerKey}/${modelKey}`), {
-      id: idFor("model", orgId, ownerUserId, `${providerKey}/${modelKey}`),
-      org_id: orgId,
-      owner_user_id: ownerUserId,
-      provider_key: providerKey,
-      key: modelKey,
-      name: profile.name ?? humanizeName(strippedModel),
-      provider_model_id: strippedModel,
-      enabled: profile.enabled !== false,
-      capabilities: profile.capabilities ?? { vision: false, thinking: false },
-      request: profile.metadata?.request ?? null,
-      cost_policy: profile.cost_policy ?? null,
-      selection_policy: profile.selection_policy ?? null,
-      created_at: timestamp,
-      updated_at: timestamp,
-    });
   }
 }
 
