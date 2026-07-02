@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import esbuild from "esbuild";
@@ -142,4 +143,16 @@ test("provider models flatten to usable model refs", async () => {
   ]);
   assert.equal(selectUsableModelRef(providers, "missing"), "deepseek/deepseek-v4-flash");
   assert.equal(selectUsableModelRef([], ""), "");
+});
+
+test("frontend run harness contract exposes model_ref but not model_profile_key", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const openapi = readFileSync(new URL("../openapi.json", import.meta.url), "utf8");
+  const schema = readFileSync(new URL("../src/lib/api/schema.d.ts", import.meta.url), "utf8");
+
+  assert.match(openapi, /"model_ref"/);
+  assert.doesNotMatch(openapi, /"model_profile_key"/);
+  assert.match(schema, /model_ref\?: string \| null;/);
+  assert.doesNotMatch(schema, /model_profile_key\?: string \| null;/);
+  assert.ok(root);
 });

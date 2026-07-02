@@ -2974,8 +2974,6 @@ export interface components {
         AgentRunHarnessOptions: {
             /** Model */
             model?: string | null;
-            /** Model Profile Key */
-            model_profile_key?: string | null;
             /** Instructions */
             instructions?: string | null;
             model_capabilities?: components["schemas"]["AgentModelCapabilities"] | null;

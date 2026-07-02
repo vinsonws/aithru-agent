@@ -1,225 +1,64 @@
-# Task 4 Report: Draft File UI Wiring
-
-## What I implemented
-
-- Wired `draftWorkspaceFiles` through `AppShell` into both `FileListPanel` and `FilePreviewPanel`.
-- Derived draft workspace files from `streamState.toolInputDrafts` with `buildDraftWorkspaceFiles(...)`.
-- Added one-shot auto-open behavior in `AppShell` for the first non-empty live draft file, tracked by `openedDraftFileIdsRef`.
-- Made `FilePreviewPanel` draft-aware so draft-backed files render from `draftContent` without workspace preview fetches.
-- Added inline HTML draft preview rendering via `iframe srcDoc`.
-
-## What I tested and test results
-
-- Focused frontend tests:
-  - `frontend/tests/file-preview-drafts.test.mjs`
-  - `frontend/tests/app-shell-actions.test.mjs`
-  - `frontend/tests/run-files-view.test.mjs`
-  - `frontend/tests/use-run-stream.test.mjs`
-- Result: PASS
-
-## TDD Evidence
-
-### RED
-
-Command:
-
-```bash
-cd frontend
-npm test -- tests/file-preview-drafts.test.mjs tests/app-shell-actions.test.mjs
-```
-
-Output summary:
-
-```txt
-fail 3
-- app shell derives draft workspace files and auto-opens them once
-- FilePreviewPanel renders draft previews without workspace fetches
-- FileListPanel passes draft workspace files into run file views
-```
-
-Why expected:
-
-- None of the three target UI files referenced `draftWorkspaceFiles`, `buildDraftWorkspaceFiles`, or the draft-preview fetch guards yet.
-
-### GREEN
-
-Command:
-
-```bash
-cd frontend
-npm test -- tests/file-preview-drafts.test.mjs tests/app-shell-actions.test.mjs tests/run-files-view.test.mjs tests/use-run-stream.test.mjs
-```
-
-Output summary:
-
-```txt
-pass 188
-fail 0
-```
-
-## Files changed
-
-- `frontend/src/AppShell.tsx`
-- `frontend/src/features/sidebar/panels/FileListPanel.tsx`
-- `frontend/src/features/sidebar/panels/FilePreviewPanel.tsx`
-- `frontend/tests/app-shell-actions.test.mjs`
-- `frontend/tests/file-preview-drafts.test.mjs`
-
-## Self-review findings
-
-- Kept the change on the existing `buildDraftWorkspaceFiles` / `buildRunFileViews` path instead of adding new state or fetch logic.
-- Draft preview fetch suppression only applies when `draftContent` exists, so persisted workspace previews still follow the old path.
-- Auto-open is one-shot per draft file id and ignores empty draft bodies to avoid noisy panel churn.
-
-## Issues or concerns
-
-- The focused `npm test -- ...` command still runs the repo's full `tests/*.test.mjs` glob because of the existing frontend test script, but the requested target tests are included and passing.
-
-## Fix follow-up: review findings
-
-### What I fixed
-
-- Scoped draft auto-open tracking by run in `frontend/src/AppShell.tsx` with `draftAutoOpenKey(activeRunId, fileId)`.
-- Updated the one-shot auto-open effect to store run-scoped keys instead of raw draft file ids, so the same draft path can auto-open once in each run.
-
-### Added/strengthened tests
-
-- Strengthened `frontend/tests/app-shell-actions.test.mjs` beyond source regex checks:
-  - transpiles `AppShell.tsx` with the real TypeScript compiler,
-  - extracts the real `draftAutoOpenKey(...)` helper,
-  - asserts the same draft file id produces different auto-open keys for different run ids,
-  - asserts null run ids do not produce an auto-open key.
-- Kept the existing source wiring assertions to verify the effect calls `draftAutoOpenKey(activeRunId, draft.id)`.
-
-### Fix TDD evidence
-
-#### RED
-
-Command:
-
-```bash
-cd frontend
-npm test -- tests/app-shell-actions.test.mjs tests/file-preview-drafts.test.mjs tests/run-files-view.test.mjs tests/use-run-stream.test.mjs
-```
-
-Output summary:
-
-```txt
-fail 1
-- app shell scopes one-shot draft auto-open keys per run
-Expected transpiled AppShell to include draftAutoOpenKey
-```
-
-Why expected:
-
-- The code still tracked opened drafts by raw `file.id`, so there was no run-scoped helper for the test to exercise.
-
-#### GREEN
-
-Command:
-
-```bash
-cd frontend
-npm test -- tests/app-shell-actions.test.mjs tests/file-preview-drafts.test.mjs tests/run-files-view.test.mjs tests/use-run-stream.test.mjs
-```
-
-Output summary:
-
-```txt
-pass 189
-fail 0
-```
-
-## Fix follow-up: re-review finding
-
-### What I fixed
-
-- Replaced per-draft auto-open tracking with per-run handling in `frontend/src/AppShell.tsx`.
-- Added `nextDraftToAutoOpen(...)` to encode the actual rule:
-  - if the run is already handled, return `null`;
-  - otherwise pick the first non-empty draft in that run.
-- Mark the run handled only after a non-empty draft is actually chosen for auto-open.
-- Made `handlePreviewFile` stable by using the React state-updater form for `openFileIds`, so the effect no longer churns on file-tab changes.
-
-### Added/strengthened tests
-
-- Strengthened `frontend/tests/app-shell-actions.test.mjs` again by transpiling and executing the real `nextDraftToAutoOpen(...)` helper from `AppShell.tsx`.
-- Added behavior coverage proving:
-  - among multiple drafts in one run, only the first non-empty draft is selected;
-  - once a run is handled, later drafts in the same run are ignored;
-  - a different run can still auto-open its own first draft even when the draft id/path matches a prior run.
-
-### Fix TDD evidence
-
-#### RED
-
-Command:
-
-```bash
-cd frontend
-npm test -- tests/app-shell-actions.test.mjs tests/file-preview-drafts.test.mjs tests/run-files-view.test.mjs tests/use-run-stream.test.mjs
-```
-
-Output summary:
-
-```txt
-fail 4
-- app shell derives draft workspace files and auto-opens them once
-- app shell selects only the first non-empty draft for an unhandled run
-- app shell ignores later drafts after a run has already auto-opened one
-- app shell lets a different run auto-open the same draft path once
-```
-
-Why expected:
-
-- `AppShell.tsx` still used per-file tracking and had no helper expressing “first non-empty draft once per run,” so the strengthened tests correctly failed against the old behavior.
-
-#### GREEN
-
-Command:
-
-```bash
-cd frontend
-npm test -- tests/app-shell-actions.test.mjs tests/file-preview-drafts.test.mjs tests/run-files-view.test.mjs tests/use-run-stream.test.mjs
-```
-
-Output summary:
-
-```txt
-pass 191
-fail 0
-```
-
-## Controller verification follow-up
-
-Backend verification was run after review requested evidence for the repository-wide backend commands.
-
-Commands and results:
-
-```bash
-cd backend
-npm run typecheck
-```
-
-Result: passed after fixing one stale test call to `store.listApprovals(...)` so it uses the current filter-object API.
-
-```bash
-cd backend
-npm run test
-```
-
-Result: passed, `36` test files and `227` tests.
-
-```bash
-cd backend
-npm run check:no-python-backend
-```
-
-Result: passed, `check:no-python-backend PASSED`.
-
-```bash
-cd backend
-npm run examples:file-report
-```
-
-Result: passed. Example run completed, wrote `/reports/report.md`, and all required events were present.
+Task 4 Report: Frontend API, Types, And Composer State
+
+Scope completed:
+- Updated the static frontend OpenAPI document to advertise provider/model configuration endpoints and `model_ref` on run harness options.
+- Regenerated `frontend/src/lib/api/schema.d.ts` from the updated static OpenAPI.
+- Added provider/model/default-model type exports in `frontend/src/lib/api/types.ts`.
+- Added `modelProvidersApi` helpers in `frontend/src/lib/api/resources.ts`.
+- Updated `frontend/src/features/chat/composerState.ts` to:
+  - emit `model_ref` from `buildComposerHarnessOptions`
+  - add `modelRef`
+  - add `flattenUsableModels`
+  - add `selectUsableModelRef`
+- Updated `frontend/src/features/conversation/runHeaderView.ts` to prefer `harness_options.model_ref`.
+- Updated the targeted frontend tests to assert `model_ref` behavior and provider/model flattening.
+
+Files changed:
+- `frontend/openapi.json`
+- `frontend/src/lib/api/schema.d.ts`
+- `frontend/src/lib/api/types.ts`
+- `frontend/src/lib/api/resources.ts`
+- `frontend/src/features/chat/composerState.ts`
+- `frontend/src/features/conversation/runHeaderView.ts`
+- `frontend/tests/composer-state.test.mjs`
+- `frontend/tests/chat-composer-options.test.mjs`
+- `frontend/tests/run-header-view.test.mjs`
+
+Verification:
+- Red phase:
+  - `cd frontend && npm run test -- tests/composer-state.test.mjs tests/chat-composer-options.test.mjs tests/run-header-view.test.mjs`
+  - Failed as expected on missing `model_ref` wiring, missing provider/model flatten helpers, and old run-header label precedence.
+- Green phase:
+  - `cd frontend && npm run test -- tests/composer-state.test.mjs tests/chat-composer-options.test.mjs tests/run-header-view.test.mjs`
+  - Passed.
+
+Notes:
+- I kept legacy `modelProfilesApi` and profile type exports in place so untouched settings/chat files in the current worktree do not lose imports before Task 5 switches those surfaces over. Task 4 adds the provider/model frontend surface without ripping out the old one yet.
+- I did not modify settings UI files or `ReferenceComposerSurface`, per task scope.
+- There are unrelated pre-existing worktree changes outside Task 4 files; they were not staged.
+
+---
+
+Task 4 follow-up fix: remove legacy model_profile_key from frontend run harness contract
+
+Review issue addressed:
+- `AgentRunHarnessOptions` in the frontend static OpenAPI and generated schema still exposed `model_profile_key`.
+- This follow-up removes that legacy field from the frontend contract while keeping temporary legacy `modelProfilesApi` and `AgentModelProfileEntry` exports untouched for Task 5 migration work.
+
+Files changed in follow-up:
+- `frontend/openapi.json`
+- `frontend/src/lib/api/schema.d.ts`
+- `frontend/tests/composer-state.test.mjs`
+
+Focused regression coverage added:
+- `frontend/tests/composer-state.test.mjs`
+  - asserts frontend run harness contract still exposes `model_ref`
+  - asserts frontend static OpenAPI and generated schema no longer expose `model_profile_key`
+
+Verification output:
+- Schema grep:
+  - `rg -n "model_profile_key|model_ref\?: string \| null;" frontend/openapi.json frontend/src/lib/api/schema.d.ts`
+  - result: only `model_ref?: string | null;` remains in `frontend/src/lib/api/schema.d.ts`; no `model_profile_key` matches in either file
+- Targeted tests:
+  - `cd frontend && npm run test -- tests/composer-state.test.mjs tests/chat-composer-options.test.mjs tests/run-header-view.test.mjs`
+  - result: pass (`217` tests, `0` failures)
