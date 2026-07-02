@@ -6220,11 +6220,8 @@ export interface components {
             /** Media Type */
             media_type?: string | null;
         };
-        /**
-         * AgentModelCompatKind
-         * @enum {string}
-         */
-        AgentModelCompatKind: "deepseek" | "qwen" | "minimax" | "gemini_openai_compatible";
+        /** AgentModelCompatKind */
+        AgentModelCompatKind: string;
         /** AgentModelSecretStatus */
         AgentModelSecretStatus: {
             /**
@@ -6244,8 +6241,6 @@ export interface components {
         ModelSecretInput: {
             /** Write Only Value */
             write_only_value?: string | null;
-            /** Secret Ref */
-            secret_ref?: string | null;
         };
         /** AgentModelProviderEntry */
         AgentModelProviderEntry: {

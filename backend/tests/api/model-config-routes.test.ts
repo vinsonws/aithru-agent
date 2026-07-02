@@ -132,6 +132,61 @@ describe("model provider routes", () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it("rejects caller supplied provider secret refs", async () => {
+    const switchable = await appWithSwitchableActor();
+    app = switchable.app;
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/model-providers",
+      payload: {
+        key: "deepseek",
+        name: "DeepSeek",
+        kind: "openai_compatible",
+        auth_secret: { write_only_value: "sk-user-1" },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const secretRef = JSON.parse(created.body).auth_secret.secret_ref;
+
+    switchable.setActor({ ...actor, userId: "user_2" });
+    const copiedOnCreate = await app.inject({
+      method: "POST",
+      url: "/api/model-providers",
+      payload: {
+        key: "copied",
+        name: "Copied",
+        kind: "openai_compatible",
+        auth_secret: { secret_ref: secretRef },
+      },
+    });
+    expect(copiedOnCreate.statusCode).toBe(400);
+
+    const safe = await app.inject({
+      method: "POST",
+      url: "/api/model-providers",
+      payload: { key: "safe", name: "Safe", kind: "openai_compatible" },
+    });
+    expect(safe.statusCode).toBe(201);
+
+    const copiedOnPatch = await app.inject({
+      method: "PATCH",
+      url: "/api/model-providers/safe",
+      payload: { auth_secret: { secret_ref: secretRef } },
+    });
+    expect(copiedOnPatch.statusCode).toBe(400);
+
+    const safeAfterPatch = await app.inject({
+      method: "GET",
+      url: "/api/model-providers/safe",
+    });
+    expect(JSON.parse(safeAfterPatch.body).auth_secret).toEqual({
+      has_secret: false,
+      secret_ref: null,
+      redacted: true,
+    });
+  });
+
   it("clears the owner's default when deleting the default model", async () => {
     app = await appWithActor();
     await app.inject({

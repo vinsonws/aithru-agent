@@ -156,6 +156,7 @@ export function ModelProfilesContent() {
     mutationFn: (nextModelRef: string) =>
       modelProvidersApi.setDefault({ model_ref: nextModelRef }),
     onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["model-default"] });
       await invalidateProviders();
     },
   });

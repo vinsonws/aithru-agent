@@ -79,10 +79,20 @@ export function ChatComposer({
     queryKey: ["model-providers"],
     queryFn: modelProvidersApi.list,
   });
+  const defaultModelQuery = useQuery({
+    queryKey: ["model-default"],
+    queryFn: modelProvidersApi.getDefault,
+  });
 
   React.useEffect(() => {
-    setModelRef(selectUsableModelRef(providersQuery.data, modelRef));
-  }, [providersQuery.data, modelRef]);
+    setModelRef((current) =>
+      selectUsableModelRef(
+        providersQuery.data,
+        current,
+        defaultModelQuery.data?.model_ref ?? null,
+      ),
+    );
+  }, [providersQuery.data, defaultModelQuery.data?.model_ref]);
 
   const createRun = useMutation({
     mutationFn: async (vars: {

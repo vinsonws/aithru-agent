@@ -123,12 +123,7 @@ export const AgentModelProviderKind = Type.Union([
   Type.Literal("test"),
 ]);
 
-export const AgentModelCompatKind = Type.Union([
-  Type.Literal("deepseek"),
-  Type.Literal("qwen"),
-  Type.Literal("minimax"),
-  Type.Literal("gemini_openai_compatible"),
-]);
+export const AgentModelCompatKind = Type.String();
 
 export const AgentModelSecretStatusSchema = Type.Object({
   has_secret: Type.Boolean({ default: false }),
@@ -138,7 +133,6 @@ export const AgentModelSecretStatusSchema = Type.Object({
 
 export const ModelSecretInputSchema = Type.Object({
   write_only_value: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  secret_ref: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 
 export const AgentModelCapabilitiesSchema = Type.Object({

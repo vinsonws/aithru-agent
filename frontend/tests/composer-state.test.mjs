@@ -141,7 +141,16 @@ test("provider models flatten to usable model refs", async () => {
   assert.deepEqual(flattenUsableModels(providers).map((model) => model.ref), [
     "deepseek/deepseek-v4-flash",
   ]);
-  assert.equal(selectUsableModelRef(providers, "missing"), "deepseek/deepseek-v4-flash");
+  assert.equal(
+    selectUsableModelRef(providers, "", "deepseek/deepseek-v4-flash"),
+    "deepseek/deepseek-v4-flash",
+  );
+  assert.equal(
+    selectUsableModelRef(providers, "deepseek/deepseek-v4-flash", null),
+    "deepseek/deepseek-v4-flash",
+  );
+  assert.equal(selectUsableModelRef(providers, "missing", null), "");
+  assert.equal(selectUsableModelRef(providers, "", "missing/default"), "");
   assert.equal(selectUsableModelRef([], ""), "");
 });
 
@@ -157,4 +166,14 @@ test("frontend run harness contract exposes model_ref without legacy profile sel
   assert.match(schema, /model_ref\?: string \| null;/);
   assert.doesNotMatch(schema, legacySchemaPattern);
   assert.ok(root);
+});
+
+test("provider compat remains an opaque string contract", () => {
+  const openapi = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8"));
+  const schema = readFileSync(new URL("../src/lib/api/schema.d.ts", import.meta.url), "utf8");
+
+  assert.equal(openapi.components.schemas.AgentModelCompatKind.type, "string");
+  assert.equal(openapi.components.schemas.AgentModelCompatKind.enum, undefined);
+  assert.match(schema, /AgentModelCompatKind: string;/);
+  assert.doesNotMatch(schema, /AgentModelCompatKind: "deepseek"/);
 });

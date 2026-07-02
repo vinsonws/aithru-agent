@@ -249,10 +249,12 @@ export function flattenUsableModels(
 export function selectUsableModelRef(
   providers: ComposerModelProvider[] | null | undefined,
   currentRef: string | null | undefined,
+  defaultRef?: string | null,
 ): string {
   const usable = flattenUsableModels(providers);
   if (currentRef && usable.some((model) => model.ref === currentRef)) return currentRef;
-  return usable[0]?.ref ?? "";
+  if (defaultRef && usable.some((model) => model.ref === defaultRef)) return defaultRef;
+  return "";
 }
 
 export function buildComposerScopes(policyId: string | null | undefined): string[] {

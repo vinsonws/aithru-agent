@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import esbuild from "esbuild";
@@ -71,4 +72,15 @@ test("custom provider form builds provider and model payloads", async () => {
       capabilities: { thinking: true, vision: false },
     },
   );
+});
+
+test("setting a default model refreshes provider and default-model queries", async () => {
+  const source = await readFile(
+    new URL("../src/features/admin/ModelProfilesPage.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /modelProvidersApi\.setDefault/);
+  assert.match(source, /queryKey: \["model-providers"\]/);
+  assert.match(source, /queryKey: \["model-default"\]/);
 });

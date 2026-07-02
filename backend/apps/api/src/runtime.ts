@@ -9,6 +9,7 @@ import {
   createSdkModelAdapter,
   type AgentModelAdapter,
   type AgentModelToolResult,
+  type ModelCompat,
 } from "@aithru-agent/model";
 import { AgentEventWriter, EVENT_TYPES } from "@aithru-agent/stream";
 import { InMemoryStore, SqliteStore, type AgentApproval, type AgentStore } from "@aithru-agent/persistence";
@@ -41,7 +42,7 @@ type StoredModelProvider = {
   kind?: "openai_compatible" | "anthropic" | "test";
   enabled?: boolean;
   base_url?: string | null;
-  compat?: "deepseek" | "qwen" | "minimax" | "gemini_openai_compatible" | null;
+  compat?: string | null;
   auth_secret?: { has_secret?: boolean; secret_ref?: string | null } | null;
   metadata?: Record<string, unknown> | null;
 };
@@ -111,6 +112,15 @@ function defaultTestAdapter(): AgentModelAdapter {
       { type: "completed" },
     ],
   ]);
+}
+
+function sdkCompat(value: string | null | undefined): ModelCompat | undefined {
+  return value === "deepseek" ||
+    value === "qwen" ||
+    value === "minimax" ||
+    value === "gemini_openai_compatible"
+    ? value
+    : undefined;
 }
 
 function failingAdapter(code: string, message: string): AgentModelAdapter {
@@ -185,10 +195,11 @@ function adapterForRun(store: AgentStore, run: AgentRun): AgentModelAdapter {
     return failingAdapter("MODEL_PROVIDER_SECRET_MISSING", `Model provider has no API key: ${parsed.providerKey}`);
   }
 
+  const compat = sdkCompat(provider.compat);
   const metadata = {
     ...(provider.metadata ?? {}),
     ...(provider.base_url ? { base_url: provider.base_url } : {}),
-    ...(provider.compat ? { compat: provider.compat } : {}),
+    ...(compat ? { compat } : {}),
     ...(model.request ? { request: model.request } : {}),
   };
 

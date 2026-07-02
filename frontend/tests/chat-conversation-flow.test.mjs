@@ -97,6 +97,7 @@ test("composers block sends until a usable model ref is selected", async () => {
   const newThreadPage = await src("features/conversation/NewThreadPage.tsx");
 
   assert.match(composer, /modelProvidersApi\.list/);
+  assert.match(composer, /modelProvidersApi\.getDefault/);
   assert.match(composer, /selectUsableModelRef/);
   assert.match(
     composer,
@@ -104,6 +105,7 @@ test("composers block sends until a usable model ref is selected", async () => {
   );
   assert.match(composer, /model_ref/);
   assert.match(newThreadPage, /modelProvidersApi\.list/);
+  assert.match(newThreadPage, /modelProvidersApi\.getDefault/);
   assert.match(newThreadPage, /selectUsableModelRef/);
   assert.match(
     newThreadPage,

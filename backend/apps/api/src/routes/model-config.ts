@@ -164,7 +164,7 @@ function resolveProviderSecret(input: any, orgId: string, providerKey: string, o
     return secretStatus(ref);
   }
   if (typeof input.secret_ref === "string" && input.secret_ref.trim()) {
-    return secretStatus(input.secret_ref.trim());
+    throw new Error("secret_ref is read-only");
   }
   return secretStatus();
 }
