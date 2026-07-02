@@ -34,33 +34,26 @@ export interface AgentRuntime {
 
 let _runtime: AgentRuntime | null = null;
 
-type StoredModelProfile = {
+type StoredModelProvider = {
   key: string;
   owner_user_id?: string;
   name?: string;
-  provider?: string;
-  model?: string;
+  kind?: "openai_compatible" | "anthropic" | "test";
   enabled?: boolean;
-  capabilities?: {
-    thinking?: boolean;
-    vision?: boolean;
-  } | null;
-  auth_secret?: {
-    has_secret?: boolean;
-    secret_ref?: string | null;
-  } | null;
-  metadata?: {
-    base_url?: string;
-    baseURL?: string;
-    api_kind?: "openai_chat_completions" | "openai_responses" | "anthropic_messages";
-    request?: Record<string, unknown>;
-    supports_thinking?: boolean;
-    supports_reasoning_effort?: boolean;
-    when_thinking_enabled?: Record<string, unknown>;
-    thinking?: Record<string, unknown>;
-    compat?: "deepseek" | "qwen" | "minimax" | "gemini_openai_compatible";
-    use_responses_api?: boolean;
-  } | null;
+  base_url?: string | null;
+  compat?: "deepseek" | "qwen" | "minimax" | "gemini_openai_compatible" | null;
+  auth_secret?: { has_secret?: boolean; secret_ref?: string | null } | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+type StoredModelEntry = {
+  provider_key: string;
+  key: string;
+  owner_user_id?: string;
+  provider_model_id?: string;
+  enabled?: boolean;
+  capabilities?: { thinking?: boolean; vision?: boolean } | null;
+  request?: Record<string, unknown> | null;
 };
 
 type StoredExternalToolConfig = {
@@ -94,11 +87,16 @@ type StoredExternalToolConfig = {
 
 type StoredMcpEndpoint = NonNullable<NonNullable<StoredExternalToolConfig["mcp"]>["endpoint"]>;
 
-function modelProfileKey(run: AgentRun): string | null {
+function modelRefForRun(run: AgentRun): string | null {
   const options = run.harness_options as Record<string, unknown> | null | undefined;
-  return typeof options?.model_profile_key === "string" && options.model_profile_key.trim()
-    ? options.model_profile_key.trim()
+  return typeof options?.model_ref === "string" && options.model_ref.trim()
+    ? options.model_ref.trim()
     : null;
+}
+
+function parseModelRef(value: string): { providerKey: string; modelKey: string } | null {
+  const [providerKey, modelKey, extra] = value.split("/");
+  return providerKey && modelKey && extra == null ? { providerKey, modelKey } : null;
 }
 
 function defaultTestAdapter(): AgentModelAdapter {
@@ -126,54 +124,80 @@ function failingAdapter(code: string, message: string): AgentModelAdapter {
   ]);
 }
 
-function storedModelProfile(
+function storedModelProvider(
   store: AgentStore,
   orgId: string,
   actorUserId: string,
   key: string,
-): StoredModelProfile | null {
-  const profile = store
-    .listDocuments("model_profile_entry", orgId)
-    .map((doc) => doc.payload as StoredModelProfile)
-    .find((entry) => entry.key === key && entry.owner_user_id === actorUserId);
-  if (profile) return profile;
-  if (key === "default") {
-    return {
-      key: "default",
-      provider: "test",
-      model: "test",
-      enabled: true,
-    };
-  }
-  return null;
+): StoredModelProvider | null {
+  return store
+    .listDocuments("model_provider_entry", orgId)
+    .map((doc) => doc.payload as StoredModelProvider)
+    .find((entry) => entry.key === key && entry.owner_user_id === actorUserId) ?? null;
+}
+
+function storedModelEntry(
+  store: AgentStore,
+  orgId: string,
+  actorUserId: string,
+  providerKey: string,
+  modelKey: string,
+): StoredModelEntry | null {
+  return store
+    .listDocuments("model_entry", orgId)
+    .map((doc) => doc.payload as StoredModelEntry)
+    .find((entry) => entry.provider_key === providerKey && entry.key === modelKey && entry.owner_user_id === actorUserId) ?? null;
 }
 
 function adapterForRun(store: AgentStore, run: AgentRun): AgentModelAdapter {
-  const key = modelProfileKey(run);
-  if (!key) return defaultTestAdapter();
-  const profile = storedModelProfile(store, run.org_id, run.actor_user_id, key);
-  if (!profile) {
-    return failingAdapter("MODEL_PROFILE_NOT_FOUND", `Model profile not found: ${key}`);
+  const ref = modelRefForRun(run);
+  if (!ref) {
+    return failingAdapter("MODEL_NOT_CONFIGURED", "Model is not configured");
   }
-  if (profile.enabled === false) {
-    return failingAdapter("MODEL_PROFILE_DISABLED", `Model profile is disabled: ${key}`);
+
+  const parsed = parseModelRef(ref);
+  if (!parsed) {
+    return failingAdapter("MODEL_NOT_FOUND", `Model not found: ${ref}`);
   }
-  if (profile.provider === "test" || profile.model === "test") {
+
+  const provider = storedModelProvider(store, run.org_id, run.actor_user_id, parsed.providerKey);
+  if (!provider) {
+    return failingAdapter("MODEL_PROVIDER_NOT_FOUND", `Model provider not found: ${parsed.providerKey}`);
+  }
+  if (provider.enabled === false) {
+    return failingAdapter("MODEL_PROVIDER_DISABLED", `Model provider is disabled: ${parsed.providerKey}`);
+  }
+
+  const model = storedModelEntry(store, run.org_id, run.actor_user_id, parsed.providerKey, parsed.modelKey);
+  if (!model) {
+    return failingAdapter("MODEL_NOT_FOUND", `Model not found: ${ref}`);
+  }
+  if (model.enabled === false) {
+    return failingAdapter("MODEL_DISABLED", `Model is disabled: ${ref}`);
+  }
+  if (provider.kind === "test") {
     return defaultTestAdapter();
   }
 
-  const secretRef = profile.auth_secret?.secret_ref;
+  const secretRef = provider.auth_secret?.secret_ref;
   const apiKey = secretRef ? store.getSecret(run.org_id, secretRef) : undefined;
   if (!apiKey) {
-    return failingAdapter("MODEL_PROFILE_SECRET_MISSING", `Model profile has no API key: ${key}`);
+    return failingAdapter("MODEL_PROVIDER_SECRET_MISSING", `Model provider has no API key: ${parsed.providerKey}`);
   }
 
+  const metadata = {
+    ...(provider.metadata ?? {}),
+    ...(provider.base_url ? { base_url: provider.base_url } : {}),
+    ...(provider.compat ? { compat: provider.compat } : {}),
+    ...(model.request ? { request: model.request } : {}),
+  };
+
   return createSdkModelAdapter({
-    provider: profile.provider,
+    provider: provider.kind === "anthropic" ? "anthropic" : "custom",
     apiKey,
-    model: profile.model ?? key,
-    capabilities: profile.capabilities ?? null,
-    metadata: profile.metadata ?? null,
+    model: model.provider_model_id ?? model.key,
+    capabilities: model.capabilities ?? null,
+    metadata,
   });
 }
 
@@ -392,7 +416,6 @@ function createRunScheduler(deps: {
   ): Promise<AgentRun | undefined> => {
     const run = deps.store.getRun(runId);
     if (!run) return undefined;
-    if (!modelProfileKey(run)) return run;
     if (run.status !== "queued") return run;
 
     try {
@@ -412,7 +435,7 @@ function createRunScheduler(deps: {
   const schedule = (runOrId: AgentRun | string, options: ScheduleRunExecutionOptions = {}) => {
     const runId = typeof runOrId === "string" ? runOrId : runOrId.id;
     const run = typeof runOrId === "string" ? deps.store.getRun(runOrId) : runOrId;
-    if (!run || !modelProfileKey(run)) return Promise.resolve(run);
+    if (!run) return Promise.resolve(run);
     if (run.status !== "queued") return Promise.resolve(run);
 
     const orgRuns = runsForOrg(run.org_id);

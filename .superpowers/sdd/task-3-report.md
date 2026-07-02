@@ -1,78 +1,75 @@
-# Task 3 Report: Draft Workspace File Projection
+Task 3 Report: Runtime Resolver And Legacy Profile Migration
 
-## What I implemented
+Summary
+- Replaced runtime `model_profile_key` resolution with provider/model `model_ref` resolution.
+- Added one-time legacy `model_profile_entry` migration on `GET /api/model-providers`, scoped to the current owner.
+- Removed the obsolete model profile registry export and test.
+- Updated runtime-adjacent tests to use `model_ref`.
 
-- Added `buildDraftWorkspaceFiles()` to project `workspace.write_file` tool input drafts into draft workspace file records.
-- Added partial JSON extraction helpers so incomplete streamed tool input can still surface `path` and partial `content`.
-- Extended `RunFileView` with draft-only fields: `isDraft`, `draftContent`, `draftStatus`, and `draftRevision`.
-- Updated `buildRunFileViews()` to include draft workspace files when no real workspace file exists yet, and to suppress the draft once the real file path appears.
+Files Changed
+- `backend/apps/api/src/runtime.ts`
+- `backend/apps/api/src/routes/model-config.ts`
+- `backend/packages/contracts/src/schemas.ts`
+- `backend/packages/model/src/index.ts`
+- deleted `backend/packages/model/src/profiles.ts`
+- `backend/tests/api/route-access.test.ts`
+- `backend/tests/integration/api-compat.test.ts`
+- `backend/tests/integration/api.test.ts`
+- deleted `backend/tests/model/profiles.test.ts`
+- `backend/tests/model/skill-load-tool.test.ts`
 
-## What I tested and test results
+What Changed
 
-- Focused frontend test file: `frontend/tests/run-files-view.test.mjs`
-- Result: PASS
-- Added coverage for:
-  - extracting partial `workspace.write_file` content from streamed tool input
-  - showing draft file views before the real workspace file exists
-  - preferring the real workspace file view once the file exists
+1. Runtime resolver
+- Added `modelRefForRun()` and `parseModelRef()`.
+- Replaced profile lookup with owner-scoped provider/model document lookup.
+- Runtime now emits:
+  - `MODEL_NOT_CONFIGURED`
+  - `MODEL_PROVIDER_NOT_FOUND`
+  - `MODEL_NOT_FOUND`
+  - `MODEL_PROVIDER_DISABLED`
+  - `MODEL_DISABLED`
+  - `MODEL_PROVIDER_SECRET_MISSING`
+- `test` providers still use `defaultTestAdapter()`.
+- Non-test providers now build SDK adapters from provider kind, provider secret, provider metadata, provider base URL/compat, and model request/provider model id.
+- Removed the old scheduler shortcut that skipped execution when `model_profile_key` was absent, so the new resolver is authoritative.
 
-## TDD Evidence
+2. Model config migration
+- Added `migrateLegacyModelProfilesForRequest()` to `model-config.ts`.
+- Added helper functions:
+  - `stripKnownModelPrefix()`
+  - `slugifyKey()`
+  - `humanizeName()`
+- Migration runs only from `GET /api/model-providers`.
+- Migration is owner-scoped and no-ops if that owner already has any `model_provider_entry` docs.
+- Migrated legacy profiles into:
+  - `model_provider_entry`
+  - `model_entry`
 
-### RED
+3. Model storage alignment
+- Updated model-config route storage to persist `model_entry.key` as the plain model key, while default settings still store full `provider/model` refs.
+- Kept API responses using model refs for defaults and plain keys for nested model resources.
 
-Command:
+4. Contract and cleanup
+- Removed transitional `model_profile_key` from `AgentRunHarnessOptionsSchema`.
+- Removed the obsolete `profiles.ts` export from `@aithru-agent/model`.
+- Deleted the dead profile registry source and test.
 
-```bash
-cd frontend
-npm test -- tests/run-files-view.test.mjs
-```
+5. Tests
+- Replaced compat runtime tests to use provider/model refs.
+- Added owner-isolation coverage for runtime model resolution.
+- Added owner-scoped migration coverage in route access tests.
+- Updated other runtime-adjacent tests that still referenced `model_profile_key` so typecheck passes after schema cleanup.
+- Adjusted the cancel-shape compat test to avoid racing the immediate test adapter by cancelling a queued stored run directly.
 
-Observed failing output:
+Verification
+- `cd backend && npm run test -- tests/integration/api-compat.test.ts tests/api/route-access.test.ts`
+  - PASS
+- `cd backend && npm run typecheck`
+  - PASS
 
-```txt
-✖ buildDraftWorkspaceFiles extracts workspace write_file partial content
-  TypeError: buildDraftWorkspaceFiles is not a function
-
-✖ buildRunFileViews includes draft files until a real file exists
-  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
-  0 !== 1
-```
-
-Why expected:
-
-- `buildDraftWorkspaceFiles` did not exist yet.
-- `buildRunFileViews` ignored `draftWorkspaceFiles`, so the draft-only case returned no views.
-
-### GREEN
-
-Command:
-
-```bash
-cd frontend
-npm test -- tests/run-files-view.test.mjs
-```
-
-Observed passing output:
-
-```txt
-✔ buildDraftWorkspaceFiles extracts workspace write_file partial content
-✔ buildRunFileViews includes draft files until a real file exists
-ℹ pass 185
-ℹ fail 0
-```
-
-## Files changed
-
-- `frontend/src/features/inspection/runFilesView.ts`
-- `frontend/tests/run-files-view.test.mjs`
-- `.superpowers/sdd/task-3-report.md`
-
-## Self-review findings
-
-- Kept the change local to the projection layer and reused existing file classification helpers.
-- Used a tiny fallback parser for partial JSON instead of adding dependencies or cross-feature coupling.
-- Real-file suppression normalizes leading slashes so streamed draft paths and stored workspace paths match.
-
-## Issues or concerns
-
-- Focused test coverage is good for this task, but the draft projection is not yet exercised through the sidebar panels; that belongs to the next task.
+Notes / Concerns
+- I updated two extra backend test files outside the original narrow list:
+  - `backend/tests/integration/api.test.ts`
+  - `backend/tests/model/skill-load-tool.test.ts`
+  This was needed to keep `typecheck` green after removing `model_profile_key` from the shared harness options schema.

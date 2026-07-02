@@ -7,9 +7,45 @@ import type { FastifyInstance } from "fastify";
 
 let app: FastifyInstance;
 
+function seedTestModel(orgId = "org_1", ownerUserId = "user_1") {
+  const timestamp = new Date().toISOString().replace(/\.\d{3}/, "");
+  getRuntime().store.upsertDocument("model_provider_entry", `provider_${orgId}_${ownerUserId}_test`, {
+    id: `provider_${orgId}_${ownerUserId}_test`,
+    org_id: orgId,
+    owner_user_id: ownerUserId,
+    key: "test",
+    name: "Test",
+    kind: "test",
+    enabled: true,
+    base_url: null,
+    compat: null,
+    auth_secret: null,
+    metadata: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  });
+  getRuntime().store.upsertDocument("model_entry", `model_${orgId}_${ownerUserId}_test_echo`, {
+    id: `model_${orgId}_${ownerUserId}_test_echo`,
+    org_id: orgId,
+    owner_user_id: ownerUserId,
+    provider_key: "test",
+    key: "echo",
+    name: "Echo",
+    provider_model_id: "test",
+    enabled: true,
+    capabilities: { vision: false, thinking: false },
+    request: null,
+    cost_policy: null,
+    selection_policy: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  });
+}
+
 beforeAll(async () => {
   app = await createApp();
   await app.ready();
+  seedTestModel();
 });
 
 afterAll(async () => {
@@ -259,7 +295,7 @@ describe("Runs API", () => {
         source: "chat",
         thread_id: threadId,
         task_msg: "Plan the launch checklist",
-        harness_options: { model_profile_key: "default" },
+        harness_options: { model_ref: "test/echo" },
         persist_task_msg_message: true,
         wait_for_completion: true,
       },
@@ -294,7 +330,7 @@ describe("Runs API", () => {
         source: "chat",
         thread_id: threadId,
         task_msg: "Replace the title",
-        harness_options: { model_profile_key: "default" },
+        harness_options: { model_ref: "test/echo" },
         persist_task_msg_message: true,
         wait_for_completion: true,
       },
@@ -313,7 +349,7 @@ describe("Runs API", () => {
         source: "chat",
         task_msg: "Surprise me",
         selected_skill_keys: ["surprise-me", "surprise-me"],
-        harness_options: { model_profile_key: "default" },
+        harness_options: { model_ref: "test/echo" },
         wait_for_completion: true,
       },
     });
@@ -364,7 +400,7 @@ describe("Runs API", () => {
       workspace_id: "ws_api_approval_resume",
       task_msg: "Continue after approval",
       scopes: ["*"],
-      harness_options: { model_profile_key: "default" },
+      harness_options: { model_ref: "test/echo" },
       status: "waiting_approval",
       current_approval_id: approvalId,
       started_at: testNow(),
@@ -436,7 +472,7 @@ describe("Runs API", () => {
       workspace_id: "ws_api_approval_deny",
       task_msg: "Continue after denial",
       scopes: ["*"],
-      harness_options: { model_profile_key: "default" },
+      harness_options: { model_ref: "test/echo" },
       status: "waiting_approval",
       current_approval_id: approvalId,
       started_at: testNow(),
@@ -493,7 +529,7 @@ describe("Runs API", () => {
       workspace_id: "ws_api_tool_input",
       task_msg: "Show approval input",
       scopes: ["*"],
-      harness_options: { model_profile_key: "default" },
+      harness_options: { model_ref: "test/echo" },
       status: "waiting_approval",
       current_approval_id: approvalId,
       started_at: testNow(),
@@ -612,19 +648,39 @@ describe("Runs API", () => {
   });
 
   it("POST /api/runs/:id/cancel cancels a run", async () => {
+    const cancelRun: AgentRun = {
+      id: "run_cancel_api_test",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_run_cancel_api_test",
+      task_msg: "cancel me",
+      scopes: ["agent.workspace.read"],
+      harness_options: { model_ref: "test/echo" } as any,
+      status: "queued",
+      current_approval_id: null,
+      started_at: testNow(),
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    };
+    getRuntime().store.createRun(cancelRun);
+
     const res = await app.inject({
       method: "POST",
-      url: `/api/runs/${runId}/cancel`,
+      url: `/api/runs/${cancelRun.id}/cancel`,
     });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.id).toBe(runId);
+    expect(body.id).toBe(cancelRun.id);
     expect(body.status).toBe("cancelled");
 
     // Verify run status
     const getRes = await app.inject({
       method: "GET",
-      url: `/api/runs/${runId}`,
+      url: `/api/runs/${cancelRun.id}`,
     });
     const run = JSON.parse(getRes.body);
     expect(run.status).toBe("cancelled");
@@ -643,7 +699,7 @@ describe("Runs API", () => {
       workspace_id: "ws_limit_approved",
       task_msg: "Continue after limit approval",
       scopes: ["*"],
-      harness_options: { model_profile_key: "default" },
+      harness_options: { model_ref: "test/echo" },
       status: "waiting_approval",
       current_approval_id: approvalId,
       started_at: testNow(),

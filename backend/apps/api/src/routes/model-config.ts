@@ -124,20 +124,8 @@ function listDocumentPayloads<T>(kind: string, orgId: string): T[] {
   return getRuntime().store.listDocuments(kind, orgId).map((doc) => doc.payload as T);
 }
 
-function modelStoredKey(providerKey: string, key: string): string {
-  return modelRef(providerKey, key);
-}
-
-function publicModelKey(providerKey: string, storedKey: string): string {
-  const prefix = `${providerKey}/`;
-  return storedKey.startsWith(prefix) ? storedKey.slice(prefix.length) : storedKey;
-}
-
 function publicModel(model: ModelEntry): ModelEntry {
-  return {
-    ...model,
-    key: publicModelKey(model.provider_key, model.key),
-  };
+  return { ...model };
 }
 
 function providerByKey(orgId: string, providerKey: string, ownerUserId?: string): ModelProviderEntry | null {
@@ -147,11 +135,10 @@ function providerByKey(orgId: string, providerKey: string, ownerUserId?: string)
 }
 
 function modelByKey(orgId: string, providerKey: string, key: string, ownerUserId?: string): ModelEntry | null {
-  const storedKey = modelStoredKey(providerKey, key);
   return listDocumentPayloads<ModelEntry>("model_entry", orgId).find(
     (model) =>
       model.provider_key === providerKey &&
-      model.key === storedKey &&
+      model.key === key &&
       (!ownerUserId || model.owner_user_id === ownerUserId),
   ) ?? null;
 }
@@ -163,7 +150,7 @@ function modelsForProvider(orgId: string, providerKey: string, ownerUserId?: str
         model.provider_key === providerKey &&
         (!ownerUserId || model.owner_user_id === ownerUserId),
     )
-    .sort((a, b) => publicModelKey(providerKey, a.key).localeCompare(publicModelKey(providerKey, b.key)));
+    .sort((a, b) => a.key.localeCompare(b.key));
 }
 
 function resolveProviderSecret(input: any, orgId: string, providerKey: string, ownerUserId?: string) {
@@ -204,6 +191,84 @@ function parseModelRef(value: string): { providerKey: string; modelKey: string }
   return isValidModelKey(providerKey) && isValidModelKey(modelKey) ? { providerKey, modelKey } : null;
 }
 
+function stripKnownModelPrefix(value: string): string {
+  return value.replace(/^(custom|openai|anthropic|test):/, "").trim();
+}
+
+function slugifyKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "model";
+}
+
+function humanizeName(value: string): string {
+  return stripKnownModelPrefix(value).replace(/[-_]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function migrateLegacyModelProfilesForRequest(request: FastifyRequest): void {
+  const store = getRuntime().store;
+  const orgId = requestOrgId(request);
+  const ownerUserId = requestOwnerUserId(request);
+  const existing = store
+    .listDocuments("model_provider_entry", orgId)
+    .some((doc) => (doc.payload as any).owner_user_id === ownerUserId);
+  if (existing) return;
+
+  const profiles = store
+    .listDocuments("model_profile_entry", orgId)
+    .map((doc) => doc.payload as any)
+    .filter((profile) => profile.owner_user_id === ownerUserId && typeof profile.model === "string" && profile.model.trim());
+
+  for (const profile of profiles) {
+    const strippedModel = stripKnownModelPrefix(String(profile.model));
+    const providerKey =
+      profile.metadata?.compat === "deepseek"
+        ? "deepseek"
+        : slugifyKey(String(profile.provider ?? "custom"));
+    const providerId = idFor("model_provider", orgId, ownerUserId, providerKey);
+    if (!store.getDocument("model_provider_entry", providerId)) {
+      const timestamp = now();
+      store.upsertDocument("model_provider_entry", providerId, {
+        id: providerId,
+        org_id: orgId,
+        owner_user_id: ownerUserId,
+        key: providerKey,
+        name: providerKey === "deepseek" ? "DeepSeek" : humanizeName(providerKey),
+        kind:
+          profile.provider === "anthropic"
+            ? "anthropic"
+            : profile.provider === "test"
+              ? "test"
+              : "openai_compatible",
+        enabled: profile.enabled !== false,
+        base_url: profile.metadata?.base_url ?? null,
+        compat: profile.metadata?.compat ?? null,
+        auth_secret: profile.auth_secret ?? secretStatus(),
+        metadata: null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+    }
+
+    const modelKey = slugifyKey(strippedModel);
+    const timestamp = now();
+    store.upsertDocument("model_entry", idFor("model", orgId, ownerUserId, `${providerKey}/${modelKey}`), {
+      id: idFor("model", orgId, ownerUserId, `${providerKey}/${modelKey}`),
+      org_id: orgId,
+      owner_user_id: ownerUserId,
+      provider_key: providerKey,
+      key: modelKey,
+      name: profile.name ?? humanizeName(strippedModel),
+      provider_model_id: strippedModel,
+      enabled: profile.enabled !== false,
+      capabilities: profile.capabilities ?? { vision: false, thinking: false },
+      request: profile.metadata?.request ?? null,
+      cost_policy: profile.cost_policy ?? null,
+      selection_policy: profile.selection_policy ?? null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+  }
+}
+
 function requireValidProviderKey(request: FastifyRequest, reply: FastifyReply): string | null {
   const providerKey = params(request).provider_key;
   return isValidModelKey(providerKey) ? providerKey : badRequest(reply, "Invalid provider key") && null;
@@ -224,6 +289,7 @@ function providerWithModels(provider: ModelProviderEntry, orgId: string): ModelP
 }
 
 async function listProviders(request: FastifyRequest) {
+  migrateLegacyModelProfilesForRequest(request);
   const orgId = requestOrgId(request);
   const ownerUserId = ownerScopeForRequest(request);
   return listDocumentPayloads<ModelProviderEntry>("model_provider_entry", orgId)
@@ -320,7 +386,7 @@ async function deleteProvider(request: FastifyRequest, reply: FastifyReply) {
   if (!provider) return notFound(reply, "Model provider not found");
   const models = modelsForProvider(orgId, provider.key, ownerScope);
   for (const model of models) {
-    clearDefaultModelIfSelected(orgId, provider.owner_user_id, model.key);
+    clearDefaultModelIfSelected(orgId, provider.owner_user_id, modelRef(provider.key, model.key));
     getRuntime().store.deleteDocument("model_entry", model.id, documentWriteGuard(request));
   }
   getRuntime().store.deleteDocument("model_provider_entry", provider.id, documentWriteGuard(request));
@@ -349,11 +415,11 @@ async function createModel(request: FastifyRequest, reply: FastifyReply) {
   if (modelByKey(orgId, providerKey, key, ownerScope)) return conflict(reply, "Model already exists");
   const timestamp = now();
   const model: ModelEntry = {
-    id: idFor("model_entry", orgId, ownerScope, modelStoredKey(providerKey, key)),
+    id: idFor("model_entry", orgId, ownerScope, modelRef(providerKey, key)),
     org_id: orgId,
     owner_user_id: ownerUserId,
     provider_key: providerKey,
-    key: modelStoredKey(providerKey, key),
+    key,
     name: String(body.name ?? key),
     provider_model_id: String(body.provider_model_id ?? key),
     enabled: body.enabled ?? true,
@@ -424,7 +490,7 @@ async function deleteModel(request: FastifyRequest, reply: FastifyReply) {
   const orgId = requestOrgId(request);
   const model = modelByKey(orgId, providerKey, modelKey, ownerScopeForRequest(request));
   if (!model) return notFound(reply, "Model not found");
-  clearDefaultModelIfSelected(orgId, model.owner_user_id, modelStoredKey(providerKey, modelKey));
+  clearDefaultModelIfSelected(orgId, model.owner_user_id, modelRef(providerKey, modelKey));
   getRuntime().store.deleteDocument("model_entry", model.id, documentWriteGuard(request));
   return { deleted: true };
 }
@@ -452,9 +518,9 @@ async function setDefaultModel(request: FastifyRequest, reply: FastifyReply) {
   getRuntime().store.setSetting(
     orgId,
     defaultRefSettingKey(ownerScope),
-    modelStoredKey(parsed.providerKey, parsed.modelKey),
+    modelRef(parsed.providerKey, parsed.modelKey),
   );
-  return { model_ref: modelStoredKey(parsed.providerKey, parsed.modelKey) };
+  return { model_ref: modelRef(parsed.providerKey, parsed.modelKey) };
 }
 
 export function registerModelConfigRoutes(app: FastifyInstance): void {

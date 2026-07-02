@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createRuntime, getRuntime, resetRuntimeForTests } from "../../apps/api/src/runtime.js";
 import { registerApprovalRoutes } from "../../apps/api/src/routes/approvals.js";
 import { registerCompatRoutes } from "../../apps/api/src/routes/compat.js";
+import { registerModelConfigRoutes } from "../../apps/api/src/routes/model-config.js";
 import { registerRunRoutes } from "../../apps/api/src/routes/runs.js";
 import type { AgentRun } from "@aithru-agent/contracts";
 
@@ -319,6 +320,54 @@ describe("authenticated route resource access", () => {
     expect(store.getDocument("memory", "memory_foreign")).toBeDefined();
   });
 
+  it("migrates only the current user's legacy model profiles when listing model providers", async () => {
+    app = await appWithActor(registerModelConfigRoutes);
+    const timestamp = now();
+    const store = getRuntime().store;
+    store.upsertDocument("model_profile_entry", "profile_own", {
+      id: "profile_own",
+      org_id: "org_1",
+      owner_user_id: "user_1",
+      key: "own-profile",
+      name: "Own Profile",
+      provider: "test",
+      model: "test:echo",
+      enabled: true,
+      auth_secret: { has_secret: false, secret_ref: null, redacted: true },
+      metadata: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    store.upsertDocument("model_profile_entry", "profile_foreign_migrate", {
+      id: "profile_foreign_migrate",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      key: "foreign-profile",
+      name: "Foreign Profile",
+      provider: "test",
+      model: "test:echo",
+      enabled: true,
+      auth_secret: { has_secret: false, secret_ref: null, redacted: true },
+      metadata: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+
+    const response = await app.inject({ method: "GET", url: "/api/model-providers" });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual([
+      expect.objectContaining({
+        owner_user_id: "user_1",
+        key: "test",
+        models: [expect.objectContaining({ key: "echo", owner_user_id: "user_1" })],
+      }),
+    ]);
+    expect(
+      store.listDocuments("model_provider_entry", "org_1").filter((doc) => (doc.payload as any).owner_user_id === "user_2"),
+    ).toHaveLength(0);
+  });
+
   it("uses the current user's skill registry entry when another user has the same key", async () => {
     app = await appWithActor(registerCompatRoutes);
     const timestamp = now();
@@ -471,5 +520,13 @@ describe("authenticated route resource access", () => {
     expect(JSON.parse(profiles.body)[0]).toMatchObject({ org_id: "org_2" });
     expect(JSON.parse(skills.body).every((entry: any) => entry.org_id === "org_2")).toBe(true);
     expect(JSON.parse(external.body)[0]).toMatchObject({ org_id: "org_2" });
+  });
+
+  it("returns an empty model on the builtin default model profile", async () => {
+    app = await appWithActor(registerCompatRoutes);
+
+    const profiles = await app.inject({ method: "GET", url: "/api/model-profiles" });
+
+    expect(JSON.parse(profiles.body)[0]).toMatchObject({ key: "default", model: "" });
   });
 });

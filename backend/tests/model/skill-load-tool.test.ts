@@ -21,7 +21,7 @@ function createRun(): AgentRun {
     workspace_id: "ws_1",
     task_msg: "Research this",
     scopes: ["*"],
-    harness_options: { model_profile_key: "default" },
+    harness_options: { model_ref: "test/echo" },
     status: "queued",
     current_approval_id: null,
     started_at: "2026-01-01T00:00:00Z",

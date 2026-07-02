@@ -71,6 +71,41 @@ function runCreatedEventCount(): number {
     );
 }
 
+function seedTestModel(orgId = "org_1", ownerUserId = "user_1") {
+  const timestamp = new Date().toISOString().replace(/\.\d{3}/, "");
+  getRuntime().store.upsertDocument("model_provider_entry", `provider_${orgId}_${ownerUserId}_test`, {
+    id: `provider_${orgId}_${ownerUserId}_test`,
+    org_id: orgId,
+    owner_user_id: ownerUserId,
+    key: "test",
+    name: "Test",
+    kind: "test",
+    enabled: true,
+    base_url: null,
+    compat: null,
+    auth_secret: null,
+    metadata: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  });
+  getRuntime().store.upsertDocument("model_entry", `model_${orgId}_${ownerUserId}_test_echo`, {
+    id: `model_${orgId}_${ownerUserId}_test_echo`,
+    org_id: orgId,
+    owner_user_id: ownerUserId,
+    provider_key: "test",
+    key: "echo",
+    name: "Echo",
+    provider_model_id: "test",
+    enabled: true,
+    capabilities: { vision: false, thinking: false },
+    request: null,
+    cost_policy: null,
+    selection_policy: null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  });
+}
+
 describe("legacy OpenAPI compatibility", () => {
   let app: FastifyInstance;
 
@@ -145,19 +180,26 @@ describe("legacy OpenAPI compatibility", () => {
     throw new Error(`Timed out waiting for ${type}`);
   }
 
-  it("executes frontend chat runs that select a model profile", async () => {
-    const profile = await app.inject({
+  it("executes frontend chat runs that select a provider model ref", async () => {
+    const provider = await app.inject({
       method: "POST",
-      url: "/api/model-profiles",
+      url: "/api/model-providers",
+      payload: { key: "test", name: "Test", kind: "test", enabled: true },
+    });
+    expect(provider.statusCode).toBe(201);
+
+    const model = await app.inject({
+      method: "POST",
+      url: "/api/model-providers/test/models",
       payload: {
-        key: "test-chat",
-        name: "Test Chat",
-        provider: "test",
-        model: "test",
+        key: "echo",
+        name: "Echo",
+        provider_model_id: "test",
         enabled: true,
+        capabilities: { vision: false, thinking: false },
       },
     });
-    expect(profile.statusCode).toBe(201);
+    expect(model.statusCode).toBe(201);
 
     const created = await app.inject({
       method: "POST",
@@ -168,7 +210,7 @@ describe("legacy OpenAPI compatibility", () => {
         actor_user_id: "user_1",
         scopes: ["agent.workspace.read"],
         selected_skill_keys: null,
-        harness_options: { model_profile_key: "test-chat" },
+        harness_options: { model_ref: "test/echo" },
         wait_for_completion: false,
         persist_task_msg_message: true,
       },
@@ -193,16 +235,37 @@ describe("legacy OpenAPI compatibility", () => {
     expect(filtered.body).not.toContain('"sequence":1');
   });
 
-  it("does not let runs use model profiles owned by another user in the same org", async () => {
-    getRuntime().store.upsertDocument("model_profile_entry", "model_profile_foreign_runtime", {
-      id: "model_profile_foreign_runtime",
+  it("does not let runs use provider models owned by another user in the same org", async () => {
+    getRuntime().store.upsertDocument("model_provider_entry", "provider_foreign_runtime", {
+      id: "provider_foreign_runtime",
       org_id: "org_1",
       owner_user_id: "user_2",
-      key: "foreign-runtime-chat",
-      name: "Foreign Runtime Chat",
-      provider: "test",
-      model: "test",
+      key: "foreign",
+      name: "Foreign",
+      kind: "test",
       enabled: true,
+      base_url: null,
+      compat: null,
+      auth_secret: null,
+      metadata: null,
+      created_at: "2026-07-02T00:00:00Z",
+      updated_at: "2026-07-02T00:00:00Z",
+    });
+    getRuntime().store.upsertDocument("model_entry", "model_foreign_runtime", {
+      id: "model_foreign_runtime",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      provider_key: "foreign",
+      key: "echo",
+      name: "Echo",
+      provider_model_id: "test",
+      enabled: true,
+      capabilities: { vision: false, thinking: false },
+      request: null,
+      cost_policy: null,
+      selection_policy: null,
+      created_at: "2026-07-02T00:00:00Z",
+      updated_at: "2026-07-02T00:00:00Z",
     });
 
     const created = await app.inject({
@@ -214,7 +277,7 @@ describe("legacy OpenAPI compatibility", () => {
         actor_user_id: "user_1",
         scopes: ["agent.workspace.read"],
         selected_skill_keys: null,
-        harness_options: { model_profile_key: "foreign-runtime-chat" },
+        harness_options: { model_ref: "foreign/echo" },
         wait_for_completion: false,
         persist_task_msg_message: true,
       },
@@ -223,10 +286,11 @@ describe("legacy OpenAPI compatibility", () => {
     expect(created.statusCode).toBe(201);
     const run = JSON.parse(created.body);
     const events = await waitForRunEvents(run.id, "run.failed");
-    expect(events.find((event: any) => event.type === "run.failed")?.payload.error.code).toBe("MODEL_PROFILE_NOT_FOUND");
+    expect(events.find((event: any) => event.type === "run.failed")?.payload.error.code).toBe("MODEL_PROVIDER_NOT_FOUND");
   });
 
   it("streams events from create-run stream POST endpoints", async () => {
+    seedTestModel();
     const root = await app.inject({
       method: "POST",
       url: "/api/runs/stream",
@@ -235,7 +299,7 @@ describe("legacy OpenAPI compatibility", () => {
         org_id: "org_1",
         actor_user_id: "user_1",
         scopes: ["agent.workspace.read"],
-        harness_options: { model_profile_key: "default" },
+        harness_options: { model_ref: "test/echo" },
       },
     });
 
@@ -262,7 +326,7 @@ describe("legacy OpenAPI compatibility", () => {
         org_id: "org_1",
         actor_user_id: "user_1",
         scopes: ["agent.workspace.read"],
-        harness_options: { model_profile_key: "default" },
+        harness_options: { model_ref: "test/echo" },
         persist_task_msg_message: true,
       },
     });
@@ -284,6 +348,7 @@ describe("legacy OpenAPI compatibility", () => {
   });
 
   it("activates selected skills on compatibility create-run endpoints", async () => {
+    seedTestModel();
     const res = await app.inject({
       method: "POST",
       url: "/api/runs/wait",
@@ -292,7 +357,7 @@ describe("legacy OpenAPI compatibility", () => {
         org_id: "org_1",
         actor_user_id: "user_1",
         selected_skill_keys: ["surprise-me", "surprise-me"],
-        harness_options: { model_profile_key: "default" },
+        harness_options: { model_ref: "test/echo" },
       },
     });
 
@@ -310,6 +375,7 @@ describe("legacy OpenAPI compatibility", () => {
   });
 
   it("activates selected skills on threaded compatibility create-run endpoints", async () => {
+    seedTestModel();
     const res = await app.inject({
       method: "POST",
       url: "/api/threads/thread_selected_skill_create/runs",
@@ -318,7 +384,7 @@ describe("legacy OpenAPI compatibility", () => {
         org_id: "org_1",
         actor_user_id: "user_1",
         selected_skill_keys: ["surprise-me", "surprise-me"],
-        harness_options: { model_profile_key: "default" },
+        harness_options: { model_ref: "test/echo" },
         wait_for_completion: true,
       },
     });
@@ -414,6 +480,7 @@ describe("legacy OpenAPI compatibility", () => {
   });
 
   it("wakes up an existing queued frontend chat run when its stream is opened", async () => {
+    seedTestModel();
     const runtime = getRuntime();
     const run: AgentRun = {
       id: "run_stream_wakeup",
@@ -424,7 +491,7 @@ describe("legacy OpenAPI compatibility", () => {
       workspace_id: "ws_stream_wakeup",
       task_msg: "wake me",
       scopes: ["agent.workspace.read"],
-      harness_options: { model_profile_key: "test-chat" } as any,
+      harness_options: { model_ref: "test/echo" } as any,
       status: "queued",
       current_approval_id: null,
       started_at: "2026-01-01T00:00:00Z",
@@ -691,17 +758,25 @@ describe("legacy OpenAPI compatibility", () => {
   });
 
   it("cancel returns the updated run shape", async () => {
-    const created = await app.inject({
-      method: "POST",
-      url: "/api/runs",
-      payload: {
-        org_id: "org_1",
-        actor_user_id: "user_1",
-        source: "chat",
-        task_msg: "cancel me",
-      },
-    });
-    const run = JSON.parse(created.body);
+    const run: AgentRun = {
+      id: "run_cancel_shape",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_run_cancel_shape",
+      task_msg: "cancel me",
+      scopes: ["agent.workspace.read"],
+      harness_options: { model_ref: "test/echo" } as any,
+      status: "queued",
+      current_approval_id: null,
+      started_at: "2026-01-01T00:00:00Z",
+      completed_at: null,
+      claim: null,
+      result: null,
+      error: null,
+    };
+    getRuntime().store.createRun(run);
 
     const cancelled = await app.inject({
       method: "POST",

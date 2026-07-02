@@ -216,7 +216,6 @@ export const AgentMessageSchema = Type.Object({
 export const AgentRunHarnessOptionsSchema = Type.Object({
   model: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   model_ref: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  model_profile_key: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   mode: Type.Optional(
     Type.Union([
       Type.Literal("flash"),
