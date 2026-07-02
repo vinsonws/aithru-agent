@@ -11,7 +11,13 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
-import type { WorkspaceFile } from "./store.js";
+import type {
+  WorkspaceAccessGuard,
+  WorkspaceBinding,
+  WorkspaceFile,
+  WorkspaceListFilter,
+  WorkspaceWriteOptions,
+} from "./store.js";
 
 interface FileMeta {
   created_at: string;
@@ -40,13 +46,53 @@ function normalizeWorkspacePath(path: string): { path: string; relativePath: str
 export class FileWorkspaceStore {
   private root = mkdtempSync(join(tmpdir(), "aithru-workspaces-"));
   private meta = new Map<string, FileMeta>();
+  private workspaceMeta = new Map<string, WorkspaceBinding>();
+
+  bindWorkspace(workspaceId: string, binding: Omit<WorkspaceBinding, "workspace_id">): WorkspaceBinding {
+    const existing = this.workspaceMeta.get(workspaceId);
+    if (existing && existing.org_id !== binding.org_id) {
+      throw new Error(`Workspace ${workspaceId} already belongs to org ${existing.org_id}`);
+    }
+    const merged: WorkspaceBinding = {
+      workspace_id: workspaceId,
+      org_id: existing?.org_id ?? binding.org_id,
+      owner_user_id: existing?.owner_user_id ?? binding.owner_user_id ?? null,
+      thread_id: existing?.thread_id ?? binding.thread_id ?? null,
+    };
+    this.workspaceMeta.set(workspaceId, merged);
+    return merged;
+  }
+
+  getWorkspaceBinding(workspaceId: string): WorkspaceBinding | undefined {
+    return this.workspaceMeta.get(workspaceId);
+  }
+
+  canAccessWorkspace(workspaceId: string, guard: WorkspaceAccessGuard = {}): boolean {
+    if (!guard.orgId) return true;
+    const binding = this.workspaceMeta.get(workspaceId);
+    if (!binding) return false;
+    if (binding.org_id !== guard.orgId) return false;
+    if (guard.actorUserId && binding.owner_user_id && binding.owner_user_id !== guard.actorUserId) return false;
+    return true;
+  }
 
   writeFile(
     workspaceId: string,
     path: string,
     content: string,
-    options: { runId?: string | null } = {},
+    options: WorkspaceWriteOptions = {},
   ): WorkspaceFile {
+    if (options.orgId) {
+      this.bindWorkspace(workspaceId, {
+        org_id: options.orgId,
+        owner_user_id: options.ownerUserId ?? options.actorUserId ?? null,
+        thread_id: options.threadId ?? null,
+      });
+    }
+    this.assertWorkspaceAccess(workspaceId, {
+      orgId: options.orgId,
+      actorUserId: options.actorUserId ?? options.ownerUserId,
+    });
     const target = this.resolvePath(workspaceId, path);
     const existing = this.readFile(workspaceId, target.path);
     mkdirSync(dirname(target.fullPath), { recursive: true });
@@ -62,7 +108,8 @@ export class FileWorkspaceStore {
     return this.readFile(workspaceId, target.path)!;
   }
 
-  readFile(workspaceId: string, path: string): WorkspaceFile | undefined {
+  readFile(workspaceId: string, path: string, guard: WorkspaceAccessGuard = {}): WorkspaceFile | undefined {
+    if (!this.canAccessWorkspace(workspaceId, guard)) return undefined;
     const target = this.resolvePath(workspaceId, path);
     if (!existsSync(target.fullPath) || !statSync(target.fullPath).isFile()) {
       return undefined;
@@ -70,7 +117,8 @@ export class FileWorkspaceStore {
     return this.fileFromPath(workspaceId, target.path, target.fullPath);
   }
 
-  listWorkspaceFiles(workspaceId: string, filter: { runId?: string } = {}): WorkspaceFile[] {
+  listWorkspaceFiles(workspaceId: string, filter: WorkspaceListFilter = {}): WorkspaceFile[] {
+    if (!this.canAccessWorkspace(workspaceId, filter)) return [];
     const root = this.workspaceRootPath(workspaceId);
     if (!existsSync(root)) return [];
     return this.listFilePaths(root)
@@ -86,7 +134,8 @@ export class FileWorkspaceStore {
       .sort((a, b) => a.path.localeCompare(b.path));
   }
 
-  deleteFile(workspaceId: string, path: string): boolean {
+  deleteFile(workspaceId: string, path: string, guard: WorkspaceAccessGuard = {}): boolean {
+    if (!this.canAccessWorkspace(workspaceId, guard)) return false;
     const target = this.resolvePath(workspaceId, path);
     if (!existsSync(target.fullPath) || !statSync(target.fullPath).isFile()) {
       return false;
@@ -100,7 +149,8 @@ export class FileWorkspaceStore {
     rmSync(this.root, { recursive: true, force: true });
   }
 
-  getWorkspaceRoot(workspaceId: string): string {
+  getWorkspaceRoot(workspaceId: string, guard: WorkspaceAccessGuard = {}): string {
+    this.assertWorkspaceAccess(workspaceId, guard);
     const root = this.workspaceRootPath(workspaceId);
     mkdirSync(root, { recursive: true });
     return root;
@@ -110,8 +160,12 @@ export class FileWorkspaceStore {
     const content = readFileSync(fullPath, "utf8");
     const stat = statSync(fullPath);
     const meta = this.meta.get(this.metaKey(workspaceId, path));
+    const metaBinding = this.workspaceMeta.get(workspaceId);
     return {
       workspace_id: workspaceId,
+      org_id: metaBinding?.org_id ?? null,
+      owner_user_id: metaBinding?.owner_user_id ?? null,
+      thread_id: metaBinding?.thread_id ?? null,
       path,
       content,
       size: Buffer.byteLength(content, "utf8"),
@@ -135,6 +189,12 @@ export class FileWorkspaceStore {
 
   private workspaceRootPath(workspaceId: string): string {
     return join(this.root, workspaceDirName(workspaceId));
+  }
+
+  private assertWorkspaceAccess(workspaceId: string, guard: WorkspaceAccessGuard = {}): void {
+    if (!this.canAccessWorkspace(workspaceId, guard)) {
+      throw new Error(`Workspace ${workspaceId} is not accessible`);
+    }
   }
 
   private listFilePaths(root: string): string[] {

@@ -24,6 +24,7 @@ import {
   requestActorUserId,
   requestOrgId as platformRequestOrgId,
 } from "../platform-auth.js";
+import type { WorkspaceAccessGuard, WorkspaceWriteOptions } from "@aithru-agent/persistence";
 
 function now(): string {
   return new Date().toISOString().replace(/\.\d{3}/, "");
@@ -619,7 +620,8 @@ function workspaceFileWildcardTarget(request: FastifyRequest): {
 
 function applyWorkspaceFilePatch(request: FastifyRequest, reply: FastifyReply, workspaceId: string, path: string) {
   const runtime = getRuntime();
-  const file = runtime.store.readFile(workspaceId, path);
+  if (!canWriteWorkspace(request, workspaceId)) return forbidden(reply);
+  const file = runtime.store.readFile(workspaceId, path, workspaceGuard(request));
   if (!file) return notFound(reply, "Workspace file not found");
   const before = file.version;
   let content = file.content;
@@ -631,7 +633,7 @@ function applyWorkspaceFilePatch(request: FastifyRequest, reply: FastifyReply, w
     content = edit.replace_all ? content.split(search).join(replace) : content.replace(search, replace);
     replacements += 1;
   }
-  const updated = runtime.store.writeFile(workspaceId, path, content);
+  const updated = runtime.store.writeFile(workspaceId, path, content, workspaceWriteOptions(request));
   return {
     workspace_id: updated.workspace_id,
     path: updated.path,
@@ -652,7 +654,8 @@ function workspaceFileWildcardRequest(request: FastifyRequest, reply: FastifyRep
   const runtime = getRuntime();
 
   if (request.method === "GET") {
-    const file = runtime.store.readFile(target.workspaceId, target.path);
+    if (!canReadWorkspace(request, target.workspaceId)) return forbidden(reply);
+    const file = runtime.store.readFile(target.workspaceId, target.path, workspaceGuard(request));
     if (!file) return notFound(reply, "Workspace file not found");
     if (target.action === "content") {
       reply.header("content-type", workspaceContentTypeForPath(file.path));
@@ -673,20 +676,28 @@ function workspaceFileWildcardRequest(request: FastifyRequest, reply: FastifyRep
   }
 
   if (request.method === "PUT" && target.action === "read") {
+    if (!canWriteWorkspace(request, target.workspaceId)) return forbidden(reply);
     const body = (request.body ?? {}) as any;
-    const file = runtime.store.writeFile(target.workspaceId, target.path, String(body.content ?? ""));
+    const file = runtime.store.writeFile(
+      target.workspaceId,
+      target.path,
+      String(body.content ?? ""),
+      workspaceWriteOptions(request),
+    );
     return workspaceFile(file);
   }
 
   if (request.method === "DELETE" && target.action === "read") {
-    runtime.store.deleteFile(target.workspaceId, target.path);
+    if (!canWriteWorkspace(request, target.workspaceId)) return forbidden(reply);
+    runtime.store.deleteFile(target.workspaceId, target.path, workspaceGuard(request));
     return { path: target.path };
   }
 
   if (request.method === "POST") {
     if (target.action === "patch") return applyWorkspaceFilePatch(request, reply, target.workspaceId, target.path);
     if (target.action === "convert") {
-      const file = runtime.store.readFile(target.workspaceId, target.path);
+      if (!canReadWorkspace(request, target.workspaceId)) return forbidden(reply);
+      const file = runtime.store.readFile(target.workspaceId, target.path, workspaceGuard(request));
       if (!file) return notFound(reply, "Workspace file not found");
       return {
         workspace_id: file.workspace_id,
@@ -698,6 +709,7 @@ function workspaceFileWildcardRequest(request: FastifyRequest, reply: FastifyRep
       };
     }
     if (target.action === "promote") {
+      if (!canReadWorkspace(request, target.workspaceId)) return forbidden(reply);
       return {
         workspace_id: target.workspaceId,
         path: target.path,
@@ -709,9 +721,9 @@ function workspaceFileWildcardRequest(request: FastifyRequest, reply: FastifyRep
   return notFound(reply, "Workspace file not found");
 }
 
-function workspaceSnapshot(workspaceId: string) {
+function workspaceSnapshot(workspaceId: string, guard?: WorkspaceAccessGuard) {
   const runtime = getRuntime();
-  const files = runtime.store.listWorkspaceFiles(workspaceId).map(workspaceFile);
+  const files = runtime.store.listWorkspaceFiles(workspaceId, guard).map(workspaceFile);
   return {
     workspace_id: workspaceId,
     version: 1,
@@ -748,6 +760,36 @@ function requestOrgId(request: FastifyRequest, body?: any): string {
 
 function requestOwnerUserId(request: FastifyRequest, body?: any): string {
   return requestActorUserId(platformActorFromRequest(request), body);
+}
+
+function workspaceGuard(request: FastifyRequest): WorkspaceAccessGuard | undefined {
+  if (!platformActorFromRequest(request)) return undefined;
+  return {
+    orgId: requestOrgId(request),
+    actorUserId: requestOwnerUserId(request),
+  };
+}
+
+function workspaceWriteOptions(request: FastifyRequest): WorkspaceWriteOptions | undefined {
+  const guard = workspaceGuard(request);
+  if (!guard?.orgId) return undefined;
+  return {
+    orgId: guard.orgId,
+    actorUserId: guard.actorUserId,
+    ownerUserId: guard.actorUserId,
+  };
+}
+
+function canReadWorkspace(request: FastifyRequest, workspaceId: string): boolean {
+  const guard = workspaceGuard(request);
+  return !guard?.orgId || getRuntime().store.canAccessWorkspace(workspaceId, guard);
+}
+
+function canWriteWorkspace(request: FastifyRequest, workspaceId: string): boolean {
+  const guard = workspaceGuard(request);
+  if (!guard?.orgId) return true;
+  return !getRuntime().store.getWorkspaceBinding(workspaceId) ||
+    getRuntime().store.canAccessWorkspace(workspaceId, guard);
 }
 
 function documentWriteGuard(request: FastifyRequest, body?: any) {
@@ -1825,29 +1867,39 @@ export function registerCompatRoutes(app: FastifyInstance): void {
     return { action: "reset_cache", config, audit_event: { id: `audit_${nanoid(8)}`, action: "reset_cache", at: now(), actor_user_id: requestOwnerUserId(request) } };
   });
 
-  register(app, "GET", "/api/workspaces/:workspace_id/files", async (request: FastifyRequest) =>
-    getRuntime().store.listWorkspaceFiles(params(request).workspace_id).map(workspaceFile),
-  );
+  register(app, "GET", "/api/workspaces/:workspace_id/files", async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    return getRuntime().store.listWorkspaceFiles(workspaceId, workspaceGuard(request)).map(workspaceFile);
+  });
   register(app, "GET", "/api/workspaces/:workspace_id/files/:path", async (request: FastifyRequest, reply: FastifyReply) => {
-    const file = getRuntime().store.readFile(params(request).workspace_id, params(request).path);
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    const file = getRuntime().store.readFile(workspaceId, params(request).path, workspaceGuard(request));
     return file
       ? { path: file.path, content: file.content, media_type: workspaceMediaTypeForPath(file.path) }
       : notFound(reply, "Workspace file not found");
   });
   register(app, "GET", "/api/workspaces/:workspace_id/files/:path/content", async (request: FastifyRequest, reply: FastifyReply) => {
-    const file = getRuntime().store.readFile(params(request).workspace_id, params(request).path);
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    const file = getRuntime().store.readFile(workspaceId, params(request).path, workspaceGuard(request));
     if (!file) return notFound(reply, "Workspace file not found");
     reply.header("content-type", workspaceContentTypeForPath(file.path));
     return file.content;
   });
   register(app, "GET", "/api/workspaces/:workspace_id/files/:path/download", async (request: FastifyRequest, reply: FastifyReply) => {
-    const file = getRuntime().store.readFile(params(request).workspace_id, params(request).path);
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    const file = getRuntime().store.readFile(workspaceId, params(request).path, workspaceGuard(request));
     if (!file) return notFound(reply, "Workspace file not found");
     reply.header("content-type", "application/octet-stream");
     return file.content;
   });
   register(app, "GET", "/api/workspaces/:workspace_id/files/:path/versions", async (request: FastifyRequest, reply: FastifyReply) => {
-    const file = getRuntime().store.readFile(params(request).workspace_id, params(request).path);
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    const file = getRuntime().store.readFile(workspaceId, params(request).path, workspaceGuard(request));
     if (!file) return notFound(reply, "Workspace file not found");
     return [{
       ...workspaceFile(file),
@@ -1855,24 +1907,31 @@ export function registerCompatRoutes(app: FastifyInstance): void {
       created_at: file.created_at,
     }];
   });
-  register(app, "PUT", "/api/workspaces/:workspace_id/files/:path", async (request: FastifyRequest) => {
+  register(app, "PUT", "/api/workspaces/:workspace_id/files/:path", async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = params(request).workspace_id;
+    if (!canWriteWorkspace(request, workspaceId)) return forbidden(reply);
     const body = (request.body ?? {}) as any;
     const file = getRuntime().store.writeFile(
-      params(request).workspace_id,
+      workspaceId,
       params(request).path,
       String(body.content ?? ""),
+      workspaceWriteOptions(request),
     );
     return workspaceFile(file);
   });
-  register(app, "DELETE", "/api/workspaces/:workspace_id/files/:path", async (request: FastifyRequest) => {
-    getRuntime().store.deleteFile(params(request).workspace_id, params(request).path);
+  register(app, "DELETE", "/api/workspaces/:workspace_id/files/:path", async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = params(request).workspace_id;
+    if (!canWriteWorkspace(request, workspaceId)) return forbidden(reply);
+    getRuntime().store.deleteFile(workspaceId, params(request).path, workspaceGuard(request));
     return { path: params(request).path };
   });
   register(app, "POST", "/api/workspaces/:workspace_id/files/:path/patch", async (request: FastifyRequest, reply: FastifyReply) => {
     return applyWorkspaceFilePatch(request, reply, params(request).workspace_id, params(request).path);
   });
   register(app, "POST", "/api/workspaces/:workspace_id/files/:path/convert", async (request: FastifyRequest, reply: FastifyReply) => {
-    const file = getRuntime().store.readFile(params(request).workspace_id, params(request).path);
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    const file = getRuntime().store.readFile(workspaceId, params(request).path, workspaceGuard(request));
     if (!file) return notFound(reply, "Workspace file not found");
     return {
       workspace_id: file.workspace_id,
@@ -1883,22 +1942,28 @@ export function registerCompatRoutes(app: FastifyInstance): void {
       skipped: true,
     };
   });
-  register(app, "POST", "/api/workspaces/:workspace_id/files/:path/promote", async (request: FastifyRequest) => ({
-    workspace_id: params(request).workspace_id,
-    path: params(request).path,
-    promoted: false,
-  }));
+  register(app, "POST", "/api/workspaces/:workspace_id/files/:path/promote", async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    return {
+      workspace_id: workspaceId,
+      path: params(request).path,
+      promoted: false,
+    };
+  });
   register(app, "GET", "/api/workspaces/:workspace_id/files/*", workspaceFileWildcardRequest);
   register(app, "PUT", "/api/workspaces/:workspace_id/files/*", workspaceFileWildcardRequest);
   register(app, "DELETE", "/api/workspaces/:workspace_id/files/*", workspaceFileWildcardRequest);
   register(app, "POST", "/api/workspaces/:workspace_id/files/*", workspaceFileWildcardRequest);
-  register(app, "POST", "/api/workspaces/:workspace_id/uploads", async (request: FastifyRequest) => {
+  register(app, "POST", "/api/workspaces/:workspace_id/uploads", async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = params(request).workspace_id;
+    if (!canWriteWorkspace(request, workspaceId)) return forbidden(reply);
     const body = (request.body ?? {}) as any;
     const path = String(body.path ?? `upload_${nanoid(8)}.txt`);
     const content = body.content_base64
       ? Buffer.from(String(body.content_base64), "base64").toString("utf8")
       : "";
-    const file = getRuntime().store.writeFile(params(request).workspace_id, path, content);
+    const file = getRuntime().store.writeFile(workspaceId, path, content, workspaceWriteOptions(request));
     return {
       workspace_id: file.workspace_id,
       path: file.path,
@@ -1911,24 +1976,36 @@ export function registerCompatRoutes(app: FastifyInstance): void {
       conversion: null,
     };
   });
-  register(app, "GET", "/api/workspaces/:workspace_id/snapshot", async (request: FastifyRequest) =>
-    workspaceSnapshot(params(request).workspace_id),
-  );
-  register(app, "GET", "/api/workspaces/:workspace_id/diff", async (request: FastifyRequest) => ({
-    workspace_id: params(request).workspace_id,
-    changes: [],
-  }));
-  register(app, "POST", "/api/workspaces/:workspace_id/restore", async (request: FastifyRequest) => ({
-    workspace_id: params(request).workspace_id,
-    target_version: Number(((request.body ?? {}) as any).version ?? 1),
-    restored_version: 1,
-    changes: [],
-    restored_count: 0,
-    deleted_count: 0,
-    unchanged_count: 0,
-  }));
+  register(app, "GET", "/api/workspaces/:workspace_id/snapshot", async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    return workspaceSnapshot(workspaceId, workspaceGuard(request));
+  });
+  register(app, "GET", "/api/workspaces/:workspace_id/diff", async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    return {
+      workspace_id: workspaceId,
+      changes: [],
+    };
+  });
+  register(app, "POST", "/api/workspaces/:workspace_id/restore", async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = params(request).workspace_id;
+    if (!canWriteWorkspace(request, workspaceId)) return forbidden(reply);
+    return {
+      workspace_id: workspaceId,
+      target_version: Number(((request.body ?? {}) as any).version ?? 1),
+      restored_version: 1,
+      changes: [],
+      restored_count: 0,
+      deleted_count: 0,
+      unchanged_count: 0,
+    };
+  });
   register(app, "GET", "/api/workspaces/:workspace_id/images/:path/view", async (request: FastifyRequest, reply: FastifyReply) => {
-    const file = getRuntime().store.readFile(params(request).workspace_id, params(request).path);
+    const workspaceId = params(request).workspace_id;
+    if (!canReadWorkspace(request, workspaceId)) return forbidden(reply);
+    const file = getRuntime().store.readFile(workspaceId, params(request).path, workspaceGuard(request));
     if (!file) return notFound(reply, "Workspace file not found");
     return {
       workspace_id: file.workspace_id,

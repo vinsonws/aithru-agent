@@ -13,17 +13,24 @@ import { AgentEventWriter, EVENT_TYPES, VISIBILITY } from "@aithru-agent/stream"
 const PREFERRED_VIEWS = ["html_preview", "markdown", "json", "image", "pdf", "source_text", "download"];
 
 interface CapabilityStore {
-  listWorkspaceFiles(workspaceId: string): Array<{ path: string; size: number }>;
+  listWorkspaceFiles(
+    workspaceId: string,
+    filter?: { runId?: string; orgId?: string | null; actorUserId?: string | null },
+  ): Array<{ path: string; size: number }>;
   listEvents(runId: string): AgentStreamEvent[];
-  readFile(workspaceId: string, path: string): { path: string; content: string } | undefined;
+  readFile(
+    workspaceId: string,
+    path: string,
+    guard?: { orgId?: string | null; actorUserId?: string | null },
+  ): { path: string; content: string } | undefined;
   writeFile(
     workspaceId: string,
     path: string,
     content: string,
-    options?: { runId?: string | null },
+    options?: { runId?: string | null; orgId?: string | null; ownerUserId?: string | null; threadId?: string | null },
   ): { path: string; version: number };
-  deleteFile(workspaceId: string, path: string): boolean;
-  getWorkspaceRoot(workspaceId: string): string;
+  deleteFile(workspaceId: string, path: string, guard?: { orgId?: string | null; actorUserId?: string | null }): boolean;
+  getWorkspaceRoot(workspaceId: string, guard?: { orgId?: string | null; actorUserId?: string | null }): string;
   createTodo(todo: {
     id: string;
     run_id: string;
@@ -449,19 +456,26 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
   private async _execute(req: AgentToolCallRequest, ctx: RunContext): Promise<unknown> {
     const input = req.input as Record<string, any>;
     const run = ctx.run;
+    const workspaceGuard = { orgId: run.org_id, actorUserId: run.actor_user_id };
+    const workspaceWriteOptions = {
+      runId: run.id,
+      orgId: run.org_id,
+      ownerUserId: run.actor_user_id,
+      threadId: run.thread_id,
+    };
 
     switch (req.name) {
       case "workspace.list_files": {
-        const files = this.store.listWorkspaceFiles(run.workspace_id);
+        const files = this.store.listWorkspaceFiles(run.workspace_id, workspaceGuard);
         return { files: files.map((f) => ({ path: f.path, size: f.size })) };
       }
       case "workspace.read_file": {
-        const file = this.store.readFile(run.workspace_id, input.path);
+        const file = this.store.readFile(run.workspace_id, input.path, workspaceGuard);
         if (!file) throw new Error(`File not found: ${input.path}`);
         return { path: file.path, content: file.content };
       }
       case "workspace.write_file": {
-        const file = this.store.writeFile(run.workspace_id, input.path, input.content, { runId: run.id });
+        const file = this.store.writeFile(run.workspace_id, input.path, input.content, workspaceWriteOptions);
         if (shouldAutoPresentWrittenFile(run.task_msg, file.path)) {
           this.presentWorkspaceFile(
             req,
@@ -475,14 +489,14 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
         return { path: file.path, version: file.version, ...(preferredView ? { preferred_view: preferredView } : {}) };
       }
       case "workspace.patch_file": {
-        const file = this.store.readFile(run.workspace_id, input.path);
+        const file = this.store.readFile(run.workspace_id, input.path, workspaceGuard);
         if (!file) throw new Error(`File not found: ${input.path}`);
         const newContent = file.content.replace(input.old_text, input.new_text);
-        this.store.writeFile(run.workspace_id, input.path, newContent, { runId: run.id });
+        this.store.writeFile(run.workspace_id, input.path, newContent, workspaceWriteOptions);
         return { path: input.path, patched: true };
       }
       case "workspace.delete_file": {
-        const deleted = this.store.deleteFile(run.workspace_id, input.path);
+        const deleted = this.store.deleteFile(run.workspace_id, input.path, workspaceGuard);
         return { path: input.path, deleted };
       }
       case "todo.create": {
@@ -548,7 +562,7 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
         if ((code ? 1 : 0) + (command ? 1 : 0) !== 1) {
           throw new Error("Provide exactly one of code or command.");
         }
-        const result = await this.sandboxExecutorForWorkspace(run.workspace_id).execute({
+        const result = await this.sandboxExecutorForWorkspace(run).execute({
           runtime: optionalSandboxRuntime(input.runtime) ?? "auto",
           ...(code ? { code } : { command: command! }),
           cwd: optionalString(input.cwd),
@@ -650,8 +664,11 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     return this.providers.webProvider;
   }
 
-  private sandboxExecutorForWorkspace(workspaceId: string): SandboxExecutor {
-    const workspaceRoot = this.store.getWorkspaceRoot(workspaceId);
+  private sandboxExecutorForWorkspace(run: RunContext["run"]): SandboxExecutor {
+    const workspaceRoot = this.store.getWorkspaceRoot(run.workspace_id, {
+      orgId: run.org_id,
+      actorUserId: run.actor_user_id,
+    });
     return this.providers.sandboxExecutorFactory?.(workspaceRoot)
       ?? new SandboxExecutor({ workspaceRoot });
   }
@@ -675,7 +692,10 @@ export class ProductionCapabilityRouter implements CapabilityRouter {
     const kind = optionalString(resource.kind) ?? "workspace_file";
     if (kind !== "workspace_file") throw new Error(`Unsupported presentation resource: ${kind}`);
     const requestedPath = requiredString(resource.path, "path");
-    const file = this.store.readFile(run.workspace_id, requestedPath);
+    const file = this.store.readFile(run.workspace_id, requestedPath, {
+      orgId: run.org_id,
+      actorUserId: run.actor_user_id,
+    });
     if (!file) throw new Error(`File not found: ${requestedPath}`);
 
     const availableViews = viewsForPath(file.path);

@@ -8,6 +8,9 @@ import { FileWorkspaceStore } from "./workspace-files.js";
 
 export interface WorkspaceFile {
   workspace_id: string;
+  org_id?: string | null;
+  owner_user_id?: string | null;
+  thread_id?: string | null;
   path: string;
   content: string;
   size: number;
@@ -16,6 +19,28 @@ export interface WorkspaceFile {
   last_modified_by_run_id?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkspaceBinding {
+  workspace_id: string;
+  org_id: string;
+  owner_user_id?: string | null;
+  thread_id?: string | null;
+}
+
+export interface WorkspaceAccessGuard {
+  orgId?: string | null;
+  actorUserId?: string | null;
+}
+
+export interface WorkspaceWriteOptions extends WorkspaceAccessGuard {
+  runId?: string | null;
+  ownerUserId?: string | null;
+  threadId?: string | null;
+}
+
+export interface WorkspaceListFilter extends WorkspaceAccessGuard {
+  runId?: string;
 }
 
 export interface AgentTodo {
@@ -100,6 +125,11 @@ export class InMemoryStore {
 
   createThread(thread: AgentThread): AgentThread {
     this.threads.set(thread.id, thread);
+    this.bindWorkspace(workspaceIdForThread(thread.id), {
+      org_id: thread.org_id,
+      owner_user_id: thread.owner_user_id,
+      thread_id: thread.id,
+    });
     return thread;
   }
 
@@ -152,6 +182,12 @@ export class InMemoryStore {
 
   createRun(run: AgentRun): AgentRun {
     this.runs.set(run.id, run);
+    const thread = run.thread_id ? this.getThread(run.thread_id) : undefined;
+    this.bindWorkspace(run.workspace_id, {
+      org_id: run.org_id,
+      owner_user_id: thread?.owner_user_id ?? run.actor_user_id,
+      thread_id: run.thread_id,
+    });
     return run;
   }
 
@@ -206,25 +242,37 @@ export class InMemoryStore {
     workspaceId: string,
     path: string,
     content: string,
-    options?: { runId?: string | null },
+    options?: WorkspaceWriteOptions,
   ): WorkspaceFile {
     return this.workspaceFiles.writeFile(workspaceId, path, content, options);
   }
 
-  readFile(workspaceId: string, path: string): WorkspaceFile | undefined {
-    return this.workspaceFiles.readFile(workspaceId, path);
+  readFile(workspaceId: string, path: string, guard?: WorkspaceAccessGuard): WorkspaceFile | undefined {
+    return this.workspaceFiles.readFile(workspaceId, path, guard);
   }
 
-  listWorkspaceFiles(workspaceId: string, filter?: { runId?: string }): WorkspaceFile[] {
+  listWorkspaceFiles(workspaceId: string, filter?: WorkspaceListFilter): WorkspaceFile[] {
     return this.workspaceFiles.listWorkspaceFiles(workspaceId, filter);
   }
 
-  deleteFile(workspaceId: string, path: string): boolean {
-    return this.workspaceFiles.deleteFile(workspaceId, path);
+  deleteFile(workspaceId: string, path: string, guard?: WorkspaceAccessGuard): boolean {
+    return this.workspaceFiles.deleteFile(workspaceId, path, guard);
   }
 
-  getWorkspaceRoot(workspaceId: string): string {
-    return this.workspaceFiles.getWorkspaceRoot(workspaceId);
+  getWorkspaceRoot(workspaceId: string, guard?: WorkspaceAccessGuard): string {
+    return this.workspaceFiles.getWorkspaceRoot(workspaceId, guard);
+  }
+
+  bindWorkspace(workspaceId: string, binding: Omit<WorkspaceBinding, "workspace_id">): WorkspaceBinding {
+    return this.workspaceFiles.bindWorkspace(workspaceId, binding);
+  }
+
+  getWorkspaceBinding(workspaceId: string): WorkspaceBinding | undefined {
+    return this.workspaceFiles.getWorkspaceBinding(workspaceId);
+  }
+
+  canAccessWorkspace(workspaceId: string, guard?: WorkspaceAccessGuard): boolean {
+    return this.workspaceFiles.canAccessWorkspace(workspaceId, guard);
   }
 
   // ── Todos ─────────────────────────────────────────────────────────
@@ -476,4 +524,8 @@ export class InMemoryStore {
   private todoScopeKey(runId: string): string {
     return this.getRun(runId)?.thread_id ?? runId;
   }
+}
+
+function workspaceIdForThread(threadId: string): string {
+  return `ws_thread_${threadId}`;
 }

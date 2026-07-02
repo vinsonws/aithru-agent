@@ -6,6 +6,10 @@ import type {
 } from "@aithru-agent/contracts";
 import type {
   WorkspaceFile,
+  WorkspaceAccessGuard,
+  WorkspaceBinding,
+  WorkspaceListFilter,
+  WorkspaceWriteOptions,
   AgentTodo,
   AgentApproval,
   AgentDocument,
@@ -41,12 +45,15 @@ export interface AgentStore {
     workspaceId: string,
     path: string,
     content: string,
-    options?: { runId?: string | null },
+    options?: WorkspaceWriteOptions,
   ): WorkspaceFile;
-  readFile(workspaceId: string, path: string): WorkspaceFile | undefined;
-  listWorkspaceFiles(workspaceId: string, filter?: { runId?: string }): WorkspaceFile[];
-  deleteFile(workspaceId: string, path: string): boolean;
-  getWorkspaceRoot(workspaceId: string): string;
+  readFile(workspaceId: string, path: string, guard?: WorkspaceAccessGuard): WorkspaceFile | undefined;
+  listWorkspaceFiles(workspaceId: string, filter?: WorkspaceListFilter): WorkspaceFile[];
+  deleteFile(workspaceId: string, path: string, guard?: WorkspaceAccessGuard): boolean;
+  getWorkspaceRoot(workspaceId: string, guard?: WorkspaceAccessGuard): string;
+  bindWorkspace(workspaceId: string, binding: Omit<WorkspaceBinding, "workspace_id">): WorkspaceBinding;
+  getWorkspaceBinding(workspaceId: string): WorkspaceBinding | undefined;
+  canAccessWorkspace(workspaceId: string, guard?: WorkspaceAccessGuard): boolean;
 
   // Todos
   createTodo(todo: AgentTodo): AgentTodo;

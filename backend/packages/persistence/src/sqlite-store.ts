@@ -11,6 +11,10 @@ import type {
 } from "@aithru-agent/contracts";
 import type {
   WorkspaceFile,
+  WorkspaceAccessGuard,
+  WorkspaceBinding,
+  WorkspaceListFilter,
+  WorkspaceWriteOptions,
   AgentTodo,
   AgentApproval,
   AgentDocument,
@@ -77,6 +81,10 @@ function validateSecretRef(secretRef: string): void {
   }
 }
 
+function workspaceIdForThread(threadId: string): string {
+  return `ws_thread_${threadId}`;
+}
+
 export class SqliteStore implements AgentStore {
   private closed = false;
   private workspaceFiles = new FileWorkspaceStore();
@@ -140,6 +148,11 @@ export class SqliteStore implements AgentStore {
         thread.updated_at,
       ],
     );
+    this.bindWorkspace(workspaceIdForThread(thread.id), {
+      org_id: thread.org_id,
+      owner_user_id: thread.owner_user_id,
+      thread_id: thread.id,
+    });
     return thread;
   }
 
@@ -257,6 +270,12 @@ export class SqliteStore implements AgentStore {
         jsonOrNull(run.error),
       ],
     );
+    const thread = run.thread_id ? this.getThread(run.thread_id) : undefined;
+    this.bindWorkspace(run.workspace_id, {
+      org_id: run.org_id,
+      owner_user_id: thread?.owner_user_id ?? run.actor_user_id,
+      thread_id: run.thread_id,
+    });
     return run;
   }
 
@@ -367,25 +386,37 @@ export class SqliteStore implements AgentStore {
     workspaceId: string,
     path: string,
     content: string,
-    options?: { runId?: string | null },
+    options?: WorkspaceWriteOptions,
   ): WorkspaceFile {
     return this.workspaceFiles.writeFile(workspaceId, path, content, options);
   }
 
-  readFile(workspaceId: string, path: string): WorkspaceFile | undefined {
-    return this.workspaceFiles.readFile(workspaceId, path);
+  readFile(workspaceId: string, path: string, guard?: WorkspaceAccessGuard): WorkspaceFile | undefined {
+    return this.workspaceFiles.readFile(workspaceId, path, guard);
   }
 
-  listWorkspaceFiles(workspaceId: string, filter?: { runId?: string }): WorkspaceFile[] {
+  listWorkspaceFiles(workspaceId: string, filter?: WorkspaceListFilter): WorkspaceFile[] {
     return this.workspaceFiles.listWorkspaceFiles(workspaceId, filter);
   }
 
-  deleteFile(workspaceId: string, path: string): boolean {
-    return this.workspaceFiles.deleteFile(workspaceId, path);
+  deleteFile(workspaceId: string, path: string, guard?: WorkspaceAccessGuard): boolean {
+    return this.workspaceFiles.deleteFile(workspaceId, path, guard);
   }
 
-  getWorkspaceRoot(workspaceId: string): string {
-    return this.workspaceFiles.getWorkspaceRoot(workspaceId);
+  getWorkspaceRoot(workspaceId: string, guard?: WorkspaceAccessGuard): string {
+    return this.workspaceFiles.getWorkspaceRoot(workspaceId, guard);
+  }
+
+  bindWorkspace(workspaceId: string, binding: Omit<WorkspaceBinding, "workspace_id">): WorkspaceBinding {
+    return this.workspaceFiles.bindWorkspace(workspaceId, binding);
+  }
+
+  getWorkspaceBinding(workspaceId: string): WorkspaceBinding | undefined {
+    return this.workspaceFiles.getWorkspaceBinding(workspaceId);
+  }
+
+  canAccessWorkspace(workspaceId: string, guard?: WorkspaceAccessGuard): boolean {
+    return this.workspaceFiles.canAccessWorkspace(workspaceId, guard);
   }
 
   // ── Todos ────────────────────────────────────────────────────────────

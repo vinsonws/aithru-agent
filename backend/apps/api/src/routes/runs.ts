@@ -239,7 +239,11 @@ export function registerRunRoutes(app: FastifyInstance): void {
       }
       const denied = authorizeRun(reply, platformActorFromRequest(request), run);
       if (denied) return denied;
-      return runtime.store.listWorkspaceFiles(run.workspace_id, { runId: run.id }).map((file) => ({
+      return runtime.store.listWorkspaceFiles(run.workspace_id, {
+        runId: run.id,
+        orgId: run.org_id,
+        actorUserId: run.actor_user_id,
+      }).map((file) => ({
         workspace_id: file.workspace_id,
         path: file.path,
         size: file.size,

@@ -10,7 +10,14 @@ const actor = {
   actorType: "user" as const,
   userId: "user_1",
   orgId: "org_1",
-  scopes: ["agent.app.runs.read", "agent.app.runs.execute", "agent.app.runs.cancel", "agent.app.approvals.resolve"],
+  scopes: [
+    "agent.app.runs.read",
+    "agent.app.runs.execute",
+    "agent.app.runs.cancel",
+    "agent.app.approvals.resolve",
+    "agent.app.workspaces.read",
+    "agent.app.workspaces.write",
+  ],
   roles: [],
   tokenType: "hosted_access" as const,
   claims: {},
@@ -148,6 +155,37 @@ describe("authenticated route resource access", () => {
 
     expect(response.statusCode).toBe(403);
     expect(getRuntime().store.getApproval("approval_foreign")?.status).toBe("pending");
+  });
+
+  it("rejects direct workspace file access for another user's workspace", async () => {
+    app = await appWithActor(registerCompatRoutes);
+    const store = getRuntime().store;
+    store.createThread({
+      id: "thread_foreign",
+      org_id: "org_1",
+      owner_user_id: "user_2",
+      title: "Foreign",
+      status: "active",
+      created_at: now(),
+      updated_at: now(),
+    });
+    store.createRun(run("run_foreign"));
+    store.writeFile("ws_thread_thread_foreign", "/secret.txt", "private");
+
+    const list = await app.inject({ method: "GET", url: "/api/workspaces/ws_thread_thread_foreign/files" });
+    const read = await app.inject({ method: "GET", url: "/api/workspaces/ws_thread_thread_foreign/files/secret.txt" });
+    const write = await app.inject({
+      method: "PUT",
+      url: "/api/workspaces/ws_thread_thread_foreign/files/secret.txt",
+      payload: { content: "changed" },
+    });
+    const remove = await app.inject({ method: "DELETE", url: "/api/workspaces/ws_thread_thread_foreign/files/secret.txt" });
+
+    expect(list.statusCode).toBe(403);
+    expect(read.statusCode).toBe(403);
+    expect(write.statusCode).toBe(403);
+    expect(remove.statusCode).toBe(403);
+    expect(store.readFile("ws_thread_thread_foreign", "/secret.txt")?.content).toBe("private");
   });
 
   it("rejects compat document mutations for resources owned by another user in the same org", async () => {

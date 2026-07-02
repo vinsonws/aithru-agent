@@ -601,6 +601,39 @@ describe("SqliteStore", () => {
     );
   });
 
+  it("guards workspace files by workspace binding", () => {
+    store.createRun({
+      id: "run_workspace_binding",
+      org_id: "org_1",
+      actor_user_id: "user_1",
+      source: "chat",
+      thread_id: null,
+      workspace_id: "ws_bound",
+      task_msg: "own workspace",
+      scopes: ["*"],
+      harness_options: null,
+      status: "queued",
+      started_at: "2026-01-01T00:00:00Z",
+      completed_at: null,
+      current_approval_id: null,
+      claim: null,
+      result: null,
+      error: null,
+    });
+    const file = store.writeFile("ws_bound", "/owned.txt", "secret", {
+      orgId: "org_1",
+      ownerUserId: "user_1",
+      runId: "run_workspace_binding",
+    });
+
+    expect(file.org_id).toBe("org_1");
+    expect(store.readFile("ws_bound", "/owned.txt", { orgId: "org_1", actorUserId: "user_1" })?.content).toBe("secret");
+    expect(store.readFile("ws_bound", "/owned.txt", { orgId: "org_1", actorUserId: "user_2" })).toBeUndefined();
+    expect(store.listWorkspaceFiles("ws_bound", { orgId: "org_2" })).toEqual([]);
+    expect(store.deleteFile("ws_bound", "/owned.txt", { orgId: "org_1", actorUserId: "user_2" })).toBe(false);
+    expect(store.readFile("ws_bound", "/owned.txt", { orgId: "org_1", actorUserId: "user_1" })?.content).toBe("secret");
+  });
+
   it("manages todos as thread state", () => {
     const thread = {
       id: "thread_todos",
