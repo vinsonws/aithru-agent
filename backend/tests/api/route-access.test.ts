@@ -118,6 +118,16 @@ describe("authenticated route resource access", () => {
     expect(getRuntime().store.getRun("run_foreign")?.status).toBe("queued");
   });
 
+  it("scopes runtime cancellation by org", async () => {
+    await createRuntime();
+    const runtime = getRuntime();
+    runtime.store.createRun(run("run_runtime_cancel", "user_1"));
+
+    expect(runtime.cancelRun("run_runtime_cancel", "org_2")).toBeUndefined();
+    expect(runtime.store.getRun("run_runtime_cancel")?.status).toBe("queued");
+    expect(runtime.cancelRun("run_runtime_cancel", "org_1")?.status).toBe("cancelled");
+  });
+
   it("rejects resolving another user's approval before changing approval status", async () => {
     app = await appWithActor(registerApprovalRoutes);
     getRuntime().store.createRun(run("run_approval"));

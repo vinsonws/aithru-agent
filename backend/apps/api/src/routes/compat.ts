@@ -191,7 +191,7 @@ function cancelRun(runId: string, request: FastifyRequest, reply: FastifyReply) 
   const run = runtime.store.getRun(runId);
   if (!run) return notFound(reply, "Run not found");
   if (!actorCanAccessOwnedResource(platformActorFromRequest(request), run)) return forbidden(reply);
-  return runtime.cancelRun(runId) ?? notFound(reply, "Run not found");
+  return runtime.cancelRun(runId, run.org_id) ?? notFound(reply, "Run not found");
 }
 
 async function submitRunInput(

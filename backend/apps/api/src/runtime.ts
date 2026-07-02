@@ -28,7 +28,7 @@ export interface AgentRuntime {
     run: AgentRun | string,
     options?: ScheduleRunExecutionOptions,
   ) => Promise<AgentRun | undefined>;
-  cancelRun: (runId: string) => AgentRun | undefined;
+  cancelRun: (runId: string, orgId: string) => AgentRun | undefined;
   resolveApproval: (approvalId: string, decision: "approved" | "denied") => Promise<AgentApproval>;
 }
 
@@ -360,7 +360,15 @@ function createRunScheduler(deps: {
   capabilityRouter: ProductionCapabilityRouter;
   skillResolver: SkillResolver;
 }) {
-  const activeRuns = new Map<string, { promise: Promise<AgentRun | undefined>; abortController: AbortController }>();
+  const activeRuns = new Map<string, Map<string, { promise: Promise<AgentRun | undefined>; abortController: AbortController }>>();
+
+  const runsForOrg = (orgId: string) => {
+    const existing = activeRuns.get(orgId);
+    if (existing) return existing;
+    const runs = new Map<string, { promise: Promise<AgentRun | undefined>; abortController: AbortController }>();
+    activeRuns.set(orgId, runs);
+    return runs;
+  };
 
   const failRun = (run: AgentRun, err: unknown): AgentRun | undefined => {
     const current = deps.store.getRun(run.id);
@@ -407,19 +415,23 @@ function createRunScheduler(deps: {
     if (!run || !modelProfileKey(run)) return Promise.resolve(run);
     if (run.status !== "queued") return Promise.resolve(run);
 
-    const existing = activeRuns.get(runId);
+    const orgRuns = runsForOrg(run.org_id);
+    const existing = orgRuns.get(runId);
     if (existing) return options.wait ? existing.promise : Promise.resolve(deps.store.getRun(runId));
 
     const abortController = new AbortController();
-    const task = execute(runId, options.toolResults ?? [], abortController.signal).finally(() => activeRuns.delete(runId));
-    activeRuns.set(runId, { promise: task, abortController });
+    const task = execute(runId, options.toolResults ?? [], abortController.signal).finally(() => {
+      orgRuns.delete(runId);
+      if (orgRuns.size === 0) activeRuns.delete(run.org_id);
+    });
+    orgRuns.set(runId, { promise: task, abortController });
     return options.wait ? task : Promise.resolve(deps.store.getRun(runId));
   };
 
-  const cancel = (runId: string): AgentRun | undefined => {
+  const cancel = (runId: string, orgId: string): AgentRun | undefined => {
     const run = deps.store.getRun(runId);
-    if (!run) return undefined;
-    activeRuns.get(runId)?.abortController.abort();
+    if (!run || run.org_id !== orgId) return undefined;
+    activeRuns.get(orgId)?.get(runId)?.abortController.abort();
     if (TERMINAL_RUN_STATUSES.has(run.status as any)) return run;
     const cancelled = deps.store.updateRun(runId, {
       status: "cancelled",

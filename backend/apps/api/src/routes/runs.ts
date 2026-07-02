@@ -265,7 +265,7 @@ export function registerRunRoutes(app: FastifyInstance): void {
       }
       const denied = authorizeRun(reply, platformActorFromRequest(request), run);
       if (denied) return denied;
-      const cancelled = runtime.cancelRun(run_id);
+      const cancelled = runtime.cancelRun(run_id, run.org_id);
       if (!cancelled) {
         reply.code(404);
         return { error: "Run not found" };
